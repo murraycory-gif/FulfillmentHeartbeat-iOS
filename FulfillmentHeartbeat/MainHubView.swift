@@ -161,11 +161,24 @@ struct MainHubView: View {
         .onAppear {
             store.setVisibleDestination(router.current)
             rememberWarm(router.current)
+            applyPickPathShopperLaunch()
         }
         .onChange(of: store.needsRolePick) { _, needs in
-            if !needs, router.destination != .dashboard {
+            if !needs, router.destination != .dashboard, PulseLaunch.pickPathShopperLaunchStore() == nil {
                 router.open(.dashboard)
             }
+        }
+        .onChange(of: store.isReady) { _, ready in
+            if ready { applyPickPathShopperLaunch() }
+        }
+        .onChange(of: store.packRevision) { _, _ in
+            applyPickPathShopperLaunch()
+        }
+        .onChange(of: store.usingDatabasePack) { _, _ in
+            applyPickPathShopperLaunch()
+        }
+        .onChange(of: store.warehouseHydrating) { _, _ in
+            applyPickPathShopperLaunch()
         }
         .onChange(of: router.destination) { _, dest in
             store.setVisibleDestination(dest)
@@ -565,6 +578,33 @@ struct MainHubView: View {
             section: section,
             pushed: router.pushedSection
         )
+    }
+
+    private func applyPickPathShopperLaunch() {
+        guard let storeNumber = PulseLaunch.pickPathShopperLaunchStore() else { return }
+        let rosterDivision = store.identity(forStore: storeNumber).division
+        let division = rosterDivision.isEmpty
+            ? (HeartbeatMath.identityOverrides[HeartbeatMath.canonicalStore(storeNumber)]?.division ?? "")
+            : rosterDivision
+        var next = store.filters
+        var changed = false
+        if next.store != storeNumber {
+            next.store = storeNumber
+            changed = true
+        }
+        if !division.isEmpty, next.division != division {
+            next.division = division
+            if let region = MarketRegion.containing(division)?.rawValue, !region.isEmpty {
+                next.region = region
+            }
+            changed = true
+        }
+        if changed {
+            store.filters = next
+        }
+        if router.destination != .pickPath {
+            router.open(.pickPath)
+        }
     }
 
     private func rememberWarm(_ dest: HubDestination) {

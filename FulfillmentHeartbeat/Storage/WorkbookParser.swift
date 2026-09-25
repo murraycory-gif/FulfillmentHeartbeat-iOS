@@ -364,11 +364,19 @@ enum WorkbookParser {
         if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
         if keys.contains("schedule_efficiency_pct") { return .scheduleQuality }
         if keys.contains("dynacap_rate") || keys.contains("dpa_dynacap") || keys.contains("eot_capacity") { return .dynacap }
-        if keys.contains("compliance_pct") && (text.contains("employee") || text.contains("employee_alternate_id") || text.contains("shopper_id")) {
-            return .pickPathPicker
+        if keys.contains("compliance_pct") {
+            let hasStore = sample.contains { !$0.storeNumber.isEmpty }
+            let employeeGrain = !hasStore && (
+                text.contains("employee")
+                    || text.contains("employee_alternate_id")
+                    || text.contains("shopper_id")
+            )
+            // Store pick-path sheets carry an employee column. That is still
+            // pick path, not the picker scorecard. Employee-only rows are the
+            // path-picker sheet.
+            return employeeGrain ? .pickPathPicker : .pickPath
         }
         if text.contains("shopper_id") || text.contains("shopper_name") { return .pickerScorecard }
-        if keys.contains("compliance_pct") { return .pickPath }
         if keys.contains("pph") { return .pph }
         return nil
     }
@@ -699,12 +707,15 @@ enum WorkbookParser {
         if let presub = parsePreSubOOS(matrix), !presub.isEmpty { return presub }
         if let missing = parseMissingItems(matrix), !missing.isEmpty { return missing }
         if let aisle = parseAisleMapper(matrix), !aisle.isEmpty { return aisle }
-        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         if let prep = parsePrepHours(matrix), !prep.isEmpty { return prep }
-        if let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
+        // Named sheets still call parsePickerWide. Only the unhinted walk skips
+        // a Pick Path Compliance header so it is not taken as a scorecard.
+        if !isPickPathComplianceHeader(matrix),
+           let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
         if let outline = parseOutline(matrix), !outline.isEmpty { return outline }
         if let stores = parseStoreWeek(matrix), !stores.isEmpty { return stores }
         if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty { return pickers }
+        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         return parseFlat(matrix)
     }
 
@@ -906,6 +917,13 @@ enum WorkbookParser {
     private static func parseStoreRoster(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
+            let metric = names.contains { name in
+                name.contains("rating") || name.contains("pph") || name.contains("prep")
+                    || name.contains("schedule") || name.contains("compliance") || name.contains("sales")
+                    || name.contains("flash") || name.contains("presub") || name.contains("lost")
+                    || name.contains("labor") || name.contains("pnr")
+            }
+            if metric { return false }
             return names.contains(where: {
                 $0 == "division" || $0.contains("division") || $0 == "market" || $0 == "banner"
             })
@@ -2910,6 +2928,17 @@ enum WorkbookParser {
             }
         }
         return nil
+    }
+
+    /// True when the first rows are a Pick Path Compliance sheet.
+    /// `rowsUnhinted` uses this so `parsePickerWide` stays available to named sheets.
+    private static func isPickPathComplianceHeader(_ matrix: [[String]]) -> Bool {
+        matrix.prefix(8).contains { row in
+            row.contains { header in
+                let name = normHeader(header)
+                return name.contains("pickpath") || name.contains("pathcompliance")
+            }
+        }
     }
 
     private static func parsePickerWide(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {

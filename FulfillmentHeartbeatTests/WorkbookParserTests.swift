@@ -1,6 +1,7 @@
 import XCTest
 @testable import FulfillmentHeartbeat
 
+@MainActor
 final class WorkbookParserTests: XCTestCase {
     func testParsesFlexibleCSVHeaders() throws {
         let csv = """
@@ -58,7 +59,7 @@ final class WorkbookParserTests: XCTestCase {
     }
 
     func testNormHeaderStripsSymbols() {
-        XCTAssertEqual(WorkbookParser.normHeader("OTP %"), "otppct")
+        XCTAssertEqual(WorkbookParser.normHeader("OTP %"), "otp")
         XCTAssertEqual(WorkbookParser.normHeader("Store #"), "store")
         XCTAssertEqual(WorkbookParser.normHeader("OM_AREA"), "omarea")
         XCTAssertEqual(WorkbookParser.normHeader("OM_ID"), "omid")
@@ -133,17 +134,17 @@ final class WorkbookParserTests: XCTestCase {
         let csv = SampleMarket.templateCSV(for: .sales)
         let rows = WorkbookParser.parseCSV(csv)
         XCTAssertEqual(WorkbookParser.classifySheet(name: "Sales", rows: rows), .sales)
-        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["", "1", "606", "3427"]))
         let jewel = rows.first { $0.storeNumber == "1" }!
         XCTAssertEqual(jewel.textPayload["district"], "J1")
         XCTAssertEqual(jewel.payload["sales_dollars"] ?? 0, 4500, accuracy: 0.5)
         XCTAssertEqual(jewel.payload["sales_orders"] ?? 0, 50, accuracy: 0.1)
         XCTAssertEqual(jewel.payload["sales_yoy_pct"] ?? 0, 12, accuracy: 0.2)
-        XCTAssertEqual(HeartbeatMath.salesHealth(jewel), .good)
+        XCTAssertEqual(HeartbeatMath.salesHealth(jewel.asRow(section: .sales)), .good)
         let down = rows.first { $0.storeNumber == "606" }!
-        XCTAssertEqual(HeartbeatMath.salesHealth(down), .risk)
+        XCTAssertEqual(HeartbeatMath.salesHealth(down.asRow(section: .sales)), .risk)
         let flat = rows.first { $0.storeNumber == "3427" }!
-        XCTAssertEqual(HeartbeatMath.salesHealth(flat), .watch)
+        XCTAssertEqual(HeartbeatMath.salesHealth(flat.asRow(section: .sales)), .watch)
     }
 
     func testPreSubOOSItemParsesBPNRowsAndSkipsTotal() {
@@ -160,7 +161,7 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(corn.payload["presub_pct"] ?? 0, 12.136, accuracy: 0.02)
         XCTAssertEqual(corn.payload["presub_count"] ?? 0, 213, accuracy: 0.5)
         XCTAssertEqual(corn.payload["presub_dollars"] ?? 0, 425.89, accuracy: 0.02)
-        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOSItem, row: corn), .risk)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOSItem, row: corn.asRow(section: .preSubOOSItem)), .risk)
     }
 
     func testPreSubOOSItemAcceptsExcelStoreDecimals() {
@@ -263,13 +264,13 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(jewel.payload["mi_grocery"] ?? 0, 4.0, accuracy: 0.05)
         XCTAssertEqual(jewel.payload["mi_pct"] ?? 0, 4.5, accuracy: 0.05)
         XCTAssertEqual(jewel.payload["mi_bakery_pkgd"] ?? 0, 7.5, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: jewel), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: jewel.asRow(section: .missingItems)), .good)
         let watch = rows.first { $0.storeNumber == "606" }!
         XCTAssertEqual(watch.payload["mi_pct"] ?? 0, 6.8, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: watch), .risk)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: watch.asRow(section: .missingItems)), .risk)
         let haggen = rows.first { $0.storeNumber == "3427" }!
         XCTAssertEqual(haggen.payload["mi_pct"] ?? 0, 3.8, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: haggen), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: haggen.asRow(section: .missingItems)), .good)
     }
 
     func testPreSubOOSParsesDepartmentsWindowAndSkipsTotals() {
@@ -286,13 +287,13 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(jewel.payload["mi_grocery"] ?? 0, 1.8828, accuracy: 0.01)
         XCTAssertEqual(jewel.payload["mi_bakery"] ?? 0, 8.6957, accuracy: 0.01)
         XCTAssertEqual(jewel.payload["mi_bakery_pkgd"] ?? 0, 4.6154, accuracy: 0.01)
-        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: jewel), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: jewel.asRow(section: .preSubOOS)), .good)
         let risk = rows.first { $0.storeNumber == "606" }!
         XCTAssertEqual(risk.payload["mi_pct"] ?? 0, 7.1, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: risk), .risk)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: risk.asRow(section: .preSubOOS)), .risk)
         let haggen = rows.first { $0.storeNumber == "3427" }!
         XCTAssertEqual(haggen.payload["mi_pct"] ?? 0, 3.8, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: haggen), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: haggen.asRow(section: .preSubOOS)), .good)
     }
 
     func testFormatAppliedWindowUsesExclusiveBeforeDate() {
@@ -314,7 +315,7 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(stale.textPayload[AisleMapperMath.mapperKey], "2021-03-05")
         XCTAssertEqual(AisleMapperMath.health("2021-03-05"), .risk)
         let path = MetricRow(section: .pickPath, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1", payload: ["compliance_pct": 92])
-        let merged = HeartbeatMath.applyAisleMapper([path], from: rows)
+        let merged = HeartbeatMath.applyAisleMapper([path], from: rows.map { $0.asRow(section: .aisleMapper) })
         XCTAssertEqual(merged.first?.textPayload[AisleMapperMath.mapperKey], "2026-08-20")
         XCTAssertEqual(HeartbeatFormat.shortDate("2026-08-20"), "8/20/26")
     }
@@ -324,7 +325,16 @@ final class WorkbookParserTests: XCTestCase {
             let csv = SampleMarket.templateCSV(for: section)
             let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "\(section.rawValue).csv")
             XCTAssertFalse(rows.isEmpty, section.rawValue)
-            if section != .pickPathPicker {
+            switch section {
+            case .dynacap:
+                XCTAssertTrue(rows.allSatisfy { $0.storeNumber.isEmpty }, section.rawValue)
+            case .pickPathPicker:
+                break
+            case .sales:
+                // The template's first data row is the district Total. parseSales writes that as store "".
+                XCTAssertTrue(rows[0].storeNumber.isEmpty, section.rawValue)
+                XCTAssertTrue(rows.contains { !$0.storeNumber.isEmpty }, section.rawValue)
+            default:
                 XCTAssertFalse(rows[0].storeNumber.isEmpty, section.rawValue)
             }
         }
@@ -359,7 +369,7 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertNotNil(HeartbeatMath.weekPurePPH(metric))
         XCTAssertNotEqual(HeartbeatMath.summarize(.pph, rows: metric, upload: nil).headlineText, "—")
         let jewel = metric.filter { $0.division == "Jewel Osco" }
-        XCTAssertEqual(HeartbeatMath.weekPurePPH(jewel), 67.3344365031863, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(jewel) ?? 0, 67.3344365031863, accuracy: 0.001)
         XCTAssertEqual(HeartbeatMath.pphDashboardFlags(jewel).first?.value, "67.3")
         XCTAssertEqual(HeartbeatMath.pphDashboardFlags(jewel).first?.name, "PPH")
     }
@@ -453,7 +463,7 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(mmcc.payload["oth5_pct"] ?? 0, 50, accuracy: 0.001)
         XCTAssertEqual(mmcc.payload["ott_pct"] ?? 0, 100, accuracy: 0.001)
         XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["presub_pct"]), "1.69%")
-        XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["oos_pct"]), "0.0%")
+        XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["oos_pct"]), "0.00%")
 
         let agut = try XCTUnwrap(rows.first { $0.textPayload["shopper_id"] == "AGUT473" })
         XCTAssertEqual(agut.storeNumber, "76")

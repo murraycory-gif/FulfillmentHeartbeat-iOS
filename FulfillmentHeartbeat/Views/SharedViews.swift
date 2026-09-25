@@ -3198,6 +3198,8 @@ private struct PathShopperTable: View {
     var section: MetricSection = .pickPath
     @State private var limit = 12
     @State private var pickers: [PathShopperSnap] = []
+    @State private var pathOnlyEmpty = false
+    @State private var shopperReload: Task<Void, Never>?
 
     private var columns: [ShopperMetric] { ShopperMetric.columns(for: section) ?? [] }
     private var usePhoneCards: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
@@ -3262,22 +3264,51 @@ private struct PathShopperTable: View {
                     }
                 }
             }
-            .onAppear {
-                rebuildPickers()
-                Task { await fillShoppers() }
-            }
-            .onChange(of: storeNumber) { _, _ in
-                rebuildPickers()
-                Task { await fillShoppers() }
-            }
-            .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
-            .onChange(of: store.seatPaintStamp) { _, _ in rebuildPickers() }
+            .onAppear { reloadShoppers() }
+            .onChange(of: storeNumber) { _, _ in reloadShoppers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
+            .onChange(of: shopperReloadToken) { _, _ in reloadShoppers() }
+            .accessibilityIdentifier(pickPathShopperAccessibilityID)
         }
     }
 
+    private var pickPathShopperAccessibilityID: String {
+        if section == .pickPath || section == .pickPathPicker {
+            return "pick-path-shoppers"
+        }
+        return ""
+    }
+
+    /// One token for filter, seat paint, pack landing, and warehouse load.
+    private var shopperReloadToken: String {
+        "\(store.filterStamp)|\(store.seatPaintStamp)|\(store.packRevision)|\(store.isImporting)|\(store.isReady)|\(store.usingDatabasePack)|\(store.warehouseHydrating)"
+    }
+
+    private func reloadShoppers() {
+        rebuildPickers()
+        guard section == .pickPath || section == .pickPathPicker else { return }
+        if store.pickPathShopperResultIsKnown(forStore: storeNumber),
+           store.pickPathScorecardPPHIsCached(forStore: storeNumber) { return }
+        shopperReload?.cancel()
+        shopperReload = Task { await fillShoppers() }
+    }
+
+    private var pickPathAwaitingPack: Bool {
+        guard section == .pickPath || section == .pickPathPicker else { return false }
+        return store.isImporting || !store.isReady || store.warehouseHydrating || store.pickerLoading || store.packFetchInFlight
+    }
+
     private func rebuildPickers() {
-        guard !columns.isEmpty else { pickers = []; return }
+        guard !columns.isEmpty else {
+            pickers = []
+            pathOnlyEmpty = false
+            return
+        }
+        if section == .pickPath || section == .pickPathPicker {
+            rebuildPickPathShoppers()
+            return
+        }
+        pathOnlyEmpty = false
         var byKey: [String: PathShopperSnap] = [:]
         func aliases(_ row: MetricRow) -> [String] {
             HeartbeatMath.shopperAliases(row)
@@ -3323,11 +3354,6 @@ private struct PathShopperTable: View {
             }
             byKey[id] = snap
         }
-        if section == .pickPath || section == .pickPathPicker {
-            for row in store.pickPathPickers(forStore: storeNumber) {
-                merge(row, path: pathFor(row))
-            }
-        }
         for row in store.pphPickers(forStore: storeNumber) {
             merge(row, path: pathFor(row))
         }
@@ -3337,33 +3363,53 @@ private struct PathShopperTable: View {
             if a != b { return a < b }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        if section == .pickPath || section == .pickPathPicker {
-            let storePath = (store.seatRows(for: .pickPath) + store.allLatest(for: .pickPath))
-                .first { HeartbeatMath.sameStore($0.storeNumber, storeNumber) }
-            if let storePath {
-                let mapper = HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(storePath))
-                let sequence = HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(storePath))
-                if mapper != "—" || sequence != "—" {
-                    pickers = pickers.map { snap in
-                        var next = snap
-                        if next.mapper == nil, mapper != "—" { next.mapper = mapper }
-                        if next.sequence == nil, sequence != "—" { next.sequence = sequence }
-                        return next
-                    }
-                }
-            }
+    }
+
+    private func rebuildPickPathShoppers() {
+        let storePath = (store.seatRows(for: .pickPath) + store.allLatest(for: .pickPath))
+            .first { HeartbeatMath.sameStore($0.storeNumber, storeNumber) }
+        let lines = PulseLaunch.pickPathShopperLines(
+            pathRows: store.pickPathPickers(forStore: storeNumber),
+            scorecardRows: store.pphPickers(forStore: storeNumber),
+            storePath: storePath
+        )
+        if PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines) {
+            pickers = []
+            pathOnlyEmpty = true
+            return
+        }
+        pathOnlyEmpty = false
+        pickers = lines.map { line in
+            PathShopperSnap(
+                id: line.id,
+                name: line.name,
+                path: line.path,
+                pph: line.pph,
+                orders: line.orders,
+                mapper: line.mapper,
+                sequence: line.sequence
+            )
         }
     }
 
     @MainActor
     private func fillShoppers() async {
+        guard !Task.isCancelled else { return }
         guard section == .pickPath || section == .pickPathPicker else { return }
+        if store.pickPathShopperResultIsKnown(forStore: storeNumber),
+           store.pickPathScorecardPPHIsCached(forStore: storeNumber) {
+            rebuildPickers()
+            return
+        }
         _ = await store.ensurePickPathShoppers(forStore: storeNumber)
+        guard !Task.isCancelled else { return }
         rebuildPickers()
     }
 
     private var emptyDetail: String {
-        PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
+        if pickPathAwaitingPack { return PulseLaunch.shopperEmptyDetail(loading: true) }
+        if pathOnlyEmpty { return PulseLaunch.noPathPickerRowsTitle }
+        return PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
     }
 
     private func pickerPhoneCard(_ picker: PathShopperSnap) -> some View {
@@ -3379,8 +3425,14 @@ private struct PathShopperTable: View {
                     health: health(of: metric, in: picker)
                 )
             },
-            health: overall
+            health: overall,
+            rowAccessibilityIdentifier: pickPathShopperRowID
         )
+        .modifier(PickPathRowAccessibility(identifier: pickPathShopperRowID))
+    }
+
+    private var pickPathShopperRowID: String {
+        section == .pickPath || section == .pickPathPicker ? "pick-path-shopper-row" : ""
     }
 
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
@@ -3393,6 +3445,7 @@ private struct PathShopperTable: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(minWidth: 110, maxWidth: 160, alignment: .leading)
+                .modifier(RowAccessibilityIdentifier(identifier: pickPathShopperRowID))
             ForEach(columns, id: \.self) { metric in
                 cell(display(metric, picker), health(of: metric, in: picker))
             }
@@ -3406,6 +3459,7 @@ private struct PathShopperTable: View {
                 .background(pill(overall), in: Capsule())
                 .frame(width: 72, alignment: .trailing)
         }
+        .modifier(PickPathRowAccessibility(identifier: pickPathShopperRowID))
         .tableRowCard(health: overall)
     }
 
@@ -12297,7 +12351,9 @@ private final class PulseMailCloser: NSObject, MFMailComposeViewControllerDelega
         error: Error?
     ) {
         controller.dismiss(animated: true) {
-            PulseShare.surfaceMailComposeFinish(result: result, error: error)
+            MainActor.assumeIsolated {
+                PulseShare.surfaceMailComposeFinish(result: result, error: error)
+            }
         }
     }
 }

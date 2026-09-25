@@ -629,7 +629,11 @@ struct MetricRow: Identifiable, Codable, Hashable {
     var shopperName: String {
         let keys = ["shopper_name", "shopper", "picker", "pickername", "associate", "associatename"]
         for key in keys {
-            if let value = textPayload[key], !value.isEmpty { return value }
+            let value = textPayload[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !value.isEmpty { return value }
+        }
+        if let id = shopperId?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
         }
         return "Unknown shopper"
     }
@@ -856,7 +860,7 @@ enum HeartbeatMath {
         } else {
             next.division = MarketRegion.canonicalName(next.division)
         }
-        if (next.textPayload["district"] ?? "").isEmpty, !identity.district.isEmpty {
+        if !identity.district.isEmpty {
             next.textPayload["district"] = identity.district
         }
         if next.operationsOM.isEmpty, !identity.om.isEmpty { next.operationsOM = identity.om }
@@ -1334,9 +1338,12 @@ enum HeartbeatMath {
         table.reserveCapacity(max(labels.count, buckets.count))
         for label in labels {
             let hit = group(for: label)
-            if let key = hit.key { used.insert(key) }
+            if let key = hit.key {
+                if used.contains(key) { continue }
+                used.insert(key)
+            }
             // Keep official region slots so "Regions 4" always paints East/South/California/West.
-            // District/store order aliases (J3CHICAGO vs J3) still skip blank placeholders.
+            // District order aliases (J3CHICAGO and "308 - J3 CHICAGO") collapse to one J3 row.
             if hit.rows.isEmpty, !buckets.isEmpty, grain != .region, grain != .store { continue }
             table.append(makeRow(label: label, group: hit.rows))
         }
@@ -2420,8 +2427,16 @@ enum HeartbeatMath {
         let known = roster[canonicalStore(row.storeNumber)]
         let rosterCanon = MarketRegion.canonicalName(known?.division ?? "")
         let incomingCanon = MarketRegion.canonicalName(row.division)
+        let division: String
+        if !rosterCanon.isEmpty {
+            division = rosterCanon
+        } else if !incomingCanon.isEmpty {
+            division = incomingCanon
+        } else {
+            division = row.division
+        }
         return StoreIdentity(
-            division: rosterCanon.isEmpty ? incomingCanon : rosterCanon,
+            division: division,
             district: row.district.isEmpty ? (known?.district ?? "") : row.district,
             om: row.operationsOM.isEmpty ? (known?.om ?? "") : row.operationsOM,
             name: row.storeName ?? known?.name
@@ -2682,6 +2697,8 @@ enum HeartbeatMath {
             let storeTotals = lostRevenueTotals(stores)
             let dollars: Double?
             let pct: Double?
+            // Power BI Total Opportunity (HB-0828.369–372): the unfiltered company
+            // headline is the market total row whenever that row has dollars.
             if marketDollars > 0 {
                 dollars = marketDollars
                 pct = market?.number("lost_revenue_pct")

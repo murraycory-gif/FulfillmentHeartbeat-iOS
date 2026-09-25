@@ -797,6 +797,35 @@ struct PhoneCompactPageBanner: View {
     }
 }
 
+struct RowAccessibilityIdentifier: ViewModifier {
+    var identifier: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if identifier.isEmpty {
+            content
+        } else {
+            content.accessibilityIdentifier(identifier)
+        }
+    }
+}
+
+/// Makes a Pick Path shopper row a queryable accessibility element.
+struct PickPathRowAccessibility: ViewModifier {
+    var identifier: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if identifier.isEmpty {
+            content
+        } else {
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(identifier)
+        }
+    }
+}
+
 /// Dedicated iPhone scorecard card. Used by every Pages row on phone — never a table line.
 struct PhoneScorecardRow: View {
     let title: String
@@ -805,6 +834,7 @@ struct PhoneScorecardRow: View {
     var chips: [PhoneMetricChip] = []
     var health: Health = .none
     var chevronExpanded: Bool? = nil
+    var rowAccessibilityIdentifier: String = ""
     var onTap: (() -> Void)? = nil
 
     var body: some View {
@@ -832,6 +862,7 @@ struct PhoneScorecardRow: View {
                             .foregroundStyle(AppTheme.text)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
+                            .modifier(RowAccessibilityIdentifier(identifier: rowAccessibilityIdentifier))
                         if let subtitle, !subtitle.isEmpty {
                             Text(subtitle)
                                 .font((compact ? Font.subheadline : Font.body).weight(.semibold))

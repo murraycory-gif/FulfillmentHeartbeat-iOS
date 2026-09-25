@@ -749,7 +749,8 @@ struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity],
         allowed: Set<String>
     ) -> [MetricRow] {
-        if filters.isActive { return matched }
+        let seatFilter = !filters.district.isEmpty || !filters.store.isEmpty || !filters.om.isEmpty || !filters.division.isEmpty
+        if seatFilter { return matched }
         guard filters.stores.isEmpty else { return matched }
         let wantedRegions = Set(filters.regions.compactMap { MarketRegion(rawValue: $0) ?? MarketRegion.named($0) })
         let wantedDistricts = Set(filters.districts.map { HeartbeatMath.canonicalDistrict($0) }.filter { !$0.isEmpty })
@@ -761,9 +762,16 @@ struct PulseCaches {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty { seen.insert(store) }
         }
+        var regionTotals = Set<String>()
+        regionTotals.reserveCapacity(16)
+        for row in matched where isRegionTotalRow(row) {
+            regionTotals.insert(regionTotalKey(row))
+        }
         var extra: [MetricRow] = []
         for row in rows {
             if seen.contains(row.id.uuidString) { continue }
+            let totalRow = isRegionTotalRow(row)
+            if totalRow, regionTotals.contains(regionTotalKey(row)) { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty {
                 if HeartbeatMath.storeInAllowed(store, allowed: allowed) { continue }
@@ -787,10 +795,26 @@ struct PulseCaches {
                 guard !have.isDisjoint(with: want) else { continue }
             }
             extra.append(row)
+            if totalRow { regionTotals.insert(regionTotalKey(row)) }
             seen.insert(row.id.uuidString)
             if !store.isEmpty { seen.insert(store) }
         }
         return extra.isEmpty ? matched : matched + extra
+    }
+
+    /// Section plus division. Two sections may each keep one Total for the same division.
+    private static func regionTotalKey(_ row: MetricRow) -> String {
+        "\(row.section.rawValue)|\(row.division.lowercased())"
+    }
+
+    /// A Total / market / company row must not be appended twice for the same division.
+    private static func isRegionTotalRow(_ row: MetricRow) -> Bool {
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        let name = (row.storeName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if store.caseInsensitiveCompare("total") == .orderedSame { return true }
+        if name.caseInsensitiveCompare("total") == .orderedSame || name.lowercased().hasPrefix("total ") { return true }
+        let grain = row.textPayload["lost_grain"] ?? row.textPayload["sales_grain"] ?? ""
+        return grain == "market" || grain == "company"
     }
 
     static func lostRevenueRows(

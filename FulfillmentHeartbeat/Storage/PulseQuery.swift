@@ -52,12 +52,13 @@ enum PulseQuery {
         guard let allowed else { return facts }
         let matched = PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
         if filters.isActive {
-            return padSeatStores(
+            let padded = padSeatStores(
                 matched,
                 allowed: allowed,
                 roster: roster,
                 section: matched.first?.section ?? facts.first?.section ?? .storeRoster
             )
+            return regionBook(padded, from: facts, filters: filters, roster: roster, allowed: allowed)
         }
         return matched
     }
@@ -132,9 +133,34 @@ enum PulseQuery {
         guard let allowed else { return facts }
         let matched = PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
         if filters.isActive {
-            return padSeatStores(matched, allowed: allowed, roster: roster, section: section)
+            let padded = padSeatStores(matched, allowed: allowed, roster: roster, section: section)
+            return regionBook(padded, from: facts, filters: filters, roster: roster, allowed: allowed)
         }
         return matched
+    }
+
+    /// California Region keeps the Excel region total and off-roster division stores.
+    /// District / store / OM seats stay on the padded roster only.
+    private static func regionBook(
+        _ padded: [MetricRow],
+        from facts: [MetricRow],
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        allowed: Set<String>
+    ) -> [MetricRow] {
+        guard !filters.region.isEmpty,
+              filters.district.isEmpty,
+              filters.store.isEmpty,
+              filters.om.isEmpty,
+              filters.division.isEmpty
+        else { return padded }
+        return PulseCaches.unionRegionBook(
+            padded,
+            from: facts,
+            filters: filters,
+            roster: roster,
+            allowed: allowed
+        )
     }
 
     static func scoredStoreFacts(_ rows: [MetricRow]) -> [MetricRow] {
@@ -208,7 +234,7 @@ enum PulseQuery {
         let have = scoredStoreFacts(existing)
         if have.count < minimum { return next }
         if next.count > have.count { return next }
-        if abs(storeFactDollars(next) - storeFactDollars(have)) > 1 { return next }
+        if storeFactDollars(next) > storeFactDollars(have) + 1 { return next }
         return nil
     }
 

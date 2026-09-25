@@ -269,29 +269,32 @@ enum PulseLaunch {
         var byShopper: [String: MetricRow] = [:]
     }
 
-    /// HF-003: shopper pick path % from `pick_path_picker` joined to Picker
-    /// ScoreCard. Keys include store aliases so "2" / "0002" hit the same bucket.
+    /// HF-003: shopper pick path % from `pick_path_picker`. Scorecard is only a
+    /// shopper-to-store lookup when the path row has no store. Store lists
+    /// never include scorecard rows (those have PPH and no compliance_pct).
     static func pickPathPickerIndex(scorecard: [MetricRow], pathRows: [MetricRow]) -> PickPathPickerIndex {
         var storesByShopper: [String: Set<String>] = [:]
-        var canonical: [String: [MetricRow]] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
-            canonical[store, default: []].append(row)
             for alias in HeartbeatMath.shopperAliases(row) {
                 storesByShopper[alias, default: []].insert(store)
             }
         }
         var byShopper: [String: MetricRow] = [:]
-        for row in pathRows {
+        var canonical: [String: [MetricRow]] = [:]
+        for row in pathRows where row.section == .pickPathPicker {
             for alias in HeartbeatMath.shopperAliases(row) {
                 byShopper[alias] = row
             }
             var targets = Set<String>()
             let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !ownStore.isEmpty { targets.insert(ownStore) }
-            for alias in HeartbeatMath.shopperAliases(row) {
-                targets.formUnion(storesByShopper[alias] ?? [])
+            if !ownStore.isEmpty {
+                targets.insert(ownStore)
+            } else {
+                for alias in HeartbeatMath.shopperAliases(row) {
+                    targets.formUnion(storesByShopper[alias] ?? [])
+                }
             }
             for store in targets {
                 canonical[store, default: []].append(row)
@@ -311,6 +314,51 @@ enum PulseLaunch {
             }
         }
         return PickPathPickerIndex(rows: rows, byShopper: byShopper)
+    }
+
+    /// Scorecard PPH for one store, keyed by shopper alias. Other stores are ignored.
+    static func pickPathScorecardPPH(store: String, scorecard: [MetricRow]) -> [String: Double] {
+        let want = HeartbeatMath.canonicalStore(store)
+        guard !want.isEmpty else { return [:] }
+        var byAlias: [String: Double] = [:]
+        for row in scorecard {
+            guard HeartbeatMath.canonicalStore(row.storeNumber) == want else { continue }
+            guard let pph = row.number("pph") else { continue }
+            for alias in HeartbeatMath.shopperAliases(row) where byAlias[alias] == nil {
+                byAlias[alias] = pph
+            }
+        }
+        return byAlias
+    }
+
+    /// Path rows stay the shopper list. A missing PPH is copied from the same store's scorecard.
+    static func fillMissingPickPathPPH(
+        pathRows: [MetricRow],
+        scorecard: [MetricRow],
+        store: String
+    ) -> [MetricRow] {
+        applyPickPathScorecardPPH(
+            pathRows,
+            byAlias: pickPathScorecardPPH(store: store, scorecard: scorecard)
+        )
+    }
+
+    static func applyPickPathScorecardPPH(
+        _ pathRows: [MetricRow],
+        byAlias: [String: Double]
+    ) -> [MetricRow] {
+        guard !byAlias.isEmpty else { return pathRows }
+        return pathRows.map { row in
+            guard row.number("pph") == nil else { return row }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                if let pph = byAlias[alias] {
+                    var next = row
+                    next.payload["pph"] = pph
+                    return next
+                }
+            }
+            return row
+        }
     }
 
     /// O(1) after index. Missing key is empty — never scan the shopper pack.
@@ -391,6 +439,111 @@ enum PulseLaunch {
     ) -> [MetricRow] {
         let index = pickPathPickerIndex(scorecard: scorecard, pathRows: pathRows)
         return pickPathPickers(store: store, rows: index.rows)
+    }
+
+    static let noPathPickerRowsTitle = "No Path Picker rows"
+    static let noPathPickerRowsID = "no-path-picker-rows"
+    static let pickPathShopperLaunchArgument = "-HeartbeatPickPathStore"
+
+    /// `-HeartbeatPickPathStore 22` opens Pick Path shoppers for that store.
+    static func pickPathShopperLaunchStore(arguments: [String] = CommandLine.arguments) -> String? {
+        guard let index = arguments.firstIndex(of: pickPathShopperLaunchArgument) else { return nil }
+        let next = index + 1
+        guard arguments.indices.contains(next) else { return nil }
+        let store = HeartbeatMath.canonicalStore(arguments[next])
+        return store.isEmpty ? nil : store
+    }
+
+    struct PickPathShopperLine: Equatable {
+        var id: String
+        var name: String
+        var path: Double?
+        var pph: Double?
+        var orders: Double?
+        var mapper: String?
+        var sequence: String?
+    }
+
+    /// Pick Path shopper table. Rows come only from `.pickPathPicker`.
+    /// Missing PPH is already filled from that store's scorecard.
+    /// Mapper and Sequence come from the store `pick_path` row.
+    /// Zero path rows always yield one notice line.
+    static func pickPathShopperLines(
+        pathRows: [MetricRow],
+        scorecardRows: [MetricRow],
+        storePath: MetricRow?
+    ) -> [PickPathShopperLine] {
+        let paths = pathRows.filter { $0.section == .pickPathPicker }
+        if paths.isEmpty {
+            _ = scorecardRows
+            return [
+                PickPathShopperLine(
+                    id: noPathPickerRowsID,
+                    name: noPathPickerRowsTitle,
+                    path: nil,
+                    pph: nil,
+                    orders: nil,
+                    mapper: nil,
+                    sequence: nil
+                )
+            ]
+        }
+        var byKey: [String: PickPathShopperLine] = [:]
+        var order: [String] = []
+        order.reserveCapacity(paths.count)
+        for row in paths {
+            let aliases = HeartbeatMath.shopperAliases(row)
+            let id = aliases.first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
+            guard !id.isEmpty else { continue }
+            let label = pickPathShopperLabel(row)
+            var line = byKey[id] ?? PickPathShopperLine(
+                id: id,
+                name: label.isEmpty ? row.shopperName : label,
+                path: nil,
+                pph: nil,
+                orders: nil,
+                mapper: nil,
+                sequence: nil
+            )
+            if line.name.isEmpty || line.name == "Unknown shopper" {
+                line.name = label.isEmpty ? (row.shopperId ?? id) : label
+            }
+            if line.path == nil { line.path = row.number("compliance_pct") }
+            if line.pph == nil { line.pph = row.number("pph") }
+            if line.orders == nil { line.orders = row.number("orders") }
+            if byKey[id] == nil { order.append(id) }
+            byKey[id] = line
+        }
+        let mapperText = pickPathStoreDate(storePath) { AisleMapperMath.mapperISO($0) }
+        let sequenceText = pickPathStoreDate(storePath) { AisleMapperMath.sequenceISO($0) }
+        var lines: [PickPathShopperLine] = []
+        lines.reserveCapacity(order.count)
+        for id in order {
+            guard var line = byKey[id] else { continue }
+            if line.mapper == nil { line.mapper = mapperText }
+            if line.sequence == nil { line.sequence = sequenceText }
+            lines.append(line)
+        }
+        lines.sort { lhs, rhs in
+            let a = lhs.path ?? 999
+            let b = rhs.path ?? 999
+            if a != b { return a < b }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        return lines
+    }
+
+    static func pickPathShopperLinesAreEmptyNotice(_ lines: [PickPathShopperLine]) -> Bool {
+        lines.count == 1 && lines[0].id == noPathPickerRowsID
+    }
+
+    private static func pickPathStoreDate(
+        _ row: MetricRow?,
+        key: (MetricRow) -> String?
+    ) -> String? {
+        guard let row else { return nil }
+        let text = HeartbeatFormat.shortDate(key(row))
+        return text == "—" ? nil : text
     }
 
     static func pickPathExpandDisplay(path: Double?, pph: Double?, orders: Double?) -> (path: String, pph: String, orders: String) {
@@ -2029,7 +2182,9 @@ enum PulseLaunch {
             let incomingLive = HeartbeatMath.grainRowsAreLive(next[section] ?? [])
             if incomingLive { continue }
             guard HeartbeatMath.grainRowsAreLive(rows) else { continue }
-            if !grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) {
+            let labels = rows.map(\.label)
+            let companyChrome = !filtersActive && labels.allSatisfy { $0 == "Company" }
+            if !companyChrome && !grainTableMatchesCurrent(labels: labels, grain: grain) {
                 continue
             }
             next[section] = rows
@@ -2370,20 +2525,32 @@ enum PulseLaunch {
         _ flags: [HeartbeatMath.FiveStarFlag],
         chromeShoppers: Int
     ) -> Bool {
-        shouldRejectZeroBandFlags(flags, liveCount: chromeShoppers)
+        guard chromeShoppers > 0 else { return false }
+        guard !flags.isEmpty else { return true }
+        let band = statusBandFlags(flags)
+        return band.isEmpty || band.allSatisfy { $0.stores == 0 }
     }
 
     /// Stale Healthy / Watch / At Risk of 0 while the page has stores/shoppers.
+    /// Empty flags are stale. Non-band names such as Flag 1…5 stay for other sections.
     static func shouldRejectZeroBandFlags(
         _ flags: [HeartbeatMath.FiveStarFlag],
         liveCount: Int
     ) -> Bool {
         guard liveCount > 0 else { return false }
-        let band = flags.filter {
+        guard !flags.isEmpty else { return true }
+        let band = statusBandFlags(flags)
+        guard !band.isEmpty else { return false }
+        return band.allSatisfy { $0.stores == 0 }
+    }
+
+    private static func statusBandFlags(
+        _ flags: [HeartbeatMath.FiveStarFlag]
+    ) -> [HeartbeatMath.FiveStarFlag] {
+        flags.filter {
             let name = $0.name.lowercased()
             return name == "healthy" || name == "watch" || name == "at risk"
         }
-        return band.isEmpty || band.allSatisfy { $0.stores == 0 }
     }
 
     /// Share tiles use live `dashboardActionFlags`, not cached zero bandFlags.
