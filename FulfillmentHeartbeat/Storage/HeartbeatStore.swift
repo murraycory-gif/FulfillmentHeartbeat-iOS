@@ -93,6 +93,8 @@ final class HeartbeatStore: ObservableObject {
     private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pickPathByShopper: [String: MetricRow] = [:]
+    /// Store → scorecard PPH for one pack. Not @Published. Never stamps the hub.
+    private var pickPathScorecardPPH: [String: PickPathPPHCache] = [:]
     /// Store → packRevision of a finished shopper lookup. Ready path rows skip this.
     private var resolvedPickPathShopperRevision: [String: Int] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
@@ -1348,7 +1350,17 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
-        PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+        let rows = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+        let want = HeartbeatMath.canonicalStore(store)
+        guard let cached = pickPathScorecardPPH[want], cached.revision == packRevision else { return rows }
+        return PulseLaunch.applyPickPathScorecardPPH(rows, byAlias: cached.byAlias)
+    }
+
+    /// True after this pack's store scorecard PPH has been cached. Not a hub stamp.
+    func pickPathScorecardPPHIsCached(forStore store: String) -> Bool {
+        let want = HeartbeatMath.canonicalStore(store)
+        guard !want.isEmpty else { return false }
+        return pickPathScorecardPPH[want]?.revision == packRevision
     }
 
     func pickPathPicker(forShopper raw: String) -> MetricRow? {
@@ -1605,8 +1617,15 @@ final class HeartbeatStore: ObservableObject {
 
     /// Expand-on-demand. Never swaps the active seat pack (no remount / Jetsam).
     func ensurePickPathShoppers(forStore store: String) async -> [MetricRow] {
+        await loadPickPathShopperRows(forStore: store)
+        await cachePickPathScorecardPPH(store)
+        return pickPathPickers(forStore: store)
+    }
+
+    /// Path rows only. Scorecard PPH is cached afterward and applied on read.
+    private func loadPickPathShopperRows(forStore store: String) async {
         if pickPathShopperResultIsKnown(forStore: store) {
-            return pickPathPickers(forStore: store)
+            return
         }
         let existing = pickPathPickers(forStore: store)
         let showLoading = PulseLaunch.shouldShowPickerLoadingOnPickPathExpand(dest: visibleDestination)
@@ -1617,8 +1636,8 @@ final class HeartbeatStore: ObservableObject {
         if (latestBySection[.pickPathPicker] ?? []).isEmpty
             || !PulseLaunch.pickPathPercentReady(existing) {
             await ensureSectionLoaded(.pickPathPicker)
-            let afterLoad = pickPathPickers(forStore: store)
-            if PulseLaunch.pickPathPercentReady(afterLoad) { return afterLoad }
+            let afterLoad = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+            if PulseLaunch.pickPathPercentReady(afterLoad) { return }
         }
         let scorecardLoaded = !(latestBySection[.pickerScorecard] ?? []).isEmpty
             || !(filteredLatest[.pickerScorecard] ?? []).isEmpty
@@ -1631,16 +1650,16 @@ final class HeartbeatStore: ObservableObject {
                 roster: roster
             )
             rebuildPickPathPickerIndex(scorecard: scorecard)
-            let rebuilt = pickPathPickers(forStore: store)
-            if PulseLaunch.pickPathPercentReady(rebuilt) { return rebuilt }
+            let rebuilt = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+            if PulseLaunch.pickPathPercentReady(rebuilt) { return }
         }
 
         // Storeless path rows need a scorecard join. Read only this store,
         // and only when no scorecard is already in memory. Off the main
         // thread. Never ensureSectionLoaded — that stamps the hub.
         await joinStorelessPickPathIfScorecardEmpty(store)
-        let joinedRows = pickPathPickers(forStore: store)
-        if PulseLaunch.pickPathPercentReady(joinedRows) { return joinedRows }
+        let joinedRows = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+        if PulseLaunch.pickPathPercentReady(joinedRows) { return }
 
         let aliases = HeartbeatMath.storeAliases(store)
         if PulseSQLite.exists(at: sqliteURL), !aliases.isEmpty {
@@ -1654,8 +1673,8 @@ final class HeartbeatStore: ObservableObject {
             }.value
             if !incoming.isEmpty {
                 adoptPickPathExpand(incoming, store: store)
-                let filled = pickPathPickers(forStore: store)
-                if PulseLaunch.pickPathPercentReady(filled) { return filled }
+                let filled = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+                if PulseLaunch.pickPathPercentReady(filled) { return }
             }
         }
 
@@ -1678,7 +1697,40 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         rememberPickPathShopperLookup(store)
-        return pickPathPickers(forStore: store)
+    }
+
+    /// Scorecard PPH for one store and one pack. Private. Not published.
+    private struct PickPathPPHCache {
+        var revision: Int
+        var byAlias: [String: Double]
+    }
+
+    /// Read this store's scorecard off the main thread and remember PPH by shopper alias.
+    /// Skips the write when the pack changed during the read.
+    private func cachePickPathScorecardPPH(_ store: String) async {
+        let want = HeartbeatMath.canonicalStore(store)
+        guard !want.isEmpty else { return }
+        if let cached = pickPathScorecardPPH[want], cached.revision == packRevision { return }
+        let path = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+        let needsFill = path.contains { $0.section == .pickPathPicker && $0.number("pph") == nil }
+        guard needsFill else {
+            pickPathScorecardPPH[want] = PickPathPPHCache(revision: packRevision, byAlias: [:])
+            return
+        }
+        let aliases = HeartbeatMath.storeAliases(want)
+        let url = sqliteURL
+        guard PulseSQLite.exists(at: url), !aliases.isEmpty else { return }
+        let revision = packRevision
+        let byAlias = await Task.detached(priority: .utility) { () -> [String: Double] in
+            let scorecard = PulseSQLite.readStores(
+                from: url,
+                sections: [.pickerScorecard],
+                stores: aliases
+            )
+            return PulseLaunch.pickPathScorecardPPH(store: want, scorecard: scorecard)
+        }.value
+        guard revision == packRevision else { return }
+        pickPathScorecardPPH[want] = PickPathPPHCache(revision: revision, byAlias: byAlias)
     }
 
     /// Employee-grain path rows have no store. Join this store's scorecard
@@ -1698,18 +1750,23 @@ final class HeartbeatStore: ObservableObject {
         guard PulseSQLite.exists(at: url), !aliases.isEmpty else { return }
         let want = HeartbeatMath.canonicalStore(store)
         guard !want.isEmpty else { return }
-        let index = await Task.detached(priority: .utility) { () -> PulseLaunch.PickPathPickerIndex in
+        let revision = packRevision
+        let joined = await Task.detached(priority: .utility) { () -> (PulseLaunch.PickPathPickerIndex, [String: Double]) in
             let scorecard = PulseSQLite.readStores(
                 from: url,
                 sections: [.pickerScorecard],
                 stores: aliases
             )
-            return PulseLaunch.pickPathPickerIndex(
+            let index = PulseLaunch.pickPathPickerIndex(
                 scorecard: scorecard,
                 pathRows: warehousePath + filteredPath
             )
+            let pph = PulseLaunch.pickPathScorecardPPH(store: want, scorecard: scorecard)
+            return (index, pph)
         }.value
-        let group = PulseLaunch.pickPathPickers(store: want, rows: index.rows)
+        guard revision == packRevision else { return }
+        pickPathScorecardPPH[want] = PickPathPPHCache(revision: revision, byAlias: joined.1)
+        let group = PulseLaunch.pickPathPickers(store: want, rows: joined.0.rows)
         guard PulseLaunch.pickPathPercentReady(group) else { return }
         for alias in HeartbeatMath.storeAliases(want) {
             pickPathPickersByStore[alias] = group

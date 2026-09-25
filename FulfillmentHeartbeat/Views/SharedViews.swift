@@ -3287,7 +3287,8 @@ private struct PathShopperTable: View {
     private func reloadShoppers() {
         rebuildPickers()
         guard section == .pickPath || section == .pickPathPicker else { return }
-        if store.pickPathShopperResultIsKnown(forStore: storeNumber) { return }
+        if store.pickPathShopperResultIsKnown(forStore: storeNumber),
+           store.pickPathScorecardPPHIsCached(forStore: storeNumber) { return }
         shopperReload?.cancel()
         shopperReload = Task { await fillShoppers() }
     }
@@ -3395,7 +3396,8 @@ private struct PathShopperTable: View {
     private func fillShoppers() async {
         guard !Task.isCancelled else { return }
         guard section == .pickPath || section == .pickPathPicker else { return }
-        if store.pickPathShopperResultIsKnown(forStore: storeNumber) {
+        if store.pickPathShopperResultIsKnown(forStore: storeNumber),
+           store.pickPathScorecardPPHIsCached(forStore: storeNumber) {
             rebuildPickers()
             return
         }

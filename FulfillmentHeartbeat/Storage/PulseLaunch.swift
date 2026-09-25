@@ -316,6 +316,51 @@ enum PulseLaunch {
         return PickPathPickerIndex(rows: rows, byShopper: byShopper)
     }
 
+    /// Scorecard PPH for one store, keyed by shopper alias. Other stores are ignored.
+    static func pickPathScorecardPPH(store: String, scorecard: [MetricRow]) -> [String: Double] {
+        let want = HeartbeatMath.canonicalStore(store)
+        guard !want.isEmpty else { return [:] }
+        var byAlias: [String: Double] = [:]
+        for row in scorecard {
+            guard HeartbeatMath.canonicalStore(row.storeNumber) == want else { continue }
+            guard let pph = row.number("pph") else { continue }
+            for alias in HeartbeatMath.shopperAliases(row) where byAlias[alias] == nil {
+                byAlias[alias] = pph
+            }
+        }
+        return byAlias
+    }
+
+    /// Path rows stay the shopper list. A missing PPH is copied from the same store's scorecard.
+    static func fillMissingPickPathPPH(
+        pathRows: [MetricRow],
+        scorecard: [MetricRow],
+        store: String
+    ) -> [MetricRow] {
+        applyPickPathScorecardPPH(
+            pathRows,
+            byAlias: pickPathScorecardPPH(store: store, scorecard: scorecard)
+        )
+    }
+
+    static func applyPickPathScorecardPPH(
+        _ pathRows: [MetricRow],
+        byAlias: [String: Double]
+    ) -> [MetricRow] {
+        guard !byAlias.isEmpty else { return pathRows }
+        return pathRows.map { row in
+            guard row.number("pph") == nil else { return row }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                if let pph = byAlias[alias] {
+                    var next = row
+                    next.payload["pph"] = pph
+                    return next
+                }
+            }
+            return row
+        }
+    }
+
     /// O(1) after index. Missing key is empty — never scan the shopper pack.
     static func pickPathPickers(store: String, rows: [String: [MetricRow]]) -> [MetricRow] {
         let want = HeartbeatMath.canonicalStore(store)
@@ -419,9 +464,10 @@ enum PulseLaunch {
         var sequence: String?
     }
 
-    /// Pick Path shopper table. Path %, PPH, and Orders come only from
-    /// `.pickPathPicker` rows. Mapper and Sequence come from the store
-    /// `pick_path` row. Zero path rows always yield one notice line.
+    /// Pick Path shopper table. Rows come only from `.pickPathPicker`.
+    /// Missing PPH is already filled from that store's scorecard.
+    /// Mapper and Sequence come from the store `pick_path` row.
+    /// Zero path rows always yield one notice line.
     static func pickPathShopperLines(
         pathRows: [MetricRow],
         scorecardRows: [MetricRow],

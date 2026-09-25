@@ -799,6 +799,70 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.pickPathShopperLinesAreEmptyNotice(empty))
     }
 
+    func testPickPathMissingPPHUsesSameStoreScorecardOnly() {
+        let missing = MetricRow(
+            section: .pickPathPicker,
+            division: "United",
+            operationsOM: "A",
+            storeNumber: "22",
+            payload: ["compliance_pct": 80, "orders": 14],
+            textPayload: ["shopper_id": "SHOP1", "shopper_name": "SHOP1"]
+        )
+        let kept = MetricRow(
+            section: .pickPathPicker,
+            division: "United",
+            operationsOM: "A",
+            storeNumber: "22",
+            payload: ["compliance_pct": 70, "pph": 12],
+            textPayload: ["shopper_id": "KEEP", "shopper_name": "KEEP"]
+        )
+        let sameStore = MetricRow(
+            section: .pickerScorecard,
+            division: "United",
+            operationsOM: "A",
+            storeNumber: "22",
+            payload: ["pph": 91.4],
+            textPayload: ["shopper_id": "SHOP1", "shopper_name": "SHOP1"]
+        )
+        let otherStore = MetricRow(
+            section: .pickerScorecard,
+            division: "SoCal",
+            operationsOM: "B",
+            storeNumber: "12",
+            payload: ["pph": 40],
+            textPayload: ["shopper_id": "SHOP1", "shopper_name": "SHOP1"]
+        )
+        let scorecardOnly = MetricRow(
+            section: .pickerScorecard,
+            division: "United",
+            operationsOM: "A",
+            storeNumber: "22",
+            payload: ["pph": 55],
+            textPayload: ["shopper_id": "ONLYSCORE", "shopper_name": "ONLYSCORE"]
+        )
+        let filled = PulseLaunch.fillMissingPickPathPPH(
+            pathRows: [missing, kept],
+            scorecard: [otherStore, sameStore, scorecardOnly],
+            store: "22"
+        )
+        XCTAssertEqual(filled.count, 2)
+        XCTAssertEqual(filled[0].number("pph") ?? 0, 91.4, accuracy: 0.01)
+        XCTAssertEqual(filled[0].number("compliance_pct") ?? 0, 80, accuracy: 0.01)
+        XCTAssertEqual(filled[1].number("pph") ?? 0, 12, accuracy: 0.01)
+        XCTAssertNil(filled.first { $0.shopperId == "ONLYSCORE" })
+        let lines = PulseLaunch.pickPathShopperLines(pathRows: filled, scorecardRows: [], storePath: nil)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines.first { $0.id == HeartbeatMath.canonicalShopper("SHOP1") }?.pph ?? 0, 91.4, accuracy: 0.01)
+
+        let foreign = PulseLaunch.fillMissingPickPathPPH(
+            pathRows: [missing],
+            scorecard: [otherStore],
+            store: "22"
+        )
+        XCTAssertEqual(foreign.count, 1)
+        XCTAssertNil(foreign[0].number("pph"))
+    }
+
     private func rosterRow(division: String, om: String, store: String, district: String) -> MetricRow {
         MetricRow(
             section: .storeRoster,
