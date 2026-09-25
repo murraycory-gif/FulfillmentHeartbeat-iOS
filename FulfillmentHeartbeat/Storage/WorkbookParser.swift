@@ -708,7 +708,10 @@ enum WorkbookParser {
         if let missing = parseMissingItems(matrix), !missing.isEmpty { return missing }
         if let aisle = parseAisleMapper(matrix), !aisle.isEmpty { return aisle }
         if let prep = parsePrepHours(matrix), !prep.isEmpty { return prep }
-        if let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
+        // Named sheets still call parsePickerWide. Only the unhinted walk skips
+        // a Pick Path Compliance header so it is not taken as a scorecard.
+        if !isPickPathComplianceHeader(matrix),
+           let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
         if let outline = parseOutline(matrix), !outline.isEmpty { return outline }
         if let stores = parseStoreWeek(matrix), !stores.isEmpty { return stores }
         if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty { return pickers }
@@ -2927,18 +2930,18 @@ enum WorkbookParser {
         return nil
     }
 
-    private static func parsePickerWide(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
-        // Pick Path Compliance is a store sheet that also names employees.
-        // The scorecard parser would keep the shopper id and drop compliance,
-        // and section(fromRows) would then call it a picker scorecard.
-        if matrix.prefix(8).contains(where: { row in
+    /// True when the first rows are a Pick Path Compliance sheet.
+    /// `rowsUnhinted` uses this so `parsePickerWide` stays available to named sheets.
+    private static func isPickPathComplianceHeader(_ matrix: [[String]]) -> Bool {
+        matrix.prefix(8).contains { row in
             row.contains { header in
                 let name = normHeader(header)
                 return name.contains("pickpath") || name.contains("pathcompliance")
             }
-        }) {
-            return nil
         }
+    }
+
+    private static func parsePickerWide(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = pickerHeaderIndex(matrix) else { return nil }
 
         let header = matrix[headerIndex].map(normHeader)

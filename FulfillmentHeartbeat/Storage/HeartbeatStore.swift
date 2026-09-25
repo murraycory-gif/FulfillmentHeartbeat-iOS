@@ -1620,21 +1620,27 @@ final class HeartbeatStore: ObservableObject {
             let afterLoad = pickPathPickers(forStore: store)
             if PulseLaunch.pickPathPercentReady(afterLoad) { return afterLoad }
         }
-        // Path rows are often employee-grain with no store. The scorecard is
-        // the shopper-to-store join. Load it before treating the store as empty.
-        if !PulseLaunch.pickPathPercentReady(pickPathPickers(forStore: store)) {
-            await ensureSectionLoaded(.pickerScorecard)
+        let scorecardLoaded = !(latestBySection[.pickerScorecard] ?? []).isEmpty
+            || !(filteredLatest[.pickerScorecard] ?? []).isEmpty
+        if scorecardLoaded {
+            let scorecard = PulseLaunch.pickerSeatRows(
+                filtered: filteredLatest[.pickerScorecard] ?? [],
+                warehouse: latestBySection[.pickerScorecard] ?? [],
+                allowed: pickerStoreSet(),
+                filters: filters,
+                roster: roster
+            )
+            rebuildPickPathPickerIndex(scorecard: scorecard)
+            let rebuilt = pickPathPickers(forStore: store)
+            if PulseLaunch.pickPathPercentReady(rebuilt) { return rebuilt }
         }
-        let scorecard = PulseLaunch.pickerSeatRows(
-            filtered: filteredLatest[.pickerScorecard] ?? [],
-            warehouse: latestBySection[.pickerScorecard] ?? [],
-            allowed: pickerStoreSet(),
-            filters: filters,
-            roster: roster
-        )
-        rebuildPickPathPickerIndex(scorecard: scorecard)
-        let rebuilt = pickPathPickers(forStore: store)
-        if PulseLaunch.pickPathPercentReady(rebuilt) { return rebuilt }
+
+        // Storeless path rows need a scorecard join. Read only this store,
+        // and only when no scorecard is already in memory. Off the main
+        // thread. Never ensureSectionLoaded — that stamps the hub.
+        await joinStorelessPickPathIfScorecardEmpty(store)
+        let joinedRows = pickPathPickers(forStore: store)
+        if PulseLaunch.pickPathPercentReady(joinedRows) { return joinedRows }
 
         let aliases = HeartbeatMath.storeAliases(store)
         if PulseSQLite.exists(at: sqliteURL), !aliases.isEmpty {
@@ -1673,6 +1679,46 @@ final class HeartbeatStore: ObservableObject {
         }
         rememberPickPathShopperLookup(store)
         return pickPathPickers(forStore: store)
+    }
+
+    /// Employee-grain path rows have no store. Join this store's scorecard
+    /// off the main thread. Does not load the section or stamp the hub.
+    private func joinStorelessPickPathIfScorecardEmpty(_ store: String) async {
+        if PulseLaunch.pickPathPercentReady(pickPathPickers(forStore: store)) { return }
+        let warehousePath = latestBySection[.pickPathPicker] ?? []
+        let filteredPath = filteredLatest[.pickPathPicker] ?? []
+        let storeless: (MetricRow) -> Bool = {
+            HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+        }
+        guard warehousePath.contains(where: storeless) || filteredPath.contains(where: storeless) else { return }
+        guard (latestBySection[.pickerScorecard] ?? []).isEmpty,
+              (filteredLatest[.pickerScorecard] ?? []).isEmpty else { return }
+        let aliases = HeartbeatMath.storeAliases(store)
+        let url = sqliteURL
+        guard PulseSQLite.exists(at: url), !aliases.isEmpty else { return }
+        let want = HeartbeatMath.canonicalStore(store)
+        guard !want.isEmpty else { return }
+        let index = await Task.detached(priority: .utility) { () -> PulseLaunch.PickPathPickerIndex in
+            let scorecard = PulseSQLite.readStores(
+                from: url,
+                sections: [.pickerScorecard],
+                stores: aliases
+            )
+            return PulseLaunch.pickPathPickerIndex(
+                scorecard: scorecard,
+                pathRows: warehousePath + filteredPath
+            )
+        }.value
+        let group = PulseLaunch.pickPathPickers(store: want, rows: index.rows)
+        guard PulseLaunch.pickPathPercentReady(group) else { return }
+        for alias in HeartbeatMath.storeAliases(want) {
+            pickPathPickersByStore[alias] = group
+        }
+        for row in group {
+            for shopper in HeartbeatMath.shopperAliases(row) where pickPathByShopper[shopper] == nil {
+                pickPathByShopper[shopper] = row
+            }
+        }
     }
 
     /// A miss before the database pack settles must run again when the pack lands.
@@ -1887,8 +1933,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func lostRevenueMarketRow() -> MetricRow? {
-        let pool = (latestBySection[.lostRevenue] ?? []) + (filteredLatest[.lostRevenue] ?? []) + rows
-        return pool.first { $0.textPayload["lost_grain"] == "market" }
+        let isMarket: (MetricRow) -> Bool = { $0.textPayload["lost_grain"] == "market" }
+        if let row = latestBySection[.lostRevenue]?.first(where: isMarket) { return row }
+        if let row = filteredLatest[.lostRevenue]?.first(where: isMarket) { return row }
+        return rows.first(where: isMarket)
     }
 
     /// Unfiltered company only. Seat filters must not inherit the global Total.

@@ -762,10 +762,16 @@ struct PulseCaches {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty { seen.insert(store) }
         }
+        var regionTotals = Set<String>()
+        regionTotals.reserveCapacity(16)
+        for row in matched where isRegionTotalRow(row) {
+            regionTotals.insert(regionTotalKey(row))
+        }
         var extra: [MetricRow] = []
         for row in rows {
             if seen.contains(row.id.uuidString) { continue }
-            if isDuplicateRegionTotal(row, book: matched + extra) { continue }
+            let totalRow = isRegionTotalRow(row)
+            if totalRow, regionTotals.contains(regionTotalKey(row)) { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty {
                 if HeartbeatMath.storeInAllowed(store, allowed: allowed) { continue }
@@ -789,10 +795,16 @@ struct PulseCaches {
                 guard !have.isDisjoint(with: want) else { continue }
             }
             extra.append(row)
+            if totalRow { regionTotals.insert(regionTotalKey(row)) }
             seen.insert(row.id.uuidString)
             if !store.isEmpty { seen.insert(store) }
         }
         return extra.isEmpty ? matched : matched + extra
+    }
+
+    /// Section plus division. Two sections may each keep one Total for the same division.
+    private static func regionTotalKey(_ row: MetricRow) -> String {
+        "\(row.section.rawValue)|\(row.division.lowercased())"
     }
 
     /// A Total / market / company row must not be appended twice for the same division.
@@ -803,16 +815,6 @@ struct PulseCaches {
         if name.caseInsensitiveCompare("total") == .orderedSame || name.lowercased().hasPrefix("total ") { return true }
         let grain = row.textPayload["lost_grain"] ?? row.textPayload["sales_grain"] ?? ""
         return grain == "market" || grain == "company"
-    }
-
-    private static func isDuplicateRegionTotal(_ row: MetricRow, book: [MetricRow]) -> Bool {
-        guard isRegionTotalRow(row) else { return false }
-        let division = row.division.lowercased()
-        return book.contains { existing in
-            existing.section == row.section
-                && existing.division.lowercased() == division
-                && isRegionTotalRow(existing)
-        }
     }
 
     static func lostRevenueRows(

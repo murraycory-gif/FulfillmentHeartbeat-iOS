@@ -272,7 +272,7 @@ final class HeartbeatMathTests: XCTestCase {
             ]
         )
         let flags = HeartbeatMath.dashboardActionFlags(section: .fiveStar, rows: [jewel], includeAll: true)
-        XCTAssertEqual(flags.map(\.name), ["Flash", "Presubs", "COE", "OTT", "OTH 5%"])
+        XCTAssertEqual(flags.map(\.name), ["Flash", "COE", "OTT", "Pre Sub OOS%", "OTH 5%"])
         XCTAssertEqual(flags.first { $0.name == "OTT" }?.value, HeartbeatFormat.pct(81))
     }
 
@@ -1289,7 +1289,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(store.checklistEmailSubject().contains("Fulfillment Checklist"))
     }
 
-    func testPickerVolumeRequiresMoreThanFifteenOrders() {
+    func testPickerVolumeCountsPPHOrdersPicksOrHours() {
         let low = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 15, "pph": 40], textPayload: ["shopper_id": "LOW15", "shopper_name": "LOW15"])
         let high = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 16, "pph": 40], textPayload: ["shopper_id": "HIGH16", "shopper_name": "HIGH16"])
         let ordersOnly = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 1], textPayload: ["shopper_id": "ORD1", "shopper_name": "ORD1"])
