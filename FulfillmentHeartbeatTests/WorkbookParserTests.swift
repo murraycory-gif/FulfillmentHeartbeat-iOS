@@ -537,5 +537,137 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(market.payload["ecomm_sales"] ?? 0, 46077144.47, accuracy: 0.01)
         XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
     }
+
+    /// Weekly Labor is one row per store. STORE_ID is column A and ActHrs is column E.
+    /// Stores with ActHrs under 100 or blank must stay; header, total, and blank rows must not.
+    func testWeeklyLaborKeepsStoresWithSmallOrBlankActHrs() throws {
+        let xlsx = try Self.weeklyLaborWorkbook()
+        let sheets = try WorkbookParser.parseMaster(data: xlsx, filename: "Heartbeat Daily Report.xlsx")
+        let labor = try XCTUnwrap(sheets.first { $0.section == .labor })
+        let stores = labor.rows.filter { $0.storeNumber != "TOTAL" }
+        XCTAssertEqual(Set(stores.map(\.storeNumber)), Set(["1487", "2219", "3427"]))
+        XCTAssertEqual(stores.count, 3)
+        let full = try XCTUnwrap(stores.first { $0.storeNumber == "1487" })
+        XCTAssertEqual(full.payload["act_hrs"] ?? -1, 150, accuracy: 0.001)
+        let small = try XCTUnwrap(stores.first { $0.storeNumber == "2219" })
+        XCTAssertEqual(small.payload["act_hrs"] ?? -1, 42, accuracy: 0.001)
+        let blank = try XCTUnwrap(stores.first { $0.storeNumber == "3427" })
+        XCTAssertNil(blank.payload["act_hrs"])
+        XCTAssertNotNil(blank.payload["cost_trgt_pct"])
+        XCTAssertFalse(labor.rows.contains { $0.storeNumber == "TOTAL" })
+        XCTAssertEqual(labor.rows.count, 3)
+    }
+
+    /// Deflated xlsx so parseMaster takes the compressed Labor path (the row filter under test).
+    private static func weeklyLaborWorkbook() throws -> Data {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("labor-week-\(UUID().uuidString)", isDirectory: true)
+        let sheetDir = root.appendingPathComponent("xl/worksheets", isDirectory: true)
+        let relsDir = root.appendingPathComponent("xl/_rels", isDirectory: true)
+        try FileManager.default.createDirectory(at: sheetDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: relsDir, withIntermediateDirectories: true)
+        let sheet = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>
+        <row r="1">
+        <c r="A1" t="inlineStr"><is><t>STORE_ID</t></is></c>
+        <c r="B1" t="inlineStr"><is><t>Sch Effi%</t></is></c>
+        <c r="C1" t="inlineStr"><is><t>Empower Hrs</t></is></c>
+        <c r="D1" t="inlineStr"><is><t>Sch_Hrs</t></is></c>
+        <c r="E1" t="inlineStr"><is><t>ActHrs</t></is></c>
+        <c r="F1" t="inlineStr"><is><t>CostTrgt%</t></is></c>
+        <c r="G1" t="inlineStr"><is><t>Target vs Actual%</t></is></c>
+        </row>
+        <row r="2">
+        <c r="A2"><v>1487</v></c>
+        <c r="B2"><v>0.93</v></c>
+        <c r="C2"><v>80</v></c>
+        <c r="D2"><v>82</v></c>
+        <c r="E2"><v>150</v></c>
+        <c r="F2"><v>0.115</v></c>
+        <c r="G2"><v>0.003</v></c>
+        </row>
+        <row r="3">
+        <c r="A3"><v>2219</v></c>
+        <c r="B3"><v>0.91</v></c>
+        <c r="C3"><v>20</v></c>
+        <c r="D3"><v>21</v></c>
+        <c r="E3"><v>42</v></c>
+        <c r="F3"><v>0.12</v></c>
+        <c r="G3"><v>-0.004</v></c>
+        </row>
+        <row r="4">
+        <c r="A4"><v>3427</v></c>
+        <c r="B4"><v>0.88</v></c>
+        <c r="C4"><v>12</v></c>
+        <c r="D4"><v>13</v></c>
+        <c r="E4"></c>
+        <c r="F4"><v>0.149</v></c>
+        <c r="G4"><v>-0.009</v></c>
+        </row>
+        <row r="5">
+        <c r="A5" t="inlineStr"><is><t>Total</t></is></c>
+        </row>
+        <row r="6"></row>
+        <row r="7">
+        <c r="A7" t="inlineStr"><is><t>Applied filters: WEEK_ID is 202629</t></is></c>
+        <c r="E7"><v>202629</v></c>
+        </row>
+        </sheetData>
+        </worksheet>
+        """
+        try Data(sheet.utf8).write(to: sheetDir.appendingPathComponent("sheet1.xml"))
+        let workbook = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets><sheet name="Labor" sheetId="1" r:id="rId1"/></sheets>
+        </workbook>
+        """
+        try Data(workbook.utf8).write(to: root.appendingPathComponent("xl/workbook.xml"))
+        let rels = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+        </Relationships>
+        """
+        try Data(rels.utf8).write(to: relsDir.appendingPathComponent("workbook.xml.rels"))
+        let types = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+        <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        </Types>
+        """
+        try Data(types.utf8).write(to: root.appendingPathComponent("[Content_Types].xml"))
+        let zipURL = root.appendingPathComponent("weekly-labor.xlsx")
+        let script = """
+        import zipfile, sys
+        root, dest = sys.argv[1], sys.argv[2]
+        names = [
+            "[Content_Types].xml",
+            "xl/workbook.xml",
+            "xl/_rels/workbook.xml.rels",
+            "xl/worksheets/sheet1.xml",
+        ]
+        with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name in names:
+                zf.write(root + "/" + name, name)
+        """
+        let scriptURL = root.appendingPathComponent("pack.py")
+        try Data(script.utf8).write(to: scriptURL)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [scriptURL.path, root.path, zipURL.path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw WorkbookParser.ParseError.unreadable
+        }
+        let data = try Data(contentsOf: zipURL)
+        try? FileManager.default.removeItem(at: root)
+        return data
+    }
 }
 

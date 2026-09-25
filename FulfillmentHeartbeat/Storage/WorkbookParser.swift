@@ -2308,8 +2308,8 @@ enum WorkbookParser {
                 strings: strings,
                 keep: { keep },
                 include: { data in
-                    if header.isEmpty { return true }
-                    return SheetXML.columnLooksLikeStore(data, letter: SheetXML.colLetter(max(idxStore, 4)))
+                    if header.isEmpty || idxStore < 0 { return true }
+                    return SheetXML.columnLooksLikeStore(data, letter: SheetXML.colLetter(idxStore))
                 },
                 handle: handle
             )
