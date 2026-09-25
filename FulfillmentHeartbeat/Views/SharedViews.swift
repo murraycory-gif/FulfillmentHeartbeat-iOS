@@ -3274,7 +3274,15 @@ private struct PathShopperTable: View {
             .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
             .onChange(of: store.seatPaintStamp) { _, _ in rebuildPickers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
+            .accessibilityIdentifier(pickPathShopperAccessibilityID)
         }
+    }
+
+    private var pickPathShopperAccessibilityID: String {
+        if section == .pickPath || section == .pickPathPicker {
+            return "pick-path-shoppers"
+        }
+        return ""
     }
 
     private func rebuildPickers() {
@@ -12314,7 +12322,9 @@ private final class PulseMailCloser: NSObject, MFMailComposeViewControllerDelega
         error: Error?
     ) {
         controller.dismiss(animated: true) {
-            PulseShare.surfaceMailComposeFinish(result: result, error: error)
+            MainActor.assumeIsolated {
+                PulseShare.surfaceMailComposeFinish(result: result, error: error)
+            }
         }
     }
 }

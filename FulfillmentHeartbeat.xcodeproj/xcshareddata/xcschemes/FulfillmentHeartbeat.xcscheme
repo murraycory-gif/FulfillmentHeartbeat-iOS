@@ -40,6 +40,17 @@
                ReferencedContainer = "container:FulfillmentHeartbeat.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "AA0100000000000000000E03"
+               BuildableName = "FulfillmentHeartbeatUITests.xctest"
+               BlueprintName = "FulfillmentHeartbeatUITests"
+               ReferencedContainer = "container:FulfillmentHeartbeat.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

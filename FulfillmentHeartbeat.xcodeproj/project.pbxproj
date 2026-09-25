@@ -45,6 +45,7 @@
 		AA0100000000000000000A97 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B97 /* LaunchScreen.storyboard */; };
 		AA0100000000000000000A91 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B91 /* HeartbeatMathTests.swift */; };
 		AA0100000000000000000A92 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B92 /* WorkbookParserTests.swift */; };
+		AA0100000000000000000A9A /* PickPathShopperUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B9A /* PickPathShopperUITests.swift */; };
 		AA0100000000000000000AF0 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000BF0 /* MessageUI.framework */; };
 /* End PBXBuildFile section */
 
@@ -101,6 +102,8 @@
 		AA0100000000000000000B91 /* HeartbeatMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatMathTests.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B92 /* WorkbookParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParserTests.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B96 /* FulfillmentHeartbeatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FulfillmentHeartbeatTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0100000000000000000B9A /* PickPathShopperUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickPathShopperUITests.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B9B /* FulfillmentHeartbeatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FulfillmentHeartbeatUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0100000000000000000BF0 /* MessageUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MessageUI.framework; path = System/Library/Frameworks/MessageUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -128,6 +131,7 @@
 			children = (
 				AA0100000000000000000D02 /* FulfillmentHeartbeat */,
 				AA0100000000000000000D07 /* FulfillmentHeartbeatTests */,
+				AA0100000000000000000D08 /* FulfillmentHeartbeatUITests */,
 				AA0100000000000000000D03 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -158,6 +162,7 @@
 			children = (
 				AA0100000000000000000B95 /* FulfillmentHeartbeat.app */,
 				AA0100000000000000000B96 /* FulfillmentHeartbeatTests.xctest */,
+				AA0100000000000000000B9B /* FulfillmentHeartbeatUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -219,6 +224,14 @@
 			path = FulfillmentHeartbeatTests;
 			sourceTree = "<group>";
 		};
+		AA0100000000000000000D08 /* FulfillmentHeartbeatUITests */ = {
+			isa = PBXGroup;
+			children = (
+				AA0100000000000000000B9A /* PickPathShopperUITests.swift */,
+			);
+			path = FulfillmentHeartbeatUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -257,6 +270,24 @@
 			productReference = AA0100000000000000000B96 /* FulfillmentHeartbeatTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		AA0100000000000000000E03 /* FulfillmentHeartbeatUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0100000000000000001214 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeatUITests" */;
+			buildPhases = (
+				AA0100000000000000000C32 /* Sources */,
+				AA0100000000000000000C31 /* Frameworks */,
+				AA0100000000000000000C33 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA0100000000000000001312 /* PBXTargetDependency */,
+			);
+			name = FulfillmentHeartbeatUITests;
+			productName = FulfillmentHeartbeatUITests;
+			productReference = AA0100000000000000000B9B /* FulfillmentHeartbeatUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -268,6 +299,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					AA0100000000000000000E02 = {
+						TestTargetID = AA0100000000000000000E01;
+					};
+					AA0100000000000000000E03 = {
 						TestTargetID = AA0100000000000000000E01;
 					};
 				};
@@ -287,6 +321,7 @@
 			targets = (
 				AA0100000000000000000E01 /* FulfillmentHeartbeat */,
 				AA0100000000000000000E02 /* FulfillmentHeartbeatTests */,
+				AA0100000000000000000E03 /* FulfillmentHeartbeatUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -299,6 +334,28 @@
 				AA0100000000000000000A90 /* Assets.xcassets in Resources */,
 				AA0100000000000000000A98 /* facts.json in Resources */,
 				AA0100000000000000000A97 /* LaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0100000000000000000C31 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0100000000000000000C32 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0100000000000000000A9A /* PickPathShopperUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0100000000000000000C33 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +425,18 @@
 			isa = PBXTargetDependency;
 			target = AA0100000000000000000E01 /* FulfillmentHeartbeat */;
 			targetProxy = AA0100000000000000001301 /* PBXContainerItemProxy */;
+		};
+		AA0100000000000000001311 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0100000000000000000F01 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0100000000000000000E01;
+			remoteInfo = FulfillmentHeartbeat;
+		};
+		AA0100000000000000001312 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA0100000000000000000E01 /* FulfillmentHeartbeat */;
+			targetProxy = AA0100000000000000001311 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -588,6 +657,40 @@
 			};
 			name = Release;
 		};
+		AA0100000000000000001117 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 789;
+				DEVELOPMENT_TEAM = M7FL68Q43A;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.corymurray.FulfillmentHeartbeat.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FulfillmentHeartbeat;
+			};
+			name = Debug;
+		};
+		AA0100000000000000001118 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 789;
+				DEVELOPMENT_TEAM = M7FL68Q43A;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.corymurray.FulfillmentHeartbeat.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FulfillmentHeartbeat;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -614,6 +717,15 @@
 			buildConfigurations = (
 				AA0100000000000000001105 /* Debug */,
 				AA0100000000000000001106 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA0100000000000000001214 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeatUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0100000000000000001117 /* Debug */,
+				AA0100000000000000001118 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

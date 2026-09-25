@@ -161,11 +161,15 @@ struct MainHubView: View {
         .onAppear {
             store.setVisibleDestination(router.current)
             rememberWarm(router.current)
+            applyPickPathShopperLaunch()
         }
         .onChange(of: store.needsRolePick) { _, needs in
-            if !needs, router.destination != .dashboard {
+            if !needs, router.destination != .dashboard, PulseLaunch.pickPathShopperLaunchStore() == nil {
                 router.open(.dashboard)
             }
+        }
+        .onChange(of: store.isReady) { _, ready in
+            if ready { applyPickPathShopperLaunch() }
         }
         .onChange(of: router.destination) { _, dest in
             store.setVisibleDestination(dest)
@@ -565,6 +569,16 @@ struct MainHubView: View {
             section: section,
             pushed: router.pushedSection
         )
+    }
+
+    private func applyPickPathShopperLaunch() {
+        guard let storeNumber = PulseLaunch.pickPathShopperLaunchStore() else { return }
+        if store.filters.store != storeNumber {
+            store.filters.store = storeNumber
+        }
+        if router.destination != .pickPath {
+            router.open(.pickPath)
+        }
     }
 
     private func rememberWarm(_ dest: HubDestination) {

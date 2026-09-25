@@ -398,6 +398,16 @@ enum PulseLaunch {
 
     static let noPathPickerRowsTitle = "No Path Picker rows"
     static let noPathPickerRowsID = "no-path-picker-rows"
+    static let pickPathShopperLaunchArgument = "-HeartbeatPickPathStore"
+
+    /// `-HeartbeatPickPathStore 22` opens Pick Path shoppers for that store.
+    static func pickPathShopperLaunchStore(arguments: [String] = CommandLine.arguments) -> String? {
+        guard let index = arguments.firstIndex(of: pickPathShopperLaunchArgument) else { return nil }
+        let next = index + 1
+        guard arguments.indices.contains(next) else { return nil }
+        let store = HeartbeatMath.canonicalStore(arguments[next])
+        return store.isEmpty ? nil : store
+    }
 
     struct PickPathShopperLine: Equatable {
         var id: String
@@ -411,7 +421,7 @@ enum PulseLaunch {
 
     /// Pick Path shopper table. Path %, PPH, and Orders come only from
     /// `.pickPathPicker` rows. Mapper and Sequence come from the store
-    /// `pick_path` row. Scorecard-only stores get one notice line.
+    /// `pick_path` row. Zero path rows always yield one notice line.
     static func pickPathShopperLines(
         pathRows: [MetricRow],
         scorecardRows: [MetricRow],
@@ -419,7 +429,7 @@ enum PulseLaunch {
     ) -> [PickPathShopperLine] {
         let paths = pathRows.filter { $0.section == .pickPathPicker }
         if paths.isEmpty {
-            guard !scorecardRows.isEmpty else { return [] }
+            _ = scorecardRows
             return [
                 PickPathShopperLine(
                     id: noPathPickerRowsID,
