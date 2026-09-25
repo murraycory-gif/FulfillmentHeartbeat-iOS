@@ -1369,5 +1369,81 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(workbook.contains { $0.absoluteString.contains("/object/authenticated/") })
         XCTAssertFalse(workbook.contains { $0.absoluteString.contains("r2.dev") })
     }
+
+    func testScheduleCheckActionGateAndOneCount() {
+        let hit = ScheduleCheckStore(region: "East Region", division: "Jewel Osco", store: "127", avgSales: 86_281.23, underPct: 100, overPct: 0, fourWeekUnder: 5.5, efficiency: 0, pchVsSch: 83.17)
+        XCTAssertTrue(ScheduleCheckMath.isAction(hit))
+        let thinSales = ScheduleCheckStore(store: "2", avgSales: 20_000, underPct: 100, overPct: 50)
+        XCTAssertFalse(ScheduleCheckMath.isAction(thinSales))
+        let fourExact = ScheduleCheckStore(store: "3", avgSales: 40_000, underPct: 5, overPct: 14, fourWeekUnder: 9)
+        XCTAssertFalse(ScheduleCheckMath.isAction(fourExact))
+        let fourOver = ScheduleCheckStore(store: "4", avgSales: 40_000, underPct: 0, overPct: 0, fourWeekUnder: 9.01)
+        XCTAssertTrue(ScheduleCheckMath.isAction(fourOver))
+        let overHit = ScheduleCheckStore(store: "5", avgSales: 30_000, underPct: 0, fourWeekUnder: 0, overPct: 15)
+        XCTAssertTrue(ScheduleCheckMath.isAction(overHit))
+        let missingSales = ScheduleCheckStore(store: "6", underPct: 100, overPct: 20)
+        XCTAssertFalse(ScheduleCheckMath.isAction(missingSales))
+        XCTAssertEqual(ScheduleCheckMath.overHeat(0), .good)
+        XCTAssertEqual(ScheduleCheckMath.overHeat(0.1), .risk)
+        XCTAssertEqual(ScheduleCheckMath.overHeat(nil), .none)
+
+        let east = ScheduleCheckStore(region: "East Region", division: "Shaws", store: "117", underPct: 100, overPct: 0, efficiency: 0)
+        let south = ScheduleCheckStore(region: "South Region", division: "Southwest", store: "1002", underPct: 0, overPct: 4, efficiency: 80)
+        let company = ScheduleCheckMath.company([east, south])
+        let regions = ScheduleCheckMath.regions([east, south])
+        XCTAssertEqual(company.scope, 2)
+        XCTAssertEqual(regions.reduce(0) { $0 + $1.scope }, company.scope)
+        XCTAssertEqual(company.underStores, 1)
+        XCTAssertEqual(company.overStores, 1)
+        XCTAssertEqual(ScheduleCheckMath.divisions([east, south]).reduce(0) { $0 + $1.scope }, company.scope)
+
+        let legacy = MetricRow(
+            section: .scheduleQuality,
+            division: "Jewel Osco",
+            operationsOM: "Shelly Selof",
+            storeNumber: "0001",
+            payload: ["schedule_efficiency_pct": 93.1, "under_schedule_pct": 1.2, "over_schedule_pct": 0.8],
+            textPayload: ["district": "J1"]
+        )
+        let read = ScheduleCheckMath.scopedStores(from: [legacy])
+        XCTAssertEqual(read.count, 1)
+        XCTAssertEqual(read[0].store, "1")
+        XCTAssertEqual(read[0].underPct ?? 0, 1.2, accuracy: 0.01)
+        XCTAssertNil(read[0].fourWeekUnder)
+        XCTAssertNil(read[0].avgSales)
+        XCTAssertNil(read[0].pchVsSch)
+        XCTAssertTrue(ScheduleCheckMath.missingSections(read).contains { $0.contains("Sales AVG") })
+        XCTAssertTrue(ScheduleCheckMath.missingSections(read).contains { $0.contains("col J") })
+        XCTAssertFalse(ScheduleCheckMath.missingSections(read).contains { $0.contains("Stores Current Week") })
+
+        let explicit = MetricRow(
+            section: .scheduleQuality,
+            division: "JEWEL",
+            operationsOM: "",
+            storeNumber: "127",
+            payload: [
+                "under_schedule_pct": 4.0,
+                "sched_under": 100,
+                "sched_over": 0,
+                "sched_eff": 0,
+                "sched_4wk_under": 5.5,
+                "sched_pch_vs_sch": 83.17,
+                "sched_avg_sales": 86_281.23,
+                "sched_sun_over": 0,
+                "sched_mon_over": 2,
+            ]
+        )
+        let week = ScheduleCheckMath.scopedStores(from: [explicit]).first
+        XCTAssertEqual(week?.underPct ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(week?.fourWeekUnder ?? 0, 5.5, accuracy: 0.01)
+        XCTAssertEqual(week?.region, "East Region")
+        XCTAssertEqual(week?.dayOver[1] ?? 0, 2, accuracy: 0.01)
+        XCTAssertTrue(ScheduleCheckMath.isAction(week!))
+        let prompts = HeartbeatAssist.pagePrompts(.scheduleCheck)
+        XCTAssertFalse(prompts.isEmpty)
+        for prompt in prompts {
+            XCTAssertNotEqual(HeartbeatAssist.intent(for: prompt, dest: .scheduleCheck), .upload)
+        }
+    }
 }
 

@@ -8,6 +8,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case prepNotReady
     case dynacap
     case scheduleQuality
+    case scheduleCheck
     case pph
     case labor
     case pickerScorecard
@@ -29,6 +30,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return MetricSection.prepNotReady.title
         case .dynacap: return MetricSection.dynacap.title
         case .scheduleQuality: return MetricSection.scheduleQuality.title
+        case .scheduleCheck: return "Schedule Check"
         case .pph: return MetricSection.pph.title
         case .labor: return MetricSection.labor.title
         case .pickerScorecard: return MetricSection.pickerScorecard.title
@@ -49,6 +51,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return MetricSection.prepNotReady.symbol
         case .dynacap: return MetricSection.dynacap.symbol
         case .scheduleQuality: return MetricSection.scheduleQuality.symbol
+        case .scheduleCheck: return "list.clipboard.fill"
         case .pph: return MetricSection.pph.symbol
         case .labor: return MetricSection.labor.symbol
         case .pickerScorecard: return MetricSection.pickerScorecard.symbol
@@ -65,7 +68,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .pickPath: return .pickPath
         case .prepNotReady: return .prepNotReady
         case .dynacap: return .dynacap
-        case .scheduleQuality: return .scheduleQuality
+        case .scheduleQuality, .scheduleCheck: return .scheduleQuality
         case .pph: return .pph
         case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
@@ -96,10 +99,10 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
+    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .scheduleCheck, .pickerScorecard, .pph, .labor, .checklist] }
     static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
-    static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
+    static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .scheduleCheck, .pickerScorecard, .pph, .labor] }
 }
 
 final class HubRouter: ObservableObject {
@@ -328,6 +331,8 @@ struct MainHubView: View {
             ChecklistView().hubPageCanvas()
         case .upload:
             UploadView().hubPageCanvas()
+        case .scheduleCheck:
+            ScheduleCheckView().hubPageCanvas()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .sales, .lostRevenue, .missingItems, .preSubOOS:
             if let section = dest.section {
                 SectionDetailView(section: section).hubPageCanvas()
