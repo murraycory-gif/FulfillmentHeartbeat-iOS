@@ -750,6 +750,40 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(covered, Set(divisions))
     }
 
+    func testShopperNameFallsBackToShopperId() {
+        let named = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "22",
+            textPayload: ["shopper_name": "Ada", "shopper_id": "ADA1"]
+        )
+        XCTAssertEqual(named.shopperName, "Ada")
+        let idOnly = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "22",
+            textPayload: ["shopper_id": "ADA1"]
+        )
+        XCTAssertEqual(idOnly.shopperName, "ADA1")
+        let blankName = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "22",
+            textPayload: ["shopper_name": "   ", "shopper_id": "ADA1"]
+        )
+        XCTAssertEqual(blankName.shopperName, "ADA1")
+        let unknown = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "22"
+        )
+        XCTAssertEqual(unknown.shopperName, "Unknown shopper")
+    }
+
     func testPickPathShopperLaunchStoreReadsArgument() {
         XCTAssertEqual(
             PulseLaunch.pickPathShopperLaunchStore(arguments: ["App", "-HeartbeatPickPathStore", "0022"]),

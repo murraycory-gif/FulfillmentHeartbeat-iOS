@@ -629,7 +629,11 @@ struct MetricRow: Identifiable, Codable, Hashable {
     var shopperName: String {
         let keys = ["shopper_name", "shopper", "picker", "pickername", "associate", "associatename"]
         for key in keys {
-            if let value = textPayload[key], !value.isEmpty { return value }
+            let value = textPayload[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !value.isEmpty { return value }
+        }
+        if let id = shopperId?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
         }
         return "Unknown shopper"
     }
