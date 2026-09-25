@@ -178,6 +178,12 @@ if [ "$MODE" = "company" ]; then
     exit 1
   fi
 
+  # Same path gate as thin(). A pack that lost pick_path_picker does not replace LIVE.
+  if ! PATH_BEFORE="${PATH_BEFORE:-}" python3 "$REPO_ROOT/Tools/HeartbeatIngest/thin_company.py" --check "$LIVE_FILE"; then
+    echo "COOK FAILED: pick_path_picker missing after thin. Last good pack stays live." >&2
+    exit 1
+  fi
+
   require_r2
   must_upload "packs/seat/company/all/current.sqlite" "$SEAT_FILE" application/octet-stream
   must_upload "current.sqlite" "$LIVE_FILE" application/octet-stream

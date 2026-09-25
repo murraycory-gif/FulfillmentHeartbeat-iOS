@@ -6,9 +6,11 @@ KEEP ranked:
   K2 slim picker_scorecard FACTS (~2–5MB) — Soft FAIL if chrome cites shoppers and facts are 0
   K3 Loss facts + roster bind — Soft FAIL Haggen-only / blank Ops/OM
   K4 other store grains (Prep / 5★) — stamp identity where Excel/roster allows
-  K5 optional slim pick_path_picker (in-place / store-peek-only). Never explode shopper×store.
-     Soft KEEP store_number from Excel or ScoreCard LDAP grain. Soft FAIL empty store
-     when LDAP/store grain exists. Do not invent stores for Path shoppers with no grain.
+  K5 slim pick_path_picker (in-place / store-peek-only). Never explode shopper×store.
+     Never drop this section to fit 40MB. Soft KEEP store_number from Excel or ScoreCard
+     LDAP grain. Soft FAIL empty store when LDAP/store grain exists. Do not invent stores
+     for Path shoppers with no grain. Soft FAIL if the full cook had path rows and the
+     thinned pack has none, or if more than 5% of scorecard divisions have no path rows.
 
 DROP:
   D1 pre_sub_oos_item item tape
@@ -50,7 +52,10 @@ SCORECARD_OPTIONAL = (
     "refund_amt",
     "pph_picks",
 )
-SCORECARD_TEXT = ("shopper_id", "shopper_name", "employee_alternate_id", "district", "data_window")
+# district and data_window stay off scorecard text. App roster stamping fills district.
+# shopper_name is omitted later when it equals shopper_id.
+SCORECARD_TEXT = ("shopper_id", "shopper_name", "employee_alternate_id")
+PATH_TEXT = ("shopper_id", "shopper_name", "employee_alternate_id")
 PATH_KEEP = ("compliance_pct", "orders", "pph")
 
 
@@ -105,6 +110,14 @@ def slim_text(text: dict, keep: tuple[str, ...]) -> dict:
         if isinstance(value, str) and value.strip():
             out[key] = value.strip()
     return out
+
+
+def omit_duplicate_shopper_name(text: dict) -> None:
+    """Drop shopper_name when it repeats shopper_id. A distinct display name stays."""
+    sid = (text.get("shopper_id") or "").strip()
+    name = (text.get("shopper_name") or "").strip()
+    if sid and name and name.casefold() == sid.casefold():
+        text.pop("shopper_name", None)
 
 
 def canon_ldap(raw: str) -> str:
@@ -273,8 +286,6 @@ def stamp_path_picker_stores(
             continue
         ident = roster.get(mapped)
         text = load_json(text_json)
-        if ident and ident[2] and not (text.get("district") or "").strip():
-            text["district"] = ident[2]
         con.execute(
             "UPDATE facts SET store_number=?, division=?, operations_om=?, store_name=?, text_json=? WHERE id=?",
             (
@@ -322,12 +333,16 @@ def slim_section(con: sqlite3.Connection, section: str, keep: tuple[str, ...], t
         payload = slim_payload(load_json(payload_json), keep)
         text = slim_text(load_json(text_json), text_keep)
         if section == "picker_scorecard":
+            # Optional metrics stay out of the hot scorecard text and out of the slim payload.
+            for key in SCORECARD_OPTIONAL:
+                payload.pop(key, None)
+                text.pop(key, None)
             ldap = (
                 text.get("shopper_id") or text.get("shopper_name") or text.get("employee_alternate_id") or ""
             ).strip().upper()
             if ldap:
                 text["shopper_id"] = ldap
-                text.setdefault("shopper_name", ldap)
+        omit_duplicate_shopper_name(text)
         con.execute(
             "UPDATE facts SET payload_json=?, text_json=? WHERE id=?",
             (json.dumps(payload, separators=(",", ":")), json.dumps(text, separators=(",", ":")), row_id),
@@ -347,7 +362,9 @@ def stamp_roster(con: sqlite3.Connection, roster: dict[str, tuple[str, str, str,
         if not ident:
             continue
         text = load_json(text_json)
-        if ident[2] and not (text.get("district") or "").strip():
+        # Scorecard district is restored by app roster stamping. Keeping it in text
+        # blows the 40MB seat once path rows stay.
+        if section != "picker_scorecard" and ident[2] and not (text.get("district") or "").strip():
             text["district"] = ident[2]
         con.execute(
             "UPDATE facts SET division=?, operations_om=?, store_name=?, text_json=? WHERE id=?",
@@ -368,6 +385,43 @@ def drop_section(con: sqlite3.Connection, section: str) -> int:
     return n
 
 
+def refuse_thinned_path(con: sqlite3.Connection, path_before: int | None) -> None:
+    """Fail closed when thinning strips Pick Path.
+
+    path_before is the full-cook count. None skips that half (publish gate that
+    only has the thinned file still enforces the division gap).
+    """
+    path_after = con.execute("SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'").fetchone()[0]
+    if path_before is not None and path_before > 0 and path_after == 0:
+        raise SystemExit(
+            f"Soft FAIL: full cook had {path_before} pick_path_picker rows but thinned pack has 0 "
+            "— refusing to publish without path rows"
+        )
+    score_divs = {
+        div
+        for (div,) in con.execute(
+            "SELECT DISTINCT TRIM(division) FROM facts "
+            "WHERE section='picker_scorecard' AND TRIM(COALESCE(division,''))!=''"
+        )
+    }
+    if not score_divs:
+        return
+    path_divs = {
+        div
+        for (div,) in con.execute(
+            "SELECT DISTINCT TRIM(division) FROM facts "
+            "WHERE section='pick_path_picker' AND TRIM(COALESCE(division,''))!=''"
+        )
+    }
+    missing = score_divs - path_divs
+    if len(missing) * 20 > len(score_divs):
+        sample = ", ".join(sorted(missing)[:8])
+        raise SystemExit(
+            f"Soft FAIL: {len(missing)}/{len(score_divs)} scorecard divisions have no pick_path_picker rows "
+            f"({sample})"
+        )
+
+
 def refresh_meta(con: sqlite3.Connection) -> None:
     meta = {s: str(n) for s, n in con.execute("SELECT section, COUNT(*) FROM facts GROUP BY 1")}
     con.execute("UPDATE pack_meta SET counts_json=?", (json.dumps(meta, separators=(",", ":")),))
@@ -379,6 +433,7 @@ def thin(path: str) -> None:
     print("before_bytes", os.path.getsize(path))
     print_qc(con, "before")
 
+    path_before = con.execute("SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'").fetchone()[0]
     roster = roster_by_store(con)
     if len(roster) < 200:
         raise SystemExit("Soft FAIL: store_roster too small to stamp company identity (K1)")
@@ -394,7 +449,7 @@ def thin(path: str) -> None:
     print("drop_pre_sub_oos_item", dropped_item)
 
     slim_section(con, "picker_scorecard", SCORECARD_KEEP, SCORECARD_TEXT)
-    slim_section(con, "pick_path_picker", PATH_KEEP, ("shopper_id", "shopper_name", "employee_alternate_id"))
+    slim_section(con, "pick_path_picker", PATH_KEEP, PATH_TEXT)
     stores_by_ldap = scorecard_store_by_ldap(con)
     stamp_path_picker_stores(con, stores_by_ldap, roster)
     stamp_roster(con, roster)
@@ -413,25 +468,6 @@ def thin(path: str) -> None:
     after_bytes = os.path.getsize(path)
     print("after_bytes", after_bytes)
 
-    # K5 is optional. If the company seat still blows 40MB, drop path picker (store-peek via ScoreCard).
-    if after_bytes > COMPANY_SEAT_MAX:
-        print("over_cap_dropping_optional_pick_path_picker (K5)")
-        con = sqlite3.connect(path)
-        con.isolation_level = None
-        con.execute("BEGIN")
-        dropped = drop_section(con, "pick_path_picker")
-        print("drop_pick_path_picker", dropped)
-        picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
-        refuse_orphan_chrome(con, picker_n)
-        refuse_loss_bind(con)
-        refuse_path_store_bind(con, scorecard_store_by_ldap(con))
-        refresh_meta(con)
-        con.execute("COMMIT")
-        con.execute("VACUUM")
-        con.close()
-        after_bytes = os.path.getsize(path)
-        print("after_k5_drop_bytes", after_bytes)
-
     after_con = sqlite3.connect(path)
     after = print_qc(after_con, "after")
     path_n = after.get("pick_path_picker", 0)
@@ -439,6 +475,7 @@ def thin(path: str) -> None:
     refuse_orphan_chrome(after_con, picker_n)
     refuse_loss_bind(after_con)
     refuse_path_store_bind(after_con, scorecard_store_by_ldap(after_con))
+    refuse_thinned_path(after_con, path_before)
     after_con.close()
     print("pick_path_picker", path_n, "picker_scorecard", picker_n)
     if after_bytes > COMPANY_SEAT_MAX:
@@ -448,9 +485,26 @@ def thin(path: str) -> None:
     print("thin", after_bytes)
 
 
+def check_pack(path: str) -> None:
+    """Publish gate. PATH_BEFORE, when set, is the full-cook pick_path_picker count."""
+    raw = os.environ.get("PATH_BEFORE", "").strip()
+    path_before = int(raw) if raw else None
+    con = sqlite3.connect(path)
+    try:
+        refuse_thinned_path(con, path_before)
+    finally:
+        con.close()
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--check":
+        path = sys.argv[2]
+        if not os.path.isfile(path):
+            raise SystemExit(f"Missing pack {path}")
+        check_pack(path)
+        return
     if len(sys.argv) != 2:
-        raise SystemExit(f"Usage: {sys.argv[0]} <current.sqlite>")
+        raise SystemExit(f"Usage: {sys.argv[0]} <current.sqlite> | {sys.argv[0]} --check <current.sqlite>")
     path = sys.argv[1]
     if not os.path.isfile(path):
         raise SystemExit(f"Missing pack {path}")
