@@ -989,15 +989,7 @@ final class HeartbeatMathTests: XCTestCase {
             accuracy: 0.5
         )
 
-        let summary = HeartbeatMath.summarize(.sales, rows: [
-            MetricRow(
-                section: .sales,
-                division: "",
-                operationsOM: "",
-                storeNumber: "",
-                payload: ["sales_dollars": 132_830_508],
-                textPayload: ["sales_grain": "company"]
-            ),
+        let storeOnly = HeartbeatMath.summarize(.sales, rows: [
             MetricRow(
                 section: .sales,
                 division: "Jewel Osco",
@@ -1023,8 +1015,153 @@ final class HeartbeatMathTests: XCTestCase {
                 textPayload: ["sales_grain": "store"]
             )
         ], upload: nil)
-        XCTAssertEqual(summary.headline ?? 0, 39_761_217, accuracy: 0.5)
+        XCTAssertEqual(storeOnly.headline ?? 0, 39_761_217, accuracy: 0.5)
+        XCTAssertEqual(storeOnly.storeCount, 3)
+    }
+
+    func testCompanySalesGrainWinsOnCompanyWidePaint() {
+        let company = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 79_870_894.65, "sales_yoy_pct": 16.22756],
+            textPayload: ["sales_grain": "company", "sales_week": "202638"]
+        )
+        let stores = [
+            MetricRow(
+                section: .sales,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "1",
+                payload: ["sales_dollars": 13_466_026, "sales_yoy_pct": 5],
+                textPayload: ["sales_grain": "store", "sales_week": "202638"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "Shaws",
+                operationsOM: "",
+                storeNumber: "2",
+                payload: ["sales_dollars": 15_180_411, "sales_yoy_pct": 5],
+                textPayload: ["sales_grain": "store", "sales_week": "202638"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "United",
+                operationsOM: "",
+                storeNumber: "3",
+                payload: ["sales_dollars": 51_224_457.65, "sales_yoy_pct": 5],
+                textPayload: ["sales_grain": "store", "sales_week": "202638"]
+            )
+        ]
+        let summary = HeartbeatMath.summarize(.sales, rows: [company] + stores, upload: nil)
+        XCTAssertEqual(summary.headline ?? 0, 79_870_894.65, accuracy: 0.5)
+        XCTAssertEqual(summary.salesYoyPct ?? 0, 16.22756, accuracy: 0.001)
         XCTAssertEqual(summary.storeCount, 3)
+        XCTAssertEqual(HeartbeatFormat.pct(summary.salesYoyPct), "16.23%")
+        XCTAssertEqual(HeartbeatFormat.money(summary.headline), "$79,870,894.65")
+
+        let warehouse: [MetricSection: [MetricRow]] = [
+            .sales: HeartbeatMath.latestPerStore([company] + stores)
+        ]
+        let companyPaint = PulseQuery.paint(
+            warehouse: warehouse,
+            roster: [:],
+            filters: DashboardFilters(),
+            grain: .region,
+            uploads: [],
+            hidePicker: true,
+            light: true
+        )
+        let card = companyPaint.summaries.first { $0.section == .sales }
+        XCTAssertEqual(card?.headline ?? 0, 79_870_894.65, accuracy: 0.5)
+        XCTAssertEqual(card?.salesYoyPct ?? 0, 16.22756, accuracy: 0.001)
+        XCTAssertFalse(companyPaint.filtered[.sales]?.contains { $0.textPayload["sales_grain"] == "company" } ?? true)
+
+        var storeFilter = DashboardFilters()
+        storeFilter.store = "1"
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "1": .init(division: "Jewel Osco", district: "03", om: "Pat", name: nil)
+        ]
+        let filtered = PulseQuery.paint(
+            warehouse: warehouse,
+            roster: roster,
+            filters: storeFilter,
+            grain: .store,
+            uploads: [],
+            hidePicker: true,
+            light: true
+        )
+        let filteredCard = filtered.summaries.first { $0.section == .sales }
+        XCTAssertEqual(filteredCard?.headline ?? 0, 13_466_026, accuracy: 0.5)
+        XCTAssertEqual(filteredCard?.salesYoyPct ?? 0, 5, accuracy: 0.01)
+        XCTAssertFalse(filtered.filtered[.sales]?.contains { $0.textPayload["sales_grain"] == "company" } ?? true)
+
+        let pack = SalesPack(company: company, stores: stores)
+        XCTAssertEqual(pack.sales ?? 0, 79_870_894.65, accuracy: 0.5)
+        XCTAssertEqual(pack.yoy ?? 0, 16.22756, accuracy: 0.001)
+    }
+
+    func testLivePackSalesNotReplacedByStaleBundledFacts() {
+        let liveCompany = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 79_870_894.65, "sales_yoy_pct": 16.22756],
+            textPayload: ["sales_grain": "company", "sales_week": "202638"]
+        )
+        let liveStore = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: ["sales_dollars": 39_761_217, "sales_yoy_pct": 16.2],
+            textPayload: ["sales_grain": "store", "sales_week": "202638"]
+        )
+        let staleCompany = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 132_830_508, "sales_yoy_pct": 15.71],
+            textPayload: ["sales_grain": "company", "sales_week": "202636"]
+        )
+        let staleStore = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: ["sales_dollars": 132_830_508, "sales_yoy_pct": 15.71],
+            textPayload: ["sales_grain": "store", "sales_week": "202636"]
+        )
+        let staleExtra = MetricRow(
+            section: .sales,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "2",
+            payload: ["sales_dollars": 1, "sales_yoy_pct": 1],
+            textPayload: ["sales_grain": "store", "sales_week": "202636"]
+        )
+        let merged = PulseDataPolicy.mergeOwnedSection(
+            pack: [liveCompany, liveStore],
+            facts: [staleCompany, staleStore, staleExtra],
+            section: .sales,
+            company: liveCompany
+        )
+        let company = HeartbeatMath.salesCompanyRow(merged)
+        XCTAssertEqual(company?.payload["sales_dollars"] ?? 0, 79_870_894.65, accuracy: 0.5)
+        XCTAssertEqual(company?.payload["sales_yoy_pct"] ?? 0, 16.22756, accuracy: 0.001)
+        XCTAssertEqual(
+            merged.first { HeartbeatMath.canonicalStore($0.storeNumber) == "1" }?.payload["sales_dollars"] ?? 0,
+            39_761_217,
+            accuracy: 0.5
+        )
+        XCTAssertNil(merged.first { HeartbeatMath.canonicalStore($0.storeNumber) == "2" })
+        let totals = HeartbeatMath.salesCompanyTotals(from: merged)
+        XCTAssertTrue(totals.usedCompany)
+        XCTAssertEqual(totals.dollars, 79_870_894.65, accuracy: 0.5)
+        XCTAssertEqual(totals.yoy ?? 0, 16.22756, accuracy: 0.001)
     }
 
     func testFactsSnapshotCannotReplaceLiveSales() {

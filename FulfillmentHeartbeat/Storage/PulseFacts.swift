@@ -242,4 +242,28 @@ enum PulseDataPolicy {
         let kept = existing.filter { !liveSections.contains($0.section) }
         return kept + live
     }
+
+    /// Pack dollars win. Bundled facts only add stores the pack never scored.
+    /// Company sales grain from the live pack is always kept. A complete live
+    /// Sales pack is never mixed with an older facts.json week.
+    static func mergeOwnedSection(
+        pack: [MetricRow],
+        facts: [MetricRow],
+        section: MetricSection,
+        company: MetricRow? = nil
+    ) -> [MetricRow] {
+        var base = pack
+        let packCompany = HeartbeatMath.salesCompanyRow(pack)
+        let packScored = pack.filter { PulseQuery.isStoreFact($0) }.count
+        if section == .sales, packCompany == nil {
+            if let company {
+                base.append(company)
+            } else if packScored < 8, let fromFacts = HeartbeatMath.salesCompanyRow(facts) {
+                base.append(fromFacts)
+            }
+        }
+        let salesLocked = section == .sales && (packScored >= 200 || packCompany != nil)
+        let extra = salesLocked ? [] : fillMissingStores(existing: base, facts: facts, section: section)
+        return HeartbeatMath.latestPerStore(base + extra)
+    }
 }

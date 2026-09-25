@@ -8,7 +8,10 @@ struct OverviewSalesBlock: View {
 
     var body: some View {
         let stores = store.salesStores()
-        let total = SalesPack(rows: stores)
+        let total = SalesPack(
+            company: store.filters.isActive ? nil : store.salesCompanyFact(),
+            stores: stores
+        )
         let mid = midRows(from: stores)
         let days = SalesRollupBuilder.dayRows(
             from: stores,
@@ -240,6 +243,15 @@ struct SalesPack {
         hd = row.number(prefix + "hd_orders")
         dug = row.number(prefix + "dug_orders")
         health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+    }
+
+    /// Company-wide Total uses the Excel Total row when present.
+    init(company: MetricRow?, stores: [MetricRow]) {
+        if let company, HeartbeatMath.salesHeadlineDollars(company) > 0 {
+            self.init(company)
+        } else {
+            self.init(rows: stores)
+        }
     }
 
     /// Company math: sum $, sum orders, sum items. YoY is this-year vs last-year, not an average of store %.
