@@ -525,7 +525,11 @@ final class HeartbeatMathTests: XCTestCase {
                 "2": HeartbeatMath.StoreIdentity(division: "Jewel Osco", district: "J1", om: "A", name: nil),
                 "3427": HeartbeatMath.StoreIdentity(division: "Haggen", district: "39", om: "B", name: nil),
             ],
-            filters: DashboardFilters(division: "Jewel Osco"),
+            filters: {
+                var filters = DashboardFilters()
+                filters.division = "Jewel Osco"
+                return filters
+            }(),
             grain: .division,
             uploads: [],
             hidePicker: true,
@@ -1072,7 +1076,7 @@ final class HeartbeatMathTests: XCTestCase {
 
         let baked = PulseLaunch.bakeAisleMapperOntoPickPath([path, mapper, prep])
         let bakedPath = baked.first { $0.section == .pickPath }
-        XCTAssertEqual(AisleMapperMath.sequenceISO(bakedPath), "2026-09-16")
+        XCTAssertEqual(AisleMapperMath.sequenceISO(bakedPath!), "2026-09-16")
         XCTAssertEqual(baked.filter { $0.section == .prepNotReady }.count, 1)
         XCTAssertFalse(
             baked.contains { PulseSeatPack.shopperSections().contains($0.section) },
@@ -1107,8 +1111,8 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let packed = try PulseSQLite.read(from: dest)
         let packedPath = packed.rows.first { $0.section == .pickPath }
-        XCTAssertEqual(AisleMapperMath.sequenceISO(packedPath), "2026-09-16")
-        XCTAssertEqual(AisleMapperMath.mapperISO(packedPath), "2026-08-20")
+        XCTAssertEqual(AisleMapperMath.sequenceISO(packedPath!), "2026-09-16")
+        XCTAssertEqual(AisleMapperMath.mapperISO(packedPath!), "2026-08-20")
         XCTAssertEqual(
             packed.rows.first { $0.section == .prepNotReady }?.number("pnr_rate_pct") ?? 0,
             3.27,
@@ -1678,12 +1682,12 @@ final class HeartbeatMathTests: XCTestCase {
         ]
         let lost = MetricRow(
             section: .lostRevenue,
+            division: "",
+            operationsOM: "",
             storeNumber: "304",
             payload: ["lost_revenue": 2_510, "ecomm_sales": 50_254],
-            textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["lost_grain": "store"]
+        )
         let caches = PulseCaches.build(
             rows: rosterRows + [lost],
             filters: filters,
@@ -1915,11 +1919,11 @@ final class HeartbeatMathTests: XCTestCase {
             MetricRow(
                 section: .sales,
                 division: region.gateDivisions[0],
+                operationsOM: "",
                 storeNumber: "\(index + 1)",
                 payload: ["sales_dollars": Double((index + 1) * 1_000_000), "sales_orders": 10],
-                textPayload: ["sales_grain": "store"],
-                    operationsOM: "",
-                )
+                textPayload: ["sales_grain": "store"]
+            )
         }
         let rows = SalesRollupBuilder.dashboardRows(from: stores, grain: .region)
         XCTAssertEqual(rows.map(\.label), MarketRegion.allCases.map(\.rawValue))
@@ -2325,20 +2329,20 @@ final class HeartbeatMathTests: XCTestCase {
         district.district = "03"
         let kept = MetricRow(
             section: .scheduleQuality,
+            division: "",
+            operationsOM: "",
             storeNumber: "304",
             payload: ["schedule_efficiency_pct": 90],
-            textPayload: ["district": "03"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["district": "03"]
+        )
         let extra = MetricRow(
             section: .scheduleQuality,
             division: "NorCal",
+            operationsOM: "",
             storeNumber: "9999",
             payload: ["schedule_efficiency_pct": 40],
-            textPayload: ["district": "03"],
-                    operationsOM: "",
-                )
+            textPayload: ["district": "03"]
+        )
         let merged = PulseCaches.unionRegionBook(
             [kept],
             from: [kept, extra],
@@ -4300,10 +4304,10 @@ final class HeartbeatMathTests: XCTestCase {
             return HeartbeatMath.stampRoster(raw, roster: roster)
         }
         let warehouse = [
-            shopper("101", "JO-A", 90),
-            shopper("101", "JO-B", 70),
-            shopper("202", "SH-A", 40),
-            shopper("9001", "NC-A", 95),
+            shopper("101", "JO-A", pph: 90),
+            shopper("101", "JO-B", pph: 70),
+            shopper("202", "SH-A", pph: 40),
+            shopper("9001", "NC-A", pph: 95),
         ]
         var east = DashboardFilters()
         east.region = MarketRegion.east.rawValue
@@ -4341,9 +4345,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(Int(totals.healthy), status.healthy)
         XCTAssertEqual(Int(totals.watch), status.watch)
         XCTAssertEqual(Int(totals.risk), status.risk)
-        XCTAssertEqual(flags.first { $0.name == "Healthy" }?.stores, status.healthy)
-        XCTAssertEqual(flags.first { $0.name == "Watch" }?.stores, status.watch)
-        XCTAssertEqual(flags.first { $0.name == "At Risk" }?.stores, status.risk)
+        XCTAssertEqual(flags.first { $0.name == "Healthy" }?.stores, Optional(status.healthy))
+        XCTAssertEqual(flags.first { $0.name == "Watch" }?.stores, Optional(status.watch))
+        XCTAssertEqual(flags.first { $0.name == "At Risk" }?.stores, Optional(status.risk))
         XCTAssertGreaterThan(status.shoppers, 0)
     }
 
@@ -4623,18 +4627,18 @@ final class HeartbeatMathTests: XCTestCase {
             MetricRow(
                 section: .pickerScorecard,
                 division: region,
+                operationsOM: "",
                 storeNumber: "12",
                 payload: ["pph": 40, "orders": 20],
-                textPayload: ["shopper_id": id, "shopper_name": id],
-                    operationsOM: "",
-                )
+                textPayload: ["shopper_id": id, "shopper_name": id]
+            )
         }
         let latest: [MetricSection: [MetricRow]] = [
             .pickerScorecard: [
-                shopper("A", "Jewel Osco"),
-                shopper("B", "NorCal"),
-                shopper("C", "Southern"),
-                shopper("D", "Seattle"),
+                shopper("A", region: "Jewel Osco"),
+                shopper("B", region: "NorCal"),
+                shopper("C", region: "Southern"),
+                shopper("D", region: "Seattle"),
             ]
         ]
         let hidden = PulseCaches.grainPacks(
@@ -4770,20 +4774,20 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let over = MetricRow(
             section: .labor,
+            division: "",
+            operationsOM: "",
             storeNumber: "1",
             payload: ["target_vs_actual_pct": 5, "schedule_efficiency_pct": 99],
-            textPayload: ["labor_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["labor_grain": "store"]
+        )
         let under = MetricRow(
             section: .labor,
+            division: "",
+            operationsOM: "",
             storeNumber: "2",
             payload: ["target_vs_actual_pct": -2, "schedule_efficiency_pct": 40],
-            textPayload: ["labor_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["labor_grain": "store"]
+        )
         XCTAssertEqual(HeartbeatMath.dashboardTableValues(.labor, rows: [over]).health, .risk)
         XCTAssertEqual(HeartbeatMath.dashboardTableValues(.labor, rows: [under]).health, .good)
         XCTAssertEqual(
@@ -5002,9 +5006,9 @@ final class HeartbeatMathTests: XCTestCase {
                     health: .risk,
                     watchCount: 0,
                     riskCount: 12,
-                    lostRevenuePct: 6,
                     lastFilename: nil,
                     lastUploadedAt: nil,
+                    lostRevenuePct: 6
                 )
             ],
             rows: [:],
@@ -5040,6 +5044,8 @@ final class HeartbeatMathTests: XCTestCase {
     func testUnfilteredLostRevenueSecondaryDollarsPreferMarketTOKeys() {
         let market = MetricRow(
             section: .lostRevenue,
+            division: "",
+            operationsOM: "",
             storeNumber: "",
             payload: [
                 "lost_revenue": 1_962_441.23,
@@ -5055,13 +5061,13 @@ final class HeartbeatMathTests: XCTestCase {
                 "kill_switch_lost": 40_000,
                 "kill_switch_lost_goal": 16_574.80,
             ],
-            textPayload: ["lost_grain": "market"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["lost_grain": "market"]
+        )
         let stores = [
             MetricRow(
                 section: .lostRevenue,
+                division: "",
+                operationsOM: "",
                 storeNumber: "1",
                 payload: [
                     "lost_revenue": 1_200_000,
@@ -5072,12 +5078,12 @@ final class HeartbeatMathTests: XCTestCase {
                     "cancelled_lost": 10,
                     "kill_switch_lost": 10,
                 ],
-                textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                ),
+                textPayload: ["lost_grain": "store"]
+            ),
             MetricRow(
                 section: .lostRevenue,
+                division: "",
+                operationsOM: "",
                 storeNumber: "2",
                 payload: [
                     "lost_revenue": 815_924,
@@ -5088,10 +5094,8 @@ final class HeartbeatMathTests: XCTestCase {
                     "cancelled_lost": 10,
                     "kill_switch_lost": 10,
                 ],
-                textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                ),
+                textPayload: ["lost_grain": "store"]
+            ),
         ]
         let company = stores + [market]
         XCTAssertEqual(HeartbeatMath.lostRevenueTODollars(company, key: "missed_sales"), 126_864.44, accuracy: 0.01)
@@ -5119,29 +5123,29 @@ final class HeartbeatMathTests: XCTestCase {
     func testUnfilteredLostRevenueHeadlineUsesMarketTotal1962441() {
         let market = MetricRow(
             section: .lostRevenue,
+            division: "",
+            operationsOM: "",
             storeNumber: "",
             payload: ["lost_revenue": 1_962_441.23, "lost_revenue_pct": 4.53],
-            textPayload: ["lost_grain": "market"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["lost_grain": "market"]
+        )
         let stores = [
             MetricRow(
                 section: .lostRevenue,
+                division: "",
+                operationsOM: "",
                 storeNumber: "1",
                 payload: ["lost_revenue": 1_200_000],
-                textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                ),
+                textPayload: ["lost_grain": "store"]
+            ),
             MetricRow(
                 section: .lostRevenue,
+                division: "",
+                operationsOM: "",
                 storeNumber: "2",
                 payload: ["lost_revenue": 815_924],
-                textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                ),
+                textPayload: ["lost_grain": "store"]
+            ),
         ]
         let company = HeartbeatMath.summarize(.lostRevenue, rows: stores + [market], upload: nil)
         XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
@@ -5257,20 +5261,20 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(allowed, ["667"])
         let padded = MetricRow(
             section: .lostRevenue,
+            division: "",
+            operationsOM: "",
             storeNumber: "0667",
             payload: ["lost_revenue": 1_832, "ecomm_sales": 40_000],
-            textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["lost_grain": "store"]
+        )
         let other = MetricRow(
             section: .lostRevenue,
+            division: "",
+            operationsOM: "",
             storeNumber: "0304",
             payload: ["lost_revenue": 2_510, "ecomm_sales": 50_000],
-            textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                )
+            textPayload: ["lost_grain": "store"]
+        )
         let scoped = PulseCaches.rowsMatchingStores(
             [padded, other],
             stores: allowed,
@@ -5445,12 +5449,12 @@ final class HeartbeatMathTests: XCTestCase {
         func shopper(_ store: String, _ name: String, pph: Double) -> MetricRow {
             MetricRow(
                 section: .pickerScorecard,
+                division: "",
+                operationsOM: "",
                 storeNumber: store,
                 payload: ["pph": pph],
-                textPayload: ["shopper_id": name, "shopper_name": name],
-                    division: "",
-                    operationsOM: "",
-                )
+                textPayload: ["shopper_id": name, "shopper_name": name]
+            )
         }
         let rows = [
             shopper("304", "Ann", pph: 60),
@@ -5510,12 +5514,12 @@ final class HeartbeatMathTests: XCTestCase {
         func lost(_ store: String, dollars: Double) -> MetricRow {
             MetricRow(
                 section: .lostRevenue,
+                division: "",
+                operationsOM: "",
                 storeNumber: store,
                 payload: ["lost_revenue": dollars],
-                textPayload: ["lost_grain": "store"],
-                    division: "",
-                    operationsOM: "",
-                )
+                textPayload: ["lost_grain": "store"]
+            )
         }
         let thin = (1...40).map { lost(String($0), dollars: 10) }
         let full = (1...220).map { lost(String($0), dollars: 20) }
@@ -7924,8 +7928,8 @@ final class HeartbeatMathTests: XCTestCase {
             payload: ["pph": 22],
             textPayload: ["shopper_id": "B", "shopper_name": "B"]
         )
-        let merged = PulseLaunch.mergePickerRows(existing: [first], incoming: [second])
-        XCTAssertEqual(merged.count, 2)
+        let mergedPickers = PulseLaunch.mergePickerRows(existing: [first], incoming: [second])
+        XCTAssertEqual(mergedPickers.count, 2)
         XCTAssertEqual(PulseLaunch.mergePickerRows(existing: [first], incoming: [first]).count, 1)
     }
 

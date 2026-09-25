@@ -3271,9 +3271,15 @@ private struct PathShopperTable: View {
                 rebuildPickers()
                 Task { await fillShoppers() }
             }
-            .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
-            .onChange(of: store.seatPaintStamp) { _, _ in rebuildPickers() }
+            .onChange(of: store.filterStamp) { _, _ in reloadShoppers() }
+            .onChange(of: store.seatPaintStamp) { _, _ in reloadShoppers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
+            .onChange(of: store.packRevision) { _, _ in reloadShoppers() }
+            .onChange(of: store.isImporting) { _, _ in reloadShoppers() }
+            .onChange(of: store.isReady) { _, _ in reloadShoppers() }
+            .onChange(of: store.usingDatabasePack) { _, _ in reloadShoppers() }
+            .onChange(of: store.warehouseHydrating) { _, _ in reloadShoppers() }
+            .onChange(of: store.packFetchInFlight) { _, _ in reloadShoppers() }
             .accessibilityIdentifier(pickPathShopperAccessibilityID)
         }
     }
@@ -3283,6 +3289,16 @@ private struct PathShopperTable: View {
             return "pick-path-shoppers"
         }
         return ""
+    }
+
+    private func reloadShoppers() {
+        rebuildPickers()
+        Task { await fillShoppers() }
+    }
+
+    private var pickPathAwaitingPack: Bool {
+        guard section == .pickPath || section == .pickPathPicker else { return false }
+        return store.isImporting || !store.isReady || store.warehouseHydrating || store.pickerLoading || store.packFetchInFlight
     }
 
     private func rebuildPickers() {
@@ -3387,6 +3403,7 @@ private struct PathShopperTable: View {
     }
 
     private var emptyDetail: String {
+        if pickPathAwaitingPack { return PulseLaunch.shopperEmptyDetail(loading: true) }
         if pathOnlyEmpty { return PulseLaunch.noPathPickerRowsTitle }
         return PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
     }

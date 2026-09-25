@@ -171,6 +171,15 @@ struct MainHubView: View {
         .onChange(of: store.isReady) { _, ready in
             if ready { applyPickPathShopperLaunch() }
         }
+        .onChange(of: store.packRevision) { _, _ in
+            applyPickPathShopperLaunch()
+        }
+        .onChange(of: store.usingDatabasePack) { _, _ in
+            applyPickPathShopperLaunch()
+        }
+        .onChange(of: store.warehouseHydrating) { _, _ in
+            applyPickPathShopperLaunch()
+        }
         .onChange(of: router.destination) { _, dest in
             store.setVisibleDestination(dest)
             rememberWarm(dest)
@@ -573,8 +582,25 @@ struct MainHubView: View {
 
     private func applyPickPathShopperLaunch() {
         guard let storeNumber = PulseLaunch.pickPathShopperLaunchStore() else { return }
-        if store.filters.store != storeNumber {
-            store.filters.store = storeNumber
+        let rosterDivision = store.identity(forStore: storeNumber).division
+        let division = rosterDivision.isEmpty
+            ? (HeartbeatMath.identityOverrides[HeartbeatMath.canonicalStore(storeNumber)]?.division ?? "")
+            : rosterDivision
+        var next = store.filters
+        var changed = false
+        if next.store != storeNumber {
+            next.store = storeNumber
+            changed = true
+        }
+        if !division.isEmpty, next.division != division {
+            next.division = division
+            if let region = MarketRegion.containing(division)?.rawValue, !region.isEmpty {
+                next.region = region
+            }
+            changed = true
+        }
+        if changed {
+            store.filters = next
         }
         if router.destination != .pickPath {
             router.open(.pickPath)

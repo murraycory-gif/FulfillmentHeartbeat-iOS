@@ -46,6 +46,8 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
     @Published private(set) var pickerLoading = false
+    /// Bumps when a pack or warehouse install lands so open views re-read rows.
+    @Published private(set) var packRevision = 0
 
     private let fileManager: FileManager
     private let rootURL: URL
@@ -131,7 +133,7 @@ final class HeartbeatStore: ObservableObject {
     private var lastCloudPullAt: Date?
     private var lifetimeObservers: [NSObjectProtocol] = []
     private var cloudHydrateStarted = false
-    private var packFetchInFlight = false
+    @Published private(set) var packFetchInFlight = false
     private var pendingHeavyExtras = false
     private var heavyLoadStarted = false
     private var usingPackChrome = false
@@ -5353,6 +5355,7 @@ final class HeartbeatStore: ObservableObject {
                 cachedChecklistGroups = pulse.checklistGroups
             }
             refreshChecklistOpenCount()
+            notePackLanded()
             return
         }
         filteredLatest = pulse.filteredLatest
@@ -5381,6 +5384,11 @@ final class HeartbeatStore: ObservableObject {
             seedPickerGrainFromChrome(chrome)
         }
         refreshChecklistOpenCount()
+        notePackLanded()
+    }
+
+    private func notePackLanded() {
+        packRevision &+= 1
     }
 
     private func refreshFilterOptions() {
@@ -5633,6 +5641,7 @@ final class HeartbeatStore: ObservableObject {
         }
         if !seeded { seeded = true }
         if !usingDatabasePack { usingDatabasePack = true }
+        notePackLanded()
         if incoming.contains(.lostRevenue), latestBySection[.lostRevenue] != nil {
             rebuildLostIndex()
         }
@@ -6784,6 +6793,7 @@ final class HeartbeatStore: ObservableObject {
                 rememberSeatRowPlane(for: key)
             }
             fillExpandTablesSoon()
+            notePackLanded()
             return
         }
         cachedSummaries = caches.cachedSummaries
@@ -6800,6 +6810,7 @@ final class HeartbeatStore: ObservableObject {
         if !filters.isActive {
             rememberUnfilteredPulseIfNeeded()
         }
+        notePackLanded()
     }
 
     private func rememberUnfilteredPulseIfNeeded() {
