@@ -2575,13 +2575,13 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldDiscardPendingLaunchFiltersOnClear() {
             pendingLaunchFilters = nil
         }
+        hydrating = true
+        filters = DashboardFilters()
+        hydrating = false
+        persistFilters()
+        paintGeneration += 1
+        pageOnlyGeneration = -1
         Task { @MainActor in
-            self.hydrating = true
-            self.filters = DashboardFilters()
-            self.hydrating = false
-            self.persistFilters()
-            self.paintGeneration += 1
-            self.pageOnlyGeneration = -1
             await self.swapToSeatPack(.company)
             self.refreshFilterOptions()
         }

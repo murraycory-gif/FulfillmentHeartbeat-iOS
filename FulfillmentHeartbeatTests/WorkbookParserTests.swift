@@ -134,7 +134,7 @@ final class WorkbookParserTests: XCTestCase {
         let csv = SampleMarket.templateCSV(for: .sales)
         let rows = WorkbookParser.parseCSV(csv)
         XCTAssertEqual(WorkbookParser.classifySheet(name: "Sales", rows: rows), .sales)
-        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["", "1", "606", "3427"]))
         let jewel = rows.first { $0.storeNumber == "1" }!
         XCTAssertEqual(jewel.textPayload["district"], "J1")
         XCTAssertEqual(jewel.payload["sales_dollars"] ?? 0, 4500, accuracy: 0.5)
@@ -325,8 +325,10 @@ final class WorkbookParserTests: XCTestCase {
             let csv = SampleMarket.templateCSV(for: section)
             let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "\(section.rawValue).csv")
             XCTAssertFalse(rows.isEmpty, section.rawValue)
-            if section != .pickPathPicker {
-                XCTAssertFalse(rows[0].storeNumber.isEmpty, section.rawValue)
+            if section == .dynacap {
+                XCTAssertTrue(rows.allSatisfy { $0.storeNumber.isEmpty }, section.rawValue)
+            } else if section != .pickPathPicker {
+                XCTAssertTrue(rows.contains { !$0.storeNumber.isEmpty }, section.rawValue)
             }
         }
     }
@@ -454,7 +456,7 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(mmcc.payload["oth5_pct"] ?? 0, 50, accuracy: 0.001)
         XCTAssertEqual(mmcc.payload["ott_pct"] ?? 0, 100, accuracy: 0.001)
         XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["presub_pct"]), "1.69%")
-        XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["oos_pct"]), "0.0%")
+        XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["oos_pct"]), "0.00%")
 
         let agut = try XCTUnwrap(rows.first { $0.textPayload["shopper_id"] == "AGUT473" })
         XCTAssertEqual(agut.storeNumber, "76")

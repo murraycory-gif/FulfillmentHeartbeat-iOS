@@ -478,6 +478,7 @@ enum WorkbookParser {
         dict["passrate40"] = "pass"
         dict["passrate"] = "pass"
         dict["otp"] = "otp_pct"
+        dict["otppct"] = "otp_pct"
         dict["otpct"] = "otp_pct"
         dict["ontime"] = "otp_pct"
         dict["ontimepromise"] = "otp_pct"
@@ -699,12 +700,12 @@ enum WorkbookParser {
         if let presub = parsePreSubOOS(matrix), !presub.isEmpty { return presub }
         if let missing = parseMissingItems(matrix), !missing.isEmpty { return missing }
         if let aisle = parseAisleMapper(matrix), !aisle.isEmpty { return aisle }
-        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         if let prep = parsePrepHours(matrix), !prep.isEmpty { return prep }
         if let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
         if let outline = parseOutline(matrix), !outline.isEmpty { return outline }
         if let stores = parseStoreWeek(matrix), !stores.isEmpty { return stores }
         if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty { return pickers }
+        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         return parseFlat(matrix)
     }
 
@@ -906,6 +907,13 @@ enum WorkbookParser {
     private static func parseStoreRoster(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
+            let metric = names.contains { name in
+                name.contains("rating") || name.contains("pph") || name.contains("prep")
+                    || name.contains("schedule") || name.contains("compliance") || name.contains("sales")
+                    || name.contains("flash") || name.contains("presub") || name.contains("lost")
+                    || name.contains("labor") || name.contains("pnr")
+            }
+            if metric { return false }
             return names.contains(where: {
                 $0 == "division" || $0.contains("division") || $0 == "market" || $0 == "banner"
             })
@@ -4103,7 +4111,8 @@ enum WorkbookParser {
 
     static func normHeader(_ raw: String) -> String {
         raw.lowercased()
-            .replacingOccurrences(of: "[%#]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "%", with: "pct")
+            .replacingOccurrences(of: "#", with: "")
             .replacingOccurrences(of: "[^a-z0-9]+", with: "", options: .regularExpression)
     }
 

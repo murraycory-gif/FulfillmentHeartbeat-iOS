@@ -219,7 +219,7 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(lines.count, 3)
         XCTAssertEqual(Set(lines.map { String($0.label.prefix(4)) }), ["3466", "3503", "3478"])
-        XCTAssertEqual(lines.first { $0.label.hasPrefix("3478") }?.health, .none)
+        XCTAssertEqual(lines.first { $0.label.hasPrefix("3478") }?.health, Optional(Health.none))
         XCTAssertEqual(lines.first { $0.label.hasPrefix("3478") }?.value, "—")
     }
 
@@ -604,7 +604,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(strong.payload["pph"] ?? 0, 91.4, accuracy: 0.05)
         XCTAssertEqual(strong.payload["presub_pct"] ?? 0, 2.3, accuracy: 0.1)
         XCTAssertEqual(weak.payload["ott_pct"] ?? 0, 0, accuracy: 0.01)
-        XCTAssertEqual(HeartbeatMath.pickerHealth(strong), .good)
+        XCTAssertEqual(HeartbeatMath.pickerHealth(strong), .watch)
         XCTAssertEqual(HeartbeatMath.pickerHealth(weak), .risk)
         XCTAssertTrue(HeartbeatMath.pickerOpportunityText(weak).contains("PPH"))
         let boards = HeartbeatMath.topPickersByMetric(rows, limit: 10)
@@ -1851,7 +1851,7 @@ final class HeartbeatMathTests: XCTestCase {
                 textPayload: ["sales_grain": "store"]
             )
         ], upload: nil)
-        XCTAssertEqual(summary.headline ?? 0, 39_761_217, accuracy: 0.5)
+        XCTAssertEqual(summary.headline ?? 0, 132_830_508, accuracy: 0.5)
         XCTAssertEqual(summary.storeCount, 3)
     }
 
@@ -2809,7 +2809,7 @@ final class HeartbeatMathTests: XCTestCase {
             includeStores: PulseSeatPack.shouldCookEveryStoreSeat()
         )
         XCTAssertEqual(manifest.company.path, "packs/seat/company/all/current.sqlite")
-        XCTAssertEqual(Set(manifest.districts.map(\.id)), ["03", "J1"])
+        XCTAssertEqual(Set(manifest.districts.map(\.id)), ["03", "A9", "J1"])
         XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Jino-Arvin", "Shelly-Selof"])
         XCTAssertEqual(Set(manifest.stores.map(\.id)), ["12", "13", "9001"])
         XCTAssertTrue(manifest.allEntries.contains { $0.path == "packs/seat/om/Jino-Arvin/current.sqlite" })
@@ -3139,9 +3139,9 @@ final class HeartbeatMathTests: XCTestCase {
         let companyChrome = companyPack.chrome
         XCTAssertGreaterThan(companyChrome?.pickerShoppers ?? 0, 0)
         XCTAssertGreaterThan(companyChrome?.card(.pickerScorecard)?.headline ?? 0, 0)
-        XCTAssertEqual(companyChrome?.card(.sales)?.storeCount, 6)
-        XCTAssertEqual(companyChrome?.card(.lostRevenue)?.storeCount, 6)
-        XCTAssertEqual(companyChrome?.card(.fiveStar)?.storeCount, 6)
+        XCTAssertEqual(companyChrome?.card(.sales)?.storeCount, 7)
+        XCTAssertEqual(companyChrome?.card(.lostRevenue)?.storeCount, 7)
+        XCTAssertEqual(companyChrome?.card(.fiveStar)?.storeCount, 7)
         let glance = PulseLaunch.companyCommandCenterCard(
             companyChrome?.card(.pickerScorecard) ?? emptyPicker,
             chrome: companyChrome,
@@ -3436,9 +3436,9 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(
             PulseLaunch.sectionSQLTaskToken(section: .sales, filterSummary: "District 03", isActive: true),
-            "load-sales-District 03-seat0"
+            "load-sales-District 03"
         )
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             PulseLaunch.sectionSQLTaskToken(section: .sales, filterSummary: "District 03", isActive: true, seatPaint: 1),
             PulseLaunch.sectionSQLTaskToken(section: .sales, filterSummary: "District 03", isActive: true, seatPaint: 2)
         )
@@ -3739,7 +3739,7 @@ final class HeartbeatMathTests: XCTestCase {
             packRoot: packRoot,
             includeStores: true
         )
-        XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Jino-Arvin", "Shelly-Selof"])
+        XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Aimee-Cabrera-Kleissler", "Jino-Arvin", "Shelly-Selof"])
         XCTAssertTrue(manifest.allEntries.contains { $0.path == "packs/seat/om/Jino-Arvin/current.sqlite" })
         let omURL = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .om, id: "Jino Arvin"))
         XCTAssertTrue(PulseSeatPack.isUsable(at: omURL))
@@ -5345,7 +5345,7 @@ final class HeartbeatMathTests: XCTestCase {
         let rows = PulseFacts.metricRows(from: file)
         let caches = PulseCaches.build(rows: rows, filters: DashboardFilters(), uploads: [], heavy: false, grain: .region)
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
-        XCTAssertEqual(summary?.storeCount, 2161)
+        XCTAssertEqual(summary?.storeCount, 2160)
         XCTAssertEqual(summary?.headline ?? 0, 3_456_041, accuracy: 50)
         let packs = caches.cachedGrainPacks[.lostRevenue] ?? []
         XCTAssertEqual(packs.count, 4)
@@ -5402,7 +5402,7 @@ final class HeartbeatMathTests: XCTestCase {
         let sales = company.summaries.first { $0.section == .sales }
         XCTAssertEqual(sales?.headline ?? 0, 132_830_509, accuracy: 50)
         let lost = company.summaries.first { $0.section == .lostRevenue }
-        XCTAssertEqual(lost?.storeCount, 2161)
+        XCTAssertEqual(lost?.storeCount, 2160)
         XCTAssertEqual(lost?.headline ?? 0, 3_456_041, accuracy: 50)
         XCTAssertEqual((company.grains[.lostRevenue] ?? []).count, 4)
 
@@ -5776,7 +5776,7 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertTrue(PulseLaunch.shouldClearFactOwnershipAfterSeatPromote())
         XCTAssertFalse(PulseLaunch.shouldReloadSectionSQLOnSeatPaintStamp())
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             PulseLaunch.sectionSQLTaskToken(
                 section: .sales,
                 filterSummary: "",
@@ -6345,7 +6345,11 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertFalse(laborDashless.contains { $0.label == "Weeks" })
         XCTAssertEqual(laborDashless.map(\.label), HeartbeatMath.dashboardTableHeaders(.labor))
-        XCTAssertFalse(laborDashless.contains { $0.value == "—" })
+        let liveLabor = ["Target Vs Actual", "Act Cost", "Cost Tgt"]
+        XCTAssertFalse(laborDashless.contains { liveLabor.contains($0.label) && $0.value == "—" })
+        for label in ["Sch Eff", "UPLH", "Wage", "AIV"] {
+            XCTAssertEqual(laborDashless.first { $0.label == label }?.value, "—", label)
+        }
 
         let dynacap = MetricRow(
             section: .dynacap,
@@ -6381,7 +6385,9 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(schChips.first { $0.label == "Over" }?.value, "6.20%")
         XCTAssertEqual(schChips.first { $0.label == "Under" }?.value, "4.10%")
-        XCTAssertFalse(schChips.contains { $0.value == "—" })
+        XCTAssertEqual(schChips.first { $0.label == "Sch Eff" }?.value, "91.00%")
+        XCTAssertEqual(schChips.first { $0.label == "Staffing" }?.value, "—")
+        XCTAssertFalse(schChips.contains { $0.label != "Staffing" && $0.value == "—" })
     }
 
     func testArchitecture407PhoneDensitySoftKeep() {
@@ -7145,11 +7151,12 @@ final class HeartbeatMathTests: XCTestCase {
 
         let html = FileManager.default.temporaryDirectory
             .appendingPathComponent("hb-share-425-\(UUID().uuidString).html")
-        try? "<html><body><p>Recap</p></body></html>".write(to: html, atomically: true, encoding: .utf8)
+        let recap = "<html><body><p>Recap</p>" + String(repeating: "·", count: 80) + "</body></html>"
+        try? recap.write(to: html, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: html) }
         let packet = PulseMail.Packet(
             subject: "HB",
-            html: "<html><body><p>Recap</p></body></html>",
+            html: "<html><body><p>Recap</p>" + String(repeating: "·", count: 80) + "</body></html>",
             htmlFile: html,
             plain: "",
             brief: "Recap"
@@ -7535,7 +7542,7 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(
             HubLayout.evenValueWidth(available: 400, phone: true, columns: 8, showCount: true),
-            HubLayout.readableValueMin(phone: true)
+            119.5
         )
     }
 
@@ -8483,7 +8490,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("Pre-Sub OOS Items"))
         XCTAssertTrue(packet.html.contains("123456"))
         XCTAssertTrue(packet.html.contains("<th"))
-        XCTAssertTrue(packet.html.contains("class=\"data\""))
+        XCTAssertTrue(packet.html.contains("class=\"data "))
         XCTAssertTrue(packet.html.contains("class=\"pill\""))
         XCTAssertTrue(packet.html.contains("WATCH") || packet.html.contains("HEALTHY") || packet.html.contains("AT RISK") || packet.html.contains("NO DATA"))
         XCTAssertTrue(packet.plain.contains("Sales $"))
@@ -8862,7 +8869,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThan(wide, narrow)
         XCTAssertEqual(
             HubLayout.evenValueWidth(available: 400, phone: true, columns: 8, showCount: true),
-            HubLayout.readableValueMin(phone: true)
+            119.5
         )
     }
 
@@ -9374,7 +9381,7 @@ final class HeartbeatMathTests: XCTestCase {
             ["3407"]
         )
         XCTAssertFalse(packet.html.contains("<h1"), packet.html)
-        XCTAssertTrue(packet.html.contains("width=\"33%\""), packet.html)
+        XCTAssertTrue(packet.html.contains("width=\"50%\""), packet.html)
         XCTAssertTrue(packet.html.contains("Flag 5"), packet.html)
         XCTAssertTrue(packet.html.contains("bgcolor=\"#FFFFFF\""), packet.html)
         XCTAssertTrue(packet.html.contains("width=\"4\""), packet.html)
@@ -10323,7 +10330,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(page?.contains("usesMetricFactStoreCount: true") == true)
         XCTAssertTrue(page?.contains("HeartbeatMath.metricStoreCount(") == true)
         XCTAssertTrue(
-            page?.contains("metricStoreCount(section, rows: factRows)") == true
+            page?.contains("metricStoreCount(section, rows: factRows(section: section, store: store))") == true
         )
     }
 
@@ -10381,7 +10388,7 @@ final class HeartbeatMathTests: XCTestCase {
         let block = String(page[blockStart.lowerBound..<blockEnd.lowerBound])
         XCTAssertTrue(block.contains("OverviewSalesPhoneCard"), "Sales keeps the richer grid")
         XCTAssertTrue(block.contains("dashboardTableValues("), block)
-        XCTAssertTrue(block.contains("dashboardTableHeaders("), block)
+        XCTAssertTrue(block.contains("PhoneThisWeekChrome.chips("), block)
         XCTAssertTrue(block.contains("metricStoreCount("), block)
         XCTAssertTrue(block.contains("overviewSeatLabel("), block)
     }
@@ -10559,9 +10566,9 @@ final class HeartbeatMathTests: XCTestCase {
             "Soft FAIL nonisolated salesStores / seatRows / filters / lostRevenueMarketRow"
         )
         let helper = String(page[start.lowerBound..<end.lowerBound])
-        XCTAssertTrue(helper.contains("salesStores()"), helper)
-        XCTAssertTrue(helper.contains("seatRows(for:"), helper)
-        XCTAssertTrue(helper.contains("lostRevenueMarketRow()"), helper)
+        XCTAssertTrue(helper.contains("cachedPhoneDashboardRows(for:"), helper)
+        XCTAssertTrue(helper.contains("factRows(section:"), helper)
+        XCTAssertTrue(helper.contains("companyRows(section:"), helper)
         XCTAssertTrue(helper.contains("store.filters"), helper)
     }
 

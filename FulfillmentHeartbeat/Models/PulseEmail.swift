@@ -920,9 +920,10 @@ enum PulseMail {
         <td valign="top" width="\(colPct)%" style="width:\(colPct)%">
         <table width="100%" cellspacing="0" cellpadding="8" bgcolor="\(fill.bg)" style="width:100%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
         <tr><td style="padding:8px 10px">
-        <div style="font-size:13px;font-weight:700;color:#141A29;line-height:18px">\(esc(label)) \(badge)</div>
+        <div style="font-size:13px;font-weight:700;color:#141A29;line-height:18px">\(esc(label))</div>
         <div style="font-size:20px;font-weight:700;margin:4px 0 2px;color:\(fill.ink);line-height:24px">\(esc(value))</div>
         <div style="font-size:12px;color:#5C677A;line-height:16px">\(esc(detail))</div>
+        \(badge.isEmpty ? "" : "<div style=\"margin-top:8px\">\(badge)</div>")
         </td></tr>
         </table>
         </td>
@@ -1535,7 +1536,7 @@ enum PulseMail {
                 let tone = index < row.tones.count ? row.tones[index] : nil
                 lines += """
                 <tr>
-                <th bgcolor="#EEF3FB" style="text-align:left;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:6px 8px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%;white-space:normal">\(esc(header))</th>
+                <th bgcolor="#EEF3FB" style="text-align:left;font-size:13px;letter-spacing:.02em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:6px 8px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%;white-space:normal">\(esc(header))</th>
                 \(numCell(value, health: tone))
                 </tr>
                 """

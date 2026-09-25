@@ -3423,6 +3423,7 @@ private struct PathShopperTable: View {
             },
             health: overall
         )
+        .accessibilityIdentifier(section == .pickPath || section == .pickPathPicker ? "pick-path-shopper-row" : "")
     }
 
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
@@ -3448,6 +3449,7 @@ private struct PathShopperTable: View {
                 .background(pill(overall), in: Capsule())
                 .frame(width: 72, alignment: .trailing)
         }
+        .accessibilityIdentifier(section == .pickPath || section == .pickPathPicker ? "pick-path-shopper-row" : "")
         .tableRowCard(health: overall)
     }
 

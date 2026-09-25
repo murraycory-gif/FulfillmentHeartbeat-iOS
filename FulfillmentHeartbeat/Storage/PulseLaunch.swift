@@ -2136,7 +2136,9 @@ enum PulseLaunch {
             let incomingLive = HeartbeatMath.grainRowsAreLive(next[section] ?? [])
             if incomingLive { continue }
             guard HeartbeatMath.grainRowsAreLive(rows) else { continue }
-            if !grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) {
+            let labels = rows.map(\.label)
+            let companyChrome = !filtersActive && labels.allSatisfy { $0 == "Company" }
+            if !companyChrome && !grainTableMatchesCurrent(labels: labels, grain: grain) {
                 continue
             }
             next[section] = rows
@@ -2490,7 +2492,8 @@ enum PulseLaunch {
             let name = $0.name.lowercased()
             return name == "healthy" || name == "watch" || name == "at risk"
         }
-        return band.isEmpty || band.allSatisfy { $0.stores == 0 }
+        guard !band.isEmpty else { return false }
+        return band.allSatisfy { $0.stores == 0 }
     }
 
     /// Share tiles use live `dashboardActionFlags`, not cached zero bandFlags.

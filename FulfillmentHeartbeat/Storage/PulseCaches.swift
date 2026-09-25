@@ -749,7 +749,8 @@ struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity],
         allowed: Set<String>
     ) -> [MetricRow] {
-        if filters.isActive { return matched }
+        let seatFilter = !filters.district.isEmpty || !filters.store.isEmpty || !filters.om.isEmpty || !filters.division.isEmpty
+        if seatFilter { return matched }
         guard filters.stores.isEmpty else { return matched }
         let wantedRegions = Set(filters.regions.compactMap { MarketRegion(rawValue: $0) ?? MarketRegion.named($0) })
         let wantedDistricts = Set(filters.districts.map { HeartbeatMath.canonicalDistrict($0) }.filter { !$0.isEmpty })
