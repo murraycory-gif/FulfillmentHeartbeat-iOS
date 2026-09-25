@@ -258,7 +258,7 @@ class ThinKeepDropTests(unittest.TestCase):
                 ).fetchone()[0]
             )
             self.assertEqual(score_text.get("shopper_id"), "SHOP0000")
-            self.assertNotIn("shopper_name", score_text)
+            self.assertEqual(score_text.get("shopper_name"), "SHOP0000")
             self.assertNotIn("district", score_text)
             self.assertNotIn("data_window", score_text)
             blank_bindable = con.execute(
@@ -479,6 +479,8 @@ def _write_today_pack(path: str) -> None:
         (json.dumps({"pickerShoppers": TODAY_SCORE}),),
     )
     con.execute("INSERT INTO pack_meta VALUES (1, '{}')")
+    con.execute("CREATE INDEX facts_section_store ON facts(section, store_number)")
+    con.execute("CREATE INDEX facts_section_div ON facts(section, division)")
     con.commit()
     con.close()
 
@@ -495,6 +497,10 @@ class PathKeeperTests(unittest.TestCase):
             print(f"today_fixture before_bytes={before} thin_bytes={after}")
             self.assertLessEqual(after, thin.COMPANY_SEAT_MAX)
             con = sqlite3.connect(path)
+            for name, nbytes in con.execute(
+                "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name ORDER BY 2 DESC"
+            ):
+                print(f"dbstat {name} {nbytes}")
             path_n = con.execute(
                 "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'"
             ).fetchone()[0]
@@ -505,7 +511,7 @@ class PathKeeperTests(unittest.TestCase):
                 ).fetchone()[0]
             )
             self.assertEqual(dup.get("shopper_id"), "SHOP00000")
-            self.assertNotIn("shopper_name", dup)
+            self.assertEqual(dup.get("shopper_name"), "SHOP00000")
             self.assertNotIn("district", dup)
             self.assertNotIn("data_window", dup)
             named = json.loads(
@@ -523,14 +529,20 @@ class PathKeeperTests(unittest.TestCase):
             self.assertNotIn("dug_orders", payload)
             self.assertNotIn("refund_amt", payload)
             self.assertNotIn("fat_blob", payload)
-            self.assertIn("pph", payload)
+            self.assertEqual(payload.get("pph"), 41.64)
             path_text = json.loads(
                 con.execute(
                     "SELECT text_json FROM facts WHERE section='pick_path_picker' AND id='K0'"
                 ).fetchone()[0]
             )
-            self.assertNotIn("shopper_name", path_text)
+            self.assertEqual(path_text.get("shopper_name"), "SHOP00000")
             self.assertEqual(path_text.get("shopper_id"), "SHOP00000")
+            indexes = {
+                name
+                for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='index'")
+            }
+            self.assertNotIn("facts_section_div", indexes)
+            self.assertEqual(con.execute("PRAGMA page_size").fetchone()[0], thin.PAGE_SIZE)
             con.close()
 
     def test_over_cap_fails_and_keeps_path_rows(self) -> None:

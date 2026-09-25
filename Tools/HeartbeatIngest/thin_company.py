@@ -53,8 +53,10 @@ SCORECARD_OPTIONAL = (
     "pph_picks",
 )
 # district and data_window stay off scorecard text. App roster stamping fills district.
-# shopper_name is omitted later when it equals shopper_id.
+# shopper_name stays even when it equals shopper_id. MetricRow.shopperName has no fallback.
 SCORECARD_TEXT = ("shopper_id", "shopper_name", "employee_alternate_id")
+# App SQL filters section + store_number (readStores). Division is filtered in memory.
+PAGE_SIZE = 8192
 PATH_TEXT = ("shopper_id", "shopper_name", "employee_alternate_id")
 PATH_KEEP = ("compliance_pct", "orders", "pph")
 
@@ -99,8 +101,23 @@ def load_json(raw: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def compact_number(value: object) -> object:
+    """Two-decimal payloads. Whole numbers stay integers so JSON stays short."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    number = round(float(value), 2)
+    if number == int(number):
+        return int(number)
+    return number
+
+
 def slim_payload(payload: dict, keep: tuple[str, ...]) -> dict:
-    return {key: payload[key] for key in keep if key in payload and payload[key] is not None}
+    out = {}
+    for key in keep:
+        if key not in payload or payload[key] is None:
+            continue
+        out[key] = compact_number(payload[key])
+    return out
 
 
 def slim_text(text: dict, keep: tuple[str, ...]) -> dict:
@@ -110,14 +127,6 @@ def slim_text(text: dict, keep: tuple[str, ...]) -> dict:
         if isinstance(value, str) and value.strip():
             out[key] = value.strip()
     return out
-
-
-def omit_duplicate_shopper_name(text: dict) -> None:
-    """Drop shopper_name when it repeats shopper_id. A distinct display name stays."""
-    sid = (text.get("shopper_id") or "").strip()
-    name = (text.get("shopper_name") or "").strip()
-    if sid and name and name.casefold() == sid.casefold():
-        text.pop("shopper_name", None)
 
 
 def canon_ldap(raw: str) -> str:
@@ -342,7 +351,9 @@ def slim_section(con: sqlite3.Connection, section: str, keep: tuple[str, ...], t
             ).strip().upper()
             if ldap:
                 text["shopper_id"] = ldap
-        omit_duplicate_shopper_name(text)
+            # Keep shopper_name. Copy it from the id only when the workbook had no name.
+            if ldap and not (text.get("shopper_name") or "").strip():
+                text["shopper_name"] = ldap
         con.execute(
             "UPDATE facts SET payload_json=?, text_json=? WHERE id=?",
             (json.dumps(payload, separators=(",", ":")), json.dumps(text, separators=(",", ":")), row_id),
@@ -462,6 +473,9 @@ def thin(path: str) -> None:
     refuse_path_store_bind(con, stores_by_ldap)
     refresh_meta(con)
     con.execute("COMMIT")
+    # facts_section_div duplicates strings the app never filters in SQL.
+    con.execute("DROP INDEX IF EXISTS facts_section_div")
+    con.execute(f"PRAGMA page_size={PAGE_SIZE}")
     con.execute("VACUUM")
     con.close()
 
