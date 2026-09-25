@@ -3198,6 +3198,7 @@ private struct PathShopperTable: View {
     var section: MetricSection = .pickPath
     @State private var limit = 12
     @State private var pickers: [PathShopperSnap] = []
+    @State private var pathOnlyEmpty = false
 
     private var columns: [ShopperMetric] { ShopperMetric.columns(for: section) ?? [] }
     private var usePhoneCards: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
@@ -3277,7 +3278,16 @@ private struct PathShopperTable: View {
     }
 
     private func rebuildPickers() {
-        guard !columns.isEmpty else { pickers = []; return }
+        guard !columns.isEmpty else {
+            pickers = []
+            pathOnlyEmpty = false
+            return
+        }
+        if section == .pickPath || section == .pickPathPicker {
+            rebuildPickPathShoppers()
+            return
+        }
+        pathOnlyEmpty = false
         var byKey: [String: PathShopperSnap] = [:]
         func aliases(_ row: MetricRow) -> [String] {
             HeartbeatMath.shopperAliases(row)
@@ -3323,11 +3333,6 @@ private struct PathShopperTable: View {
             }
             byKey[id] = snap
         }
-        if section == .pickPath || section == .pickPathPicker {
-            for row in store.pickPathPickers(forStore: storeNumber) {
-                merge(row, path: pathFor(row))
-            }
-        }
         for row in store.pphPickers(forStore: storeNumber) {
             merge(row, path: pathFor(row))
         }
@@ -3337,21 +3342,32 @@ private struct PathShopperTable: View {
             if a != b { return a < b }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        if section == .pickPath || section == .pickPathPicker {
-            let storePath = (store.seatRows(for: .pickPath) + store.allLatest(for: .pickPath))
-                .first { HeartbeatMath.sameStore($0.storeNumber, storeNumber) }
-            if let storePath {
-                let mapper = HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(storePath))
-                let sequence = HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(storePath))
-                if mapper != "—" || sequence != "—" {
-                    pickers = pickers.map { snap in
-                        var next = snap
-                        if next.mapper == nil, mapper != "—" { next.mapper = mapper }
-                        if next.sequence == nil, sequence != "—" { next.sequence = sequence }
-                        return next
-                    }
-                }
-            }
+    }
+
+    private func rebuildPickPathShoppers() {
+        let storePath = (store.seatRows(for: .pickPath) + store.allLatest(for: .pickPath))
+            .first { HeartbeatMath.sameStore($0.storeNumber, storeNumber) }
+        let lines = PulseLaunch.pickPathShopperLines(
+            pathRows: store.pickPathPickers(forStore: storeNumber),
+            scorecardRows: store.pphPickers(forStore: storeNumber),
+            storePath: storePath
+        )
+        if PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines) {
+            pickers = []
+            pathOnlyEmpty = true
+            return
+        }
+        pathOnlyEmpty = false
+        pickers = lines.map { line in
+            PathShopperSnap(
+                id: line.id,
+                name: line.name,
+                path: line.path,
+                pph: line.pph,
+                orders: line.orders,
+                mapper: line.mapper,
+                sequence: line.sequence
+            )
         }
     }
 
@@ -3363,7 +3379,8 @@ private struct PathShopperTable: View {
     }
 
     private var emptyDetail: String {
-        PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
+        if pathOnlyEmpty { return PulseLaunch.noPathPickerRowsTitle }
+        return PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
     }
 
     private func pickerPhoneCard(_ picker: PathShopperSnap) -> some View {

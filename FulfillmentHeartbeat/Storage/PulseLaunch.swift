@@ -269,29 +269,32 @@ enum PulseLaunch {
         var byShopper: [String: MetricRow] = [:]
     }
 
-    /// HF-003: shopper pick path % from `pick_path_picker` joined to Picker
-    /// ScoreCard. Keys include store aliases so "2" / "0002" hit the same bucket.
+    /// HF-003: shopper pick path % from `pick_path_picker`. Scorecard is only a
+    /// shopper-to-store lookup when the path row has no store. Store lists
+    /// never include scorecard rows (those have PPH and no compliance_pct).
     static func pickPathPickerIndex(scorecard: [MetricRow], pathRows: [MetricRow]) -> PickPathPickerIndex {
         var storesByShopper: [String: Set<String>] = [:]
-        var canonical: [String: [MetricRow]] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
-            canonical[store, default: []].append(row)
             for alias in HeartbeatMath.shopperAliases(row) {
                 storesByShopper[alias, default: []].insert(store)
             }
         }
         var byShopper: [String: MetricRow] = [:]
-        for row in pathRows {
+        var canonical: [String: [MetricRow]] = [:]
+        for row in pathRows where row.section == .pickPathPicker {
             for alias in HeartbeatMath.shopperAliases(row) {
                 byShopper[alias] = row
             }
             var targets = Set<String>()
             let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !ownStore.isEmpty { targets.insert(ownStore) }
-            for alias in HeartbeatMath.shopperAliases(row) {
-                targets.formUnion(storesByShopper[alias] ?? [])
+            if !ownStore.isEmpty {
+                targets.insert(ownStore)
+            } else {
+                for alias in HeartbeatMath.shopperAliases(row) {
+                    targets.formUnion(storesByShopper[alias] ?? [])
+                }
             }
             for store in targets {
                 canonical[store, default: []].append(row)
@@ -391,6 +394,100 @@ enum PulseLaunch {
     ) -> [MetricRow] {
         let index = pickPathPickerIndex(scorecard: scorecard, pathRows: pathRows)
         return pickPathPickers(store: store, rows: index.rows)
+    }
+
+    static let noPathPickerRowsTitle = "No Path Picker rows"
+    static let noPathPickerRowsID = "no-path-picker-rows"
+
+    struct PickPathShopperLine: Equatable {
+        var id: String
+        var name: String
+        var path: Double?
+        var pph: Double?
+        var orders: Double?
+        var mapper: String?
+        var sequence: String?
+    }
+
+    /// Pick Path shopper table. Path %, PPH, and Orders come only from
+    /// `.pickPathPicker` rows. Mapper and Sequence come from the store
+    /// `pick_path` row. Scorecard-only stores get one notice line.
+    static func pickPathShopperLines(
+        pathRows: [MetricRow],
+        scorecardRows: [MetricRow],
+        storePath: MetricRow?
+    ) -> [PickPathShopperLine] {
+        let paths = pathRows.filter { $0.section == .pickPathPicker }
+        if paths.isEmpty {
+            guard !scorecardRows.isEmpty else { return [] }
+            return [
+                PickPathShopperLine(
+                    id: noPathPickerRowsID,
+                    name: noPathPickerRowsTitle,
+                    path: nil,
+                    pph: nil,
+                    orders: nil,
+                    mapper: nil,
+                    sequence: nil
+                )
+            ]
+        }
+        var byKey: [String: PickPathShopperLine] = [:]
+        var order: [String] = []
+        order.reserveCapacity(paths.count)
+        for row in paths {
+            let aliases = HeartbeatMath.shopperAliases(row)
+            let id = aliases.first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
+            guard !id.isEmpty else { continue }
+            let label = pickPathShopperLabel(row)
+            var line = byKey[id] ?? PickPathShopperLine(
+                id: id,
+                name: label.isEmpty ? row.shopperName : label,
+                path: nil,
+                pph: nil,
+                orders: nil,
+                mapper: nil,
+                sequence: nil
+            )
+            if line.name.isEmpty || line.name == "Unknown shopper" {
+                line.name = label.isEmpty ? (row.shopperId ?? id) : label
+            }
+            if line.path == nil { line.path = row.number("compliance_pct") }
+            if line.pph == nil { line.pph = row.number("pph") }
+            if line.orders == nil { line.orders = row.number("orders") }
+            if byKey[id] == nil { order.append(id) }
+            byKey[id] = line
+        }
+        let mapperText = pickPathStoreDate(storePath) { AisleMapperMath.mapperISO($0) }
+        let sequenceText = pickPathStoreDate(storePath) { AisleMapperMath.sequenceISO($0) }
+        var lines: [PickPathShopperLine] = []
+        lines.reserveCapacity(order.count)
+        for id in order {
+            guard var line = byKey[id] else { continue }
+            if line.mapper == nil { line.mapper = mapperText }
+            if line.sequence == nil { line.sequence = sequenceText }
+            lines.append(line)
+        }
+        lines.sort { lhs, rhs in
+            let a = lhs.path ?? 999
+            let b = rhs.path ?? 999
+            if a != b { return a < b }
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+        return lines
+    }
+
+    static func pickPathShopperLinesAreEmptyNotice(_ lines: [PickPathShopperLine]) -> Bool {
+        lines.count == 1 && lines[0].id == noPathPickerRowsID
+    }
+
+    private static func pickPathStoreDate(
+        _ row: MetricRow?,
+        key: (MetricRow) -> String?
+    ) -> String? {
+        guard let row else { return nil }
+        let text = HeartbeatFormat.shortDate(key(row))
+        return text == "—" ? nil : text
     }
 
     static func pickPathExpandDisplay(path: Double?, pph: Double?, orders: Double?) -> (path: String, pph: String, orders: String) {
