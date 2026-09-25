@@ -542,6 +542,7 @@ class PathKeeperTests(unittest.TestCase):
                 for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='index'")
             }
             self.assertNotIn("facts_section_div", indexes)
+            self.assertNotIn("facts_section_store", indexes)
             self.assertNotIn("sqlite_autoindex_facts_1", indexes)
             self.assertEqual(con.execute("PRAGMA page_size").fetchone()[0], thin.PAGE_SIZE)
             con.close()
@@ -600,6 +601,24 @@ class PathKeeperTests(unittest.TestCase):
             self.assertEqual(float(hot["presub_pct"]), 5.067500000000001)
             self.assertEqual(hot["oos_pct"], 93)
             self.assertNotIn("PRIMARY KEY", con.execute("SELECT sql FROM sqlite_master WHERE name='facts'").fetchone()[0])
+            self.assertEqual(
+                con.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='facts_section_store'"
+                ).fetchone()[0],
+                0,
+            )
+            # PulseSQLite read paths. A partial facts_section_store cannot serve these.
+            app_queries = [
+                "SELECT COUNT(*) FROM facts WHERE section = ?",
+                "SELECT id FROM facts WHERE section = ?",
+                "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts WHERE section IN ('sales','labor')",
+                "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts WHERE section NOT IN ('picker_scorecard','pick_path_picker')",
+                "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts WHERE section IN (?,?) AND store_number IN (?,?)",
+            ]
+            for sql in app_queries:
+                params = ("sales", "labor", "1000", "1001") if sql.count("?") == 4 else (("sales",) if "?" in sql else ())
+                plan = " ".join(row[-1] for row in con.execute("EXPLAIN QUERY PLAN " + sql, params))
+                self.assertNotIn("facts_section_store", plan)
             con.close()
 
     def test_over_cap_fails_and_keeps_path_rows(self) -> None:
