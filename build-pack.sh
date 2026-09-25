@@ -5,44 +5,19 @@
 # First time (creates the pack from a loaded iPad):
 #   DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh
 #
-# Daily (xlsx is archive only; pack comes off the iPad after one load):
+# Daily workbook upload (private R2, then the cook). This script does not
+# send the xlsx anywhere:
+#   ./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
+#
+# Pack from the iPad, when you still publish that way:
 #   R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_ACCOUNT_ID=… R2_BUCKET=heartbeat-packs \
-#   DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh "/path/Heartbeat Daily Report.xlsx"
+#   DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh
 set -eu
 cd "$(dirname "$0")"
 
 BUNDLE_ID="com.corymurray.FulfillmentHeartbeat"
 UDID="${DEVICE_UDID:-}"
-PROJECT="https://pcnjujfmlsklhrosxzlt.supabase.co"
-KEY="sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
-BUCKET="heartbeat-packs"
 XLSX="${1:-}"
-
-# Workbook archive stays on Supabase (cook still reads it from there).
-upload_workbook() {
-  NAME="$1"
-  FILE="$2"
-  TYPE="$3"
-  CODE=$(curl -sS -o /tmp/heartbeat-pack-upload.txt -w "%{http_code}" \
-    -X POST \
-    -H "Authorization: Bearer $KEY" \
-    -H "apikey: $KEY" \
-    -H "Content-Type: $TYPE" \
-    -H "x-upsert: true" \
-    --data-binary @"$FILE" \
-    "$PROJECT/storage/v1/object/$BUCKET/$NAME")
-  if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-    CODE=$(curl -sS -o /tmp/heartbeat-pack-upload.txt -w "%{http_code}" \
-      -X PUT \
-      -H "Authorization: Bearer $KEY" \
-      -H "apikey: $KEY" \
-      -H "Content-Type: $TYPE" \
-      -H "x-upsert: true" \
-      --data-binary @"$FILE" \
-      "$PROJECT/storage/v1/object/$BUCKET/$NAME")
-  fi
-  echo "$CODE"
-}
 
 upload_pack() {
   NAME="$1"
@@ -57,9 +32,8 @@ if [ -n "$XLSX" ]; then
     echo "File not found: $XLSX"
     exit 1
   fi
-  echo "Archiving workbook to Supabase (testers will not parse this)…"
-  CODE=$(upload_workbook "Heartbeat Daily Report.xlsx" "$XLSX" "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-  echo "Workbook upload $CODE"
+  echo "This script does not archive the workbook."
+  echo "Upload it with: ./ingest-heartbeat.sh \"$XLSX\""
 fi
 
 if [ -z "$UDID" ]; then

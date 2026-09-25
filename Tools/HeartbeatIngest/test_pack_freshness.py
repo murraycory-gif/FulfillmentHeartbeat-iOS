@@ -48,6 +48,20 @@ class ListedSizeTests(unittest.TestCase):
         self.assertEqual(fresh.listed_size([row], "current.sqlite"), 9)
 
 
+class SameWorkbookTests(unittest.TestCase):
+    def test_matches_etag_quotes_and_s3_fields(self) -> None:
+        marker = {"id": "abc", "updated_at": "2026-09-25T00:00:00Z", "size": 100}
+        asset = {"ETag": '"abc"', "LastModified": "2026-09-25T00:00:00Z", "ContentLength": "100"}
+        self.assertTrue(fresh.same_workbook(marker, asset))
+
+    def test_size_or_id_change_cooks(self) -> None:
+        marker = {"id": "abc", "updated_at": "t", "size": 100}
+        self.assertFalse(fresh.same_workbook(marker, {"id": "abc", "updated_at": "t", "size": 101}))
+        self.assertFalse(fresh.same_workbook(marker, {"id": "def", "updated_at": "t", "size": 100}))
+        self.assertFalse(fresh.same_workbook(None, marker))
+        self.assertFalse(fresh.same_workbook({}, marker))
+
+
 class HeadPackTests(unittest.TestCase):
     def test_sends_non_python_user_agent(self) -> None:
         captured = {}

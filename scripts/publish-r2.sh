@@ -43,9 +43,11 @@ export AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED
 
 ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
+CACHE="${R2_CACHE_CONTROL:-public, max-age=60}"
+
 aws s3 cp "$FILE" "s3://${R2_BUCKET}/${KEY}" \
   --endpoint-url "$ENDPOINT" \
   --content-type "$TYPE" \
-  --cache-control "public, max-age=60"
+  --cache-control "$CACHE"
 
 echo "Published s3://${R2_BUCKET}/${KEY}"

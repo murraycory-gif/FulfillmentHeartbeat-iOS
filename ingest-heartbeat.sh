@@ -1,19 +1,25 @@
 #!/bin/sh
 # Daily ingest. Excel never runs on iPhone/iPad.
 #
-# 1. Upload Heartbeat Daily Report.xlsx to Supabase Storage.
-# 2. GitHub cooks current.sqlite and publishes company LIVE to R2 (no Mac).
-# 3. Testers open Heartbeat — they only download the pack from R2.
+# The GitHub repo is public, so the workbook is not a release asset and it
+# is not uploaded to the public packs bucket (r2.dev). It goes to the private
+# R2 bucket heartbeat-workbook, which has no public domain. GitHub Actions
+# reads that bucket with the existing R2 secrets and cooks current.sqlite
+# onto the public packs bucket.
 #
-# Usage:
+# On this Mac, export the same R2 access key the cook already uses. Do not
+# create a new token and do not set R2_BUCKET to heartbeat-packs for this
+# upload. Optional R2_WORKBOOK_BUCKET overrides the private bucket name.
+#
+#   export R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_ACCOUNT_ID=…
 #   ./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
 set -eu
 cd "$(dirname "$0")"
 
-PROJECT="https://pcnjujfmlsklhrosxzlt.supabase.co"
-KEY="sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
-BUCKET="heartbeat-packs"
 XLSX="${1:-}"
+PUBLIC_BUCKET="${R2_BUCKET:-heartbeat-packs}"
+WORKBOOK_BUCKET="${R2_WORKBOOK_BUCKET:-heartbeat-workbook}"
+WORKBOOK_KEY="Heartbeat Daily Report.xlsx"
 
 if [ -z "$XLSX" ]; then
   echo "Usage: ./ingest-heartbeat.sh \"/path/Heartbeat Daily Report.xlsx\""
@@ -23,40 +29,54 @@ if [ ! -f "$XLSX" ]; then
   echo "File not found: $XLSX"
   exit 1
 fi
-
-BYTES=$(wc -c < "$XLSX" | tr -d ' ')
-echo "Uploading workbook ($BYTES bytes)…"
-CODE=$(curl -sS -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
-  -X POST \
-  -H "Authorization: Bearer $KEY" \
-  -H "apikey: $KEY" \
-  -H "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
-  -H "x-upsert: true" \
-  --data-binary @"$XLSX" \
-  "$PROJECT/storage/v1/object/$BUCKET/Heartbeat%20Daily%20Report.xlsx")
-if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-  CODE=$(curl -sS -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
-    -X PUT \
-    -H "Authorization: Bearer $KEY" \
-    -H "apikey: $KEY" \
-    -H "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
-    -H "x-upsert: true" \
-    --data-binary @"$XLSX" \
-    "$PROJECT/storage/v1/object/$BUCKET/Heartbeat%20Daily%20Report.xlsx")
-fi
-if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-  echo "Workbook upload failed ($CODE)."
-  cat /tmp/heartbeat-xlsx-upload.txt
+if [ "$WORKBOOK_BUCKET" = "heartbeat-packs" ] || [ "$WORKBOOK_BUCKET" = "$PUBLIC_BUCKET" ]; then
+  echo "Refusing to upload the workbook to the public packs bucket ($WORKBOOK_BUCKET)." >&2
+  echo "Leave R2_BUCKET as the packs bucket. This script writes heartbeat-workbook." >&2
   exit 1
 fi
 
-echo "Workbook is in the bucket."
-if command -v gh >/dev/null 2>&1; then
-  echo "Starting the cloud kitchen…"
-  gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS || true
+missing=""
+for var in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ACCOUNT_ID; do
+  eval "val=\${$var:-}"
+  if [ -z "$val" ]; then
+    missing="$missing $var"
+  fi
+done
+if [ -n "$missing" ]; then
+  echo "Missing R2 env:$missing" >&2
+  echo "Export the existing GitHub Actions R2 access key, secret, and account id." >&2
+  echo "The repo is public, so a GitHub release would publish the workbook." >&2
+  echo "Do not put a new key in this script." >&2
+  exit 1
 fi
+if ! command -v aws >/dev/null 2>&1; then
+  echo "aws CLI is required to upload the workbook to the private R2 bucket." >&2
+  exit 1
+fi
+
+export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+export AWS_EC2_METADATA_DISABLED=true
+export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+export AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED
+
+BYTES=$(wc -c < "$XLSX" | tr -d ' ')
+echo "Uploading workbook ($BYTES bytes) to private bucket $WORKBOOK_BUCKET…"
+aws s3 cp "$XLSX" "s3://${WORKBOOK_BUCKET}/${WORKBOOK_KEY}" \
+  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+  --content-type "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  --cache-control "private, no-store"
+
+echo "Workbook is in the private bucket."
+if ! command -v gh >/dev/null 2>&1; then
+  echo "gh is required to start cook-heartbeat-pack.yml." >&2
+  exit 1
+fi
+echo "Starting the cloud kitchen…"
+gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS
 echo
-echo "GitHub is cooking current.sqlite and publishing it to R2 and Supabase. Company pack goes LIVE in a few minutes."
+echo "GitHub is cooking current.sqlite and publishing it to the public R2 packs bucket."
 echo "Watch: https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/actions"
 echo "Pack: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
 echo "Testers: force-close Heartbeat, open it again. They never pick a file."

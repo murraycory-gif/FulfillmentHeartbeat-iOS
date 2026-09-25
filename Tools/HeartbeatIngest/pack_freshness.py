@@ -43,6 +43,53 @@ def head_pack(pack_host: str, object_key: str = "current.sqlite", timeout: int =
         return "", 0
 
 
+def workbook_identity(asset: dict | None) -> dict[str, object]:
+    """Normalize a workbook marker or object head to id, updated_at, and size.
+
+    Accepts GitHub release fields (id, updated_at, size) and S3 HeadObject
+    fields (ETag, LastModified, ContentLength). Empty input is an empty identity.
+    """
+    if not isinstance(asset, dict):
+        return {"id": "", "updated_at": "", "size": 0}
+    raw_id = asset.get("id")
+    if raw_id is None:
+        raw_id = asset.get("etag")
+    if raw_id is None:
+        raw_id = asset.get("ETag")
+    raw_updated = asset.get("updated_at")
+    if raw_updated is None:
+        raw_updated = asset.get("last_modified")
+    if raw_updated is None:
+        raw_updated = asset.get("LastModified")
+    raw_size = asset.get("size")
+    if raw_size is None:
+        raw_size = asset.get("ContentLength")
+    try:
+        size = int(raw_size)
+    except (TypeError, ValueError):
+        size = 0
+    return {
+        "id": str(raw_id or "").strip().strip('"'),
+        "updated_at": str(raw_updated or "").strip(),
+        "size": size,
+    }
+
+
+def same_workbook(marker: dict | None, asset: dict | None) -> bool:
+    """True when the cooked marker and the workbook object are the same bytes.
+
+    A missing marker, a missing id, or any difference in id / updated_at / size
+    means the cook should run. Comparison is exact after identity normalization.
+    """
+    left = workbook_identity(marker)
+    right = workbook_identity(asset)
+    if not left["id"] or not right["id"]:
+        return False
+    if left["size"] < 1 or right["size"] < 1:
+        return False
+    return left == right
+
+
 def listed_size(rows, name: str) -> int:
     """Byte size of `name` in a Supabase storage list, or -1 if missing.
 
