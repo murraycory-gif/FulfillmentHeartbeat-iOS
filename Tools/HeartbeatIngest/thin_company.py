@@ -435,8 +435,9 @@ def refuse_thinned_path(con: sqlite3.Connection, path_before: int | None) -> Non
 def ship_without_facts_pk(con: sqlite3.Connection) -> None:
     """The app only SELECTs facts. Uniqueness is enforced here, then the PK index is not shipped.
 
-    facts_section_store stays for readStores (section + store_number) but skips the two
-    shopper sections, which are loaded by section scan rather than store IN (...).
+    No facts_section_store index. SQLite will not plan `section = ?` or `section IN (...)`
+    against a partial index (NOT IN or an explicit IN list): INDEXED BY returns
+    "no query solution". A full index covers shopper rows and slows those scans.
     """
     dup = con.execute("SELECT COUNT(*) - COUNT(DISTINCT id) FROM facts").fetchone()[0]
     if dup:
@@ -464,10 +465,6 @@ def ship_without_facts_pk(con: sqlite3.Connection) -> None:
     )
     con.execute("DROP TABLE facts")
     con.execute("ALTER TABLE facts_ship RENAME TO facts")
-    con.execute(
-        """CREATE INDEX facts_section_store ON facts(section, store_number)
-           WHERE section NOT IN ('picker_scorecard', 'pick_path_picker')"""
-    )
     con.execute("COMMIT")
 
 
