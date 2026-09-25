@@ -1,13 +1,13 @@
 name: Cook Heartbeat pack
 
-# Turns Heartbeat Daily Report.xlsx (still in Supabase Storage) into
-# current.sqlite and publishes the thin company pack to Cloudflare R2,
-# then upserts the same file to Supabase Storage (root + company seat).
-# R2 is the primary host. Supabase stays in lockstep so tip 468, which
-# still downloads current.sqlite from that bucket, does not stay Sunday-only.
-# After that mirror, delete heartbeat-packs/facts.json (Sep 12).
-# 200/204 removed it. 404 is already gone. Any other status fails the cook.
-# Testers never parse Excel. Cory's Mac does not need to be on.
+# The GitHub repo is public, so the workbook is not a release asset.
+# It lives in the private R2 bucket heartbeat-workbook (no r2.dev domain).
+# This workflow reads and writes that bucket with the existing R2 secrets.
+# Packs still publish to the public bucket in R2_BUCKET.
+# Freshness compares the private object's ETag, Last-Modified, and size to
+# packs/workbook-cooked.json in that same private bucket. Unchanged cooks skip.
+# Supabase is not contacted.
+# Testers never parse Excel. Cory's Mac does not need to stay on after upload.
 # Company LIVE (current.sqlite + company seat key) publishes before seats.
 # District/store seats are optional on this tip — continue if the cook
 # did not write a seat plane.
@@ -25,124 +25,95 @@ on:
     # 8:00 AM–5:45 PM America/Chicago weekdays (CDT = UTC-5 → 13:00–22:45 UTC)
     - cron: "*/15 13-22 * * 1-5"
 
+permissions:
+  contents: read
+
 jobs:
   cook:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download workbook from Supabase
-        env:
-          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
-          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
-          PACK_HOST: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev
+      - name: Ensure aws CLI for R2
         run: |
           set -euo pipefail
-          curl -sS -X POST \
-            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"prefix":"","limit":50}' \
-            "$PROJECT/storage/v1/object/list/heartbeat-packs" > /tmp/bucket.json
-          python3 - <<'PY'
-          import json, os, sys, urllib.request
-          from datetime import datetime, timezone
-          from email.utils import parsedate_to_datetime
-
-          # Public r2.dev HEAD. Python-urllib is 403; HeartbeatCook/1.0 is 200.
-          # This read does not use R2_ACCESS_KEY_ID or any other R2 secret.
-          sys.path.insert(0, "Tools/HeartbeatIngest")
-          from pack_freshness import head_pack, listed_size
-
-          rows = json.load(open("/tmp/bucket.json"))
-          if isinstance(rows, dict):
-              raise SystemExit(f"bucket list: {rows}")
-          files = {r["name"]: r for r in rows}
-          xlsx = files.get("Heartbeat Daily Report.xlsx")
-          if not xlsx:
-              raise SystemExit("No Heartbeat Daily Report.xlsx in the bucket.")
-
-          def parse_ts(raw):
-              if not raw:
-                  return None
-              try:
-                  dt = parsedate_to_datetime(raw)
-                  if dt.tzinfo is None:
-                      dt = dt.replace(tzinfo=timezone.utc)
-                  return dt
-              except Exception:
-                  pass
-              raw = raw.replace("Z", "+00:00")
-              try:
-                  dt = datetime.fromisoformat(raw)
-              except ValueError:
-                  return None
-              if dt.tzinfo is None:
-                  dt = dt.replace(tzinfo=timezone.utc)
-              return dt
-
-          xlsx_dt = parse_ts(xlsx.get("updated_at") or xlsx.get("created_at") or "")
-          pack_host = os.environ.get("PACK_HOST", "").rstrip("/")
-          pack_updated, pack_bytes = head_pack(pack_host)
-          pack_dt = parse_ts(pack_updated)
-          force = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-
-          def list_prefix(prefix):
-              body = json.dumps({"prefix": prefix, "limit": 50}).encode()
-              req = urllib.request.Request(
-                  f"{os.environ['PROJECT']}/storage/v1/object/list/heartbeat-packs",
-                  data=body,
-                  method="POST",
-                  headers={
-                      "Authorization": f"Bearer {os.environ['KEY']}",
-                      "apikey": os.environ["KEY"],
-                      "Content-Type": "application/json",
-                  },
-              )
-              with urllib.request.urlopen(req, timeout=20) as resp:
-                  payload = json.load(resp)
-              if isinstance(payload, dict):
-                  raise RuntimeError(payload)
-              return payload
-
-          supabase_root = listed_size(files, "current.sqlite")
-          supabase_seat = -1
-          try:
-              seat_rows = list_prefix("packs/seat/company/all/")
-              supabase_seat = listed_size(seat_rows, "current.sqlite")
-          except Exception as exc:
-              print(f"Supabase company-seat list: {exc}")
-          print(
-              f"xlsx {xlsx.get('updated_at')} r2 {pack_updated} "
-              f"sqlite_bytes={pack_bytes} supabase_root={supabase_root} "
-              f"supabase_seat={supabase_seat} force={force}"
-          )
-          if xlsx_dt and pack_dt:
-              print(f"xlsx_dt {xlsx_dt.isoformat()} r2_dt {pack_dt.isoformat()} newer={xlsx_dt > pack_dt}")
-          # Same thin file must sit on both hosts. A size miss (or a failed
-          # list) means tip 468 is still on the previous Supabase object.
-          supabase_matches = (
-              pack_bytes >= 1_000_000
-              and supabase_root == pack_bytes
-              and supabase_seat == pack_bytes
-          )
-          if pack_bytes >= 1_000_000 and not supabase_matches:
-              open("/tmp/supabase-stale", "w").write("1")
-              print("Supabase company pack does not match R2. Mirror required.")
-          # 1MB floor: never treat a stub/empty R2 object as a fresh cook.
-          if not force and xlsx_dt and pack_dt and xlsx_dt <= pack_dt and pack_bytes >= 1_000_000:
-              open("/tmp/skip", "w").write("1")
-              print("Pack on R2 is already newer than the workbook. Skip cook.")
-          PY
-          if [ -f /tmp/supabase-stale ]; then
-            echo "supabase_stale=1" >> "$GITHUB_ENV"
+          if ! command -v aws >/dev/null 2>&1; then
+            brew install awscli
           fi
+          aws --version
+
+      - name: Download workbook from private R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          WORKBOOK_BUCKET: heartbeat-workbook
+          WORKBOOK_KEY: Heartbeat Daily Report.xlsx
+          MARKER_KEY: packs/workbook-cooked.json
+        run: |
+          set -euo pipefail
+          export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+          export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+          export AWS_EC2_METADATA_DISABLED=true
+          export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+          export AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          if [ "$WORKBOOK_BUCKET" = "heartbeat-packs" ]; then
+            echo "Refusing to read the workbook from the public packs bucket."
+            exit 1
+          fi
+          set +e
+          aws s3api head-object \
+            --bucket "$WORKBOOK_BUCKET" \
+            --key "$WORKBOOK_KEY" \
+            --endpoint-url "$ENDPOINT" > /tmp/workbook-head.json 2> /tmp/workbook-head.err
+          HEAD_STATUS=$?
+          set -e
+          if [ "$HEAD_STATUS" -ne 0 ]; then
+            if grep -Eq '404|Not Found|NoSuchKey' /tmp/workbook-head.err; then
+              echo "No workbook in private bucket $WORKBOOK_BUCKET yet. Skip cook."
+              echo "skip=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "Could not read s3://${WORKBOOK_BUCKET}/${WORKBOOK_KEY}."
+            cat /tmp/workbook-head.err
+            exit 1
+          fi
+          aws s3 cp "s3://${WORKBOOK_BUCKET}/${MARKER_KEY}" /tmp/workbook-cooked.json \
+            --endpoint-url "$ENDPOINT" || true
+          python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, "Tools/HeartbeatIngest")
+          from pack_freshness import same_workbook
+
+          head = json.load(open("/tmp/workbook-head.json"))
+          asset = {
+              "id": head.get("ETag") or "",
+              "updated_at": head.get("LastModified") or "",
+              "size": head.get("ContentLength") or 0,
+          }
+          json.dump(asset, open("/tmp/workbook-asset.json", "w"))
+          marker = None
+          if os.path.isfile("/tmp/workbook-cooked.json"):
+              try:
+                  marker = json.load(open("/tmp/workbook-cooked.json"))
+              except json.JSONDecodeError:
+                  marker = None
+          print(
+              f"workbook id={asset['id']} updated_at={asset['updated_at']} "
+              f"size={asset['size']} marker={marker}"
+          )
+          if same_workbook(marker, asset):
+              open("/tmp/skip", "w").write("1")
+              print("Workbook matches packs/workbook-cooked.json. Skip cook.")
+          PY
           if [ -f /tmp/skip ]; then
             echo "skip=1" >> "$GITHUB_ENV"
             exit 0
           fi
-          curl -sS -L -o /tmp/daily.xlsx \
-            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-            "$PROJECT/storage/v1/object/public/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx"
+          aws s3 cp "s3://${WORKBOOK_BUCKET}/${WORKBOOK_KEY}" /tmp/daily.xlsx \
+            --endpoint-url "$ENDPOINT"
           ls -l /tmp/daily.xlsx
 
       - name: Build kitchen
@@ -204,27 +175,13 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure aws CLI for R2
-        if: env.skip != '1'
-        run: |
-          set -euo pipefail
-          if ! command -v aws >/dev/null 2>&1; then
-            brew install awscli
-          fi
-          aws --version
-
-      - name: Publish company LIVE to R2 and Supabase
+      - name: Publish company LIVE to R2
         if: env.skip != '1'
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          HEARTBEAT_SUPABASE_PUBLISHABLE_KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
         run: |
           set -euo pipefail
           BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
@@ -270,25 +227,19 @@ jobs:
           set -euo pipefail
           Tools/HeartbeatIngest/publish-cloud.sh seats /tmp/current.sqlite
 
-      # R2 is already newer than the workbook, but Supabase still has a
-      # different company pack (tip 468 reads that bucket). Copy the live
-      # R2 object — do not recook.
-      - name: Mirror fresh R2 company pack onto Supabase
-        if: env.skip == '1' && env.supabase_stale == '1'
+      - name: Record cooked workbook marker
+        if: env.skip != '1'
         env:
-          PACK_HOST: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          HEARTBEAT_SUPABASE_PUBLISHABLE_KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: heartbeat-workbook
+          R2_CACHE_CONTROL: private, no-store
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/current.sqlite "$PACK_HOST/current.sqlite"
-          BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
-          if [ "$BYTES" -lt 1000000 ] || [ "$BYTES" -gt 40000000 ]; then
-            echo "Refusing to mirror R2 current.sqlite ($BYTES bytes)."
+          if [ "$R2_BUCKET" = "heartbeat-packs" ]; then
+            echo "Refusing to store the workbook marker on the public packs bucket."
             exit 1
           fi
-          chmod +x Tools/HeartbeatIngest/publish-cloud.sh scripts/publish-supabase.sh
-          Tools/HeartbeatIngest/publish-cloud.sh mirror-supabase /tmp/current.sqlite
+          chmod +x scripts/publish-r2.sh
+          ./scripts/publish-r2.sh /tmp/workbook-asset.json packs/workbook-cooked.json application/json
