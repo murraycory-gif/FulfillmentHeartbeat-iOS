@@ -364,11 +364,19 @@ enum WorkbookParser {
         if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
         if keys.contains("schedule_efficiency_pct") { return .scheduleQuality }
         if keys.contains("dynacap_rate") || keys.contains("dpa_dynacap") || keys.contains("eot_capacity") { return .dynacap }
-        if keys.contains("compliance_pct") && (text.contains("employee") || text.contains("employee_alternate_id") || text.contains("shopper_id")) {
-            return .pickPathPicker
+        if keys.contains("compliance_pct") {
+            let hasStore = sample.contains { !$0.storeNumber.isEmpty }
+            let employeeGrain = !hasStore && (
+                text.contains("employee")
+                    || text.contains("employee_alternate_id")
+                    || text.contains("shopper_id")
+            )
+            // Store pick-path sheets carry an employee column. That is still
+            // pick path, not the picker scorecard. Employee-only rows are the
+            // path-picker sheet.
+            return employeeGrain ? .pickPathPicker : .pickPath
         }
         if text.contains("shopper_id") || text.contains("shopper_name") { return .pickerScorecard }
-        if keys.contains("compliance_pct") { return .pickPath }
         if keys.contains("pph") { return .pph }
         return nil
     }
@@ -2920,6 +2928,17 @@ enum WorkbookParser {
     }
 
     private static func parsePickerWide(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        // Pick Path Compliance is a store sheet that also names employees.
+        // The scorecard parser would keep the shopper id and drop compliance,
+        // and section(fromRows) would then call it a picker scorecard.
+        if matrix.prefix(8).contains(where: { row in
+            row.contains { header in
+                let name = normHeader(header)
+                return name.contains("pickpath") || name.contains("pathcompliance")
+            }
+        }) {
+            return nil
+        }
         guard let headerIndex = pickerHeaderIndex(matrix) else { return nil }
 
         let header = matrix[headerIndex].map(normHeader)

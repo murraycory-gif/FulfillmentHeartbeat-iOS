@@ -3423,9 +3423,14 @@ private struct PathShopperTable: View {
                     health: health(of: metric, in: picker)
                 )
             },
-            health: overall
+            health: overall,
+            rowAccessibilityIdentifier: pickPathShopperRowID
         )
-        .accessibilityIdentifier(section == .pickPath || section == .pickPathPicker ? "pick-path-shopper-row" : "")
+        .modifier(PickPathRowAccessibility(pickPathShopperRowID))
+    }
+
+    private var pickPathShopperRowID: String {
+        section == .pickPath || section == .pickPathPicker ? "pick-path-shopper-row" : ""
     }
 
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
@@ -3438,6 +3443,7 @@ private struct PathShopperTable: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(minWidth: 110, maxWidth: 160, alignment: .leading)
+                .modifier(RowAccessibilityIdentifier(pickPathShopperRowID))
             ForEach(columns, id: \.self) { metric in
                 cell(display(metric, picker), health(of: metric, in: picker))
             }
@@ -3451,7 +3457,7 @@ private struct PathShopperTable: View {
                 .background(pill(overall), in: Capsule())
                 .frame(width: 72, alignment: .trailing)
         }
-        .accessibilityIdentifier(section == .pickPath || section == .pickPathPicker ? "pick-path-shopper-row" : "")
+        .modifier(PickPathRowAccessibility(pickPathShopperRowID))
         .tableRowCard(health: overall)
     }
 

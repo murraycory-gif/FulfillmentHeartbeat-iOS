@@ -697,16 +697,18 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var lostRevenueStatusTiles: some View {
         let rows = snapshots.filter { $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty }
-        let dollars = summary.headline
-        let pct = summary.lostRevenuePct
         let healthy = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
         let watch = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
         let risk = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
+        let market = store.filters.isActive ? nil : store.lostRevenueMarketRow()
         let pool: [MetricRow] = {
-            if store.filters.isActive { return rows }
-            if let market = store.lostRevenueMarketRow() { return rows + [market] }
+            if let market { return rows + [market] }
             return rows
         }()
+        // Result card, Total Company row, and the dashboard tile share this
+        // company number: the market Total Opportunity when that row is present.
+        let dollars = HeartbeatMath.lostRevenueTODollars(pool, key: "lost_revenue")
+        let pct = market?.number("lost_revenue_pct") ?? summary.lostRevenuePct
         let sales: Double? = {
             let value = HeartbeatMath.lostRevenueTODollars(pool, key: "ecomm_sales")
             return rows.isEmpty && HeartbeatMath.lostRevenueMarketRow(in: pool) == nil ? nil : value
@@ -714,7 +716,7 @@ struct SectionDetailView: View {
         let goalPct = HeartbeatMath.lostRevenueGoalPct(rows: rows, market: store.filters.isActive ? nil : store.lostRevenueMarketRow())
         let post = HeartbeatMath.lostRevenueTODollars(pool, key: "post_sub_oos_foregone")
         HubCalloutGrid(width: pageWidth, count: 8) {
-            callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
+            callout("Total lost revenue", HeartbeatFormat.money(rows.isEmpty && market == nil ? nil : dollars), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct), selected: lostRevenueFocus == .all) {
                 lostRevenueFocus = .all
             }
             callout("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good, unit: "stores", selected: lostRevenueFocus == .healthy) {
@@ -726,7 +728,7 @@ struct SectionDetailView: View {
             callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 5%", risk == 0 ? .good : .risk, unit: "stores", selected: lostRevenueFocus == .risk) {
                 lostRevenueFocus = .risk
             }
-            callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
+            callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct))
             callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
             callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
             callout("Post Sub OOS", HeartbeatFormat.money(rows.isEmpty ? nil : post), "Foregone revenue", .none)

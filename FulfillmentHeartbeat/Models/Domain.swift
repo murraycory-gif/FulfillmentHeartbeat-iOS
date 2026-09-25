@@ -2974,11 +2974,13 @@ enum HeartbeatMath {
     }
 
     static func fiveStarActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
+        // Same labels and order as the Five Star page and mail tiles
+        // (Flash, Presubs, COE, OTT, OTH 5%). Dashboard pills read this list.
         let specs: [(name: String, key: String, mark: (MetricRow) -> StarMark)] = [
             ("Flash", "flash_pct", flashStar),
+            ("Presubs", "presub_pct", presubStar),
             ("COE", "coe_pct", coeStar),
             ("OTT", "ott_pct", ottStar),
-            ("Pre Sub OOS%", "presub_pct", presubStar),
             ("OTH 5%", "oth5_pct", othStar),
         ]
         var flags: [FiveStarFlag] = []

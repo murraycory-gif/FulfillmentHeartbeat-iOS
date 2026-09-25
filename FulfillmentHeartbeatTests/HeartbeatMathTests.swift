@@ -272,7 +272,7 @@ final class HeartbeatMathTests: XCTestCase {
             ]
         )
         let flags = HeartbeatMath.dashboardActionFlags(section: .fiveStar, rows: [jewel], includeAll: true)
-        XCTAssertEqual(flags.map(\.name), ["Flash", "COE", "OTT", "Pre Sub OOS%", "OTH 5%"])
+        XCTAssertEqual(flags.map(\.name), ["Flash", "Presubs", "COE", "OTT", "OTH 5%"])
         XCTAssertEqual(flags.first { $0.name == "OTT" }?.value, HeartbeatFormat.pct(81))
     }
 
@@ -2815,8 +2815,8 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(manifest.company.path, "packs/seat/company/all/current.sqlite")
         XCTAssertEqual(Set(manifest.districts.map(\.id)), ["03", "A9", "J1"])
-        XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Jino-Arvin", "Shelly-Selof"])
-        XCTAssertEqual(Set(manifest.stores.map(\.id)), ["12", "13", "9001"])
+        XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Aimee-Cabrera-Kleissler", "Jino-Arvin", "Shelly-Selof"])
+        XCTAssertEqual(Set(manifest.stores.map(\.id)), ["12", "13", "3603", "9001"])
         XCTAssertTrue(manifest.allEntries.contains { $0.path == "packs/seat/om/Jino-Arvin/current.sqlite" })
         let paths = PulseSeatPack.publishObjectPaths(from: manifest)
         XCTAssertTrue(paths.contains("packs/manifest.json"))
@@ -5369,7 +5369,7 @@ final class HeartbeatMathTests: XCTestCase {
         let caches = PulseCaches.build(rows: rows, filters: DashboardFilters(), uploads: [], heavy: false, grain: .region)
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(summary?.storeCount, 2160)
-        XCTAssertEqual(summary?.headline ?? 0, 3_337_325, accuracy: 50)
+        XCTAssertEqual(summary?.headline ?? 0, 3_456_041, accuracy: 50)
         let packs = caches.cachedGrainPacks[.lostRevenue] ?? []
         XCTAssertEqual(packs.count, 4)
         for pack in packs {

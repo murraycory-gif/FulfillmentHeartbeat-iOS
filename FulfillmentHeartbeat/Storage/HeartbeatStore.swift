@@ -850,6 +850,13 @@ final class HeartbeatStore: ObservableObject {
                 next.salesYoyPct = company.number("sales_yoy_pct") ?? next.salesYoyPct
             }
         }
+        if section == .lostRevenue, let market = lostRevenueMarketRow(),
+           let dollars = market.number("lost_revenue"), dollars > 0 {
+            next.headline = dollars
+            if let pct = market.number("lost_revenue_pct") {
+                next.lostRevenuePct = pct
+            }
+        }
         return next
     }
 
@@ -1613,6 +1620,11 @@ final class HeartbeatStore: ObservableObject {
             let afterLoad = pickPathPickers(forStore: store)
             if PulseLaunch.pickPathPercentReady(afterLoad) { return afterLoad }
         }
+        // Path rows are often employee-grain with no store. The scorecard is
+        // the shopper-to-store join. Load it before treating the store as empty.
+        if !PulseLaunch.pickPathPercentReady(pickPathPickers(forStore: store)) {
+            await ensureSectionLoaded(.pickerScorecard)
+        }
         let scorecard = PulseLaunch.pickerSeatRows(
             filtered: filteredLatest[.pickerScorecard] ?? [],
             warehouse: latestBySection[.pickerScorecard] ?? [],
@@ -1664,10 +1676,18 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// A miss before the database pack settles must run again when the pack lands.
+    /// An empty index is not final while path rows still need a scorecard join.
     private func rememberPickPathShopperLookup(_ store: String) {
         guard usingDatabasePack, !warehouseHydrating, !isImporting, isReady, !packFetchInFlight else { return }
         let key = HeartbeatMath.canonicalStore(store)
         guard !key.isEmpty else { return }
+        if pickPathPickers(forStore: store).isEmpty {
+            let path = latestBySection[.pickPathPicker] ?? []
+            guard !path.isEmpty else { return }
+            let needsJoin = path.contains { HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+            let scorecardReady = !(latestBySection[.pickerScorecard] ?? []).isEmpty
+            if needsJoin, !scorecardReady { return }
+        }
         resolvedPickPathShopperRevision[key] = packRevision
     }
 
