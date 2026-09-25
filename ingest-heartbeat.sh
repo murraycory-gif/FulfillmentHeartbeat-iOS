@@ -7,14 +7,20 @@
 # reads that bucket with the existing R2 secrets and cooks current.sqlite
 # onto the public packs bucket.
 #
-# On this Mac, export the same R2 access key the cook already uses. Do not
-# create a new token and do not set R2_BUCKET to heartbeat-packs for this
-# upload. Optional R2_WORKBOOK_BUCKET overrides the private bucket name.
+# On this Mac, credentials are read for you. No exports.
+#   1. Environment, if you already set R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ACCOUNT_ID
+#   2. macOS Keychain service heartbeat-r2
+#        accounts: access_key_id, secret_access_key, account_id
+#   3. ~/.config/heartbeat/r2.env (gitignored; not in this repo)
+# One-time setup: ./scripts/setup-r2-keychain.sh
+# Do not create a new token and do not set R2_BUCKET to heartbeat-packs.
+# Optional R2_WORKBOOK_BUCKET overrides the private bucket name.
 #
-#   export R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_ACCOUNT_ID=…
 #   ./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
 set -eu
 cd "$(dirname "$0")"
+# shellcheck source=scripts/load-r2-creds.sh
+. ./scripts/load-r2-creds.sh
 
 XLSX="${1:-}"
 PUBLIC_BUCKET="${R2_BUCKET:-heartbeat-packs}"
@@ -35,18 +41,7 @@ if [ "$WORKBOOK_BUCKET" = "heartbeat-packs" ] || [ "$WORKBOOK_BUCKET" = "$PUBLIC
   exit 1
 fi
 
-missing=""
-for var in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ACCOUNT_ID; do
-  eval "val=\${$var:-}"
-  if [ -z "$val" ]; then
-    missing="$missing $var"
-  fi
-done
-if [ -n "$missing" ]; then
-  echo "Missing R2 env:$missing" >&2
-  echo "Export the existing GitHub Actions R2 access key, secret, and account id." >&2
-  echo "The repo is public, so a GitHub release would publish the workbook." >&2
-  echo "Do not put a new key in this script." >&2
+if ! load_r2_credentials; then
   exit 1
 fi
 if ! command -v aws >/dev/null 2>&1; then
@@ -70,13 +65,14 @@ aws s3 cp "$XLSX" "s3://${WORKBOOK_BUCKET}/${WORKBOOK_KEY}" \
 
 echo "Workbook is in the private bucket."
 if ! command -v gh >/dev/null 2>&1; then
-  echo "gh is required to start cook-heartbeat-pack.yml." >&2
-  exit 1
+  echo "gh is not installed. The weekday schedule (every 15 minutes, 8:00 a.m.–5:45 p.m. Chicago) will pick the workbook up."
+elif gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS; then
+  echo
+  echo "GitHub is cooking current.sqlite and publishing it to the public R2 packs bucket."
+else
+  echo "gh workflow run failed. The weekday schedule (every 15 minutes, 8:00 a.m.–5:45 p.m. Chicago) will pick the workbook up."
 fi
-echo "Starting the cloud kitchen…"
-gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS
-echo
-echo "GitHub is cooking current.sqlite and publishing it to the public R2 packs bucket."
 echo "Watch: https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/actions"
 echo "Pack: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
 echo "Testers: force-close Heartbeat, open it again. They never pick a file."
+exit 0

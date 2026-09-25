@@ -31,6 +31,24 @@ cd ~/Developer/FulfillmentHeartbeat-iOS
 
 Or `git pull` then reopen the project.
 
+## Daily workbook
+
+The GitHub repo is public. The Excel file is not a release asset and it is not uploaded to the public packs bucket. `ingest-heartbeat.sh` sends it to the private R2 bucket `heartbeat-workbook`. You do not export credentials.
+
+One time, on your Mac (hidden prompts, stored in Keychain service `heartbeat-r2`):
+
+```bash
+./scripts/setup-r2-keychain.sh
+```
+
+Each day:
+
+```bash
+./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
+```
+
+Lookup order is the environment, then Keychain accounts `access_key_id`, `secret_access_key`, and `account_id`, then `~/.config/heartbeat/r2.env`. That file is gitignored and is not in this repo. If `gh` is missing or the workflow dispatch fails, the upload still succeeds and the weekday schedule (every 15 minutes, 8:00 a.m.–5:45 p.m. Chicago) cooks it.
+
 ## What’s in this foundation
 
 | Area | Status |
