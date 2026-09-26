@@ -11,6 +11,8 @@ struct HeartbeatAssistSheet: View {
     @State private var chips: [String] = []
     @State private var expandedMore: Set<UUID> = []
     @State private var expandedRanked: Set<UUID> = []
+    @State private var expandedChecks: Set<String> = []
+    @State private var expandedWhy: Set<String> = []
     @FocusState private var fieldFocused: Bool
 
     private var stackFacts: Bool { dynamicTypeSize.isAccessibilitySize }
@@ -205,10 +207,10 @@ struct HeartbeatAssistSheet: View {
                 headerBlock(header, lines: answer.headerLines, proxy: proxy)
             }
             ForEach(visible) { issue in
-                problemCard(issue, proxy: proxy)
+                problemCard(issue, turnID: turn.id, proxy: proxy)
                     .id(issue.id)
-                if !issue.checks.isEmpty {
-                    resolutionCard(issue)
+                if !issue.checks.isEmpty || !issue.moreChecks.isEmpty {
+                    resolutionCard(issue, turnID: turn.id)
                 }
             }
             if answer.issues.count > 3 {
@@ -288,7 +290,7 @@ struct HeartbeatAssistSheet: View {
         }
     }
 
-    private func problemCard(_ issue: AssistIssue, proxy: ScrollViewProxy) -> some View {
+    private func problemCard(_ issue: AssistIssue, turnID: UUID, proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
                 perform(issue.footerAction)
@@ -326,7 +328,7 @@ struct HeartbeatAssistSheet: View {
             .accessibilityLabel(issue.accessibilityLabel)
             .accessibilityAddTraits(.isButton)
             if issue.why != nil || !issue.causeChecks.isEmpty || !issue.drivenBy.isEmpty {
-                whyBlock(issue, proxy: proxy)
+                whyBlock(issue, turnID: turnID, proxy: proxy)
             }
             Text(issue.scope)
                 .font(.footnote)
@@ -354,19 +356,33 @@ struct HeartbeatAssistSheet: View {
         }
     }
 
-    private func whyBlock(_ issue: AssistIssue, proxy: ScrollViewProxy) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Why")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.textSecondary)
+    private func whyBlock(_ issue: AssistIssue, turnID: UUID, proxy: ScrollViewProxy) -> some View {
+        let key = "\(turnID.uuidString)-\(issue.id)-why"
+        let open = expandedWhy.contains(key)
+        return VStack(alignment: .leading, spacing: 6) {
             if let why = issue.why {
-                Text(why)
-                    .font(.body)
-                    .foregroundStyle(AppTheme.text)
-                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    guard !issue.causeChecks.isEmpty else { return }
+                    if open {
+                        expandedWhy.remove(key)
+                    } else {
+                        expandedWhy.insert(key)
+                    }
+                } label: {
+                    Text(why)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.text)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(why)
             }
-            ForEach(issue.causeChecks) { check in
-                actionButton(check)
+            if open {
+                ForEach(issue.causeChecks) { check in
+                    actionButton(check)
+                }
             }
             ForEach(issue.drivenBy) { link in
                 Button {
@@ -385,13 +401,32 @@ struct HeartbeatAssistSheet: View {
         }
     }
 
-    private func resolutionCard(_ issue: AssistIssue) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Resolution")
+    private func resolutionCard(_ issue: AssistIssue, turnID: UUID) -> some View {
+        let key = "\(turnID.uuidString)-\(issue.id)-checks"
+        let open = expandedChecks.contains(key)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("What to do")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.textSecondary)
             ForEach(Array(issue.checks.enumerated()), id: \.element.id) { index, check in
                 actionButton(check, number: index + 1)
+            }
+            if !issue.moreChecks.isEmpty {
+                disclosureButton(
+                    title: open ? "Hide checks" : "More checks ›",
+                    systemImage: open ? "chevron.up" : "chevron.down"
+                ) {
+                    if open {
+                        expandedChecks.remove(key)
+                    } else {
+                        expandedChecks.insert(key)
+                    }
+                }
+                if open {
+                    ForEach(issue.moreChecks) { check in
+                        actionButton(check)
+                    }
+                }
             }
         }
         .padding(14)
@@ -408,11 +443,25 @@ struct HeartbeatAssistSheet: View {
             perform(action)
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text(number.map { "\($0). \(action.question)" } ?? action.question)
-                    .font(.body)
-                    .foregroundStyle(AppTheme.text)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if !action.statusMark.isEmpty {
+                        Image(systemName: action.statusSymbol)
+                            .accessibilityHidden(true)
+                        Text(action.statusMark)
+                            .font(.body.weight(.semibold))
+                    }
+                    Text(number.map { "\($0). \(action.question)" } ?? action.question)
+                        .font(.body)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(AppTheme.text)
+                if !action.detail.isEmpty {
+                    Text(action.detail)
+                        .font(.footnote)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if !action.owner.isEmpty {
                     Text("Owner: \(action.owner)")
                         .font(.footnote)

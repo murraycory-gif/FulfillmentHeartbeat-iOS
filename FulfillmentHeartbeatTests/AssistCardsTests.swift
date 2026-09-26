@@ -130,194 +130,189 @@ final class AssistCardsTests: XCTestCase {
         )
     }
 
-    func testPlaybookParsesAndEveryRankedMetricHasAFloorCheck() throws {
+    func testPlaybookParsesAndEveryDestinationResolves() throws {
         let book = try loadPlaybook()
-        XCTAssertFalse(book.shared.worstChildQuestion.isEmpty)
-        let comparators = ["lt", "gt", "lte", "gte", "eq", "<", ">", "<=", ">="]
-        for id in AssistPlaybook.rankedMetricIDs {
-            let checks = book.metrics[id]?.checks ?? []
-            XCTAssertFalse(checks.isEmpty, id)
-            for check in checks {
-                switch check.kind {
-                case .floor:
-                    XCTAssertTrue(check.question.hasSuffix("?"), check.question)
-                    XCTAssertLessThanOrEqual(check.question.count, AssistCopy.actionLimit, check.question)
-                    let first = check.question.split(separator: " ").first.map(String.init)?.lowercased()
-                    XCTAssertTrue(
-                        ["is", "are", "do", "does", "has", "have", "can"].contains(first ?? ""),
-                        check.question
-                    )
-                    XCTAssertFalse(check.question.lowercased().contains("call-off"), check.question)
-                    XCTAssertFalse(check.question.lowercased().contains("no-show"), check.question)
-                case .auto:
-                    XCTAssertFalse(check.field?.isEmpty ?? true, check.id)
-                    XCTAssertTrue(comparators.contains(check.comparator ?? ""), check.id)
-                    XCTAssertNotNil(check.threshold, check.id)
-                    XCTAssertFalse(check.answerTrue?.isEmpty ?? true, check.id)
-                    XCTAssertFalse(check.answerFalse?.isEmpty ?? true, check.id)
+        XCTAssertEqual(book.version, "2026-09-25.2")
+        XCTAssertEqual(book.line, "0dcad79201cba43c75e6a70e2cfe67b6339eeaec")
+        XCTAssertEqual(book.metrics.count, 27)
+        let checks = book.metrics.flatMap(\.checks)
+        XCTAssertEqual(checks.count, 115)
+        XCTAssertEqual(checks.filter { $0.type == .floor }.count, 112)
+        XCTAssertEqual(checks.filter { $0.type == .auto }.count, 3)
+        let allowed = Set(HubDestination.allCases.map(\.rawValue))
+        XCTAssertEqual(allowed.count, 13)
+        XCTAssertFalse(allowed.contains("checklist"))
+        XCTAssertFalse(allowed.contains("upload"))
+        for metric in book.metrics {
+            XCTAssertNotNil(HubDestination(rawValue: metric.section), metric.metricId)
+            XCTAssertFalse(metric.checks.isEmpty, metric.metricId)
+            for check in metric.checks {
+                XCTAssertNotNil(
+                    HubDestination(rawValue: check.destination),
+                    "\(metric.metricId) #\(check.order) \(check.destination)"
+                )
+                XCTAssertNotEqual(check.destination, "checklist")
+                XCTAssertNotEqual(check.destination, "upload")
+                if check.type == .floor {
+                    XCTAssertTrue(check.question?.hasSuffix("?") == true, check.question ?? metric.metricId)
+                    XCTAssertFalse(check.question?.lowercased().contains("call-off") == true)
+                    XCTAssertFalse(check.question?.lowercased().contains("no-show") == true)
+                    XCTAssertFalse(check.question?.contains("(confirm)") == true)
                 }
             }
         }
-        XCTAssertNotNil(book.metrics["picker_scorecard"])
+        for id in AssistPlaybook.rankedMetricIDs {
+            XCTAssertNotNil(book.metric(id), id)
+        }
+        XCTAssertEqual(AssistRank.pphRankingBand.goal, 80)
+        XCTAssertEqual(AssistRank.pphRankingBand.risk, 74)
+        XCTAssertEqual(HeartbeatMath.pphGoal, 80)
+        XCTAssertEqual(HeartbeatMath.pphRisk, 74)
+        XCTAssertEqual(book.metric("lost_reduced_capacity")?.causesConfirm, ["dynacap"])
+        XCTAssertEqual(book.metric("lost_revenue")?.causes, ["lost_reduced_capacity"])
+        XCTAssertTrue(book.metric("lost_revenue")?.causesConfirm.isEmpty == true)
     }
 
-    func testOwnerSeedsFloorAndAutoChecks() throws {
+    func testOwnerWordingLivesOnPreSubsOTTAndPPH() throws {
         let book = try loadPlaybook()
-        let presub = try XCTUnwrap(book.metrics["pre_sub_oos"]).checks
-        XCTAssertEqual(presub.prefix(3).map(\.kind), [.floor, .floor, .floor])
-        XCTAssertEqual(Array(presub.prefix(3).map(\.question)), [
+        let radios = [
             "Are shoppers using radios?",
             "Is the whole store using radios?",
             "Is store PI (perpetual inventory) accurate?",
-        ])
-
-        let pph = try XCTUnwrap(book.metrics["pph"]).checks
-        XCTAssertEqual(pph[0].kind, .floor)
+        ]
+        for id in ["pre_sub_oos", "five_star_presub"] {
+            let checks = try XCTUnwrap(book.metric(id)).checks
+            XCTAssertEqual(Array(checks.prefix(3).map(\.question)), radios, id)
+            XCTAssertEqual(checks[2].detail, "Check PI accuracy; look for out-of-stocks showing as on-hand.")
+            XCTAssertFalse(checks.contains { $0.question?.contains("(confirm)") == true }, id)
+        }
+        let pph = try XCTUnwrap(book.metric("pph")).checks
+        XCTAssertEqual(pph[0].type, .floor)
         XCTAssertEqual(
             pph[0].question,
-            "Are shoppers picking 30 items within the first 15 minutes of their run/shift start?"
+            "Are shoppers picking 30 items within the first 15 minutes of their run or shift start?"
         )
-        XCTAssertEqual(pph[1].kind, .auto)
-        XCTAssertEqual(pph[1].field, "pph")
-        XCTAssertEqual(pph[1].comparator, "lt")
+        XCTAssertEqual(pph[1].type, .auto)
+        XCTAssertEqual(pph[1].label, "PPH under 65")
+        XCTAssertEqual(pph[1].packFields, ["pph", "pure_pph"])
+        XCTAssertEqual(pph[1].comparator, "<")
         XCTAssertEqual(pph[1].threshold, 65)
-        XCTAssertEqual(HeartbeatMath.pphGoal, 80, "The owner floor stays in the playbook.")
+        XCTAssertEqual(pph[1].rollup, .avg)
 
-        let stars = try XCTUnwrap(book.metrics["five_star"]).checks
-        let under = try XCTUnwrap(stars.first { $0.id == "ott_under_scheduled" })
-        XCTAssertEqual(under.kind, .auto)
-        XCTAssertEqual(under.showWhen, "weakestOTT")
-        XCTAssertEqual(under.field, "under_schedule_pct")
-        XCTAssertEqual(under.aliases, ["under_scheduled"])
-        XCTAssertEqual(under.source, "schedule_quality")
-        XCTAssertEqual(under.comparator, "gt")
-        XCTAssertEqual(under.threshold ?? 0, 0.05, accuracy: 0.0001)
-        XCTAssertEqual(under.answerTrue, "Under-scheduled: yes")
-        let ottPPH = try XCTUnwrap(stars.first { $0.id == "ott_pph_under_65" })
-        XCTAssertEqual(ottPPH.kind, .auto)
-        XCTAssertEqual(ottPPH.field, "pph")
-        XCTAssertEqual(ottPPH.source, "pph")
-        XCTAssertEqual(ottPPH.comparator, "lt")
-        XCTAssertEqual(ottPPH.threshold, 65)
-        XCTAssertEqual(ottPPH.showWhen, "weakestOTT")
-        let ottIndex = try XCTUnwrap(stars.firstIndex { $0.id == "ott_under_scheduled" })
-        let toteIndex = try XCTUnwrap(stars.firstIndex { $0.id == "weak_ott" })
-        XCTAssertLessThan(ottIndex, toteIndex)
+        let ott = try XCTUnwrap(book.metric("five_star_ott")).checks
+        XCTAssertEqual(ott.prefix(2).map(\.type), [.auto, .auto])
+        XCTAssertEqual(ott[0].label, "Under-scheduled")
+        XCTAssertEqual(ott[0].threshold, 5)
+        XCTAssertEqual(ott[0].packFields, ["under_schedule_pct", "under_scheduled"])
+        XCTAssertEqual(ott[0].supportFields, ["under_adherence_pct"])
+        XCTAssertEqual(ott[0].rollup, .countFailing)
+        XCTAssertEqual(ott[1].label, "PPH under 65")
+        XCTAssertEqual(ott[1].threshold, 65)
+        XCTAssertEqual(ott[2].type, .floor)
     }
 
-    func testAutoCheckRendersScopeValue() {
-        let pph = pphAutoCheck()
+    func testAutoCheckRendersScopeValue() throws {
+        let book = try loadPlaybook()
+        let pph = try XCTUnwrap(book.metric("pph")?.checks.first { $0.label == "PPH under 65" })
         XCTAssertEqual(
-            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 58])]], fallbackSection: .pph),
-            "PPH 58 - under 65"
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 58])]], level: .store),
+            "PPH 58, under 65"
         )
         XCTAssertEqual(
-            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 58.4])]], fallbackSection: .pph),
-            "PPH 58.4 - under 65"
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 58.4])]], level: .store),
+            "PPH 58.4, under 65"
         )
         XCTAssertEqual(
-            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 72])]], fallbackSection: .pph),
-            "PPH 72 - at or above 65"
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 72])]], level: .store),
+            "PPH 72, at or above 65"
         )
         XCTAssertEqual(
-            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 65])]], fallbackSection: .pph),
-            "PPH 65 - at or above 65"
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 65])]], level: .store),
+            "PPH 65, at or above 65"
         )
         XCTAssertEqual(
-            AssistAutoCheck.sentence(
-                pph,
-                rows: [.pph: [row(.pph, ["pph": 50], store: "304"), row(.pph, ["pph": 66], store: "305")]],
-                fallbackSection: .pph
-            ),
-            "PPH 58 - under 65"
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pure_pph": 58])]], level: .store),
+            "PPH 58, under 65"
         )
-        XCTAssertEqual(
-            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pure_pph": 58])]], fallbackSection: .pph),
-            "PPH 58 - under 65"
+        let scope = AssistAutoCheck.evaluate(
+            pph,
+            rows: [.pph: [row(.pph, ["pph": 50], store: "304"), row(.pph, ["pph": 66], store: "305")]],
+            summaries: [.pph: summary(.pph, .risk, risk: 1, watch: 0, stores: 2, headline: 58)],
+            level: .company
         )
+        XCTAssertEqual(scope?.failing, true)
+        XCTAssertEqual(scope?.sentence, "PPH 58.0, under 65; 1 of 2 stores under 65")
+        XCTAssertEqual(scope?.statusMark, "Check")
 
-        let under = underScheduledCheck()
+        let under = try XCTUnwrap(book.metric("five_star_ott")?.checks.first { $0.label == "Under-scheduled" })
         XCTAssertEqual(
             AssistAutoCheck.sentence(
                 under,
-                rows: [.scheduleQuality: [row(.scheduleQuality, ["under_schedule_pct": 6.2])]],
-                fallbackSection: .fiveStar
+                rows: [.scheduleQuality: [row(.scheduleQuality, ["under_schedule_pct": 7.2, "under_adherence_pct": 4.1])]],
+                level: .store
             ),
-            "Under-scheduled: yes"
+            "Under-scheduled: yes (Sch vs Tgt 7.2%, over 5%, Pch vs Sch 4.1%)"
+        )
+        XCTAssertEqual(
+            AssistAutoCheck.sentence(
+                under,
+                rows: [.scheduleQuality: [row(.scheduleQuality, ["under_schedule_pct": 7.2])]],
+                level: .store
+            ),
+            "Under-scheduled: yes (Sch vs Tgt 7.2%, over 5%)"
         )
         XCTAssertEqual(
             AssistAutoCheck.sentence(
                 under,
                 rows: [.scheduleQuality: [row(.scheduleQuality, ["under_schedule_pct": 3])]],
-                fallbackSection: .fiveStar
+                level: .store
             ),
-            "Under-scheduled: yes"
+            "Under-scheduled: no (Sch vs Tgt 3%)"
         )
         XCTAssertEqual(
             AssistAutoCheck.sentence(
                 under,
-                rows: [.scheduleQuality: [row(.scheduleQuality, ["under_scheduled": 0])]],
-                fallbackSection: .fiveStar
+                rows: [
+                    .scheduleQuality: [
+                        row(.scheduleQuality, ["under_schedule_pct": 7.2], store: "304"),
+                        row(.scheduleQuality, ["under_schedule_pct": 1], store: "305"),
+                    ],
+                ],
+                level: .company
             ),
-            "Under-scheduled: no"
-        )
-        XCTAssertEqual(
-            AssistAutoCheck.sentence(
-                under,
-                rows: [.scheduleQuality: [row(.scheduleQuality, ["under_schedule_pct": 0.04])]],
-                fallbackSection: .fiveStar
-            ),
-            "Under-scheduled: no"
+            "Under-scheduled: yes, 1 of 2 stores over 5% (Sch vs Tgt)"
         )
     }
 
-    func testAutoCheckHidesWhenFieldIsMissing() {
-        let pph = pphAutoCheck()
-        XCTAssertNil(AssistAutoCheck.sentence(pph, rows: [:], fallbackSection: .pph))
+    func testAutoCheckHidesWhenFieldIsMissing() throws {
+        let book = try loadPlaybook()
+        let pph = try XCTUnwrap(book.metric("pph")?.checks.first { $0.label == "PPH under 65" })
+        XCTAssertNil(AssistAutoCheck.sentence(pph, rows: [:], level: .store))
         XCTAssertNil(
-            AssistAutoCheck.sentence(
-                pph,
-                rows: [.pph: [row(.pph, ["orders": 12])]],
-                fallbackSection: .pph
-            )
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["orders": 12])]], level: .store)
         )
         XCTAssertNil(
-            AssistAutoCheck.sentence(
-                pph,
-                rows: [.pph: [row(.pph, ["pph": 58], store: "210")]],
-                fallbackSection: .pph
-            )
-        )
-        XCTAssertNil(
-            AssistAutoCheck.sentence(
-                pph,
-                rows: [.fiveStar: [row(.fiveStar, ["pph": 58])]],
-                fallbackSection: .fiveStar
-            )
+            AssistAutoCheck.sentence(pph, rows: [.pph: [row(.pph, ["pph": 58], store: "210")]], level: .store)
         )
         var unknown = pph
         unknown.comparator = "around"
         XCTAssertNil(
-            AssistAutoCheck.sentence(
-                unknown,
-                rows: [.pph: [row(.pph, ["pph": 58])]],
-                fallbackSection: .pph
-            )
+            AssistAutoCheck.sentence(unknown, rows: [.pph: [row(.pph, ["pph": 58])]], level: .store)
         )
 
-        let under = underScheduledCheck()
+        let under = try XCTUnwrap(book.metric("five_star_ott")?.checks.first { $0.label == "Under-scheduled" })
         XCTAssertNil(
             AssistAutoCheck.sentence(
                 under,
                 rows: [.scheduleQuality: [row(.scheduleQuality, ["schedule_efficiency_pct": 91])]],
-                fallbackSection: .fiveStar
+                level: .store
             )
         )
         XCTAssertNil(
             AssistAutoCheck.sentence(
                 under,
                 rows: [.scheduleQuality: [row(.scheduleQuality, ["under_adherence_pct": 8])]],
-                fallbackSection: .fiveStar
+                level: .store
             )
         )
     }
@@ -325,54 +320,77 @@ final class AssistCardsTests: XCTestCase {
     func testResolutionCardsUseOwnerChecksAndHideMissingAutoFields() throws {
         let book = try loadPlaybook()
         var presub = fixtureSnapshot()
-        presub.summaries[.preSubOOS] = summary(.preSubOOS, .risk, risk: 4, watch: 1, stores: 10, headline: 8)
+        presub.filters.store = "304"
+        presub.summaries[.preSubOOS] = summary(.preSubOOS, .risk, risk: 1, watch: 0, stores: 1, headline: 8)
         presub.rows[.preSubOOS] = [row(.preSubOOS, ["mi_pct": 8])]
-        let presubAnswer = AssistComposer.answer(question: "pre sub", snapshot: presub, book: book)
-        let presubQuestions = presubAnswer.issues.first { $0.id == "pre_sub_oos" }?.checks.map(\.question) ?? []
-        XCTAssertEqual(Array(presubQuestions.prefix(3)), [
+        let presubIssue = try XCTUnwrap(
+            AssistComposer.answer(question: "pre sub", snapshot: presub, book: book).issues.first { $0.id == "pre_sub_oos" }
+        )
+        XCTAssertEqual(Array(presubIssue.checks.prefix(3).map(\.question)), [
             "Are shoppers using radios?",
             "Is the whole store using radios?",
             "Is store PI (perpetual inventory) accurate?",
         ])
+        XCTAssertEqual(presubIssue.checks[2].detail, "Check PI accuracy; look for out-of-stocks showing as on-hand.")
+        XCTAssertFalse(presubIssue.checks.contains { $0.question.contains("(confirm)") })
 
         var low = fixtureSnapshot()
-        low.summaries[.pph] = summary(.pph, .risk, risk: 2, watch: 0, stores: 2, headline: 58)
-        low.rows[.pph] = [
-            row(.pph, ["pph": 50], store: "304"),
-            row(.pph, ["pph": 66], store: "305"),
-        ]
-        let lowAnswer = AssistComposer.answer(question: "pph", snapshot: low, book: book)
-        let lowQuestions = lowAnswer.issues.first { $0.id == "pph" }?.checks.map(\.question) ?? []
-        XCTAssertEqual(
-            lowQuestions.first,
-            "Are shoppers picking 30 items within the first 15 minutes of their run/shift start?"
+        low.filters.store = "304"
+        low.summaries[.pph] = summary(.pph, .risk, risk: 1, watch: 0, stores: 1, headline: 58)
+        low.rows[.pph] = [row(.pph, ["pph": 58])]
+        let lowIssue = try XCTUnwrap(
+            AssistComposer.answer(question: "pph", snapshot: low, book: book).issues.first { $0.id == "pph" }
         )
-        XCTAssertTrue(lowQuestions.contains("PPH 58 - under 65"))
+        XCTAssertEqual(
+            lowIssue.checks.first?.question,
+            "Are shoppers picking 30 items within the first 15 minutes of their run or shift start?"
+        )
+        XCTAssertTrue(lowIssue.checks.contains { $0.question == "PPH 58, under 65" && $0.statusMark == "Check" })
+
+        var passing = low
+        passing.summaries[.pph] = summary(.pph, .watch, risk: 0, watch: 1, stores: 1, headline: 72)
+        passing.rows[.pph] = [row(.pph, ["pph": 72])]
+        let passingIssue = try XCTUnwrap(
+            AssistComposer.answer(question: "pph", snapshot: passing, book: book).issues.first { $0.id == "pph" }
+        )
+        XCTAssertFalse(passingIssue.checks.contains { $0.question.contains("65") })
+        XCTAssertTrue(passingIssue.moreChecks.contains { $0.question == "PPH 72, at or above 65" && $0.statusMark == "OK" })
 
         var missing = low
-        missing.rows[.pph] = [row(.pph, ["orders": 10], store: "304")]
-        let missingAnswer = AssistComposer.answer(question: "pph", snapshot: missing, book: book)
-        let missingQuestions = missingAnswer.issues.first { $0.id == "pph" }?.checks.map(\.question) ?? []
-        XCTAssertEqual(missingQuestions.first, lowQuestions.first)
-        XCTAssertFalse(missingQuestions.contains { $0.contains("65") })
-        XCTAssertFalse(missingQuestions.contains { $0.contains("58") })
+        missing.rows[.pph] = [row(.pph, ["orders": 10])]
+        missing.summaries[.pph] = summary(.pph, .risk, risk: 1, watch: 0, stores: 1, headline: nil)
+        let missingIssue = try XCTUnwrap(
+            AssistComposer.answer(question: "pph", snapshot: missing, book: book).issues.first { $0.id == "pph" }
+        )
+        let shown = missingIssue.checks + missingIssue.moreChecks
+        XCTAssertEqual(shown.first?.question, lowIssue.checks.first?.question)
+        XCTAssertFalse(shown.contains { $0.question.contains("65") || $0.question.contains("58") })
 
         var ott = fixtureSnapshot()
-        ott.summaries[.fiveStar] = summary(.fiveStar, .risk, risk: 3, watch: 0, stores: 3, headline: 3.2)
-        ott.rows[.fiveStar] = [row(.fiveStar, ["ott_pct": 80, "star_rating": 3.2])]
-        ott.rows[.scheduleQuality] = [row(.scheduleQuality, ["under_schedule_pct": 6.2])]
+        ott.filters.store = "304"
+        ott.summaries[.fiveStar] = summary(.fiveStar, .risk, risk: 1, watch: 0, stores: 1, headline: 3.2)
+        ott.rows[.fiveStar] = [row(.fiveStar, ["ott_pct": 80, "star_rating": 3.2, "presub_pct": 2, "flash_pct": 90, "coe_pct": 30, "oth5_pct": 96])]
+        ott.rows[.scheduleQuality] = [row(.scheduleQuality, ["under_schedule_pct": 7.2])]
         ott.rows[.pph] = [row(.pph, ["pph": 58])]
-        let ottAnswer = AssistComposer.answer(question: "ott", snapshot: ott, book: book)
-        let ottQuestions = ottAnswer.issues.first { $0.id == "five_star" }?.checks.map(\.question) ?? []
-        XCTAssertEqual(ottQuestions.first, "Under-scheduled: yes")
-        XCTAssertTrue(ottQuestions.contains("PPH 58 - under 65"))
+        ott.summaries[.pph] = summary(.pph, .risk, risk: 1, watch: 0, stores: 1, headline: 58)
+        let ottIssue = try XCTUnwrap(
+            AssistComposer.answer(question: "ott", snapshot: ott, book: book).issues.first { $0.id == "five_star" }
+        )
+        XCTAssertEqual(
+            ottIssue.checks.first?.question,
+            "Under-scheduled: yes (Sch vs Tgt 7.2%, over 5%)"
+        )
+        XCTAssertTrue(ottIssue.checks.contains { $0.question == "PPH 58, under 65" })
+        XCTAssertTrue(ottIssue.checks.contains { $0.question.hasSuffix("?") })
 
         var ottMissing = ott
         ottMissing.rows[.scheduleQuality] = [row(.scheduleQuality, ["schedule_efficiency_pct": 91])]
-        let ottMissingAnswer = AssistComposer.answer(question: "ott", snapshot: ottMissing, book: book)
-        let ottMissingQuestions = ottMissingAnswer.issues.first { $0.id == "five_star" }?.checks.map(\.question) ?? []
-        XCTAssertFalse(ottMissingQuestions.contains { $0.hasPrefix("Under-scheduled") })
-        XCTAssertTrue(ottMissingQuestions.contains("PPH 58 - under 65"))
+        let ottMissingIssue = try XCTUnwrap(
+            AssistComposer.answer(question: "ott", snapshot: ottMissing, book: book).issues.first { $0.id == "five_star" }
+        )
+        let ottShown = ottMissingIssue.checks + ottMissingIssue.moreChecks
+        XCTAssertFalse(ottShown.contains { $0.question.hasPrefix("Under-scheduled") })
+        XCTAssertTrue(ottShown.contains { $0.question == "PPH 58, under 65" })
     }
 
     func testFixtureAnswerOrderHeaderAndPickerExclusion() throws {
@@ -483,75 +501,80 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(noScope.chips.isEmpty)
     }
 
-    func testLostSalesShowsOTTAndPPHCausesOnlyWhenTheyFail() throws {
+    func testLostSalesWhyNamesOnlyFailingOTTAndPPH() throws {
         let book = try loadPlaybook()
-        XCTAssertEqual(book.metrics["lost_revenue"]?.causes, ["dynacap"])
-        XCTAssertEqual(book.metrics["dynacap"]?.causes, ["five_star", "pph"])
-        XCTAssertEqual(book.metrics["dynacap"]?.causeLabel, "Low capacity")
-        XCTAssertEqual(book.metrics["five_star"]?.causeLabel, "Poor OTT")
-        XCTAssertEqual(book.metrics["pph"]?.causeLabel, "Low PPH")
-        let ottCheck = try XCTUnwrap(book.metrics["five_star"]?.checks.first { $0.id == "ott_vs_target" })
-        XCTAssertEqual(ottCheck.threshold, 95)
-        XCTAssertEqual(HeartbeatMath.pphGoal, 80)
+        XCTAssertEqual(book.metric("lost_revenue")?.ownerName, "Lost Sales")
+        XCTAssertEqual(book.metric("lost_reduced_capacity")?.ownerName, "Low capacity")
+        XCTAssertEqual(book.metric("five_star_ott")?.ownerName, "Poor OTT")
+        XCTAssertEqual(book.metric("pph")?.ownerName, "Low PPH")
+        XCTAssertEqual(book.metric("lost_reduced_capacity")?.causes, ["five_star_ott", "pph", "dynacap"])
+        XCTAssertEqual(book.metric("lost_reduced_capacity")?.causesConfirm, ["dynacap"])
+        XCTAssertEqual(book.metric("five_star_ott")?.causesConfirm, ["schedule_quality", "pph"])
 
-        let failing = lostSalesSnapshot(ott: 80, pph: 58, under: 6.2, capacity: 50)
-        let lost = try lostIssue("lost revenue", failing, book)
+        let both = lostSalesSnapshot(ott: 80, pph: 58, under: 7.2, missed: 1_200, capacity: 50)
+        let lost = try lostIssue("lost revenue", both, book)
         XCTAssertEqual(
             lost.why,
-            "Low capacity, 50 pieces an hour. Poor OTT, Under-scheduled, and Low PPH"
+            "Why: low capacity, from late orders (OTT 80.0%) and slow picking (PPH 58.0)."
         )
         XCTAssertEqual(lost.causeChecks.map(\.question), [
-            "Capacity 50 - under 65",
-            "OTT 80 - under 95",
-            "Under-scheduled: yes",
-            "PPH 58 - under 65",
+            "Under-scheduled: yes, 1 of 1 stores over 5% (Sch vs Tgt)",
+            "PPH 58.0, under 65; 1 of 1 stores under 65",
         ])
-        XCTAssertEqual(lost.causeChecks.map(\.destination), [.dynacap, .fiveStar, .scheduleQuality, .pph])
+        XCTAssertEqual(lost.causeChecks.map(\.destination), [.scheduleQuality, .pph])
+        XCTAssertFalse(lost.causeChecks.contains { $0.destination == .dynacap })
+        XCTAssertFalse(lost.why?.contains("Dynacap") == true)
         XCTAssertTrue(lost.drivenBy.isEmpty)
 
-        let ranked = AssistComposer.answer(question: "What should we fix first?", snapshot: failing, book: book)
+        let ranked = AssistComposer.answer(question: "What should we fix first?", snapshot: both, book: book)
         let rankedIDs = ranked.issues.map(\.id)
         XCTAssertEqual(rankedIDs.filter { $0 == "lost_revenue" }.count, 1)
         XCTAssertEqual(rankedIDs.filter { $0 == "pph" }.count, 1)
         XCTAssertEqual(rankedIDs.filter { $0 == "five_star" }.count, 1)
         XCTAssertEqual(rankedIDs.filter { $0 == "dynacap" }.count, 1)
-        let linked = try XCTUnwrap(ranked.issues.first { $0.id == "lost_revenue" })
-        XCTAssertEqual(linked.drivenBy.map(\.text), [
-            "Driven by Dynacap",
-            "Driven by 5 Star",
-            "Driven by PPH",
+        XCTAssertTrue(ranked.issues.first { $0.id == "lost_revenue" }?.drivenBy.isEmpty == true)
+
+        let ottOnly = lostSalesSnapshot(ott: 80, pph: 80, under: 7.2, missed: 1_200)
+        let ottLost = try lostIssue("lost revenue", ottOnly, book)
+        XCTAssertEqual(ottLost.why, "Why: low capacity, from late orders (OTT 80.0%).")
+        XCTAssertEqual(ottLost.causeChecks.map(\.question), [
+            "Under-scheduled: yes, 1 of 1 stores over 5% (Sch vs Tgt)",
         ])
-        XCTAssertEqual(linked.drivenBy.map(\.issueID), ["dynacap", "five_star", "pph"])
-        XCTAssertTrue(linked.causeChecks.contains { $0.question == "PPH 58 - under 65" })
-        XCTAssertTrue(linked.causeChecks.contains { $0.question == "OTT 80 - under 95" })
+        XCTAssertFalse(ottLost.causeChecks.contains { $0.question.contains("PPH") })
 
-        let healthy = lostSalesSnapshot(ott: 96, pph: 72, under: 0, capacity: 70)
-        let healthyLost = try lostIssue("lost revenue", healthy, book)
-        XCTAssertNil(healthyLost.why)
-        XCTAssertTrue(healthyLost.causeChecks.isEmpty)
-        let healthyRanked = AssistComposer.answer(question: "What should we fix first?", snapshot: healthy, book: book)
-        XCTAssertTrue(healthyRanked.issues.contains { $0.id == "lost_revenue" })
-        XCTAssertTrue(healthyRanked.issues.contains { $0.id == "pph" })
-        let healthyLink = try XCTUnwrap(healthyRanked.issues.first { $0.id == "lost_revenue" })
-        XCTAssertTrue(healthyLink.drivenBy.isEmpty)
-        XCTAssertFalse(healthyLink.causeChecks.contains { $0.question.contains("OTT") || $0.question.contains("PPH") })
-
-        let pphOnly = lostSalesSnapshot(ott: 96, pph: 58, under: 0, capacity: 70)
+        let pphOnly = lostSalesSnapshot(ott: 96, pph: 58, under: 0, missed: 1_200)
         let pphLost = try lostIssue("lost revenue", pphOnly, book)
-        XCTAssertEqual(pphLost.why, "Low PPH")
-        XCTAssertEqual(pphLost.causeChecks.map(\.question), ["PPH 58 - under 65"])
-        XCTAssertFalse(pphLost.causeChecks.contains { $0.question.contains("OTT") })
-
-        let missingCapacity = lostSalesSnapshot(ott: 80, pph: 58, under: 0, capacity: nil, pickupOnly: 40)
-        let missing = try lostIssue("lost revenue", missingCapacity, book)
-        XCTAssertEqual(missing.why, "Low capacity. Poor OTT and Low PPH")
-        XCTAssertFalse(missing.why?.contains("pieces") ?? true)
-        XCTAssertFalse(missing.why?.contains("40") ?? true)
-        XCTAssertEqual(missing.causeChecks.map(\.question), [
-            "OTT 80 - under 95",
-            "PPH 58 - under 65",
+        XCTAssertEqual(pphLost.why, "Why: low capacity, from slow picking (PPH 58.0).")
+        XCTAssertEqual(pphLost.causeChecks.map(\.question), [
+            "PPH 58.0, under 65; 1 of 1 stores under 65",
         ])
-        XCTAssertFalse(missing.causeChecks.contains { $0.question.hasPrefix("Capacity") })
+        XCTAssertFalse(pphLost.causeChecks.contains { $0.question.contains("Under-scheduled") })
+
+        let neither = lostSalesSnapshot(ott: 96, pph: 80, under: 0, missed: 1_200)
+        let neitherLost = try lostIssue("lost revenue", neither, book)
+        XCTAssertEqual(neitherLost.why, "Why: low capacity ($1,200 missed sales).")
+        XCTAssertTrue(neitherLost.causeChecks.isEmpty)
+
+        let healthyCapacity = lostSalesSnapshot(ott: 80, pph: 58, under: 7.2, missed: nil, missedPct: 1, capacity: 50)
+        let hidden = try lostIssue("lost revenue", healthyCapacity, book)
+        XCTAssertNil(hidden.why)
+        XCTAssertTrue(hidden.causeChecks.isEmpty)
+
+        let absent = lostSalesSnapshot(ott: 80, pph: 58, under: 7.2, missed: nil, capacity: 50)
+        let absentLost = try lostIssue("lost revenue", absent, book)
+        XCTAssertNil(absentLost.why)
+
+        var store = lostSalesSnapshot(ott: 88, pph: 58, under: 7.2, missed: 500)
+        store.filters.store = "304"
+        let storeLost = try lostIssue("lost revenue", store, book)
+        XCTAssertEqual(
+            storeLost.why,
+            "Why: low capacity, from late orders (OTT 88.0%) and slow picking (PPH 58.0)."
+        )
+        XCTAssertEqual(storeLost.causeChecks.map(\.question), [
+            "Under-scheduled: yes (Sch vs Tgt 7.2%, over 5%)",
+            "PPH 58, under 65",
+        ])
     }
 
     func testAssistSourcesStayOnDeviceAndShareOneColumn() throws {
@@ -568,8 +591,9 @@ final class AssistCardsTests: XCTestCase {
             XCTAssertFalse(source.contains("UIDevice"))
         }
         XCTAssertTrue(view.contains("maxWidth: 712"))
-        XCTAssertTrue(view.contains("Resolution"))
-        XCTAssertTrue(view.contains("Why"))
+        XCTAssertTrue(view.contains("What to do"))
+        XCTAssertTrue(view.contains("More checks"))
+        XCTAssertTrue(view.contains("issue.why"))
         XCTAssertTrue(cards.contains("Fix these"))
         XCTAssertFalse(view.contains("LazyVGrid"))
     }
@@ -583,15 +607,19 @@ final class AssistCardsTests: XCTestCase {
         ott: Double?,
         pph: Double?,
         under: Double?,
-        capacity: Double?,
-        pickupOnly: Double? = nil
+        missed: Double?,
+        missedPct: Double? = nil,
+        capacity: Double? = nil
     ) -> AssistSnapshot {
         var snapshot = fixtureSnapshot()
         snapshot.summaries[.lostRevenue] = summary(.lostRevenue, .risk, risk: 6, watch: 1, stores: 12, headline: 8)
         snapshot.summaries[.fiveStar] = summary(.fiveStar, .risk, risk: 4, watch: 0, stores: 12, headline: 3.2)
         snapshot.summaries[.pph] = summary(.pph, .risk, risk: 5, watch: 0, stores: 12, headline: pph ?? 70)
         snapshot.summaries[.dynacap] = summary(.dynacap, .risk, risk: 3, watch: 0, stores: 12, headline: capacity ?? 60)
-        snapshot.rows[.lostRevenue] = [row(.lostRevenue, ["lost_revenue_pct": 8])]
+        var lostPayload: [String: Double] = ["lost_revenue_pct": 8]
+        if let missed { lostPayload["missed_sales"] = missed }
+        if let missedPct { lostPayload["missed_sales_pct"] = missedPct }
+        snapshot.rows[.lostRevenue] = [row(.lostRevenue, lostPayload)]
         if let ott {
             snapshot.rows[.fiveStar] = [row(.fiveStar, ["ott_pct": ott, "star_rating": 3.2])]
         } else {
@@ -605,40 +633,8 @@ final class AssistCardsTests: XCTestCase {
         }
         if let capacity {
             snapshot.rows[.dynacap] = [row(.dynacap, ["dynacap_rate": capacity])]
-        } else if let pickupOnly {
-            snapshot.rows[.dynacap] = [row(.dynacap, ["pickup_capacity": pickupOnly])]
-        } else {
-            snapshot.rows[.dynacap] = [row(.dynacap, [:])]
         }
         return snapshot
-    }
-
-    private func pphAutoCheck() -> AssistPlaybook.Check {
-        AssistPlaybook.Check(
-            id: "pph_under_65",
-            kind: .auto,
-            field: "pph",
-            aliases: ["pure_pph"],
-            source: "pph",
-            comparator: "lt",
-            threshold: 65,
-            answerTrue: "PPH {value} - under {threshold}",
-            answerFalse: "PPH {value} - at or above {threshold}"
-        )
-    }
-
-    private func underScheduledCheck() -> AssistPlaybook.Check {
-        AssistPlaybook.Check(
-            id: "ott_under_scheduled",
-            kind: .auto,
-            field: "under_schedule_pct",
-            aliases: ["under_scheduled"],
-            source: "schedule_quality",
-            comparator: "gt",
-            threshold: 0.05,
-            answerTrue: "Under-scheduled: yes",
-            answerFalse: "Under-scheduled: no"
-        )
     }
 
     private func loadPlaybook() throws -> AssistPlaybook.File {

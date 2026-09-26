@@ -1,7 +1,7 @@
 import Foundation
 
-/// On-device Heartbeat Assist: ranked problem cards, then resolution floor checks.
-/// Floor-check wording lives only in AssistPlaybook.json.
+/// On-device Heartbeat Assist: ranked problem cards, then playbook checks.
+/// Check wording lives only in AssistPlaybook.json (playbook v2).
 enum AssistPlaybook {
     struct Check: Codable, Equatable {
         enum Kind: String, Codable {
@@ -9,137 +9,161 @@ enum AssistPlaybook {
             case auto
         }
 
-        var id: String
-        var kind: Kind
-        var question: String
-        var ownerRole: String?
-        var tapThrough: String?
-        var showWhen: String?
-        /// Pack payload key. Auto checks read this key on `source` rows.
-        var field: String?
-        /// Same measure under another pack key. The first finite value wins.
-        var aliases: [String]?
-        /// Metric section that holds `field`. Omitted checks use the card's own section.
-        var source: String?
+        enum Combine: String, Codable {
+            case first
+            case any
+        }
+
+        enum Rollup: String, Codable {
+            case avg
+            case countFailing
+        }
+
+        var order: Int
+        var type: Kind
+        var question: String?
+        var detail: String?
+        var label: String?
+        var packFields: [String]
+        var combine: Combine
+        var supportFields: [String]
         var comparator: String?
         var threshold: Double?
-        var answerTrue: String?
-        var answerFalse: String?
+        var thresholdSource: String?
+        var rollup: Rollup?
+        var passText: String?
+        var failText: String?
+        var scopePassText: String?
+        var scopeFailText: String?
+        var owner: String
+        var destination: String
+        var fallback: String
+        var confirm: Bool
 
         enum CodingKeys: String, CodingKey {
-            case id, kind, question, ownerRole, tapThrough, showWhen
-            case field, aliases, source, comparator, threshold, answerTrue, answerFalse
+            case order, type, question, detail, label, packFields, combine, supportFields
+            case comparator, threshold, thresholdSource, rollup
+            case passText, failText, scopePassText, scopeFailText
+            case owner, destination, fallback, confirm
         }
 
         init(
-            id: String,
-            kind: Kind = .floor,
-            question: String = "",
-            ownerRole: String? = nil,
-            tapThrough: String? = nil,
-            showWhen: String? = nil,
-            field: String? = nil,
-            aliases: [String]? = nil,
-            source: String? = nil,
+            order: Int,
+            type: Kind,
+            question: String? = nil,
+            detail: String? = nil,
+            label: String? = nil,
+            packFields: [String] = [],
+            combine: Combine = .first,
+            supportFields: [String] = [],
             comparator: String? = nil,
             threshold: Double? = nil,
-            answerTrue: String? = nil,
-            answerFalse: String? = nil
+            thresholdSource: String? = nil,
+            rollup: Rollup? = nil,
+            passText: String? = nil,
+            failText: String? = nil,
+            scopePassText: String? = nil,
+            scopeFailText: String? = nil,
+            owner: String = "",
+            destination: String,
+            fallback: String = "none",
+            confirm: Bool = false
         ) {
-            self.id = id
-            self.kind = kind
+            self.order = order
+            self.type = type
             self.question = question
-            self.ownerRole = ownerRole
-            self.tapThrough = tapThrough
-            self.showWhen = showWhen
-            self.field = field
-            self.aliases = aliases
-            self.source = source
+            self.detail = detail
+            self.label = label
+            self.packFields = packFields
+            self.combine = combine
+            self.supportFields = supportFields
             self.comparator = comparator
             self.threshold = threshold
-            self.answerTrue = answerTrue
-            self.answerFalse = answerFalse
+            self.thresholdSource = thresholdSource
+            self.rollup = rollup
+            self.passText = passText
+            self.failText = failText
+            self.scopePassText = scopePassText
+            self.scopeFailText = scopeFailText
+            self.owner = owner
+            self.destination = destination
+            self.fallback = fallback
+            self.confirm = confirm
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = try container.decode(String.self, forKey: .id)
-            kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .floor
-            question = try container.decodeIfPresent(String.self, forKey: .question) ?? ""
-            ownerRole = try container.decodeIfPresent(String.self, forKey: .ownerRole)
-            tapThrough = try container.decodeIfPresent(String.self, forKey: .tapThrough)
-            showWhen = try container.decodeIfPresent(String.self, forKey: .showWhen)
-            field = try container.decodeIfPresent(String.self, forKey: .field)
-            aliases = try container.decodeIfPresent([String].self, forKey: .aliases)
-            source = try container.decodeIfPresent(String.self, forKey: .source)
+            order = try container.decode(Int.self, forKey: .order)
+            type = try container.decode(Kind.self, forKey: .type)
+            question = try container.decodeIfPresent(String.self, forKey: .question)
+            detail = try container.decodeIfPresent(String.self, forKey: .detail)
+            label = try container.decodeIfPresent(String.self, forKey: .label)
+            packFields = try container.decodeIfPresent([String].self, forKey: .packFields) ?? []
+            combine = try container.decodeIfPresent(Combine.self, forKey: .combine) ?? .first
+            supportFields = try container.decodeIfPresent([String].self, forKey: .supportFields) ?? []
             comparator = try container.decodeIfPresent(String.self, forKey: .comparator)
             threshold = try container.decodeIfPresent(Double.self, forKey: .threshold)
-            answerTrue = try container.decodeIfPresent(String.self, forKey: .answerTrue)
-            answerFalse = try container.decodeIfPresent(String.self, forKey: .answerFalse)
+            thresholdSource = try container.decodeIfPresent(String.self, forKey: .thresholdSource)
+            rollup = try container.decodeIfPresent(Rollup.self, forKey: .rollup)
+            passText = try container.decodeIfPresent(String.self, forKey: .passText)
+            failText = try container.decodeIfPresent(String.self, forKey: .failText)
+            scopePassText = try container.decodeIfPresent(String.self, forKey: .scopePassText)
+            scopeFailText = try container.decodeIfPresent(String.self, forKey: .scopeFailText)
+            owner = try container.decodeIfPresent(String.self, forKey: .owner) ?? ""
+            destination = try container.decode(String.self, forKey: .destination)
+            fallback = try container.decodeIfPresent(String.self, forKey: .fallback) ?? "none"
+            confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm) ?? false
         }
 
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(id, forKey: .id)
-            try container.encode(kind, forKey: .kind)
-            try container.encode(question, forKey: .question)
-            try container.encodeIfPresent(ownerRole, forKey: .ownerRole)
-            try container.encodeIfPresent(tapThrough, forKey: .tapThrough)
-            try container.encodeIfPresent(showWhen, forKey: .showWhen)
-            try container.encodeIfPresent(field, forKey: .field)
-            try container.encodeIfPresent(aliases, forKey: .aliases)
-            try container.encodeIfPresent(source, forKey: .source)
+            try container.encode(order, forKey: .order)
+            try container.encode(type, forKey: .type)
+            try container.encodeIfPresent(question, forKey: .question)
+            try container.encodeIfPresent(detail, forKey: .detail)
+            try container.encodeIfPresent(label, forKey: .label)
+            if !packFields.isEmpty { try container.encode(packFields, forKey: .packFields) }
+            try container.encode(combine, forKey: .combine)
+            if !supportFields.isEmpty { try container.encode(supportFields, forKey: .supportFields) }
             try container.encodeIfPresent(comparator, forKey: .comparator)
             try container.encodeIfPresent(threshold, forKey: .threshold)
-            try container.encodeIfPresent(answerTrue, forKey: .answerTrue)
-            try container.encodeIfPresent(answerFalse, forKey: .answerFalse)
+            try container.encodeIfPresent(thresholdSource, forKey: .thresholdSource)
+            try container.encodeIfPresent(rollup, forKey: .rollup)
+            try container.encodeIfPresent(passText, forKey: .passText)
+            try container.encodeIfPresent(failText, forKey: .failText)
+            try container.encodeIfPresent(scopePassText, forKey: .scopePassText)
+            try container.encodeIfPresent(scopeFailText, forKey: .scopeFailText)
+            try container.encode(owner, forKey: .owner)
+            try container.encode(destination, forKey: .destination)
+            try container.encode(fallback, forKey: .fallback)
+            try container.encode(confirm, forKey: .confirm)
         }
     }
 
-    struct MetricBook: Codable, Equatable {
-        var checks: [Check]
-        /// Other metric ids that drive this one. Empty when the metric has no causes.
+    struct Metric: Codable, Equatable {
+        var metricId: String
+        var parentId: String?
+        var displayName: String
+        var ownerName: String?
+        var section: String
+        var packField: String
+        var trigger: String
+        var level: String
+        var ownerDefault: String
+        var confirm: Bool
         var causes: [String]
-        /// Short name used on a Why line when this metric is a failing cause.
-        var causeLabel: String?
-
-        init(checks: [Check], causes: [String] = [], causeLabel: String? = nil) {
-            self.checks = checks
-            self.causes = causes
-            self.causeLabel = causeLabel
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            checks = try container.decode([Check].self, forKey: .checks)
-            causes = try container.decodeIfPresent([String].self, forKey: .causes) ?? []
-            causeLabel = try container.decodeIfPresent(String.self, forKey: .causeLabel)
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(checks, forKey: .checks)
-            if !causes.isEmpty {
-                try container.encode(causes, forKey: .causes)
-            }
-            try container.encodeIfPresent(causeLabel, forKey: .causeLabel)
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case checks, causes, causeLabel
-        }
-    }
-
-    struct Shared: Codable, Equatable {
-        var worstChildQuestion: String
-        var childOpen: String
-        var childWork: String
+        var causesConfirm: [String]
+        var checks: [Check]
     }
 
     struct File: Codable, Equatable {
-        var seedNote: String?
-        var shared: Shared
-        var metrics: [String: MetricBook]
+        var version: String
+        var line: String
+        var metrics: [Metric]
+
+        func metric(_ id: String) -> Metric? {
+            metrics.first { $0.metricId == id }
+        }
     }
 
     static func load(from data: Data) throws -> File {
@@ -157,72 +181,184 @@ enum AssistPlaybook {
         .map(\.rawValue)
 }
 
-/// On-device auto check. Reads one pack field for the scope in view.
-/// Returns nil when that field is absent, so the card hides the check.
+/// On-device auto check. Reads named pack fields for the scope in view.
+/// Returns nil when the tested field is absent, so the card hides the check.
 enum AssistAutoCheck {
     struct Evaluation: Equatable {
         var value: Double
         var failing: Bool
         var sentence: String
+        var statusMark: String
+        var statusSymbol: String
     }
 
     static func sentence(
         _ check: AssistPlaybook.Check,
         rows: [MetricSection: [MetricRow]],
-        fallbackSection: MetricSection
+        summaries: [MetricSection: SectionSummary] = [:],
+        level: AssistScopeLevel
     ) -> String? {
-        evaluate(check, rows: rows, fallbackSection: fallbackSection)?.sentence
+        evaluate(check, rows: rows, summaries: summaries, level: level)?.sentence
     }
 
     static func evaluate(
         _ check: AssistPlaybook.Check,
         rows: [MetricSection: [MetricRow]],
-        fallbackSection: MetricSection
+        summaries: [MetricSection: SectionSummary] = [:],
+        level: AssistScopeLevel
     ) -> Evaluation? {
-        guard check.kind == .auto else { return nil }
-        guard let comparator = check.comparator?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              let threshold = check.threshold, threshold.isFinite,
-              let holds = comparison(comparator, threshold: threshold) else { return nil }
-        let section = check.source.flatMap(MetricSection.init(rawValue:)) ?? fallbackSection
-        let keys = fieldKeys(check)
-        guard !keys.isEmpty else { return nil }
-        let samples = AssistRank.scoringRows(rows[section] ?? []).compactMap { row -> Double? in
-            for key in keys {
-                if let value = row.number(key), value.isFinite { return value }
+        guard check.type == .auto else { return nil }
+        guard let threshold = check.threshold, threshold.isFinite,
+              let comparator = check.comparator?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !comparator.isEmpty,
+              let breaks = comparison(comparator) else { return nil }
+        let readings = readings(check, rows: rows, breaks: breaks, threshold: threshold)
+        guard !readings.isEmpty else { return nil }
+
+        let failingCount = readings.filter(\.failing).count
+        let storeCount = readings.count
+        let storeScope = level == .store
+        let support = storeScope ? readings[0].support : supportValues(readings)
+        let failing: Bool
+        let numeric: Double
+        let valueText: String
+        let template: String?
+
+        if storeScope {
+            let reading = readings[0]
+            failing = reading.failing
+            numeric = reading.value
+            valueText = format(reading.value)
+            template = failing ? check.failText : check.passText
+        } else if check.rollup == .countFailing {
+            failing = failingCount > 0
+            numeric = HeartbeatMath.average(readings.map(\.value)) ?? readings[0].value
+            valueText = format(numeric)
+            template = failing ? check.scopeFailText : check.scopePassText
+        } else {
+            if let section = HubDestination(rawValue: check.destination)?.section,
+               let summary = summaries[section],
+               let headline = summary.headline, headline.isFinite {
+                numeric = headline
+                valueText = summary.headlineText
+            } else if let average = HeartbeatMath.average(readings.map(\.value)) {
+                numeric = average
+                valueText = String(format: "%.1f", average)
+            } else {
+                return nil
             }
-            return nil
+            failing = breaks(numeric, threshold)
+            template = failing ? check.scopeFailText : check.scopePassText
         }
-        guard let value = HeartbeatMath.average(samples) else { return nil }
-        let failing = holds(value)
-        let template = failing ? check.answerTrue : check.answerFalse
-        guard let template,
-              let sentence = AssistCopy.fill(
-                template,
-                ["value": format(value), "threshold": format(threshold)],
-                limit: AssistCopy.actionLimit
-              ) else { return nil }
-        return Evaluation(value: value, failing: failing, sentence: sentence)
+        guard let template, !template.isEmpty else { return nil }
+        var values = [
+            "value": valueText,
+            "threshold": format(threshold),
+            "k": AssistCopy.grouped(failingCount),
+            "n": AssistCopy.grouped(storeCount),
+        ]
+        for (key, number) in support {
+            values["field:\(key)"] = format(number)
+        }
+        guard let sentence = render(template, values: values, failingCount: failingCount) else { return nil }
+        let mark = failing ? "Check" : "OK"
+        let symbol = failing ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
+        return Evaluation(value: numeric, failing: failing, sentence: sentence, statusMark: mark, statusSymbol: symbol)
     }
 
-    private static func fieldKeys(_ check: AssistPlaybook.Check) -> [String] {
-        var keys: [String] = []
-        if let field = check.field?.trimmingCharacters(in: .whitespacesAndNewlines), !field.isEmpty {
-            keys.append(field)
-        }
-        for alias in check.aliases ?? [] {
-            let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, !keys.contains(trimmed) { keys.append(trimmed) }
-        }
-        return keys
+    private struct Reading {
+        var store: String
+        var value: Double
+        var failing: Bool
+        var support: [String: Double]
     }
 
-    private static func comparison(_ comparator: String, threshold: Double) -> ((Double) -> Bool)? {
-        switch comparator {
-        case "lt", "<": return { $0 < threshold }
-        case "gt", ">": return { $0 > threshold }
-        case "lte", "<=", "le": return { $0 <= threshold }
-        case "gte", ">=", "ge": return { $0 >= threshold }
-        case "eq", "==", "=": return { $0 == threshold }
+    private static func readings(
+        _ check: AssistPlaybook.Check,
+        rows: [MetricSection: [MetricRow]],
+        breaks: (Double, Double) -> Bool,
+        threshold: Double
+    ) -> [Reading] {
+        var grouped: [String: [MetricRow]] = [:]
+        for sectionRows in rows.values {
+            for row in AssistRank.scoringRows(sectionRows) {
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                guard !store.isEmpty else { continue }
+                grouped[store, default: []].append(row)
+            }
+        }
+        var readings: [Reading] = []
+        for store in grouped.keys.sorted() {
+            guard let storeRows = grouped[store] else { continue }
+            guard let resolved = resolve(check, rows: storeRows, breaks: breaks, threshold: threshold) else { continue }
+            var support: [String: Double] = [:]
+            for key in check.supportFields {
+                if let value = firstNumber([key], in: storeRows) {
+                    support[key] = value
+                }
+            }
+            readings.append(Reading(store: store, value: resolved.value, failing: resolved.failing, support: support))
+        }
+        return readings
+    }
+
+    private static func resolve(
+        _ check: AssistPlaybook.Check,
+        rows: [MetricRow],
+        breaks: (Double, Double) -> Bool,
+        threshold: Double
+    ) -> (value: Double, failing: Bool)? {
+        if check.combine == .any {
+            var chosen: Double?
+            var failing = false
+            for key in check.packFields {
+                guard let value = firstNumber([key], in: rows) else { continue }
+                if chosen == nil { chosen = value }
+                if breaks(value, threshold) {
+                    failing = true
+                    chosen = value
+                }
+            }
+            guard let chosen else { return nil }
+            return (chosen, failing)
+        }
+        guard let value = firstNumber(check.packFields, in: rows) else { return nil }
+        return (value, breaks(value, threshold))
+    }
+
+    private static func firstNumber(_ keys: [String], in rows: [MetricRow]) -> Double? {
+        for key in keys {
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            for row in rows {
+                if let value = row.number(trimmed), value.isFinite { return value }
+            }
+        }
+        return nil
+    }
+
+    private static func supportValues(_ readings: [Reading]) -> [String: Double] {
+        var buckets: [String: [Double]] = [:]
+        for reading in readings {
+            for (key, value) in reading.support {
+                buckets[key, default: []].append(value)
+            }
+        }
+        var result: [String: Double] = [:]
+        for (key, values) in buckets {
+            if let average = HeartbeatMath.average(values) {
+                result[key] = average
+            }
+        }
+        return result
+    }
+
+    private static func comparison(_ comparator: String) -> ((Double, Double) -> Bool)? {
+        switch comparator.lowercased() {
+        case "lt", "<": return { $0 < $1 }
+        case "gt", ">": return { $0 > $1 }
+        case "lte", "<=", "le": return { $0 <= $1 }
+        case "gte", ">=", "ge": return { $0 >= $1 }
         default: return nil
         }
     }
@@ -232,133 +368,174 @@ enum AssistAutoCheck {
         guard text.hasSuffix(".0"), let whole = text.split(separator: ".").first else { return text }
         return String(whole)
     }
+
+    static func render(_ template: String, values: [String: String], failingCount: Int) -> String? {
+        guard let brackets = try? NSRegularExpression(pattern: "\\[([^\\]]*)\\]"),
+              let tokens = try? NSRegularExpression(pattern: "\\{([^{}]+)\\}") else { return nil }
+        let source = template as NSString
+        let matches = brackets.matches(in: template, range: NSRange(location: 0, length: source.length))
+        var text = ""
+        var cursor = 0
+        for match in matches {
+            let full = match.range
+            if full.location < cursor { continue }
+            text += source.substring(with: NSRange(location: cursor, length: full.location - cursor))
+            let inner = source.substring(with: match.range(at: 1))
+            let drop = (inner.contains("{k}") && failingCount == 0) || missingToken(inner, values: values, tokens: tokens)
+            if !drop { text += inner }
+            cursor = full.location + full.length
+        }
+        if cursor < source.length {
+            text += source.substring(from: cursor)
+        }
+        guard !missingToken(text, values: values, tokens: tokens) else { return nil }
+        return substitute(text, values: values, tokens: tokens)
+    }
+
+    private static func missingToken(_ text: String, values: [String: String], tokens: NSRegularExpression) -> Bool {
+        let ns = text as NSString
+        let matches = tokens.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        for match in matches {
+            let key = ns.substring(with: match.range(at: 1))
+            if values[key]?.isEmpty != false { return true }
+        }
+        return false
+    }
+
+    private static func substitute(_ text: String, values: [String: String], tokens: NSRegularExpression) -> String {
+        let ns = text as NSString
+        let matches = tokens.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        var result = text
+        for match in matches.reversed() {
+            let key = ns.substring(with: match.range(at: 1))
+            guard let value = values[key], let range = Range(match.range, in: result) else { continue }
+            result.replaceSubrange(range, with: value)
+        }
+        return result
+    }
 }
 
-/// Why line and failing cause checks for one metric, from playbook `causes`.
+/// Loss Revenue Why line. Only the owner's chain is used.
+/// causesConfirm links are ignored until the owner confirms them.
 enum AssistCauses {
     struct Report: Equatable {
         var why: String
         var checks: [AssistAction]
-        var failingIDs: [String]
+        var namedIDs: [String]
     }
 
     static func report(
         section: MetricSection,
         playbook: AssistPlaybook.File,
         rows: [MetricSection: [MetricRow]],
+        summaries: [MetricSection: SectionSummary],
         stay: DashboardFilters?,
         level: AssistScopeLevel
     ) -> Report? {
-        var seen: Set<String> = [section.rawValue]
-        let chain = walk(section.rawValue, playbook: playbook, seen: &seen)
-        guard !chain.isEmpty else { return nil }
+        guard section == .lostRevenue else { return nil }
+        guard let capacity = reducedCapacity(rows[.lostRevenue] ?? []), capacity.failing else { return nil }
+
+        let ott = ottReading(rows: rows[.fiveStar] ?? [], level: level)
+        let pphCheck = playbook.metric("pph")?.checks.first { $0.label == "PPH under 65" }
+            ?? playbook.metric("five_star_ott")?.checks.first { $0.label == "PPH under 65" }
+        let pph = pphCheck.flatMap {
+            AssistAutoCheck.evaluate($0, rows: rows, summaries: summaries, level: level)
+        }
+        let ottFailing = ott?.failing == true && ott?.percent != nil
+        let pphFailing = pph?.failing == true
+
+        let why: String
+        if ottFailing, pphFailing, let percent = ott?.percent, let pph {
+            why = "Why: low capacity, from late orders (OTT \(one(percent))%) and slow picking (PPH \(one(pph.value)))."
+        } else if ottFailing, let percent = ott?.percent {
+            why = "Why: low capacity, from late orders (OTT \(one(percent))%)."
+        } else if pphFailing, let pph {
+            why = "Why: low capacity, from slow picking (PPH \(one(pph.value)))."
+        } else if let missed = capacity.missed, missed != "—" {
+            why = "Why: low capacity (\(missed) missed sales)."
+        } else {
+            return nil
+        }
 
         var checks: [AssistAction] = []
-        var seenSentences: Set<String> = []
-        var labels: [String] = []
-        var failingIDs: [String] = []
-        var capacity: Capacity = .missing
-
-        for id in chain {
-            guard let book = playbook.metrics[id] else { continue }
-            let fallback = MetricSection(rawValue: id) ?? section
-            let isCapacity = id == MetricSection.dynacap.rawValue
-            for check in book.checks where check.kind == .auto {
-                let evaluation = AssistAutoCheck.evaluate(check, rows: rows, fallbackSection: fallback)
-                if isCapacity && isCapacityRate(check) {
-                    if let evaluation {
-                        capacity = evaluation.failing ? .failing(evaluation.value) : .healthy
-                    } else {
-                        capacity = .missing
-                    }
-                }
-                guard let evaluation, evaluation.failing else { continue }
-                let metricID = check.source ?? id
-                if chain.contains(metricID), !failingIDs.contains(metricID) {
-                    failingIDs.append(metricID)
-                }
-                if metricID != MetricSection.dynacap.rawValue,
-                   let label = playbook.metrics[metricID]?.causeLabel,
-                   !labels.contains(label) {
-                    labels.append(label)
-                }
-                guard seenSentences.insert(evaluation.sentence).inserted else { continue }
-                checks.append(action(check, sentence: evaluation.sentence, level: level, stay: stay, fallback: fallback))
-            }
+        var seen: Set<String> = []
+        if ottFailing, let metric = playbook.metric("five_star_ott") {
+            appendFailingAutos(metric, playbookRows: rows, summaries: summaries, level: level, stay: stay, into: &checks, seen: &seen)
         }
-
-        let capacityID = MetricSection.dynacap.rawValue
-        let capacityInChain = chain.contains(capacityID)
-        let capacityLabel = playbook.metrics[capacityID]?.causeLabel
-        let capacityPhrase: String?
-        switch capacity {
-        case .failing(let value):
-            let name = capacityLabel ?? "Low capacity"
-            capacityPhrase = "\(name), \(AssistAutoCheck.format(value)) pieces an hour"
-        case .missing where capacityInChain && (!labels.isEmpty || !checks.isEmpty):
-            capacityPhrase = capacityLabel
-        case .healthy, .missing:
-            capacityPhrase = nil
+        if pphFailing, let metric = playbook.metric("pph") {
+            appendFailingAutos(metric, playbookRows: rows, summaries: summaries, level: level, stay: stay, into: &checks, seen: &seen)
         }
-
-        var parts: [String] = []
-        if let capacityPhrase { parts.append(capacityPhrase) }
-        if !labels.isEmpty { parts.append(joined(labels)) }
-        guard !parts.isEmpty || !checks.isEmpty else { return nil }
-        let why = parts.isEmpty ? checks.map(\.question).joined(separator: ". ") : parts.joined(separator: ". ")
-        return Report(why: why, checks: checks, failingIDs: failingIDs)
+        var named: [String] = []
+        if ottFailing { named.append("five_star_ott") }
+        if pphFailing { named.append("pph") }
+        return Report(why: why, checks: checks, namedIDs: named)
     }
 
-    private enum Capacity {
-        case missing
-        case healthy
-        case failing(Double)
+    private struct Capacity {
+        var failing: Bool
+        var missed: String?
     }
 
-    private static func isCapacityRate(_ check: AssistPlaybook.Check) -> Bool {
-        let keys = [check.field].compactMap { $0 } + (check.aliases ?? [])
-        return keys.contains("dynacap_rate") || keys.contains("pieces_per_hour")
+    private struct OTTReading {
+        var failing: Bool
+        var percent: Double?
     }
 
-    private static func walk(_ id: String, playbook: AssistPlaybook.File, seen: inout Set<String>) -> [String] {
-        var result: [String] = []
-        for cause in playbook.metrics[id]?.causes ?? [] {
-            guard seen.insert(cause).inserted else { continue }
-            result.append(cause)
-            result.append(contentsOf: walk(cause, playbook: playbook, seen: &seen))
+    private static func reducedCapacity(_ rows: [MetricRow]) -> Capacity? {
+        let scored = AssistRank.scoringRows(rows)
+        let flags = HeartbeatMath.lostRevenueMetricFlags(scored, includeAll: true)
+        guard let flag = flags.first(where: { $0.name == "Reduced Capacity Missed Sales" }) else { return nil }
+        let failing = flag.health == .watch || flag.health == .risk
+        let missed = flag.value == "—" ? nil : flag.value
+        return Capacity(failing: failing, missed: missed)
+    }
+
+    private static func ottReading(rows: [MetricRow], level: AssistScopeLevel) -> OTTReading? {
+        let scored = AssistRank.scoringRows(rows)
+        let present = scored.filter { $0.number("ott_pct") != nil || $0.number("ott_star") != nil }
+        guard !present.isEmpty else { return nil }
+        let percent = HeartbeatMath.average(present.compactMap { $0.number("ott_pct") })
+        if level == .store {
+            let failing = present.contains { HeartbeatMath.ottStar($0) != .full }
+            return OTTReading(failing: failing, percent: percent)
         }
-        return result
+        let flags = HeartbeatMath.fiveStarActionFlags(scored, includeAll: true)
+        let health = flags.first { $0.name == "OTT" }?.health ?? .none
+        let failing = health == .watch || health == .risk
+        return OTTReading(failing: failing, percent: percent)
     }
 
-    private static func joined(_ items: [String]) -> String {
-        switch items.count {
-        case 0: return ""
-        case 1: return items[0]
-        case 2: return "\(items[0]) and \(items[1])"
-        default:
-            let head = items.dropLast().joined(separator: ", ")
-            return "\(head), and \(items[items.count - 1])"
-        }
+    private static func one(_ value: Double) -> String {
+        String(format: "%.1f", value)
     }
 
-    private static func action(
-        _ check: AssistPlaybook.Check,
-        sentence: String,
+    private static func appendFailingAutos(
+        _ metric: AssistPlaybook.Metric,
+        playbookRows rows: [MetricSection: [MetricRow]],
+        summaries: [MetricSection: SectionSummary],
         level: AssistScopeLevel,
         stay: DashboardFilters?,
-        fallback: MetricSection
-    ) -> AssistAction {
-        let destination = check.tapThrough.flatMap(HubDestination.init(rawValue:))
-            ?? HubDestination.from(section: fallback)
-        let owner = level == .store ? (check.ownerRole ?? "Store leader") : AssistScope.levelOwner(level)
-        return AssistAction.open(
-            id: "cause-\(check.id)",
-            question: sentence,
-            owner: owner,
-            buttonTitle: AssistCopy.screenTitle(destination),
-            filters: stay,
-            destination: destination
-        )
+        into checks: inout [AssistAction],
+        seen: inout Set<String>
+    ) {
+        for check in metric.checks where check.type == .auto {
+            guard let evaluation = AssistAutoCheck.evaluate(check, rows: rows, summaries: summaries, level: level),
+                  evaluation.failing else { continue }
+            guard seen.insert(evaluation.sentence).inserted else { continue }
+            let destination = HubDestination(rawValue: check.destination) ?? .dashboard
+            let owner = level == .store ? check.owner : AssistScope.levelOwner(level)
+            checks.append(AssistAction.open(
+                id: "why-\(metric.metricId)-\(check.order)",
+                question: evaluation.sentence,
+                owner: owner,
+                buttonTitle: AssistCopy.screenTitle(destination),
+                filters: stay,
+                destination: destination,
+                detail: "",
+                statusMark: evaluation.statusMark,
+                statusSymbol: evaluation.statusSymbol
+            ))
+        }
     }
 }
 
@@ -385,6 +562,10 @@ enum AssistRank {
     static func round4(_ value: Double) -> Double {
         (value * 10_000).rounded() / 10_000
     }
+
+    /// Assist PPH ranking band. The playbook floor of 65 is not this band.
+    /// Change this one line when the owner picks which band ranks PPH.
+    static let pphRankingBand = (goal: 80.0, risk: 74.0)
 
     /// Gap/band for one store row. Nil when the row has no comparable value.
     /// Schedule under/over uses the spec ratio on the stored field. This base
@@ -413,7 +594,8 @@ enum AssistRank {
             ratio = scheduleRatio(row)
         case .pph:
             guard let value = HeartbeatMath.pphNumber(row) else { return nil }
-            ratio = max(0, HeartbeatMath.pphGoal - value) / 6
+            let band = pphRankingBand
+            ratio = max(0, band.goal - value) / (band.goal - band.risk)
         case .labor:
             guard let value = row.number("target_vs_actual_pct") else { return nil }
             ratio = max(0, value - 0) / HeartbeatMath.laborWatch
@@ -712,6 +894,9 @@ struct AssistAction: Equatable, Identifiable {
     var filters: DashboardFilters?
     var clearsFilters: Bool
     var destination: HubDestination
+    var detail: String
+    var statusMark: String
+    var statusSymbol: String
     var accessibilityLabel: String
 
     static func open(
@@ -720,9 +905,13 @@ struct AssistAction: Equatable, Identifiable {
         owner: String,
         buttonTitle: String,
         filters: DashboardFilters?,
-        destination: HubDestination
+        destination: HubDestination,
+        detail: String = "",
+        statusMark: String = "",
+        statusSymbol: String = ""
     ) -> AssistAction {
         let ownerBit = owner.isEmpty ? "" : " Owner \(owner)."
+        let mark = statusMark.isEmpty ? "" : "\(statusMark). "
         return AssistAction(
             id: id,
             question: question,
@@ -731,7 +920,10 @@ struct AssistAction: Equatable, Identifiable {
             filters: filters,
             clearsFilters: false,
             destination: destination,
-            accessibilityLabel: "\(question).\(ownerBit) Opens \(destination.title)."
+            detail: detail,
+            statusMark: statusMark,
+            statusSymbol: statusSymbol,
+            accessibilityLabel: "\(mark)\(question).\(ownerBit) Opens \(destination.title)."
         )
     }
 }
@@ -757,6 +949,7 @@ struct AssistIssue: Equatable, Identifiable {
     var footer: String
     var footerAction: AssistAction
     var checks: [AssistAction]
+    var moreChecks: [AssistAction]
     var why: String?
     var causeChecks: [AssistAction]
     var failingCauseIDs: [String]
@@ -924,7 +1117,7 @@ enum AssistCopy {
         case .fiveStar: return "4.50"
         case .prepNotReady: return "1.9%"
         case .dynacap: return "65"
-        case .pph: return "80"
+        case .pph: return String(Int(AssistRank.pphRankingBand.goal))
         case .labor: return "0%"
         case .lostRevenue: return "3%"
         case .sales: return "100%"
@@ -939,7 +1132,7 @@ enum AssistCopy {
         case .fiveStar: return "4.50+"
         case .prepNotReady: return "1.9% or less"
         case .dynacap: return "65"
-        case .pph: return "80"
+        case .pph: return String(Int(AssistRank.pphRankingBand.goal))
         case .labor: return "0% or less"
         case .lostRevenue: return "3% or less"
         case .sales: return "Up vs last year"
@@ -1419,7 +1612,7 @@ enum AssistComposer {
         let children = level == .store ? [] : rankChildren(snapshot, grain: AssistScope.naturalChild(level) ?? .region)
         let worst = children.first { $0.score > 0 || $0.storesAtRisk > 0 }
         let scope = AssistScope.scopeLine(snapshot.filters, roster: snapshot.rosterStores)
-        answer.issues = linkCauses(ranked.enumerated().map { index, scored in
+        answer.issues = ranked.enumerated().map { index, scored in
             issue(
                 scored,
                 rank: index + 1,
@@ -1432,7 +1625,7 @@ enum AssistComposer {
                 watchOnly: watchOnly,
                 singleHealthy: single && scored.risk + scored.watch == 0
             )
-        })
+        }
         if showHeader && !answer.issues.isEmpty {
             answer.headerTitle = AssistCopy.headerTitle(issueCount: answer.issues.count)
             answer.headerLines = answer.issues.prefix(3).map { item in
@@ -1542,22 +1735,20 @@ enum AssistComposer {
             filters: stay,
             destination: destination
         )
-        let checks = resolutionChecks(
+        let deck = resolutionChecks(
             section: section,
-            summary: summary,
-            rows: rows,
             snapshot: snapshot,
             playbook: playbook,
             level: level,
             worst: worst,
-            stay: stay,
-            destination: destination
+            stay: stay
         )
         let causes = playbook.flatMap {
             AssistCauses.report(
                 section: section,
                 playbook: $0,
                 rows: snapshot.rows,
+                summaries: snapshot.summaries,
                 stay: stay,
                 level: level
             )
@@ -1578,27 +1769,15 @@ enum AssistComposer {
             scope: "Scope: \(scope)",
             footer: footer,
             footerAction: footerAction,
-            checks: checks,
+            checks: deck.actions,
+            moreChecks: deck.more,
             why: whySentence,
             causeChecks: causes?.checks ?? [],
-            failingCauseIDs: causes?.failingIDs ?? [],
+            failingCauseIDs: causes?.namedIDs ?? [],
             drivenBy: [],
             rankedLine: AssistCopy.rankedLine(scored),
             accessibilityLabel: "Rank \(rank), \(section.title), \(status.text). \(headline). \(storesAtRisk).\(whySentence.map { " Why \($0)." } ?? "") Scope \(scope)."
         )
-    }
-
-    /// Keeps cause cards in the ranked list and points at them when they are failing.
-    private static func linkCauses(_ issues: [AssistIssue]) -> [AssistIssue] {
-        let present = Set(issues.map(\.id))
-        return issues.map { issue in
-            var copy = issue
-            copy.drivenBy = issue.failingCauseIDs.compactMap { id in
-                guard present.contains(id), id != issue.id, let section = MetricSection(rawValue: id) else { return nil }
-                return AssistHeaderLine(text: "Driven by \(section.overviewLead)", issueID: id)
-            }
-            return copy
-        }
     }
 
     private static func headlineText(
@@ -1651,7 +1830,7 @@ enum AssistComposer {
             }
             return "Capacity is set below 60 pieces an hour at \(above)"
         case .pph:
-            return "Shoppers pick fewer than 74 an hour at \(above)"
+            return "Shoppers pick fewer than \(Int(AssistRank.pphRankingBand.risk)) an hour at \(above)"
         case .labor:
             return "Labor is more than 3% over target at \(above)"
         case .lostRevenue:
@@ -1691,7 +1870,8 @@ enum AssistComposer {
             }
             return "Your capacity is \(shown) pieces an hour (goal 65)"
         case .pph:
-            return shown.isEmpty ? "Your pure PPH is off the goal of 80" : "Your pure PPH is \(shown) (goal 80)"
+            let goal = Int(AssistRank.pphRankingBand.goal)
+            return shown.isEmpty ? "Your pure PPH is off the goal of \(goal)" : "Your pure PPH is \(shown) (goal \(goal))"
         case .labor:
             return shown.isEmpty ? "Your labor is off the target (goal 0% or less)" : "Your labor is \(shown) vs target (goal 0% or less)"
         case .lostRevenue:
@@ -1814,43 +1994,64 @@ enum AssistComposer {
         return AssistFact(label: "Trend", value: "\(direction) \(AssistCopy.one(abs(delta))) since \(shortDate(previous.date))")
     }
 
+    private struct CheckDeck {
+        var actions: [AssistAction]
+        var more: [AssistAction]
+    }
+
+    private struct PreparedCheck {
+        var order: Int
+        var action: AssistAction
+        var showable: Bool
+    }
+
     private static func resolutionChecks(
         section: MetricSection,
-        summary: SectionSummary?,
-        rows: [MetricRow],
         snapshot: AssistSnapshot,
         playbook: AssistPlaybook.File?,
         level: AssistScopeLevel,
         worst: AssistChild?,
-        stay: DashboardFilters?,
-        destination: HubDestination
-    ) -> [AssistAction] {
-        guard let playbook, let book = playbook.metrics[section.rawValue] else { return [] }
-        let facts = checkFacts(section: section, summary: summary, rows: rows, snapshot: snapshot, level: level)
-        let cap = 3
-        var actions: [AssistAction] = []
-        for check in book.checks {
-            guard actions.count < cap else { break }
-            guard flagMatches(check.showWhen, facts.flags) else { continue }
-            guard let action = makeCheck(
-                check,
-                values: facts.values,
-                level: level,
-                stay: stay,
-                fallback: destination,
-                bucketCapacity: facts.flags.contains("bucketCapacity"),
-                section: section,
-                packRows: snapshot.rows
-            ) else { continue }
-            actions.append(action)
+        stay: DashboardFilters?
+    ) -> CheckDeck {
+        guard let playbook, let book = playbook.metric(section.rawValue) else { return CheckDeck(actions: [], more: []) }
+        var slotItems = preparedChecks(book, snapshot: snapshot, level: level, stay: stay)
+        var moreOnly: [PreparedCheck] = []
+        if section == .fiveStar, let childID = weakestFiveStarMetric(snapshot.rows[.fiveStar] ?? []),
+           let child = playbook.metric(childID) {
+            moreOnly = slotItems
+            slotItems = preparedChecks(child, snapshot: snapshot, level: level, stay: stay)
         }
-        if level != .store, actions.count < 4, let worst, let summary {
+        if section == .lostRevenue,
+           let bucketID = largestBucketMetric(AssistRank.scoringRows(snapshot.rows[.lostRevenue] ?? [])),
+           let child = playbook.metric(bucketID),
+           let promoted = preparedChecks(child, snapshot: snapshot, level: level, stay: stay).first(where: \.showable) {
+            slotItems.removeAll { $0.action.question == promoted.action.question }
+            slotItems.insert(promoted, at: 0)
+        }
+
+        let cap = level == .store ? 3 : 2
+        var actions: [AssistAction] = []
+        var more: [AssistAction] = []
+        for item in slotItems {
+            if item.showable, actions.count < cap {
+                actions.append(item.action)
+            } else {
+                more.append(item.action)
+            }
+        }
+        more.append(contentsOf: moreOnly.map(\.action))
+        if level != .store, let worst, let summary = snapshot.summaries[section] {
             let counts = childMetricCounts(section: section, child: worst, snapshot: snapshot) ?? (summary.riskCount, summary.storeCount)
-            var values = facts.values
-            values["child"] = worst.label
-            values["childRisk"] = AssistCopy.grouped(counts.0)
-            values["childStores"] = AssistCopy.grouped(counts.1)
-            if let question = AssistCopy.fill(playbook.shared.worstChildQuestion, values, limit: AssistCopy.actionLimit) {
+            let values = [
+                "child": worst.label,
+                "childRisk": AssistCopy.grouped(counts.0),
+                "childStores": AssistCopy.grouped(counts.1),
+            ]
+            if let question = AssistCopy.fill(
+                "Start with {child}: {childRisk} of {childStores} stores at risk",
+                values,
+                limit: AssistCopy.actionLimit
+            ) {
                 var filters = stay ?? snapshot.filters
                 filters = applying(childChange(worst), on: filters)
                 actions.append(AssistAction.open(
@@ -1863,321 +2064,75 @@ enum AssistComposer {
                 ))
             }
         }
-        return actions
+        return CheckDeck(actions: actions, more: more)
     }
 
-    private static func flagMatches(_ showWhen: String?, _ flags: Set<String>) -> Bool {
-        guard let showWhen, showWhen != "card" else { return true }
-        return flags.contains(showWhen)
-    }
-
-    private static func makeCheck(
-        _ check: AssistPlaybook.Check,
-        values: [String: String],
-        level: AssistScopeLevel,
-        stay: DashboardFilters?,
-        fallback: HubDestination,
-        bucketCapacity: Bool,
-        section: MetricSection,
-        packRows: [MetricSection: [MetricRow]]
-    ) -> AssistAction? {
-        let question: String?
-        if check.kind == .auto {
-            question = AssistAutoCheck.sentence(check, rows: packRows, fallbackSection: section)
-        } else {
-            question = AssistCopy.fill(check.question, values, limit: AssistCopy.actionLimit)
-        }
-        guard let question, !question.isEmpty else { return nil }
-        var destination = check.tapThrough.flatMap(HubDestination.init(rawValue:)) ?? fallback
-        if check.id == "bucket_dollars" && bucketCapacity {
-            destination = .dynacap
-        }
-        let owner = ownerLine(check.ownerRole, values: values, level: level)
-        return AssistAction.open(
-            id: check.id,
-            question: question,
-            owner: owner,
-            buttonTitle: AssistCopy.screenTitle(destination),
-            filters: stay,
-            destination: destination
-        )
-    }
-
-    private static func ownerLine(_ template: String?, values: [String: String], level: AssistScopeLevel) -> String {
-        if level != .store {
-            return AssistScope.levelOwner(level)
-        }
-        guard let template else { return "Store leader" }
-        if let filled = AssistCopy.fill(template, values, limit: 80) { return filled }
-        let stripped = template.replacingOccurrences(of: " and {shopper}", with: "")
-        if !stripped.contains("{"), !stripped.isEmpty { return stripped }
-        return "Store leader"
-    }
-
-    private struct CheckFacts {
-        var flags: Set<String>
-        var values: [String: String]
-    }
-
-    private static func checkFacts(
-        section: MetricSection,
-        summary: SectionSummary?,
-        rows: [MetricRow],
+    private static func preparedChecks(
+        _ metric: AssistPlaybook.Metric,
         snapshot: AssistSnapshot,
-        level: AssistScopeLevel
-    ) -> CheckFacts {
-        var flags: Set<String> = ["card"]
-        var values: [String: String] = [:]
-        let scored = AssistRank.scoringRows(rows)
-        switch section {
-        case .scheduleQuality:
-            if level == .store, let row = scored.first {
-                if let over = row.number("over_schedule_pct", "over_scheduled"), over > 0.05 {
-                    flags.insert("storeOver")
-                }
-                if let under = row.number("under_schedule_pct", "under_scheduled"), under > 0.05 {
-                    flags.insert("storeUnder")
-                }
-            } else if let summary {
-                if summary.overScheduledCount > 0 {
-                    flags.insert("overScheduled")
-                    values["over"] = AssistCopy.grouped(summary.overScheduledCount)
-                }
-                if summary.underScheduledCount > 0 {
-                    flags.insert("underScheduled")
-                    values["under"] = AssistCopy.grouped(summary.underScheduledCount)
-                }
-            }
-        case .missingItems, .preSubOOS:
-            if let dept = hottestDept(scored) {
-                flags.insert("hottestDept")
-                values["dept"] = dept.name
-                values["deptPct"] = AssistCopy.onePct(dept.pct)
-            }
-            if section == .missingItems {
-                let stale = staleCount(snapshot, mapper: true)
-                if stale > 0 {
-                    flags.insert("staleMaps")
-                    values["staleMaps"] = AssistCopy.grouped(stale)
-                }
-            }
-            if section == .preSubOOS, let item = topPreSubItem(snapshot) {
-                flags.insert("topItem")
-                values["bpn"] = item.bpn
-                values["presub"] = AssistCopy.onePct(item.pct)
-            }
-        case .pickPath:
-            if let shopper = lowestPathShopper(snapshot) {
-                flags.insert("namedShopper")
-                values["shopper"] = shopper.name
-                values["store"] = shopper.store
-                values["compliance"] = AssistCopy.onePct(shopper.value)
-            }
-            let maps = staleCount(snapshot, mapper: true)
-            let sequences = staleCount(snapshot, mapper: false)
-            if maps > 0 {
-                flags.insert("staleMaps")
-                values["staleMaps"] = AssistCopy.grouped(maps)
-            }
-            if sequences > 0 {
-                flags.insert("staleSeq")
-                values["staleSeq"] = AssistCopy.grouped(sequences)
-            }
-        case .fiveStar:
-            let starFlags = HeartbeatMath.fiveStarActionFlags(scored, includeAll: true)
-            if let weakest = starFlags.max(by: { $0.stores < $1.stores }), weakest.stores > 0,
-               let flag = weakestFlag(weakest.name) {
-                flags.insert(flag)
-                values["part"] = weakest.name
-                if let shopper = shopperMissing(part: weakest.name, snapshot: snapshot) {
-                    flags.insert("namedShopper")
-                    values["shopper"] = shopper.name
-                    values["store"] = shopper.store
-                }
-            }
-        case .prepNotReady:
-            if needsAction(snapshot.summaries[.pph]), let text = snapshot.summaries[.pph]?.headlineText, text != "—" {
-                flags.insert("pphNeedsAction")
-                values["pphAvg"] = text
-            }
-        case .dynacap:
-            if scored.contains(where: { HeartbeatMath.dynacapAligned($0) != nil }) {
-                flags.insert("hasCapacityRecs")
-            }
-            if needsAction(snapshot.summaries[.labor]), let text = snapshot.summaries[.labor]?.headlineText, text != "—" {
-                flags.insert("laborNeedsAction")
-                values["laborAvg"] = text
-            }
-        case .pph:
-            if let shopper = slowestPPHShopper(snapshot) {
-                flags.insert("namedShopper")
-                values["shopper"] = shopper.name
-                values["store"] = shopper.store
-                values["pph"] = AssistCopy.one(shopper.value)
-            }
-            if needsAction(snapshot.summaries[.prepNotReady]), let text = snapshot.summaries[.prepNotReady]?.headlineText, text != "—" {
-                flags.insert("prepNeedsAction")
-                values["pnrAvg"] = text
-            }
-        case .labor:
-            if let schedule = snapshot.summaries[.scheduleQuality], schedule.overScheduledCount > 0, needsAction(schedule) || schedule.overScheduledCount > 0 {
-                flags.insert("scheduleNeedsAction")
-                values["over"] = AssistCopy.grouped(schedule.overScheduledCount)
-            } else if let schedule = snapshot.summaries[.scheduleQuality], schedule.storeCount > 0, !needsAction(schedule) {
-                flags.insert("scheduleHolding")
-            }
-            if level == .store, let row = scored.first,
-               let act = row.number("act_cost_pct"), let target = row.number("cost_trgt_pct"), act > target {
-                flags.insert("storeCostOver")
-                values["act"] = String(format: "%.2f%%", act)
-                values["trgt"] = String(format: "%.2f%%", target)
-            }
-        case .lostRevenue:
-            if let bucket = largestLossBucket(scored) {
-                flags.insert(bucket.flag)
-                flags.insert("bucketDollars")
-                values["bucket"] = bucket.name
-                values["dollars"] = HeartbeatFormat.money(bucket.dollars)
-                values["bucketOwner"] = bucket.flag == "bucketOOS" ? "Grocery lead" : "Store leader"
-            }
-        case .sales:
-            let off = scored.filter { HeartbeatMath.health(for: .sales, row: $0).needsAction }
-            if off.contains(where: { ($0.number("sales_yoy_pct") ?? 1) < 0 }) {
-                flags.insert("salesDown")
-            } else if off.contains(where: { $0.number("sales_plan_pct") != nil }) {
-                flags.insert("salesPlan")
-            }
-        default:
-            break
-        }
-        return CheckFacts(flags: flags, values: values)
-    }
-
-    private static func needsAction(_ summary: SectionSummary?) -> Bool {
-        guard let summary, summary.health != .none, summary.storeCount > 0 else { return false }
-        return summary.riskCount + summary.watchCount > 0 || summary.health == .risk || summary.health == .watch
-    }
-
-    private static func hottestDept(_ rows: [MetricRow]) -> (name: String, pct: Double)? {
-        var best: (String, Double)?
-        for dept in MissingItemDept.allCases {
-            guard let avg = HeartbeatMath.average(rows.compactMap { $0.number(dept.rawValue) }), avg > 0 else { continue }
-            if best == nil || avg > best!.1 { best = (dept.short, avg) }
-        }
-        return best
-    }
-
-    private static func staleCount(_ snapshot: AssistSnapshot, mapper: Bool) -> Int {
-        let aisle = snapshot.rows[.aisleMapper] ?? []
-        let path = snapshot.rows[.pickPath] ?? []
-        func count(_ rows: [MetricRow]) -> Int {
-            rows.filter {
-                let iso = mapper ? AisleMapperMath.mapperISO($0) : AisleMapperMath.sequenceISO($0)
-                return AisleMapperMath.health(iso) == .risk
-            }.count
-        }
-        let aisleCount = count(aisle)
-        if aisleCount > 0 || aisle.contains(where: {
-            (mapper ? AisleMapperMath.mapperISO($0) : AisleMapperMath.sequenceISO($0)) != nil
-        }) {
-            return aisleCount
-        }
-        return count(path)
-    }
-
-    private static func topPreSubItem(_ snapshot: AssistSnapshot) -> (bpn: String, pct: Double)? {
-        let items = snapshot.rows[.preSubOOSItem] ?? []
-        var best: (String, Double)?
-        for row in items {
-            guard let pct = row.number("presub_pct") else { continue }
-            let bpn = ["bpn", "bpn_desc", "item"].compactMap { row.textPayload[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
-            guard let bpn else { continue }
-            if best == nil || pct > best!.1 { best = (bpn, pct) }
-        }
-        return best
-    }
-
-    private struct NamedValue {
-        var name: String
-        var store: String
-        var value: Double
-    }
-
-    private static func lowestPathShopper(_ snapshot: AssistSnapshot) -> NamedValue? {
-        let rows = (snapshot.rows[.pickPathPicker] ?? []).filter { HeartbeatMath.isRealPicker($0) }
-        var best: NamedValue?
-        for row in rows {
-            guard let name = cleanName(row), let value = row.number("compliance_pct") else { continue }
-            guard HeartbeatMath.health(for: .pickPathPicker, row: row).needsAction else { continue }
-            if best == nil || value < best!.value {
-                best = NamedValue(name: name, store: HeartbeatMath.canonicalStore(row.storeNumber), value: value)
+        level: AssistScopeLevel,
+        stay: DashboardFilters?
+    ) -> [PreparedCheck] {
+        metric.checks.sorted { $0.order < $1.order }.compactMap { check in
+            let destination = HubDestination(rawValue: check.destination) ?? .dashboard
+            let owner = level == .store ? (check.owner.isEmpty ? "Store lead" : check.owner) : AssistScope.levelOwner(level)
+            switch check.type {
+            case .floor:
+                guard let question = check.question?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty else { return nil }
+                let action = AssistAction.open(
+                    id: "\(metric.metricId)-\(check.order)",
+                    question: question,
+                    owner: owner,
+                    buttonTitle: AssistCopy.screenTitle(destination),
+                    filters: stay,
+                    destination: destination,
+                    detail: check.detail ?? ""
+                )
+                return PreparedCheck(order: check.order, action: action, showable: true)
+            case .auto:
+                guard let evaluation = AssistAutoCheck.evaluate(
+                    check,
+                    rows: snapshot.rows,
+                    summaries: snapshot.summaries,
+                    level: level
+                ) else { return nil }
+                let action = AssistAction.open(
+                    id: "\(metric.metricId)-\(check.order)",
+                    question: evaluation.sentence,
+                    owner: owner,
+                    buttonTitle: AssistCopy.screenTitle(destination),
+                    filters: stay,
+                    destination: destination,
+                    statusMark: evaluation.statusMark,
+                    statusSymbol: evaluation.statusSymbol
+                )
+                return PreparedCheck(order: check.order, action: action, showable: evaluation.failing)
             }
         }
-        return best
     }
 
-    private static func slowestPPHShopper(_ snapshot: AssistSnapshot) -> NamedValue? {
-        let rows = (snapshot.rows[.pickerScorecard] ?? []).filter {
-            HeartbeatMath.isRealPicker($0) && HeartbeatMath.pickerHasVolume($0)
-        }
-        var best: NamedValue?
-        for row in rows {
-            guard let name = cleanName(row), let value = row.number("pph"), value > 0 else { continue }
-            guard HeartbeatMath.health(for: .pickerScorecard, row: row).needsAction else { continue }
-            if best == nil || value < best!.value {
-                best = NamedValue(name: name, store: HeartbeatMath.canonicalStore(row.storeNumber), value: value)
-            }
-        }
-        return best
-    }
-
-    private static func weakestFlag(_ name: String) -> String? {
-        switch name {
-        case "Pre Sub OOS%": return "weakestPresub"
-        case "OTT": return "weakestOTT"
-        case "OTH 5%": return "weakestOTH"
-        case "COE": return "weakestCOE"
-        case "Flash": return "weakestFlash"
+    private static func weakestFiveStarMetric(_ rows: [MetricRow]) -> String? {
+        let flags = HeartbeatMath.fiveStarActionFlags(AssistRank.scoringRows(rows), includeAll: true)
+        guard let weakest = flags.filter({ $0.stores > 0 }).max(by: { $0.stores < $1.stores }) else { return nil }
+        switch weakest.name {
+        case "Flash": return "five_star_flash"
+        case "Pre Sub OOS%": return "five_star_presub"
+        case "COE": return "five_star_coe"
+        case "OTT": return "five_star_ott"
+        case "OTH 5%": return "five_star_oth5"
         default: return nil
         }
     }
 
-    private static func shopperMissing(part: String, snapshot: AssistSnapshot) -> NamedValue? {
-        let rows = (snapshot.rows[.pickerScorecard] ?? []).filter { HeartbeatMath.isRealPicker($0) }
-        var best: (NamedValue, Int)?
-        for row in rows {
-            guard let name = cleanName(row) else { continue }
-            let mark = starMark(part: part, row: row)
-            guard mark != .full else { continue }
-            guard partValue(part, row) != nil else { continue }
-            let rank = mark == .none ? 2 : 1
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if best == nil || rank > best!.1 {
-                best = (NamedValue(name: name, store: store, value: 0), rank)
-            }
-        }
-        return best?.0
-    }
-
-    private static func partValue(_ part: String, _ row: MetricRow) -> Double? {
-        switch part {
-        case "Flash": return row.number("flash_pct", "flash_star")
-        case "COE": return row.number("coe_pct", "coe_star")
-        case "OTT": return row.number("ott_pct", "ott_star")
-        case "Pre Sub OOS%": return row.number("presub_pct", "presub_star")
-        case "OTH 5%": return row.number("oth5_pct", "oth5_star")
+    private static func largestBucketMetric(_ rows: [MetricRow]) -> String? {
+        guard let bucket = largestLossBucket(rows) else { return nil }
+        switch bucket.name {
+        case "Post Sub OOS Foregone": return "lost_post_sub_oos"
+        case "Refund $ Fulfillment": return "lost_refund"
+        case "Cancelled Orders LDAP": return "lost_cancelled"
+        case "Kill Switch Lost Sales": return "lost_kill_switch"
+        case "Reduced Capacity Missed Sales": return "lost_reduced_capacity"
         default: return nil
-        }
-    }
-
-    private static func starMark(part: String, row: MetricRow) -> HeartbeatMath.StarMark {
-        switch part {
-        case "Flash": return HeartbeatMath.flashStar(row)
-        case "COE": return HeartbeatMath.coeStar(row)
-        case "OTT": return HeartbeatMath.ottStar(row)
-        case "Pre Sub OOS%": return HeartbeatMath.presubStar(row)
-        case "OTH 5%": return HeartbeatMath.othStar(row)
-        default: return .full
         }
     }
 
@@ -2339,10 +2294,11 @@ enum AssistComposer {
         first: Bool
     ) -> AssistIssue {
         let filters = applying(childChange(child), on: snapshot.filters == base ? snapshot.filters : snapshot.filters)
-        let openText = AssistCopy.fill(playbook.shared.childOpen, ["child": child.label], limit: AssistCopy.actionLimit) ?? "Open \(child.label)"
+        _ = playbook
+        let openText = AssistCopy.fill("Open {child}", ["child": child.label], limit: AssistCopy.actionLimit) ?? "Open \(child.label)"
         let metricName = child.worstMetric?.overviewLead ?? "the worst scorecard"
         let workText = AssistCopy.fill(
-            playbook.shared.childWork,
+            "Work {metric} first",
             ["metric": metricName, "child": child.label],
             limit: AssistCopy.actionLimit
         )
@@ -2400,6 +2356,7 @@ enum AssistComposer {
             footer: footer,
             footerAction: footerAction,
             checks: checks,
+            moreChecks: [],
             why: nil,
             causeChecks: [],
             failingCauseIDs: [],
@@ -2440,16 +2397,20 @@ enum AssistComposer {
         filters.store = store
         let stay: DashboardFilters? = filters
         var checks: [AssistAction] = []
-        if let check = playbook?.metrics[MetricSection.pickerScorecard.rawValue]?.checks.first,
-           let question = AssistCopy.fill(check.question, ["shopper": name, "items": items, "store": store], limit: AssistCopy.actionLimit) {
-            checks.append(AssistAction.open(
-                id: "shopper-\(rank)",
-                question: question,
-                owner: level == .store ? (check.ownerRole ?? "Store leader") : AssistScope.levelOwner(level),
-                buttonTitle: AssistCopy.screenTitle(.pickerScorecard),
-                filters: stay ?? filters,
-                destination: .pickerScorecard
-            ))
+        if let check = playbook?.metric(MetricSection.pickerScorecard.rawValue)?.checks.first,
+           let raw = check.question, !raw.isEmpty {
+            let filled = AssistCopy.fill(raw, ["shopper": name, "items": items, "store": store], limit: AssistCopy.actionLimit)
+            let question = filled ?? (raw.contains("{") ? nil : raw)
+            if let question {
+                checks.append(AssistAction.open(
+                    id: "shopper-\(rank)",
+                    question: question,
+                    owner: level == .store ? (check.owner.isEmpty ? "Store lead" : check.owner) : AssistScope.levelOwner(level),
+                    buttonTitle: AssistCopy.screenTitle(.pickerScorecard),
+                    filters: stay ?? filters,
+                    destination: .pickerScorecard
+                ))
+            }
         }
         let headline = clip("\(name) at store \(store)", AssistCopy.headlineLimit)
         let footer = AssistCopy.screenTitle(.pickerScorecard)
@@ -2475,6 +2436,7 @@ enum AssistComposer {
                 destination: .pickerScorecard
             ),
             checks: checks,
+            moreChecks: [],
             why: nil,
             causeChecks: [],
             failingCauseIDs: [],
@@ -2577,7 +2539,9 @@ enum AssistComposer {
         case .prepNotReady: return (HeartbeatMath.pnrGoal - avg) / 0.6
         case .dynacap: return (avg - HeartbeatMath.dynacapGoal) / 5
         case .scheduleQuality: return (avg - HeartbeatMath.scheduleGoal) / 5
-        case .pph: return (avg - HeartbeatMath.pphGoal) / 6
+        case .pph:
+            let band = AssistRank.pphRankingBand
+            return (avg - band.goal) / (band.goal - band.risk)
         case .labor: return (0 - avg) / HeartbeatMath.laborWatch
         case .fiveStar: return (avg - 4.5) / 0.5
         case .lostRevenue:

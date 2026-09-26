@@ -4,6 +4,13 @@ Status: design only. No code in this document has been written to the repo.
 Repo read: `murraycory-gif/FulfillmentHeartbeat-iOS`, branch `main`, commit **`e44f1405dc377b79f1e8711e6b4f9b582e8a8004`** (2026-09-25 12:45 PM CT, "Drop the unused facts_section_store partial index (#47)").
 Read through GitHub MCP only. Nothing was cloned.
 
+**v2 (Fri Sep 25 2026, 8:28 PM CT): owner additions relayed by the CoS.**
+- **Build target:** the CoS is building Assist on the **477 line**, PR #45 head `0dcad79201cba43c75e6a70e2cfe67b6339eeaec`. On that line, `HubDestination` has 13 cases and **no `.checklist` or `.upload`** (see §10 and §13).
+- **Resolution checks** now come from `PLAYBOOK.md` (one JSON data file, `playbook.json`). There are two check types, floor and auto (§4.1).
+- **"More checks ›" row** added to the card (§4, part 6b).
+- **Cause chain and a "Why" line** on the Loss Revenue card (§4, part 4a; §4.2).
+- **New acceptance checks:** §15, checks 26–35.
+
 > **Build mismatch.** The screenshot does not match `main`. The strings "Stores 2161" and the chip "What's wrong and what should we do first?" are not on `main`. They are on the seat-shell branch line: `cursor/grain-first-seat-shell-b84a` @ `f38b748` and `cursor/command-center-8b-3389` @ `53e8895`. Both have the same `AssistEngine.swift`, with `seatWrong()` and "WHAT'S WRONG / DIRECTION". This spec targets `main`, which is what was asked. Every rule here also applies to the branch. Section 13 lists the branch-only destinations.
 
 ---
@@ -16,6 +23,8 @@ Today Assist answers every question with one long text bubble. The bubble has AL
 
 1. **Nothing invented.** Every number on screen comes from a pack field or an existing `HeartbeatMath` rollup of pack fields. Each is cited in section 9 and in the appendix. If a field is missing for the scope, that element is left out. It is never filled in or estimated.
 2. **Targets come from `HeartbeatMath` constants.** Examples: `pnrGoal = 1.9` and `pickPathGoal = 90`. The pack does not carry targets. The only pack-side targets are `cost_trgt_pct` (Labor) and `sales_plan` / `sales_plan_pct` (Sales).
+   - **Exception:** an auto check in `PLAYBOOK.md` may use an **owner standard** relayed by the CoS, and its `thresholdSource` must say so. Today the only one is the PPH floor 65. Owner standards never change ranking; ranking keeps the §6 bands.
+   - The owner's "30 items in the first 15 minutes" standard is not in the pack. It is only ever a floor question, never a computed number.
 3. **Deterministic.** The same pack, scope, and question always give the same text in the same order on every device. Scores are rounded to 4 decimals before comparing.
 4. **Offline.** Assist code must not reference `PulseCloud`, `URLSession`, or any network API. Answers are built only from `HeartbeatStore` in-memory data: `summaries`, `displayRows(for:)`, `filters`, `stores`, `districts`, and `operationsOMs`.
 5. **No names we don't have.** Owners are role labels, such as "District managers" or "Grocery lead". The only person names allowed are shopper names from `shopper_name` / `shopper_id` on Picker ScoreCard and Pick Path Picker rows. The pack has no OM, district manager, or store leader names (see Gaps).
@@ -44,7 +53,7 @@ Top to bottom, inside the existing full-screen cover (`HubBrandBar.showAssist` �
 
 ## 4. Card anatomy
 
-Every card has the same seven parts in this order. A part is skipped only where noted.
+Every card has the same seven parts in this order, plus part 4a (Loss Revenue only) and part 6b (when there are more checks). A part is skipped only where noted.
 
 | # | Part | Content | Style |
 |---|------|---------|-------|
@@ -52,8 +61,10 @@ Every card has the same seven parts in this order. A part is skipped only where 
 | 2 | Problem headline | Plain sentence of 90 characters or fewer, from the metric's template (section 9) | title3, semibold, wraps |
 | 3 | The one number | Label over value. Above store scope: label "Stores at risk", value "{R} of {N}". At store scope: label = the metric's name, value = the store's value. | label: caption; value: title, bold, monospaced digits |
 | 4 | Fact row | Up to 3 equal label-over-value cells: **Average** (`SectionSummary.headlineText`), **Goal** (the constant), and **On watch** ({W}) or the metric-specific third cell from section 9. A fourth element, **Trend**, appears only when section 5 allows it; it replaces the third cell. | caption over body |
+| 4a | Why (Loss Revenue only) | One line from §4.2, e.g. "Why: low capacity, from late orders (OTT 88.0%) and slow picking (PPH 58.0)." It names only causes that are failing at the scope in view, and is hidden if none are. The whole line is one button (at least 44 points tall) that expands the failing auto checks of the named causes, for the same scope. | subheadline; cause names semibold |
 | 5 | Scope | "Scope: {scope label}" (8.1). At company level it adds "(all regions, divisions, districts, OMs, stores)". | footnote, secondary |
-| 6 | What to do | Heading "What to do", then 1 to 3 numbered actions. Each action has three lines: the **verb sentence**, "Owner: {role}", and a destination button "Open {screen} ›". The whole action row is one button, at least 44 points tall. | body / footnote / body in accent color |
+| 6 | What to do | Heading "What to do", then 1 to 3 numbered actions, taken from the metric's `PLAYBOOK.md` checks in `order` (§4.1). A **floor** check shows the yes/no question, an optional detail line, "Owner: {role}", and "Open {screen} ›". A **failing auto** check shows its fail statement with the value (e.g. "PPH 58, under 65"), "Owner: {role}", and "Open {screen} ›". The whole action row is one button, at least 44 points tall. Above store scope, only 2 checks show; action 3 stays "Start with {child}" (8.2). | body / footnote / body in accent color |
+| 6b | More checks | Collapsed row "More checks ›" under the actions. It expands to show the remaining floor checks and every **passing** auto check (with its pass statement), in `order`, in the same row format. It is hidden when there are none. | body, accent; expanded rows as part 6 |
 | 7 | Tap-through | Footer button "See all {R} stores ›", or "Open {metric page} ›" at store scope. Tapping card parts 1 to 4 does the same thing. | body, semibold, accent |
 
 **Tap behavior.** Tapping a destination does four things:
@@ -63,6 +74,61 @@ Every card has the same seven parts in this order. A part is skipped only where 
 4. Leaves the transcript as it was. Reopening Assist shows the same answer, rebuilt for the new scope only if the user asks again.
 
 **Wording templates.** Use `{}` placeholders. Plural rules: "1 store" or "N stores". Numbers use the formats in section 12.
+
+### 4.1 Checks: floor vs. auto (from `PLAYBOOK.md`)
+
+**Floor check** (`type: "floor"`):
+- A yes/no question of 12 words or fewer (owner wording is kept exactly, even if longer). "No" means the fix.
+- It may have one `detail` line, e.g. under "Is store PI (perpetual inventory) accurate?": "Check PI accuracy; look for out-of-stocks showing as on-hand."
+- The app never answers it; the leader does, on the floor.
+
+**Auto check** (`type: "auto"`):
+- Computed on the device from `packFields`: the first key present when `combine` is `first`, or every key when `combine` is `any`. Each key is tested against `threshold` with `comparator`.
+- It is rendered as a **statement with the value, never a question.**
+  - At store scope, it uses `passText` / `failText` with the store's value.
+  - Above store scope, it uses `scopePassText` / `scopeFailText`:
+    - with `rollup: avg`, `{value}` is the metric's `SectionSummary.headlineText`, and the check fails when that value breaks the threshold;
+    - with `rollup: countFailing`, the check fails when any store fails;
+    - `{k}` of `{n}` is the number of stores failing (a `[...]` segment containing `{k}` is dropped when `k` = 0).
+- **Examples:**
+  - "Under-scheduled: yes (Sch vs Tgt 7.2%, over 5%, Pch vs Sch 4.1%)"
+  - "PPH 58, under 65"
+  - Above store scope: "PPH 61.3, under 65; 12 of 40 stores under 65" (sample values)
+- **States:**
+  - **fail:** eligible for the part 6 action slots.
+  - **pass:** goes to part 6b, with a text-plus-symbol "OK", never color alone.
+  - **no data:** hidden (§9: an action without data is dropped).
+- Numbers follow §14. Templates never contain "·".
+
+**Slots.** Actions are filled with the first 3 checks (2 above store scope) that are floor checks or failing auto checks, in `order`. Everything else goes to part 6b.
+
+### 4.2 Cause chain and the Why line
+
+`PLAYBOOK.md` gives every entry a `causes` list.
+
+**Owner's chain:**
+1. Loss Revenue ("Lost Sales") is caused by low capacity.
+2. Low capacity is caused by Poor OTT (5 Star OTT) and Low PPH.
+
+Low capacity is modeled as the **Reduced Capacity Missed Sales** bucket (`missed_sales` / `missed_sales_pct`, or `reduced_capacity`, in `lostRevenueMetricFlags`).
+
+**When the Why line shows.** It appears on the Loss Revenue card only, and only if the Reduced Capacity bucket health is watch or risk **at the scope in view**. It then names the failing children only:
+
+| Cause | Failing at store scope | Failing above store scope |
+|---|---|---|
+| Poor OTT | `ottStar(row)` is not `.full` (`ott_pct` < 95) | the OTT entry in `fiveStarActionFlags` is watch or risk |
+| Low PPH | the `PPH under 65` auto check fails (owner floor 65) | the same check fails on the scope rollup |
+
+**Templates** (`{ott}` = OTT % for the scope, `{pph}` = PPH for the scope, `{missed}` = Reduced Capacity dollars, all as §14):
+- Both failing: "Why: low capacity, from late orders (OTT {ott}%) and slow picking (PPH {pph})."
+- OTT only: "Why: low capacity, from late orders (OTT {ott}%)."
+- PPH only: "Why: low capacity, from slow picking (PPH {pph})."
+- Neither: "Why: low capacity ({missed} missed sales)."
+- Reduced Capacity healthy or no data: **no Why line.**
+
+**Tapping** the Why line expands, in place, the failing auto checks of each named cause for the same scope (OTT: "Under-scheduled", "PPH under 65"; PPH: "PPH under 65"). Each keeps its own "Open {screen} ›". Causes marked `causesConfirm` in `PLAYBOOK.md` are **not** used in the Why line until the owner confirms them.
+
+**PPH band note.** Ranking and the PPH card status keep `pphGoal` 80 / `pphRisk` 74 (§6). The owner floor 65 is used only in the auto check and the Why line. Which one should rule ranking is flagged for the owner (confirm).
 
 ## 5. Trend: when it may appear
 
@@ -192,7 +258,15 @@ This fixes a bug in today's `districtBrief(nil)`. On the Dashboard it ranks by `
 
 ## 9. Resolution rules per metric
 
-Notation: `R`, `W`, and `N` come from `SectionSummary`. `{avg}` = `summary.headlineText`. `{child}` = worst child (8.3). "Level owner" = the owner in 8.1. Destinations are `HubDestination` cases on `main` (`MainHubView.swift`).
+Notation: `R`, `W`, and `N` come from `SectionSummary`. `{avg}` = `summary.headlineText`. `{child}` = worst child (8.3). "Level owner" = the owner in 8.1. Destinations are `HubDestination` cases on `main` (`MainHubView.swift`); on the 477 line they are the 13 cases in `Domain.swift` (§13).
+
+**v2: checks replace free-form actions.** Actions 1–2 below remain as the data-bearing lines, e.g. "Hang aisle tags in {dept} first." When one has data, it may take action slot 1. The remaining slots come from the metric's `PLAYBOOK.md` checks (§4.1). Owner additions:
+- **High Pre Subs.** This is the owner's name for Pre-Sub OOS (`presub_pct`). The same key drives the 5 Star Presub part. Both get the display name "High Pre Subs" and these first checks, in order:
+  1. "Are shoppers using radios?"
+  2. "Is the whole store using radios?"
+  3. "Is store PI (perpetual inventory) accurate?"
+- **Low PPH.** First check: "Are shoppers picking 30 items within the first 15 minutes of their run or shift start?"
+- **Poor OTT.** The first two checks are auto: "Under-scheduled" (`under_schedule_pct` > `scheduleVarianceWatch` 5, with `under_adherence_pct` "Pch vs Sch" shown as support) and "PPH under 65".
 
 The trigger for a card is always `R + W > 0` (6.1). Action 3 above store level is always "Start with {child}: {r} of {n} stores at risk", owned by the child-level role, opening Dashboard filtered to that child. It is not repeated in each row below.
 
@@ -220,7 +294,7 @@ Rules for every metric:
 
 | State | Trigger (exact) | Copy | Buttons |
 |---|---|---|---|
-| **No pack** | `store.seeded == false`, or every `summaries[i].health == .none` | Title: "No Heartbeat data on this device yet." Body: "Assist answers only from the Heartbeat pack. Load it on Upload, or wait for today's pack to download." | "Open Upload" → `.upload` |
+| **No pack** | `store.seeded == false`, or every `summaries[i].health == .none` | Title: "No Heartbeat data on this device yet." Body on `main`: "Assist answers only from the Heartbeat pack. Load it on Upload, or wait for today's pack to download." Body on the 477 line (no Upload screen): "Assist answers only from the Heartbeat pack. The Heartbeat pack comes from the server. Dashboard fills when it is on the device." (The second and third sentences are existing copy in `AssistEngine.swift` @ 0dcad79.) | `main`: "Open Upload" → `.upload`. 477 line: "Open Dashboard" → `.dashboard` |
 | **Stale pack** | The newest `SectionSummary.lastUploadedAt` is more than 36 hours old. The 36-hour threshold is a proposed constant for the owner to confirm. | Banner above the answer, which still renders: "These numbers are from {data window or shortDate}. Today's pack hasn't loaded yet." | none |
 | **No data for scope** | Filters active and every dashboard metric has `storeCount == 0` | Title: "No Heartbeat numbers for {scope label}." Body: "The pack has no rows for this filter. Clear it or pick another area." | "Clear filters" → `store.clearFilters()` |
 | **Healthy** | At least 1 metric has data and no metric qualifies under 6.1 | Title: "Nothing needs fixing in {scope label}." Body: "All {k} scorecards with data are at goal." Then one line: "Closest to its goal: {metric} at {avg} (goal {goal})." This uses the smallest rollup margin and is left out if unknown. | chips from 11.2 |
@@ -290,6 +364,8 @@ Questions about anything the pack does not hold go to the fallback. Examples: we
 - `.checklist`
 - `.upload`
 
+**Exists on the 477 line** (PR #45 @ `0dcad79`; `HubDestination` moved to `Domain.swift`): the 13 cases above from `.dashboard` through `.labor`. **`.checklist` and `.upload` do not exist there.** Every card, check, state, or chip that would open Checklist or Upload opens **`.dashboard`** instead on that line.
+
 Scope changes use `HeartbeatStore.setDivision`, `setDistrict`, `setOM`, `setStore`, `commitFilters`, and `clearFilters`. The filter bar has "Clear" (`FilterBar` in `SharedViews.swift`).
 
 **Does not exist on `main` (flagged).** The card falls back to the nearest existing destination:
@@ -300,6 +376,7 @@ Scope changes use `HeartbeatStore.setDivision`, `setDistrict`, `setOM`, `setStor
 | Deep link to one shopper | None | `.pickerScorecard` (with the store filter when known) |
 | Deep link that preselects a Missing Items / Pre-Sub department chip | Not found | Open the page. The action text names the department. |
 | Deep link that pre-sorts a store table worst-first | Not found | Open the page |
+| `.checklist` / `.upload` on the 477 line (PR #45 @ `0dcad79`) | Removed from `HubDestination` on that line | `.dashboard` |
 
 ## 14. Formatting rules
 
@@ -338,7 +415,7 @@ Setup: use the same pack on all three devices, installed from the same build. Ai
 | 1 | Same answer everywhere | Ask "What should we fix first?" at company scope. Card order, headlines, numbers, actions, and chip text are word-for-word the same on all three devices. | | | |
 | 2 | Single column | The answer and the chips are in one column. On iPad landscape and a full-width Mac window, the content column is no wider than 680 points and is centered. | | | |
 | 3 | Header present | "Fix these N first" appears above the cards with N = min(3, qualifying metrics). Each line is 48 characters or fewer and tapping it scrolls to that card. | | | |
-| 4 | Card parts | Every card shows: rank + metric + status pill, a plain headline, the "Stores at risk" number (or the store value), the fact row, "Scope: …", "What to do" with 1–3 actions each having an owner and "Open … ›", and a footer tap-through. | | | |
+| 4 | Card parts | Every card shows: rank + metric + status pill, a plain headline, the "Stores at risk" number (or the store value), the fact row, "Scope: …", "What to do" with 1–3 actions each having an owner and "Open … ›", "More checks ›" when the metric has more checks, and a footer tap-through. | | | |
 | 5 | Numbers match the Dashboard | For each card, Average equals that metric's Dashboard headline, and R, W, and N match its Dashboard at-risk, watch, and store counts in the same scope. | | | |
 | 6 | Ranking matches the formula | Load fixture 15.2 (a unit test or debug pack). The order is exactly B, A, C, D, and "How this was ranked" shows the fixture's R, W, and D̄. | | | |
 | 7 | Healthy metrics excluded | No card appears for a metric with R + W = 0. The metric is counted in the healthy line or omitted. | | | |
@@ -349,7 +426,7 @@ Setup: use the same pack on all three devices, installed from the same build. Ai
 | 12 | Store name | At store scope, the label reads "Store {number}, {name}" when the roster has a name, and "Store {number}" when it doesn't. | | | |
 | 13 | Trend only when real | A trend cell appears on Sales (YoY) only when `sales_yoy_pct` is present. It appears on another metric only if history has 2 or more dates. There are no dashes or placeholder trends. | | | |
 | 14 | No invented names | Owner lines show role labels only, and the only person names are shoppers from the pack. | | | |
-| 15 | No-pack state | On a fresh install with no pack: the exact no-pack copy and "Open Upload" appear, with no chips. | | | |
+| 15 | No-pack state | On a fresh install with no pack: the exact no-pack copy appears with no chips, plus "Open Upload" on `main`, or "Open Dashboard" (landing on Dashboard) on the 477 line. | | | |
 | 16 | No-data-for-scope state | A filter with no rows shows the exact copy and a "Clear filters" button that clears. | | | |
 | 17 | Healthy state | With a fixture where everything is at goal: "Nothing needs fixing in {scope}." and the healthy chips. | | | |
 | 18 | Stale banner | With a pack whose newest upload is more than 36 hours old, the banner shows above the cards and the cards still render. | | | |
@@ -360,6 +437,16 @@ Setup: use the same pack on all three devices, installed from the same build. Ai
 | 23 | Dark mode | All text is readable. There are no white slabs in the prompt bank, composer, or cards. | | | |
 | 24 | Deterministic | Asking the same question twice gives identical text and order. | | | |
 | 25 | No network | With airplane mode on, every answer above still works. A code search of the Assist files shows no `URLSession`, `PulseCloud`, or network calls. | | | |
+| 26 | Floor vs. auto rendering | On the 5 Star OTT ("Poor OTT") card at store scope, floor checks read as questions ending in "?". Auto checks read as statements with a number and no "?", e.g. "PPH 58, under 65". Both show "Owner: …" and "Open … ›". | | | |
+| 27 | Auto check values match | For a store, the value in "PPH {v}, under 65" equals that store's `pph` (or `pure_pph`) on the PPH page. "Under-scheduled" shows yes exactly when `under_schedule_pct` > 5, and its Sch vs Tgt value equals the Schedule Quality page. Above store scope, "{k} of {n} stores" matches a manual count in the same filter. | | | |
+| 28 | Auto check slots | A passing auto check never takes an action slot. It appears under "More checks ›" with "OK" text and a symbol. An auto check whose field is missing for the scope does not appear anywhere. | | | |
+| 29 | More checks row | On a card whose entry has more checks than fit, "More checks ›" is collapsed by default. It expands to the remaining checks in playbook order, and is absent when there are none. Each row is at least 44 points tall. | | | |
+| 30 | Owner wording | The High Pre Subs card (Pre-Sub OOS, and the 5 Star Presub part) shows, in order: "Are shoppers using radios?", "Is the whole store using radios?", "Is store PI (perpetual inventory) accurate?" with the detail line. The PPH card's first check is "Are shoppers picking 30 items within the first 15 minutes of their run or shift start?". The wording is word-for-word, with no "(confirm)" shown. | | | |
+| 31 | Why line shown | With a fixture where Reduced Capacity Missed Sales is watch or risk and OTT and PPH (< 65) both fail at the scope, the Loss Revenue card shows "Why: low capacity, from late orders (OTT {ott}%) and slow picking (PPH {pph})." with the values matching the 5 Star and PPH pages for the same scope. | | | |
+| 32 | Why line names only failing causes | Same fixture, but PPH ≥ 65: the line names OTT only. OTT full and PPH < 65: PPH only. Both healthy: "Why: low capacity ({missed} missed sales)." | | | |
+| 33 | Why line hidden | With Reduced Capacity healthy or absent at the scope, no Why line appears, even if OTT or PPH fail. Change scope to a store where it fails, ask again, and the line appears for that store only. | | | |
+| 34 | Why line tap | Tapping the Why line expands the failing auto checks of the named causes for the same scope. Each "Open … ›" lands on the right page with the same filter. | | | |
+| 35 | 477 destinations | On a build from PR #45 @ `0dcad79`, no card, check, state, or chip tries to open Checklist or Upload. Those fall back to Dashboard. Every destination in `playbook.json` opens. | | | |
 
 ### 15.2 Ranking fixture (for check 6)
 Company scope, all rows in one region. Expected scores:
@@ -444,3 +531,13 @@ Tie-break test: add E = Labor (risk, R = 8, W = 10, D̄ = 1.00, so Score 78, the
    - a worst-first sort deep link
    Fallbacks are in section 13.
 10. **Screenshot vs `main`:** the screenshot build is from the seat-shell branch line, not `main` (see top note).
+
+**v2 additions (477 line, PR #45 @ `0dcad79`):**
+
+- **No store-level sub rate.** "High Pre Subs" uses `presub_pct`. Picker `subs` is an unbanded count. The item-level `subs_pct` is parsed but never read by `Domain.swift`.
+- **Under-scheduled has two candidate definitions:**
+  - The code's definition is `under_schedule_pct` (Sch vs Tgt) > 5.
+  - The owner's example is "Pch vs Sch", which is `under_adherence_pct`. It is parsed but has no band. (confirm)
+- **PPH has two thresholds:** the owner floor is 65, but the ranking band is 80 / 74. (confirm) which one rules ranking.
+- **"30 items in the first 15 minutes" has no pack field.** It stays a floor question only.
+- **`.checklist` / `.upload` are absent on the 477 line.** They fall back to `.dashboard`.
