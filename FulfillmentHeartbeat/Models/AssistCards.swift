@@ -1465,6 +1465,9 @@ enum AssistComposer {
             filters: nil,
             clearsFilters: true,
             destination: .dashboard,
+            detail: "",
+            statusMark: "",
+            statusSymbol: "",
             accessibilityLabel: "Clear filters. Opens Dashboard."
         )
         return answer
@@ -2178,15 +2181,15 @@ enum AssistComposer {
             ("Kill Switch Lost Sales", "kill_switch_lost", "bucketKill"),
             ("Reduced Capacity Missed Sales", "missed_sales", "bucketCapacity"),
         ]
-        var best: (String, Double, String)?
+        var best: (name: String, dollars: Double, flag: String)?
         for spec in specs {
             var dollars = HeartbeatMath.lostRevenueTODollars(rows, key: spec.1)
             if dollars == 0, spec.1 == "missed_sales" {
                 dollars = HeartbeatMath.lostRevenueTODollars(rows, key: "reduced_capacity")
             }
             guard dollars > 0 else { continue }
-            if best == nil || dollars > best!.1 {
-                best = (spec.0, dollars, spec.2)
+            if best == nil || dollars > best!.dollars {
+                best = (name: spec.0, dollars: dollars, flag: spec.2)
             }
         }
         return best
@@ -2258,7 +2261,7 @@ enum AssistComposer {
                 if names[key] == nil, let storeName = row.storeName, !storeName.isEmpty {
                     names[key] = storeName
                 }
-                groups[key, default: [:]][section, default: []].append(row)
+                groups[key, default: [MetricSection: [MetricRow]]()][section, default: [MetricRow]()].append(row)
             }
         }
         var ranked: [AssistChild] = []
