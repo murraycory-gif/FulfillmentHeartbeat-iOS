@@ -13,6 +13,7 @@ struct HeartbeatAssistSheet: View {
     @State private var expandedRanked: Set<UUID> = []
     @State private var expandedChecks: Set<String> = []
     @State private var expandedWhy: Set<String> = []
+    @State private var pending: Task<Void, Never>?
     @FocusState private var fieldFocused: Bool
 
     private var stackFacts: Bool { dynamicTypeSize.isAccessibilitySize }
@@ -38,6 +39,7 @@ struct HeartbeatAssistSheet: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear { reloadChips() }
+        .onDisappear { pending?.cancel() }
         .onChange(of: store.filters) { _, _ in
             reloadChips()
         }
@@ -546,16 +548,33 @@ struct HeartbeatAssistSheet: View {
     private func ask(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let snapshot = AssistSnapshot.live(store, section: router.current.section)
-        let answer = AssistComposer.answer(question: text, snapshot: snapshot)
-        turns.append(AssistTurn(question: text, answer: answer))
-        chips = answer.chips
         draft = ""
+        let source = AssistSnapshot.source(from: store, focus: router.current.section)
+        enqueue {
+            let answer = await AssistSnapshot.compose(question: text, source: source)
+            if Task.isCancelled { return }
+            self.turns.append(AssistTurn(question: text, answer: answer))
+            self.chips = answer.chips
+        }
     }
 
     private func reloadChips() {
-        let snapshot = AssistSnapshot.live(store, section: router.current.section)
-        chips = AssistComposer.chips(for: snapshot)
+        let source = AssistSnapshot.source(from: store, focus: router.current.section)
+        enqueue {
+            let next = await AssistSnapshot.chips(from: source)
+            if Task.isCancelled { return }
+            self.chips = next
+        }
+    }
+
+    /// Snapshot and compose run off the main actor. View state is written back here, in order.
+    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
+        let previous = pending
+        pending = Task { @MainActor in
+            await previous?.value
+            if Task.isCancelled { return }
+            await work()
+        }
     }
 
     private func perform(_ action: AssistAction) {

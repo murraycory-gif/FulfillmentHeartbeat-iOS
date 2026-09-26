@@ -170,10 +170,20 @@ enum AssistPlaybook {
         try JSONDecoder().decode(File.self, from: data)
     }
 
-    static func bundled() -> File? {
+    /// How many times the bundled playbook JSON has been decoded. The cache below runs once.
+    private static var bundledDecodeCountStorage = 0
+    static var bundledDecodeCount: Int { bundledDecodeCountStorage }
+
+    /// Decoded once. Later answers reuse this value and do not read the file again.
+    private static let cachedFile: File? = {
         guard let url = Bundle.main.url(forResource: "AssistPlaybook", withExtension: "json"),
               let data = try? Data(contentsOf: url) else { return nil }
+        bundledDecodeCountStorage += 1
         return try? load(from: data)
+    }()
+
+    static func bundled() -> File? {
+        cachedFile
     }
 
     static let rankedMetricIDs: [String] = MetricSection.dashboardCards
@@ -273,6 +283,17 @@ enum AssistAutoCheck {
         var support: [String: Double]
     }
 
+    /// Pack fields come from the check's own destination section. Other sections
+    /// can carry the same field name with a different number, and dictionary
+    /// order is not stable across launches.
+    private static func sectionRows(
+        _ check: AssistPlaybook.Check,
+        rows: [MetricSection: [MetricRow]]
+    ) -> [MetricRow] {
+        guard let section = HubDestination(rawValue: check.destination)?.section else { return [] }
+        return rows[section] ?? []
+    }
+
     private static func readings(
         _ check: AssistPlaybook.Check,
         rows: [MetricSection: [MetricRow]],
@@ -280,12 +301,10 @@ enum AssistAutoCheck {
         threshold: Double
     ) -> [Reading] {
         var grouped: [String: [MetricRow]] = [:]
-        for sectionRows in rows.values {
-            for row in AssistRank.scoringRows(sectionRows) {
-                let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                guard !store.isEmpty else { continue }
-                grouped[store, default: []].append(row)
-            }
+        for row in AssistRank.scoringRows(sectionRows(check, rows: rows)) {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            grouped[store, default: [MetricRow]()].append(row)
         }
         var readings: [Reading] = []
         for store in grouped.keys.sorted() {
@@ -1029,12 +1048,35 @@ struct AssistSnapshot {
 }
 
 extension AssistSnapshot {
+    /// Cached inputs copied on the main actor. Row walks happen in `assemble`, off the main actor.
+    struct Source {
+        var seeded: Bool
+        var filters: DashboardFilters
+        var summaries: [MetricSection: SectionSummary]
+        var latest: [MetricSection: [MetricRow]]
+        var historyPool: [MetricRow]
+        var focus: MetricSection?
+        var rosterStores: [(number: String, name: String?)]
+        var districts: [String]
+        var divisions: [String]
+        var operationsOMs: [String]
+        var packUploads: [Date]
+        var now: Date
+    }
+
+    /// Sections an answer reads. `allLatest` is the cached index, not a roster walk.
+    static let answerSections: [MetricSection] = MetricSection.dashboardCards + [.pickPathPicker]
+
+    /// History is only for trend cells. Sales uses year-over-year on the row.
+    static let trendSections: [MetricSection] = MetricSection.dashboardCards.filter { section in
+        section != .pickerScorecard && section != .sales
+    }
+
+    private static let trendSectionSet: Set<MetricSection> = Set(trendSections)
+
     @MainActor
-    static func live(_ store: HeartbeatStore, section: MetricSection?) -> AssistSnapshot {
+    static func source(from store: HeartbeatStore, focus: MetricSection?) -> Source {
         var summaries: [MetricSection: SectionSummary] = [:]
-        var rows: [MetricSection: [MetricRow]] = [:]
-        var warehouse: [MetricSection: [MetricRow]] = [:]
-        var history: [MetricSection: [HistoryPoint]] = [:]
         var uploads: [Date] = []
         for item in store.summaries {
             summaries[item.section] = item
@@ -1042,33 +1084,115 @@ extension AssistSnapshot {
                 uploads.append(uploaded)
             }
         }
-        for section in AssistSnapshot.needed {
-            if summaries[section] == nil {
-                summaries[section] = store.summary(for: section)
-            }
-            rows[section] = store.displayRows(for: section)
-            warehouse[section] = store.rows(for: section)
-            history[section] = store.history(for: section)
-            if let uploaded = store.upload(for: section)?.uploadedAt {
-                uploads.append(uploaded)
-            }
+        for record in store.uploads {
+            uploads.append(record.uploadedAt)
         }
-        let window = section.flatMap { store.dataWindow(for: $0) } ?? store.sharedDataWindow()
-        return AssistSnapshot(
+        var latest: [MetricSection: [MetricRow]] = [:]
+        for section in answerSections {
+            latest[section] = store.allLatest(for: section)
+        }
+        // Copy-on-write. Trend history scans this pool in `assemble`, off the main actor.
+        let historyPool = store.rows
+        return Source(
             seeded: store.seeded,
             filters: store.filters,
             summaries: summaries,
-            rows: rows,
-            history: history,
-            dataWindow: window,
+            latest: latest,
+            historyPool: historyPool,
+            focus: focus,
             rosterStores: store.stores,
             districts: store.districts,
             divisions: store.divisions,
             operationsOMs: store.operationsOMs,
-            now: Date(),
-            warehouse: warehouse,
-            packUploads: uploads
+            packUploads: uploads,
+            now: Date()
         )
+    }
+
+    /// Pure. Call from a detached task. Does not touch `HeartbeatStore`.
+    static func assemble(_ source: Source) -> AssistSnapshot {
+        var rows: [MetricSection: [MetricRow]] = [:]
+        var warehouse: [MetricSection: [MetricRow]] = [:]
+        let filters = source.filters
+        for section in answerSections {
+            let latest = source.latest[section] ?? []
+            let scoped = filters.isActive ? AssistScope.slice(latest, filters: filters) : latest
+            rows[section] = scoped
+            warehouse[section] = scoped
+        }
+        return AssistSnapshot(
+            seeded: source.seeded,
+            filters: filters,
+            summaries: source.summaries,
+            rows: rows,
+            history: trendHistory(source),
+            dataWindow: dataWindow(focus: source.focus, rows: source.historyPool),
+            rosterStores: source.rosterStores,
+            districts: source.districts,
+            divisions: source.divisions,
+            operationsOMs: source.operationsOMs,
+            now: source.now,
+            warehouse: warehouse,
+            packUploads: source.packUploads
+        )
+    }
+
+    static func compose(question: String, source: Source) async -> AssistAnswer {
+        await Task.detached(priority: .userInitiated) { () -> AssistAnswer in
+            AssistComposer.answer(question: question, snapshot: assemble(source))
+        }.value
+    }
+
+    static func chips(from source: Source) async -> [String] {
+        await Task.detached(priority: .userInitiated) { () -> [String] in
+            AssistComposer.chips(for: assemble(source))
+        }.value
+    }
+
+    private static func trendHistory(_ source: Source) -> [MetricSection: [HistoryPoint]] {
+        var grouped: [MetricSection: [MetricRow]] = [:]
+        for row in source.historyPool where trendSectionSet.contains(row.section) {
+            grouped[row.section, default: [MetricRow]()].append(row)
+        }
+        var history: [MetricSection: [HistoryPoint]] = [:]
+        for section in trendSections {
+            let sectionRows = grouped[section] ?? []
+            guard !sectionRows.isEmpty else { continue }
+            let scoped: [MetricRow]
+            if source.filters.isActive {
+                scoped = HeartbeatMath.filtered(
+                    sectionRows,
+                    filters: source.filters,
+                    relaxUnknown: false,
+                    universe: source.historyPool
+                )
+            } else {
+                scoped = sectionRows
+            }
+            let points = HeartbeatMath.history(section, rows: scoped)
+            if points.count >= 2 {
+                history[section] = points
+            }
+        }
+        return history
+    }
+
+    private static func dataWindow(focus: MetricSection?, rows: [MetricRow]) -> String? {
+        var found: [MetricSection: String] = [:]
+        for row in rows where found[row.section] == nil {
+            let text = row.textPayload["data_window"] ?? ""
+            if !text.isEmpty {
+                found[row.section] = text
+            }
+        }
+        if let focus, let text = found[focus], !text.isEmpty {
+            return text
+        }
+        let labels = MetricSection.uploadOrder.compactMap { found[$0] }
+        if Set(labels).count == 1 {
+            return labels.first
+        }
+        return labels.first
     }
 }
 

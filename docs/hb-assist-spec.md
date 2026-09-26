@@ -447,6 +447,7 @@ Setup: use the same pack on all three devices, installed from the same build. Ai
 | 33 | Why line hidden | With Reduced Capacity healthy or absent at the scope, no Why line appears, even if OTT or PPH fail. Change scope to a store where it fails, ask again, and the line appears for that store only. | | | |
 | 34 | Why line tap | Tapping the Why line expands the failing auto checks of the named causes for the same scope. Each "Open … ›" lands on the right page with the same filter. | | | |
 | 35 | 477 destinations | On a build from PR #45 @ `0dcad79`, no card, check, state, or chip tries to open Checklist or Upload. Those fall back to Dashboard. Every destination in `playbook.json` opens. | | | |
+| 36 | Assist opens with no hitch | Open Assist, then ask "What should we fix first?". The sheet appears immediately and the answer fills in without freezing the screen. | | | |
 
 ### 15.2 Ranking fixture (for check 6)
 Company scope, all rows in one region. Expected scores:

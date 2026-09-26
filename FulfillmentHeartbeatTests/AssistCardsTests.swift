@@ -343,6 +343,95 @@ final class AssistCardsTests: XCTestCase {
         )
     }
 
+    func testAutoCheckReadsItsOwnSectionWhenPPHConflicts() throws {
+        let book = try loadPlaybook()
+        let storeCheck = try XCTUnwrap(book.metric("pph")?.checks.first { $0.label == "PPH under 65" })
+        var pathCheck = storeCheck
+        pathCheck.destination = "pickPath"
+        var pickerCheck = storeCheck
+        pickerCheck.destination = "pickerScorecard"
+        let rows: [MetricSection: [MetricRow]] = [
+            .pph: [row(.pph, ["pph": 58], store: "304")],
+            .pickPath: [row(.pickPath, ["pph": 40], store: "304")],
+            .pickerScorecard: [row(.pickerScorecard, ["pph": 90], store: "304")],
+        ]
+        XCTAssertEqual(
+            AssistAutoCheck.sentence(storeCheck, rows: rows, level: .store),
+            "PPH 58, under 65"
+        )
+        XCTAssertEqual(
+            AssistAutoCheck.sentence(pathCheck, rows: rows, level: .store),
+            "PPH 40, under 65"
+        )
+        XCTAssertEqual(
+            AssistAutoCheck.sentence(pickerCheck, rows: rows, level: .store),
+            "PPH 90, at or above 65"
+        )
+        XCTAssertNil(
+            AssistAutoCheck.sentence(
+                storeCheck,
+                rows: [
+                    .pph: [row(.pph, ["orders": 4], store: "304")],
+                    .pickPath: [row(.pickPath, ["pph": 40], store: "304")],
+                    .pickerScorecard: [row(.pickerScorecard, ["pph": 90], store: "304")],
+                ],
+                level: .store
+            )
+        )
+        let scope = AssistAutoCheck.evaluate(
+            storeCheck,
+            rows: [
+                .pph: [row(.pph, ["pph": 58], store: "304")],
+                .pickPath: [row(.pickPath, ["pph": 40], store: "306")],
+                .pickerScorecard: [row(.pickerScorecard, ["pph": 90], store: "305")],
+            ],
+            summaries: [.pph: summary(.pph, .risk, risk: 1, watch: 0, stores: 1, headline: 58)],
+            level: .company
+        )
+        XCTAssertEqual(scope?.failing, true)
+        XCTAssertEqual(scope?.sentence, "PPH 58.0, under 65; 1 of 1 stores under 65")
+    }
+
+    func testPlaybookDecodesOnce() throws {
+        let cached = try XCTUnwrap(AssistPlaybook.bundled())
+        let decoded = AssistPlaybook.bundledDecodeCount
+        XCTAssertEqual(decoded, 1)
+        let again = try XCTUnwrap(AssistPlaybook.bundled())
+        XCTAssertEqual(again, cached)
+        XCTAssertEqual(cached, try loadPlaybook())
+        let snapshot = fixtureSnapshot()
+        _ = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot)
+        _ = AssistComposer.chips(for: snapshot)
+        _ = AssistComposer.answer(question: "pph", snapshot: snapshot)
+        XCTAssertEqual(AssistPlaybook.bundledDecodeCount, decoded)
+    }
+
+    func testSnapshotAssembleKeepsSectionRows() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let source = AssistSnapshot.Source(
+            seeded: true,
+            filters: DashboardFilters(),
+            summaries: [.pph: summary(.pph, .risk, risk: 1, watch: 0, stores: 1, headline: 58)],
+            latest: [
+                .pph: [row(.pph, ["pph": 58], store: "304")],
+                .pickPath: [row(.pickPath, ["pph": 40], store: "304")],
+            ],
+            historyPool: [],
+            focus: nil,
+            rosterStores: [("304", "Harbor")],
+            districts: [],
+            divisions: [],
+            operationsOMs: [],
+            packUploads: [],
+            now: now
+        )
+        let snapshot = AssistSnapshot.assemble(source)
+        XCTAssertEqual(snapshot.rows[.pph]?.first?.number("pph") ?? -1, 58)
+        XCTAssertEqual(snapshot.rows[.pickPath]?.first?.number("pph") ?? -1, 40)
+        XCTAssertTrue(snapshot.history.isEmpty)
+        XCTAssertEqual(snapshot.now, now)
+    }
+
     func testResolutionCardsUseOwnerChecksAndHideMissingAutoFields() throws {
         let book = try loadPlaybook()
         var presub = fixtureSnapshot()
