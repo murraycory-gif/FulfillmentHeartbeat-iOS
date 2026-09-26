@@ -128,7 +128,7 @@ Low capacity is modeled as the **Reduced Capacity Missed Sales** bucket (`missed
 
 **Tapping** the Why line expands, in place, the failing auto checks of each named cause for the same scope (OTT: "Under-scheduled", "PPH under 65"; PPH: "PPH under 65"). Each keeps its own "Open {screen} ›". Causes marked `causesConfirm` in `PLAYBOOK.md` are **not** used in the Why line until the owner confirms them.
 
-**PPH band note.** Ranking and the PPH card status keep `pphGoal` 80 / `pphRisk` 74 (§6). The owner floor 65 is used only in the auto check and the Why line. Which one should rule ranking is flagged for the owner (confirm).
+**PPH band note.** Owner decision: Assist ranking and the PPH card status use one band, `AssistRank.pphRankingBand`: At risk < 65, Watch 65 to < 80, Healthy >= 80. The gap band is 15 (80 → 65). Dashboard and other pages keep `pphGoal` 80 / `pphRisk` 74. The same 65 is the auto-check floor and the Why line.
 
 ## 5. Trend: when it may appear
 
@@ -174,7 +174,7 @@ Store values come from `displayRows(for:)`. "Goal" and "risk line" are the `Hear
 | Prep Not Ready (`prep_not_ready`) | `pnr_rate_pct` | max(0, v − 1.9) | 0.6 (1.9 → 2.5) |
 | Dynacap (`dynacap`) | `dynacap_rate`, else `pieces_per_hour` | max(0, 65 − v) | 5 (65 → 60). If the row has no rate and `dynacapAligned == false`, gap/band = 1. |
 | Schedule (`schedule_quality`) | `schedule_efficiency_pct`, `staffing_efficiency_pct`, `under_schedule_pct`, `over_schedule_pct` | the largest of: (90 − eff)/5, (90 − staff)/5, (under − 0.05)/4.95, (over − 0.05)/4.95, floored at 0 | already normalized |
-| PPH (`pph`) | `pph` | max(0, 80 − v) | 6 (80 → 74) |
+| PPH (`pph`) | `pph` | max(0, 80 − v) | 15 (80 → 65). Assist only: At risk < 65, Watch 65 to < 80, Healthy >= 80. Other pages stay 80 / 74. |
 | Labor (`labor`) | `target_vs_actual_pct` | max(0, v − 0) | 3 (0 → 3) |
 | 5 Star (`five_star`) | `star_rating` | max(0, 4.5 − v) | 0.5 (4.5 → 4.0) |
 | Loss Revenue (`lost_revenue`) | `lost_revenue_pct` | max(0, v − 3) | 2 (3 → 5) |
@@ -458,6 +458,8 @@ Company scope, all rows in one region. Expected scores:
 | C = Dynacap | good (average ≥ 65) | 30 | 0 | 0.20 | 1 × 30 × 1.2 = 36 | 3 |
 | D = PPH | watch | 0 | 20 | 0.40 | 2 × 10 × 1.4 = 28 | 4 |
 
+PPH's 0.40 is twenty stores at 74. Under the Assist band that is Watch (65 to < 80), and (80 − 74) / 15 = 0.40. A store under 65 is At risk and would raise R. Other pages still color 74 as the risk line.
+
 Tie-break test: add E = Labor (risk, R = 8, W = 10, D̄ = 1.00, so Score 78, the same as B). E ranks after B because R and W tie, D̄ ties, and Pick Path comes before Labor in `dashboardCards`.
 
 ---
@@ -538,6 +540,6 @@ Tie-break test: add E = Labor (risk, R = 8, W = 10, D̄ = 1.00, so Score 78, the
 - **Under-scheduled has two candidate definitions:**
   - The code's definition is `under_schedule_pct` (Sch vs Tgt) > 5.
   - The owner's example is "Pch vs Sch", which is `under_adherence_pct`. It is parsed but has no band. (confirm)
-- **PPH has two thresholds:** the owner floor is 65, but the ranking band is 80 / 74. (confirm) which one rules ranking.
+- **PPH ranking (owner decision):** Assist ranks At risk < 65, Watch 65 to < 80, Healthy >= 80. Other pages keep 80 / 74.
 - **"30 items in the first 15 minutes" has no pack field.** It stays a floor question only.
 - **`.checklist` / `.upload` are absent on the 477 line.** They fall back to `.dashboard`.

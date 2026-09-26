@@ -2,6 +2,30 @@ import XCTest
 @testable import FulfillmentHeartbeat
 
 final class AssistCardsTests: XCTestCase {
+    func testAssistPPHRankingBandIs65To80() throws {
+        XCTAssertEqual(AssistRank.pphHealth(64.9), .risk)
+        XCTAssertEqual(AssistRank.pphHealth(65), .watch)
+        XCTAssertEqual(AssistRank.pphHealth(79.9), .watch)
+        XCTAssertEqual(AssistRank.pphHealth(80), .good)
+        XCTAssertEqual(HeartbeatMath.pphHealth(row(.pph, ["pph": 70])), .risk)
+        XCTAssertEqual(AssistRank.pphHealth(70), .watch)
+
+        let book = try loadPlaybook()
+        var snapshot = fixtureSnapshot()
+        snapshot.summaries[.pph] = summary(.pph, .risk, risk: 2, watch: 0, stores: 2, headline: 70)
+        snapshot.rows[.pph] = [
+            row(.pph, ["pph": 60], store: "304"),
+            row(.pph, ["pph": 70], store: "305"),
+        ]
+        let answer = AssistComposer.answer(question: "pph", snapshot: snapshot, book: book)
+        let issue = try XCTUnwrap(answer.issues.first { $0.id == "pph" })
+        XCTAssertEqual(issue.statusText, "Watch")
+        XCTAssertEqual(issue.numberValue, "1 of 2")
+        XCTAssertTrue(issue.headline.contains("fewer than 65"))
+        XCTAssertTrue(issue.rankedLine.contains("1 at-risk and 1 watch"))
+        XCTAssertEqual(issue.facts.first { $0.label == "Goal" }?.value, "80")
+    }
+
     func testRankingFixtureOrderIsBThenAThenCThenD() {
         let ranked = AssistRank.rank([
             input(.missingItems, .risk, risk: 10, watch: 4, distance: 0.50, stores: 20),
@@ -66,7 +90,9 @@ final class AssistCardsTests: XCTestCase {
     func testOffBandMatchesPublishedGaps() {
         XCTAssertEqual(AssistRank.offBand(section: .pickPath, row: row(.pickPath, ["compliance_pct": 80])), 1)
         XCTAssertEqual(AssistRank.offBand(section: .missingItems, row: row(.missingItems, ["mi_pct": 6.5])), 1)
-        XCTAssertEqual(AssistRank.offBand(section: .pph, row: row(.pph, ["pph": 74])), 1)
+        XCTAssertEqual(AssistRank.offBand(section: .pph, row: row(.pph, ["pph": 65])), 1)
+        XCTAssertEqual(AssistRank.offBand(section: .pph, row: row(.pph, ["pph": 80])), 0)
+        XCTAssertEqual(AssistRank.offBand(section: .pph, row: row(.pph, ["pph": 74])) ?? 0, 0.4, accuracy: 0.0001)
         XCTAssertEqual(AssistRank.offBand(section: .labor, row: row(.labor, ["target_vs_actual_pct": 3])), 1)
         XCTAssertEqual(AssistRank.offBand(section: .fiveStar, row: row(.fiveStar, ["star_rating": 4])), 1)
         XCTAssertEqual(AssistRank.offBand(section: .dynacap, row: row(.dynacap, ["dynacap_rate": 60])), 1)
@@ -165,7 +191,7 @@ final class AssistCardsTests: XCTestCase {
             XCTAssertNotNil(book.metric(id), id)
         }
         XCTAssertEqual(AssistRank.pphRankingBand.goal, 80)
-        XCTAssertEqual(AssistRank.pphRankingBand.risk, 74)
+        XCTAssertEqual(AssistRank.pphRankingBand.risk, 65)
         XCTAssertEqual(HeartbeatMath.pphGoal, 80)
         XCTAssertEqual(HeartbeatMath.pphRisk, 74)
         XCTAssertEqual(book.metric("lost_reduced_capacity")?.causesConfirm, ["dynacap"])
@@ -420,6 +446,9 @@ final class AssistCardsTests: XCTestCase {
         let joined = first.rankedLines.joined(separator: "\n")
         XCTAssertTrue(joined.contains("8 at-risk and 10 watch"))
         XCTAssertTrue(joined.contains("1.0 of a band") || joined.contains("1.0 of a band past"))
+        XCTAssertTrue(
+            joined.contains("PPH Pure Picks Per Hour: watch, 0 at-risk and 20 watch stores, on average 0.4 of a band past goal.")
+        )
     }
 
     func testLongHeadlinesStayWithinLimitAndStoreScopeDropsTheCount() throws {
@@ -660,7 +689,7 @@ final class AssistCardsTests: XCTestCase {
             .pickPath: [row(.pickPath, ["compliance_pct": 80])],
             .missingItems: [row(.missingItems, ["mi_pct": 5.75])],
             .dynacap: [row(.dynacap, ["dynacap_rate": 64])],
-            .pph: [row(.pph, ["pph": 77.6])],
+            .pph: (301...320).map { row(.pph, ["pph": 74], store: String($0)) },
         ]
         for section in MetricSection.dashboardCards where rows[section] == nil {
             rows[section] = []

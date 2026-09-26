@@ -563,9 +563,25 @@ enum AssistRank {
         (value * 10_000).rounded() / 10_000
     }
 
-    /// Assist PPH ranking band. The playbook floor of 65 is not this band.
-    /// Change this one line when the owner picks which band ranks PPH.
-    static let pphRankingBand = (goal: 80.0, risk: 74.0)
+    /// Assist-only PPH ranking band. Healthy >= goal, Watch risk..<goal, At risk < risk.
+    /// Other pages keep HeartbeatMath.pphGoal 80 / pphRisk 74. Change this one line to move Assist.
+    static let pphRankingBand = (goal: 80.0, risk: 65.0)
+
+    static func pphHealth(_ value: Double) -> Health {
+        let band = pphRankingBand
+        if value >= band.goal { return .good }
+        if value >= band.risk { return .watch }
+        return .risk
+    }
+
+    /// Risk and watch store counts for Assist, from the ranking band. Empty when no PPH values are in view.
+    static func pphCounts(rows: [MetricRow]) -> (risk: Int, watch: Int)? {
+        let values = scoringRows(rows).compactMap { HeartbeatMath.pphNumber($0) }
+        guard !values.isEmpty else { return nil }
+        let risk = values.filter { pphHealth($0) == .risk }.count
+        let watch = values.filter { pphHealth($0) == .watch }.count
+        return (risk, watch)
+    }
 
     /// Gap/band for one store row. Nil when the row has no comparable value.
     /// Schedule under/over uses the spec ratio on the stored field. This base
@@ -640,7 +656,9 @@ enum AssistRank {
 
     static func distance(section: MetricSection, rows: [MetricRow]) -> Double {
         let samples = scoringRows(rows).compactMap { row -> Double? in
-            let health = HeartbeatMath.health(for: section, row: row)
+            let health = section == .pph
+                ? HeartbeatMath.pphNumber(row).map(pphHealth) ?? .none
+                : HeartbeatMath.health(for: section, row: row)
             guard health == .risk || health == .watch else { return nil }
             return offBand(section: section, row: row)
         }
@@ -1663,12 +1681,25 @@ enum AssistComposer {
         let inputs: [AssistRank.Input] = MetricSection.dashboardCards.compactMap { section in
             guard section != .pickerScorecard else { return nil }
             guard let summary = snapshot.summaries[section] else { return nil }
-            let distance = AssistRank.distance(section: section, rows: snapshot.rows[section] ?? [])
+            let rows = snapshot.rows[section] ?? []
+            let distance = AssistRank.distance(section: section, rows: rows)
+            var health = summary.health
+            var risk = summary.riskCount
+            var watch = summary.watchCount
+            if section == .pph {
+                if let headline = summary.headline {
+                    health = AssistRank.pphHealth(headline)
+                }
+                if let counts = AssistRank.pphCounts(rows: rows) {
+                    risk = counts.risk
+                    watch = counts.watch
+                }
+            }
             return AssistRank.Input(
                 section: section,
-                health: summary.health,
-                risk: summary.riskCount,
-                watch: summary.watchCount,
+                health: health,
+                risk: risk,
+                watch: watch,
                 distance: distance,
                 storeCount: summary.storeCount
             )
@@ -1689,10 +1720,13 @@ enum AssistComposer {
                 goal: AssistCopy.goalShort(section)
             )
         }
+        let risk = section == .pph
+            ? (AssistRank.pphCounts(rows: snapshot.rows[section] ?? [])?.risk ?? summary.riskCount)
+            : summary.riskCount
         return AssistCopy.headerLine(
             rank: issue.rank,
             shortName: section.overviewLead,
-            risk: summary.riskCount,
+            risk: risk,
             total: summary.storeCount
         )
     }
