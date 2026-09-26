@@ -4,11 +4,96 @@ import Foundation
 /// Floor-check wording lives only in AssistPlaybook.json.
 enum AssistPlaybook {
     struct Check: Codable, Equatable {
+        enum Kind: String, Codable {
+            case floor
+            case auto
+        }
+
         var id: String
+        var kind: Kind
         var question: String
         var ownerRole: String?
         var tapThrough: String?
         var showWhen: String?
+        /// Pack payload key. Auto checks read this key on `source` rows.
+        var field: String?
+        /// Same measure under another pack key. The first finite value wins.
+        var aliases: [String]?
+        /// Metric section that holds `field`. Omitted checks use the card's own section.
+        var source: String?
+        var comparator: String?
+        var threshold: Double?
+        var answerTrue: String?
+        var answerFalse: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id, kind, question, ownerRole, tapThrough, showWhen
+            case field, aliases, source, comparator, threshold, answerTrue, answerFalse
+        }
+
+        init(
+            id: String,
+            kind: Kind = .floor,
+            question: String = "",
+            ownerRole: String? = nil,
+            tapThrough: String? = nil,
+            showWhen: String? = nil,
+            field: String? = nil,
+            aliases: [String]? = nil,
+            source: String? = nil,
+            comparator: String? = nil,
+            threshold: Double? = nil,
+            answerTrue: String? = nil,
+            answerFalse: String? = nil
+        ) {
+            self.id = id
+            self.kind = kind
+            self.question = question
+            self.ownerRole = ownerRole
+            self.tapThrough = tapThrough
+            self.showWhen = showWhen
+            self.field = field
+            self.aliases = aliases
+            self.source = source
+            self.comparator = comparator
+            self.threshold = threshold
+            self.answerTrue = answerTrue
+            self.answerFalse = answerFalse
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .floor
+            question = try container.decodeIfPresent(String.self, forKey: .question) ?? ""
+            ownerRole = try container.decodeIfPresent(String.self, forKey: .ownerRole)
+            tapThrough = try container.decodeIfPresent(String.self, forKey: .tapThrough)
+            showWhen = try container.decodeIfPresent(String.self, forKey: .showWhen)
+            field = try container.decodeIfPresent(String.self, forKey: .field)
+            aliases = try container.decodeIfPresent([String].self, forKey: .aliases)
+            source = try container.decodeIfPresent(String.self, forKey: .source)
+            comparator = try container.decodeIfPresent(String.self, forKey: .comparator)
+            threshold = try container.decodeIfPresent(Double.self, forKey: .threshold)
+            answerTrue = try container.decodeIfPresent(String.self, forKey: .answerTrue)
+            answerFalse = try container.decodeIfPresent(String.self, forKey: .answerFalse)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(kind, forKey: .kind)
+            try container.encode(question, forKey: .question)
+            try container.encodeIfPresent(ownerRole, forKey: .ownerRole)
+            try container.encodeIfPresent(tapThrough, forKey: .tapThrough)
+            try container.encodeIfPresent(showWhen, forKey: .showWhen)
+            try container.encodeIfPresent(field, forKey: .field)
+            try container.encodeIfPresent(aliases, forKey: .aliases)
+            try container.encodeIfPresent(source, forKey: .source)
+            try container.encodeIfPresent(comparator, forKey: .comparator)
+            try container.encodeIfPresent(threshold, forKey: .threshold)
+            try container.encodeIfPresent(answerTrue, forKey: .answerTrue)
+            try container.encodeIfPresent(answerFalse, forKey: .answerFalse)
+        }
     }
 
     struct MetricBook: Codable, Equatable {
@@ -40,6 +125,67 @@ enum AssistPlaybook {
     static let rankedMetricIDs: [String] = MetricSection.dashboardCards
         .filter { $0 != .pickerScorecard }
         .map(\.rawValue)
+}
+
+/// On-device auto check. Reads one pack field for the scope in view.
+/// Returns nil when that field is absent, so the card hides the check.
+enum AssistAutoCheck {
+    static func sentence(
+        _ check: AssistPlaybook.Check,
+        rows: [MetricSection: [MetricRow]],
+        fallbackSection: MetricSection
+    ) -> String? {
+        guard check.kind == .auto else { return nil }
+        guard let comparator = check.comparator?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              let threshold = check.threshold, threshold.isFinite,
+              let holds = comparison(comparator, threshold: threshold) else { return nil }
+        let section = check.source.flatMap(MetricSection.init(rawValue:)) ?? fallbackSection
+        let keys = fieldKeys(check)
+        guard !keys.isEmpty else { return nil }
+        let samples = AssistRank.scoringRows(rows[section] ?? []).compactMap { row -> Double? in
+            for key in keys {
+                if let value = row.number(key), value.isFinite { return value }
+            }
+            return nil
+        }
+        guard let value = HeartbeatMath.average(samples) else { return nil }
+        let template = holds(value) ? check.answerTrue : check.answerFalse
+        guard let template else { return nil }
+        return AssistCopy.fill(
+            template,
+            ["value": format(value), "threshold": format(threshold)],
+            limit: AssistCopy.actionLimit
+        )
+    }
+
+    private static func fieldKeys(_ check: AssistPlaybook.Check) -> [String] {
+        var keys: [String] = []
+        if let field = check.field?.trimmingCharacters(in: .whitespacesAndNewlines), !field.isEmpty {
+            keys.append(field)
+        }
+        for alias in check.aliases ?? [] {
+            let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !keys.contains(trimmed) { keys.append(trimmed) }
+        }
+        return keys
+    }
+
+    private static func comparison(_ comparator: String, threshold: Double) -> ((Double) -> Bool)? {
+        switch comparator {
+        case "lt", "<": return { $0 < threshold }
+        case "gt", ">": return { $0 > threshold }
+        case "lte", "<=", "le": return { $0 <= threshold }
+        case "gte", ">=", "ge": return { $0 >= threshold }
+        case "eq", "==", "=": return { $0 == threshold }
+        default: return nil
+        }
+    }
+
+    static func format(_ value: Double) -> String {
+        let text = String(format: "%.1f", value)
+        guard text.hasSuffix(".0"), let whole = text.split(separator: ".").first else { return text }
+        return String(whole)
+    }
 }
 
 enum AssistRank {
@@ -1476,7 +1622,7 @@ enum AssistComposer {
     ) -> [AssistAction] {
         guard let playbook, let book = playbook.metrics[section.rawValue] else { return [] }
         let facts = checkFacts(section: section, summary: summary, rows: rows, snapshot: snapshot, level: level)
-        let cap = level == .store ? 3 : 2
+        let cap = 3
         var actions: [AssistAction] = []
         for check in book.checks {
             guard actions.count < cap else { break }
@@ -1487,11 +1633,13 @@ enum AssistComposer {
                 level: level,
                 stay: stay,
                 fallback: destination,
-                bucketCapacity: facts.flags.contains("bucketCapacity")
+                bucketCapacity: facts.flags.contains("bucketCapacity"),
+                section: section,
+                packRows: snapshot.rows
             ) else { continue }
             actions.append(action)
         }
-        if level != .store, actions.count < 3, let worst, let summary {
+        if level != .store, actions.count < 4, let worst, let summary {
             let counts = childMetricCounts(section: section, child: worst, snapshot: snapshot) ?? (summary.riskCount, summary.storeCount)
             var values = facts.values
             values["child"] = worst.label
@@ -1524,9 +1672,17 @@ enum AssistComposer {
         level: AssistScopeLevel,
         stay: DashboardFilters?,
         fallback: HubDestination,
-        bucketCapacity: Bool
+        bucketCapacity: Bool,
+        section: MetricSection,
+        packRows: [MetricSection: [MetricRow]]
     ) -> AssistAction? {
-        guard let question = AssistCopy.fill(check.question, values, limit: AssistCopy.actionLimit) else { return nil }
+        let question: String?
+        if check.kind == .auto {
+            question = AssistAutoCheck.sentence(check, rows: packRows, fallbackSection: section)
+        } else {
+            question = AssistCopy.fill(check.question, values, limit: AssistCopy.actionLimit)
+        }
+        guard let question, !question.isEmpty else { return nil }
         var destination = check.tapThrough.flatMap(HubDestination.init(rawValue:)) ?? fallback
         if check.id == "bucket_dollars" && bucketCapacity {
             destination = .dynacap

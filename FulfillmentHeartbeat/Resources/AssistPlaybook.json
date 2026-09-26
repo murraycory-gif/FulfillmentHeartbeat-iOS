@@ -1,5 +1,5 @@
 {
-  "seedNote": "Seed floor checks rewritten from the Assist spec. Ops can edit this file without a code change. Cory will replace it with the reviewed playbook.",
+  "seedNote": "Checks are kind floor (a yes/no question) or auto (a pack field, comparator, and threshold). Auto checks render the real value for the scope in view and are hidden when that field is missing. The owner PPH floor is 65 in this file; dashboard ranking still uses the PPH goal of 80. Under-scheduled reads schedule_quality under_schedule_pct (schedule vs demand, alias under_scheduled). Yes means the scope average is above 0.05, the on-goal line for that field. Pch vs Sch adherence is a different field and is not used here.",
   "shared": {
     "worstChildQuestion": "Is {child} the first place to work, with {childRisk} of {childStores} stores at risk?",
     "childOpen": "Open {child}",
@@ -91,7 +91,36 @@
           "showWhen": "weakestPresub"
         },
         {
+          "id": "ott_under_scheduled",
+          "kind": "auto",
+          "field": "under_schedule_pct",
+          "aliases": ["under_scheduled"],
+          "source": "schedule_quality",
+          "comparator": "gt",
+          "threshold": 0.05,
+          "answerTrue": "Under-scheduled: yes",
+          "answerFalse": "Under-scheduled: no",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "weakestOTT"
+        },
+        {
+          "id": "ott_pph_under_65",
+          "kind": "auto",
+          "field": "pph",
+          "aliases": ["pure_pph"],
+          "source": "pph",
+          "comparator": "lt",
+          "threshold": 65,
+          "answerTrue": "PPH {value} - under {threshold}",
+          "answerFalse": "PPH {value} - at or above {threshold}",
+          "ownerRole": "Store leader",
+          "tapThrough": "pph",
+          "showWhen": "weakestOTT"
+        },
+        {
           "id": "weak_ott",
+          "kind": "floor",
           "question": "Are complete totes staged before the cutoff?",
           "ownerRole": "Store leader",
           "tapThrough": "fiveStar",
@@ -130,7 +159,29 @@
     "pre_sub_oos": {
       "checks": [
         {
+          "id": "radios_shoppers",
+          "kind": "floor",
+          "question": "Are shoppers using radios?",
+          "ownerRole": "Store leader",
+          "tapThrough": "preSubOOS"
+        },
+        {
+          "id": "radios_store",
+          "kind": "floor",
+          "question": "Is the whole store using radios?",
+          "ownerRole": "Store leader",
+          "tapThrough": "preSubOOS"
+        },
+        {
+          "id": "pi_accurate",
+          "kind": "floor",
+          "question": "Is store PI (perpetual inventory) accurate?",
+          "ownerRole": "Store leader",
+          "tapThrough": "preSubOOS"
+        },
+        {
           "id": "hottest_dept",
+          "kind": "floor",
           "question": "Are on-hands and pick-face fills fixed in {dept} first ({deptPct})?",
           "ownerRole": "Grocery lead",
           "tapThrough": "preSubOOS",
@@ -184,7 +235,28 @@
     "pph": {
       "checks": [
         {
+          "id": "first_15",
+          "kind": "floor",
+          "question": "Are shoppers picking 30 items within the first 15 minutes of their run/shift start?",
+          "ownerRole": "Store leader",
+          "tapThrough": "pph"
+        },
+        {
+          "id": "pph_under_65",
+          "kind": "auto",
+          "field": "pph",
+          "aliases": ["pure_pph"],
+          "source": "pph",
+          "comparator": "lt",
+          "threshold": 65,
+          "answerTrue": "PPH {value} - under {threshold}",
+          "answerFalse": "PPH {value} - at or above {threshold}",
+          "ownerRole": "Store leader",
+          "tapThrough": "pph"
+        },
+        {
           "id": "coach_slow",
+          "kind": "floor",
           "question": "Is {shopper} at store {store} being coached on a {pph} pick rate?",
           "ownerRole": "Store leader and {shopper}",
           "tapThrough": "pickerScorecard",
