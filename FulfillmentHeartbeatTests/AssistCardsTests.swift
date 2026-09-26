@@ -483,6 +483,77 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(noScope.chips.isEmpty)
     }
 
+    func testLostSalesShowsOTTAndPPHCausesOnlyWhenTheyFail() throws {
+        let book = try loadPlaybook()
+        XCTAssertEqual(book.metrics["lost_revenue"]?.causes, ["dynacap"])
+        XCTAssertEqual(book.metrics["dynacap"]?.causes, ["five_star", "pph"])
+        XCTAssertEqual(book.metrics["dynacap"]?.causeLabel, "Low capacity")
+        XCTAssertEqual(book.metrics["five_star"]?.causeLabel, "Poor OTT")
+        XCTAssertEqual(book.metrics["pph"]?.causeLabel, "Low PPH")
+        let ottCheck = try XCTUnwrap(book.metrics["five_star"]?.checks.first { $0.id == "ott_vs_target" })
+        XCTAssertEqual(ottCheck.threshold, 95)
+        XCTAssertEqual(HeartbeatMath.pphGoal, 80)
+
+        let failing = lostSalesSnapshot(ott: 80, pph: 58, under: 6.2, capacity: 50)
+        let lost = try lostIssue("lost revenue", failing, book)
+        XCTAssertEqual(
+            lost.why,
+            "Low capacity, 50 pieces an hour. Poor OTT, Under-scheduled, and Low PPH"
+        )
+        XCTAssertEqual(lost.causeChecks.map(\.question), [
+            "Capacity 50 - under 65",
+            "OTT 80 - under 95",
+            "Under-scheduled: yes",
+            "PPH 58 - under 65",
+        ])
+        XCTAssertEqual(lost.causeChecks.map(\.destination), [.dynacap, .fiveStar, .scheduleQuality, .pph])
+        XCTAssertTrue(lost.drivenBy.isEmpty)
+
+        let ranked = AssistComposer.answer(question: "What should we fix first?", snapshot: failing, book: book)
+        let rankedIDs = ranked.issues.map(\.id)
+        XCTAssertEqual(rankedIDs.filter { $0 == "lost_revenue" }.count, 1)
+        XCTAssertEqual(rankedIDs.filter { $0 == "pph" }.count, 1)
+        XCTAssertEqual(rankedIDs.filter { $0 == "five_star" }.count, 1)
+        XCTAssertEqual(rankedIDs.filter { $0 == "dynacap" }.count, 1)
+        let linked = try XCTUnwrap(ranked.issues.first { $0.id == "lost_revenue" })
+        XCTAssertEqual(linked.drivenBy.map(\.text), [
+            "Driven by Dynacap",
+            "Driven by 5 Star",
+            "Driven by PPH",
+        ])
+        XCTAssertEqual(linked.drivenBy.map(\.issueID), ["dynacap", "five_star", "pph"])
+        XCTAssertTrue(linked.causeChecks.contains { $0.question == "PPH 58 - under 65" })
+        XCTAssertTrue(linked.causeChecks.contains { $0.question == "OTT 80 - under 95" })
+
+        let healthy = lostSalesSnapshot(ott: 96, pph: 72, under: 0, capacity: 70)
+        let healthyLost = try lostIssue("lost revenue", healthy, book)
+        XCTAssertNil(healthyLost.why)
+        XCTAssertTrue(healthyLost.causeChecks.isEmpty)
+        let healthyRanked = AssistComposer.answer(question: "What should we fix first?", snapshot: healthy, book: book)
+        XCTAssertTrue(healthyRanked.issues.contains { $0.id == "lost_revenue" })
+        XCTAssertTrue(healthyRanked.issues.contains { $0.id == "pph" })
+        let healthyLink = try XCTUnwrap(healthyRanked.issues.first { $0.id == "lost_revenue" })
+        XCTAssertTrue(healthyLink.drivenBy.isEmpty)
+        XCTAssertFalse(healthyLink.causeChecks.contains { $0.question.contains("OTT") || $0.question.contains("PPH") })
+
+        let pphOnly = lostSalesSnapshot(ott: 96, pph: 58, under: 0, capacity: 70)
+        let pphLost = try lostIssue("lost revenue", pphOnly, book)
+        XCTAssertEqual(pphLost.why, "Low PPH")
+        XCTAssertEqual(pphLost.causeChecks.map(\.question), ["PPH 58 - under 65"])
+        XCTAssertFalse(pphLost.causeChecks.contains { $0.question.contains("OTT") })
+
+        let missingCapacity = lostSalesSnapshot(ott: 80, pph: 58, under: 0, capacity: nil, pickupOnly: 40)
+        let missing = try lostIssue("lost revenue", missingCapacity, book)
+        XCTAssertEqual(missing.why, "Low capacity. Poor OTT and Low PPH")
+        XCTAssertFalse(missing.why?.contains("pieces") ?? true)
+        XCTAssertFalse(missing.why?.contains("40") ?? true)
+        XCTAssertEqual(missing.causeChecks.map(\.question), [
+            "OTT 80 - under 95",
+            "PPH 58 - under 65",
+        ])
+        XCTAssertFalse(missing.causeChecks.contains { $0.question.hasPrefix("Capacity") })
+    }
+
     func testAssistSourcesStayOnDeviceAndShareOneColumn() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -498,8 +569,48 @@ final class AssistCardsTests: XCTestCase {
         }
         XCTAssertTrue(view.contains("maxWidth: 712"))
         XCTAssertTrue(view.contains("Resolution"))
+        XCTAssertTrue(view.contains("Why"))
         XCTAssertTrue(cards.contains("Fix these"))
         XCTAssertFalse(view.contains("LazyVGrid"))
+    }
+
+    private func lostIssue(_ question: String, _ snapshot: AssistSnapshot, _ book: AssistPlaybook.File) throws -> AssistIssue {
+        let answer = AssistComposer.answer(question: question, snapshot: snapshot, book: book)
+        return try XCTUnwrap(answer.issues.first { $0.id == "lost_revenue" })
+    }
+
+    private func lostSalesSnapshot(
+        ott: Double?,
+        pph: Double?,
+        under: Double?,
+        capacity: Double?,
+        pickupOnly: Double? = nil
+    ) -> AssistSnapshot {
+        var snapshot = fixtureSnapshot()
+        snapshot.summaries[.lostRevenue] = summary(.lostRevenue, .risk, risk: 6, watch: 1, stores: 12, headline: 8)
+        snapshot.summaries[.fiveStar] = summary(.fiveStar, .risk, risk: 4, watch: 0, stores: 12, headline: 3.2)
+        snapshot.summaries[.pph] = summary(.pph, .risk, risk: 5, watch: 0, stores: 12, headline: pph ?? 70)
+        snapshot.summaries[.dynacap] = summary(.dynacap, .risk, risk: 3, watch: 0, stores: 12, headline: capacity ?? 60)
+        snapshot.rows[.lostRevenue] = [row(.lostRevenue, ["lost_revenue_pct": 8])]
+        if let ott {
+            snapshot.rows[.fiveStar] = [row(.fiveStar, ["ott_pct": ott, "star_rating": 3.2])]
+        } else {
+            snapshot.rows[.fiveStar] = [row(.fiveStar, ["star_rating": 3.2])]
+        }
+        snapshot.rows[.pph] = [row(.pph, pph.map { ["pph": $0] } ?? [:])]
+        if let under {
+            snapshot.rows[.scheduleQuality] = [row(.scheduleQuality, ["under_schedule_pct": under])]
+        } else {
+            snapshot.rows[.scheduleQuality] = [row(.scheduleQuality, ["schedule_efficiency_pct": 91])]
+        }
+        if let capacity {
+            snapshot.rows[.dynacap] = [row(.dynacap, ["dynacap_rate": capacity])]
+        } else if let pickupOnly {
+            snapshot.rows[.dynacap] = [row(.dynacap, ["pickup_capacity": pickupOnly])]
+        } else {
+            snapshot.rows[.dynacap] = [row(.dynacap, [:])]
+        }
+        return snapshot
     }
 
     private func pphAutoCheck() -> AssistPlaybook.Check {

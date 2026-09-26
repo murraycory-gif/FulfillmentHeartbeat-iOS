@@ -1,5 +1,5 @@
 {
-  "seedNote": "Checks are kind floor (a yes/no question) or auto (a pack field, comparator, and threshold). Auto checks render the real value for the scope in view and are hidden when that field is missing. The owner PPH floor is 65 in this file; dashboard ranking still uses the PPH goal of 80. Under-scheduled reads schedule_quality under_schedule_pct (schedule vs demand, alias under_scheduled). Yes means the scope average is above 0.05, the on-goal line for that field. Pch vs Sch adherence is a different field and is not used here.",
+  "seedNote": "Checks are kind floor (a yes/no question) or auto (a pack field, comparator, and threshold). Auto checks render the real value for the scope in view and are hidden when that field is missing. A metric may list causes as other metric ids. Lost sales is driven by low capacity (dynacap pieces per hour), which is driven by Poor OTT and Low PPH. The Why line uses a capacity number only when dynacap_rate or pieces_per_hour is present and under 65. The owner PPH floor is 65 in this file; dashboard ranking still uses the PPH goal of 80. Under-scheduled reads schedule_quality under_schedule_pct (schedule vs demand, alias under_scheduled). Yes means the scope average is above 0.05, the on-goal line for that field. Pch vs Sch adherence is a different field and is not used here.",
   "shared": {
     "worstChildQuestion": "Is {child} the first place to work, with {childRisk} of {childStores} stores at risk?",
     "childOpen": "Open {child}",
@@ -7,6 +7,7 @@
   },
   "metrics": {
     "schedule_quality": {
+      "causeLabel": "Under-scheduled",
       "checks": [
         {
           "id": "over_hours",
@@ -82,6 +83,7 @@
       ]
     },
     "five_star": {
+      "causeLabel": "Poor OTT",
       "checks": [
         {
           "id": "weak_presub",
@@ -89,6 +91,19 @@
           "ownerRole": "Store leader",
           "tapThrough": "fiveStar",
           "showWhen": "weakestPresub"
+        },
+        {
+          "id": "ott_vs_target",
+          "kind": "auto",
+          "field": "ott_pct",
+          "source": "five_star",
+          "comparator": "lt",
+          "threshold": 95,
+          "answerTrue": "OTT {value} - under {threshold}",
+          "answerFalse": "OTT {value} - at or above {threshold}",
+          "ownerRole": "Store leader",
+          "tapThrough": "fiveStar",
+          "showWhen": "weakestOTT"
         },
         {
           "id": "ott_under_scheduled",
@@ -215,6 +230,8 @@
       ]
     },
     "dynacap": {
+      "causes": ["five_star", "pph"],
+      "causeLabel": "Low capacity",
       "checks": [
         {
           "id": "set_capacity",
@@ -229,10 +246,24 @@
           "ownerRole": "Store leader",
           "tapThrough": "labor",
           "showWhen": "laborNeedsAction"
+        },
+        {
+          "id": "capacity_pieces",
+          "kind": "auto",
+          "field": "dynacap_rate",
+          "aliases": ["pieces_per_hour"],
+          "source": "dynacap",
+          "comparator": "lt",
+          "threshold": 65,
+          "answerTrue": "Capacity {value} - under {threshold}",
+          "answerFalse": "Capacity {value} - at or above {threshold}",
+          "ownerRole": "Store leader",
+          "tapThrough": "dynacap"
         }
       ]
     },
     "pph": {
+      "causeLabel": "Low PPH",
       "checks": [
         {
           "id": "first_15",
@@ -297,6 +328,7 @@
       ]
     },
     "lost_revenue": {
+      "causes": ["dynacap"],
       "checks": [
         {
           "id": "bucket_oos",

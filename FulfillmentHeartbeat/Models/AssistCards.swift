@@ -98,6 +98,36 @@ enum AssistPlaybook {
 
     struct MetricBook: Codable, Equatable {
         var checks: [Check]
+        /// Other metric ids that drive this one. Empty when the metric has no causes.
+        var causes: [String]
+        /// Short name used on a Why line when this metric is a failing cause.
+        var causeLabel: String?
+
+        init(checks: [Check], causes: [String] = [], causeLabel: String? = nil) {
+            self.checks = checks
+            self.causes = causes
+            self.causeLabel = causeLabel
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            checks = try container.decode([Check].self, forKey: .checks)
+            causes = try container.decodeIfPresent([String].self, forKey: .causes) ?? []
+            causeLabel = try container.decodeIfPresent(String.self, forKey: .causeLabel)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(checks, forKey: .checks)
+            if !causes.isEmpty {
+                try container.encode(causes, forKey: .causes)
+            }
+            try container.encodeIfPresent(causeLabel, forKey: .causeLabel)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case checks, causes, causeLabel
+        }
     }
 
     struct Shared: Codable, Equatable {
@@ -130,11 +160,25 @@ enum AssistPlaybook {
 /// On-device auto check. Reads one pack field for the scope in view.
 /// Returns nil when that field is absent, so the card hides the check.
 enum AssistAutoCheck {
+    struct Evaluation: Equatable {
+        var value: Double
+        var failing: Bool
+        var sentence: String
+    }
+
     static func sentence(
         _ check: AssistPlaybook.Check,
         rows: [MetricSection: [MetricRow]],
         fallbackSection: MetricSection
     ) -> String? {
+        evaluate(check, rows: rows, fallbackSection: fallbackSection)?.sentence
+    }
+
+    static func evaluate(
+        _ check: AssistPlaybook.Check,
+        rows: [MetricSection: [MetricRow]],
+        fallbackSection: MetricSection
+    ) -> Evaluation? {
         guard check.kind == .auto else { return nil }
         guard let comparator = check.comparator?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               let threshold = check.threshold, threshold.isFinite,
@@ -149,13 +193,15 @@ enum AssistAutoCheck {
             return nil
         }
         guard let value = HeartbeatMath.average(samples) else { return nil }
-        let template = holds(value) ? check.answerTrue : check.answerFalse
-        guard let template else { return nil }
-        return AssistCopy.fill(
-            template,
-            ["value": format(value), "threshold": format(threshold)],
-            limit: AssistCopy.actionLimit
-        )
+        let failing = holds(value)
+        let template = failing ? check.answerTrue : check.answerFalse
+        guard let template,
+              let sentence = AssistCopy.fill(
+                template,
+                ["value": format(value), "threshold": format(threshold)],
+                limit: AssistCopy.actionLimit
+              ) else { return nil }
+        return Evaluation(value: value, failing: failing, sentence: sentence)
     }
 
     private static func fieldKeys(_ check: AssistPlaybook.Check) -> [String] {
@@ -185,6 +231,134 @@ enum AssistAutoCheck {
         let text = String(format: "%.1f", value)
         guard text.hasSuffix(".0"), let whole = text.split(separator: ".").first else { return text }
         return String(whole)
+    }
+}
+
+/// Why line and failing cause checks for one metric, from playbook `causes`.
+enum AssistCauses {
+    struct Report: Equatable {
+        var why: String
+        var checks: [AssistAction]
+        var failingIDs: [String]
+    }
+
+    static func report(
+        section: MetricSection,
+        playbook: AssistPlaybook.File,
+        rows: [MetricSection: [MetricRow]],
+        stay: DashboardFilters?,
+        level: AssistScopeLevel
+    ) -> Report? {
+        var seen: Set<String> = [section.rawValue]
+        let chain = walk(section.rawValue, playbook: playbook, seen: &seen)
+        guard !chain.isEmpty else { return nil }
+
+        var checks: [AssistAction] = []
+        var seenSentences: Set<String> = []
+        var labels: [String] = []
+        var failingIDs: [String] = []
+        var capacity: Capacity = .missing
+
+        for id in chain {
+            guard let book = playbook.metrics[id] else { continue }
+            let fallback = MetricSection(rawValue: id) ?? section
+            let isCapacity = id == MetricSection.dynacap.rawValue
+            for check in book.checks where check.kind == .auto {
+                let evaluation = AssistAutoCheck.evaluate(check, rows: rows, fallbackSection: fallback)
+                if isCapacity && isCapacityRate(check) {
+                    if let evaluation {
+                        capacity = evaluation.failing ? .failing(evaluation.value) : .healthy
+                    } else {
+                        capacity = .missing
+                    }
+                }
+                guard let evaluation, evaluation.failing else { continue }
+                let metricID = check.source ?? id
+                if chain.contains(metricID), !failingIDs.contains(metricID) {
+                    failingIDs.append(metricID)
+                }
+                if metricID != MetricSection.dynacap.rawValue,
+                   let label = playbook.metrics[metricID]?.causeLabel,
+                   !labels.contains(label) {
+                    labels.append(label)
+                }
+                guard seenSentences.insert(evaluation.sentence).inserted else { continue }
+                checks.append(action(check, sentence: evaluation.sentence, level: level, stay: stay, fallback: fallback))
+            }
+        }
+
+        let capacityID = MetricSection.dynacap.rawValue
+        let capacityInChain = chain.contains(capacityID)
+        let capacityLabel = playbook.metrics[capacityID]?.causeLabel
+        let capacityPhrase: String?
+        switch capacity {
+        case .failing(let value):
+            let name = capacityLabel ?? "Low capacity"
+            capacityPhrase = "\(name), \(AssistAutoCheck.format(value)) pieces an hour"
+        case .missing where capacityInChain && (!labels.isEmpty || !checks.isEmpty):
+            capacityPhrase = capacityLabel
+        case .healthy, .missing:
+            capacityPhrase = nil
+        }
+
+        var parts: [String] = []
+        if let capacityPhrase { parts.append(capacityPhrase) }
+        if !labels.isEmpty { parts.append(joined(labels)) }
+        guard !parts.isEmpty || !checks.isEmpty else { return nil }
+        let why = parts.isEmpty ? checks.map(\.question).joined(separator: ". ") : parts.joined(separator: ". ")
+        return Report(why: why, checks: checks, failingIDs: failingIDs)
+    }
+
+    private enum Capacity {
+        case missing
+        case healthy
+        case failing(Double)
+    }
+
+    private static func isCapacityRate(_ check: AssistPlaybook.Check) -> Bool {
+        let keys = [check.field].compactMap { $0 } + (check.aliases ?? [])
+        return keys.contains("dynacap_rate") || keys.contains("pieces_per_hour")
+    }
+
+    private static func walk(_ id: String, playbook: AssistPlaybook.File, seen: inout Set<String>) -> [String] {
+        var result: [String] = []
+        for cause in playbook.metrics[id]?.causes ?? [] {
+            guard seen.insert(cause).inserted else { continue }
+            result.append(cause)
+            result.append(contentsOf: walk(cause, playbook: playbook, seen: &seen))
+        }
+        return result
+    }
+
+    private static func joined(_ items: [String]) -> String {
+        switch items.count {
+        case 0: return ""
+        case 1: return items[0]
+        case 2: return "\(items[0]) and \(items[1])"
+        default:
+            let head = items.dropLast().joined(separator: ", ")
+            return "\(head), and \(items[items.count - 1])"
+        }
+    }
+
+    private static func action(
+        _ check: AssistPlaybook.Check,
+        sentence: String,
+        level: AssistScopeLevel,
+        stay: DashboardFilters?,
+        fallback: MetricSection
+    ) -> AssistAction {
+        let destination = check.tapThrough.flatMap(HubDestination.init(rawValue:))
+            ?? HubDestination.from(section: fallback)
+        let owner = level == .store ? (check.ownerRole ?? "Store leader") : AssistScope.levelOwner(level)
+        return AssistAction.open(
+            id: "cause-\(check.id)",
+            question: sentence,
+            owner: owner,
+            buttonTitle: AssistCopy.screenTitle(destination),
+            filters: stay,
+            destination: destination
+        )
     }
 }
 
@@ -583,6 +757,10 @@ struct AssistIssue: Equatable, Identifiable {
     var footer: String
     var footerAction: AssistAction
     var checks: [AssistAction]
+    var why: String?
+    var causeChecks: [AssistAction]
+    var failingCauseIDs: [String]
+    var drivenBy: [AssistHeaderLine]
     var rankedLine: String
     var accessibilityLabel: String
 }
@@ -1241,7 +1419,7 @@ enum AssistComposer {
         let children = level == .store ? [] : rankChildren(snapshot, grain: AssistScope.naturalChild(level) ?? .region)
         let worst = children.first { $0.score > 0 || $0.storesAtRisk > 0 }
         let scope = AssistScope.scopeLine(snapshot.filters, roster: snapshot.rosterStores)
-        answer.issues = ranked.enumerated().map { index, scored in
+        answer.issues = linkCauses(ranked.enumerated().map { index, scored in
             issue(
                 scored,
                 rank: index + 1,
@@ -1254,7 +1432,7 @@ enum AssistComposer {
                 watchOnly: watchOnly,
                 singleHealthy: single && scored.risk + scored.watch == 0
             )
-        }
+        })
         if showHeader && !answer.issues.isEmpty {
             answer.headerTitle = AssistCopy.headerTitle(issueCount: answer.issues.count)
             answer.headerLines = answer.issues.prefix(3).map { item in
@@ -1375,7 +1553,17 @@ enum AssistComposer {
             stay: stay,
             destination: destination
         )
+        let causes = playbook.flatMap {
+            AssistCauses.report(
+                section: section,
+                playbook: $0,
+                rows: snapshot.rows,
+                stay: stay,
+                level: level
+            )
+        }
         let storesAtRisk = level == .store ? (summary?.headlineText ?? "") : "\(AssistCopy.grouped(scored.risk)) of \(AssistCopy.grouped(scored.storeCount)) stores at risk"
+        let whySentence = causes?.why
         return AssistIssue(
             id: section.rawValue,
             rank: rank,
@@ -1391,9 +1579,26 @@ enum AssistComposer {
             footer: footer,
             footerAction: footerAction,
             checks: checks,
+            why: whySentence,
+            causeChecks: causes?.checks ?? [],
+            failingCauseIDs: causes?.failingIDs ?? [],
+            drivenBy: [],
             rankedLine: AssistCopy.rankedLine(scored),
-            accessibilityLabel: "Rank \(rank), \(section.title), \(status.text). \(headline). \(storesAtRisk). Scope \(scope)."
+            accessibilityLabel: "Rank \(rank), \(section.title), \(status.text). \(headline). \(storesAtRisk).\(whySentence.map { " Why \($0)." } ?? "") Scope \(scope)."
         )
+    }
+
+    /// Keeps cause cards in the ranked list and points at them when they are failing.
+    private static func linkCauses(_ issues: [AssistIssue]) -> [AssistIssue] {
+        let present = Set(issues.map(\.id))
+        return issues.map { issue in
+            var copy = issue
+            copy.drivenBy = issue.failingCauseIDs.compactMap { id in
+                guard present.contains(id), id != issue.id, let section = MetricSection(rawValue: id) else { return nil }
+                return AssistHeaderLine(text: "Driven by \(section.overviewLead)", issueID: id)
+            }
+            return copy
+        }
     }
 
     private static func headlineText(
@@ -2195,6 +2400,10 @@ enum AssistComposer {
             footer: footer,
             footerAction: footerAction,
             checks: checks,
+            why: nil,
+            causeChecks: [],
+            failingCauseIDs: [],
+            drivenBy: [],
             rankedLine: "\(child.label): \(AssistCopy.grouped(child.storesAtRisk)) stores with an at-risk scorecard.",
             accessibilityLabel: "Rank \(rank), \(child.label). \(headline). \(child.storesAtRisk) of \(child.storeCount) stores with an at-risk scorecard."
         )
@@ -2266,6 +2475,10 @@ enum AssistComposer {
                 destination: .pickerScorecard
             ),
             checks: checks,
+            why: nil,
+            causeChecks: [],
+            failingCauseIDs: [],
+            drivenBy: [],
             rankedLine: "\(name) at store \(store): \(items).",
             accessibilityLabel: "\(name) at store \(store). \(items)."
         )

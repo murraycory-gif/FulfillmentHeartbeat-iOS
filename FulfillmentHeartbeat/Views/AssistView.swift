@@ -205,7 +205,7 @@ struct HeartbeatAssistSheet: View {
                 headerBlock(header, lines: answer.headerLines, proxy: proxy)
             }
             ForEach(visible) { issue in
-                problemCard(issue)
+                problemCard(issue, proxy: proxy)
                     .id(issue.id)
                 if !issue.checks.isEmpty {
                     resolutionCard(issue)
@@ -288,7 +288,7 @@ struct HeartbeatAssistSheet: View {
         }
     }
 
-    private func problemCard(_ issue: AssistIssue) -> some View {
+    private func problemCard(_ issue: AssistIssue, proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
                 perform(issue.footerAction)
@@ -325,6 +325,9 @@ struct HeartbeatAssistSheet: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(issue.accessibilityLabel)
             .accessibilityAddTraits(.isButton)
+            if issue.why != nil || !issue.causeChecks.isEmpty || !issue.drivenBy.isEmpty {
+                whyBlock(issue, proxy: proxy)
+            }
             Text(issue.scope)
                 .font(.footnote)
                 .foregroundStyle(AppTheme.textSecondary)
@@ -348,6 +351,37 @@ struct HeartbeatAssistSheet: View {
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(AppTheme.cardBorder, lineWidth: 1)
+        }
+    }
+
+    private func whyBlock(_ issue: AssistIssue, proxy: ScrollViewProxy) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Why")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+            if let why = issue.why {
+                Text(why)
+                    .font(.body)
+                    .foregroundStyle(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(issue.causeChecks) { check in
+                actionButton(check)
+            }
+            ForEach(issue.drivenBy) { link in
+                Button {
+                    withAnimation { proxy.scrollTo(link.issueID, anchor: .top) }
+                } label: {
+                    Text(link.text)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(link.text)
+            }
         }
     }
 
