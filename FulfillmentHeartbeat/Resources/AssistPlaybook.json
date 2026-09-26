@@ -1,0 +1,303 @@
+{
+  "seedNote": "Seed floor checks rewritten from the Assist spec. Ops can edit this file without a code change. Cory will replace it with the reviewed playbook.",
+  "shared": {
+    "worstChildQuestion": "Is {child} the first place to work, with {childRisk} of {childStores} stores at risk?",
+    "childOpen": "Open {child}",
+    "childWork": "Is {metric} the first scorecard to work in {child}?"
+  },
+  "metrics": {
+    "schedule_quality": {
+      "checks": [
+        {
+          "id": "over_hours",
+          "question": "Are hours that never pick being cut at the {over} over-scheduled stores?",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "overScheduled"
+        },
+        {
+          "id": "under_peaks",
+          "question": "Are open peaks at the {under} under-scheduled stores filled with trained shoppers?",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "underScheduled"
+        },
+        {
+          "id": "store_over",
+          "question": "Is this store cutting hours that never pick on the next schedule build?",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "storeOver"
+        },
+        {
+          "id": "store_under",
+          "question": "Are open peaks at this store filled with trained shoppers, not overtime?",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "storeUnder"
+        }
+      ]
+    },
+    "missing_items": {
+      "checks": [
+        {
+          "id": "hottest_dept",
+          "question": "Are aisle tags hung in {dept} first, where missing averages {deptPct}?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "missingItems",
+          "showWhen": "hottestDept"
+        },
+        {
+          "id": "stale_maps",
+          "question": "Are aisle maps older than 90 days refreshed at {staleMaps} stores?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "pickPath",
+          "showWhen": "staleMaps"
+        }
+      ]
+    },
+    "pick_path": {
+      "checks": [
+        {
+          "id": "coach_path",
+          "question": "Is {shopper} at store {store} being coached on the {compliance} path score?",
+          "ownerRole": "Store leader and {shopper}",
+          "tapThrough": "pickPath",
+          "showWhen": "namedShopper"
+        },
+        {
+          "id": "stale_maps",
+          "question": "Are aisle maps older than 90 days refreshed at {staleMaps} stores?",
+          "ownerRole": "Store leader",
+          "tapThrough": "pickPath",
+          "showWhen": "staleMaps"
+        },
+        {
+          "id": "stale_sequences",
+          "question": "Are aisle sequences older than 90 days refreshed at {staleSeq} stores?",
+          "ownerRole": "Store leader",
+          "tapThrough": "pickPath",
+          "showWhen": "staleSeq"
+        }
+      ]
+    },
+    "five_star": {
+      "checks": [
+        {
+          "id": "weak_presub",
+          "question": "Is the home location confirmed empty before any sub?",
+          "ownerRole": "Store leader",
+          "tapThrough": "fiveStar",
+          "showWhen": "weakestPresub"
+        },
+        {
+          "id": "weak_ott",
+          "question": "Are complete totes staged before the cutoff?",
+          "ownerRole": "Store leader",
+          "tapThrough": "fiveStar",
+          "showWhen": "weakestOTT"
+        },
+        {
+          "id": "weak_oth",
+          "question": "Are complete totes staged before the cutoff?",
+          "ownerRole": "Store leader",
+          "tapThrough": "fiveStar",
+          "showWhen": "weakestOTH"
+        },
+        {
+          "id": "weak_coe",
+          "question": "Is every substitution and age-restricted item scanned?",
+          "ownerRole": "Store leader",
+          "tapThrough": "fiveStar",
+          "showWhen": "weakestCOE"
+        },
+        {
+          "id": "weak_flash",
+          "question": "Is the lowest star being closed first, since Flash is the weakest?",
+          "ownerRole": "Store leader",
+          "tapThrough": "fiveStar",
+          "showWhen": "weakestFlash"
+        },
+        {
+          "id": "coach_part",
+          "question": "Is {shopper} at store {store} being coached on {part}?",
+          "ownerRole": "Store leader and {shopper}",
+          "tapThrough": "pickerScorecard",
+          "showWhen": "namedShopper"
+        }
+      ]
+    },
+    "pre_sub_oos": {
+      "checks": [
+        {
+          "id": "hottest_dept",
+          "question": "Are on-hands and pick-face fills fixed in {dept} first ({deptPct})?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "preSubOOS",
+          "showWhen": "hottestDept"
+        },
+        {
+          "id": "top_item",
+          "question": "Is the top item, {bpn}, being walked with grocery today ({presub})?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "preSubOOS",
+          "showWhen": "topItem"
+        }
+      ]
+    },
+    "prep_not_ready": {
+      "checks": [
+        {
+          "id": "stage_prep",
+          "question": "Are produce, meat, and bakery staged 60 minutes before the first eComm wave?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "prepNotReady",
+          "showWhen": "card"
+        },
+        {
+          "id": "pph_follow",
+          "question": "Is PPH expected to follow, at {pphAvg} against a goal of 80?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "pph",
+          "showWhen": "pphNeedsAction"
+        }
+      ]
+    },
+    "dynacap": {
+      "checks": [
+        {
+          "id": "set_capacity",
+          "question": "Are pickup and delivery capacity set to the recommended values?",
+          "ownerRole": "Store leader",
+          "tapThrough": "dynacap",
+          "showWhen": "hasCapacityRecs"
+        },
+        {
+          "id": "check_labor",
+          "question": "Is labor checked before adding hours, with target vs actual at {laborAvg}?",
+          "ownerRole": "Store leader",
+          "tapThrough": "labor",
+          "showWhen": "laborNeedsAction"
+        }
+      ]
+    },
+    "pph": {
+      "checks": [
+        {
+          "id": "coach_slow",
+          "question": "Is {shopper} at store {store} being coached on a {pph} pick rate?",
+          "ownerRole": "Store leader and {shopper}",
+          "tapThrough": "pickerScorecard",
+          "showWhen": "namedShopper"
+        },
+        {
+          "id": "stage_prep",
+          "question": "Is prep staged first, with Prep Not Ready at {pnrAvg}?",
+          "ownerRole": "Store leader",
+          "tapThrough": "prepNotReady",
+          "showWhen": "prepNeedsAction"
+        }
+      ]
+    },
+    "labor": {
+      "checks": [
+        {
+          "id": "fix_schedule",
+          "question": "Is the schedule being fixed first, with {over} stores over-scheduled?",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "scheduleNeedsAction"
+        },
+        {
+          "id": "compare_hours",
+          "question": "Are hours worked being compared with hours scheduled?",
+          "ownerRole": "Store leader",
+          "tapThrough": "scheduleQuality",
+          "showWhen": "scheduleHolding"
+        },
+        {
+          "id": "store_cost",
+          "question": "Is actual cost {act} over the {trgt} target at this store?",
+          "ownerRole": "Store leader",
+          "tapThrough": "labor",
+          "showWhen": "storeCostOver"
+        }
+      ]
+    },
+    "lost_revenue": {
+      "checks": [
+        {
+          "id": "bucket_oos",
+          "question": "Are top out-of-stocks walked with grocery, with the backroom checked before each mark-out?",
+          "ownerRole": "Grocery lead",
+          "tapThrough": "lostRevenue",
+          "showWhen": "bucketOOS"
+        },
+        {
+          "id": "bucket_refund",
+          "question": "Are fulfillment refunds audited, and found items restaged before refunding?",
+          "ownerRole": "Store leader",
+          "tapThrough": "lostRevenue",
+          "showWhen": "bucketRefund"
+        },
+        {
+          "id": "bucket_cancel",
+          "question": "Is every LDAP cancel reviewed with the shopper the same day?",
+          "ownerRole": "Store leader",
+          "tapThrough": "lostRevenue",
+          "showWhen": "bucketCancel"
+        },
+        {
+          "id": "bucket_kill",
+          "question": "Is kill switch staying off unless capacity is truly blocked?",
+          "ownerRole": "Store leader",
+          "tapThrough": "lostRevenue",
+          "showWhen": "bucketKill"
+        },
+        {
+          "id": "bucket_capacity",
+          "question": "Is capacity put back when the crew can hold the wave?",
+          "ownerRole": "Store leader",
+          "tapThrough": "dynacap",
+          "showWhen": "bucketCapacity"
+        },
+        {
+          "id": "bucket_dollars",
+          "question": "Is the {bucket} loss of {dollars} being worked today?",
+          "ownerRole": "{bucketOwner}",
+          "tapThrough": "lostRevenue",
+          "showWhen": "bucketDollars"
+        }
+      ]
+    },
+    "sales": {
+      "checks": [
+        {
+          "id": "down_stores",
+          "question": "Are the down stores' 5 Star and Loss Revenue cards being checked?",
+          "ownerRole": "Store leader",
+          "tapThrough": "sales",
+          "showWhen": "salesDown"
+        },
+        {
+          "id": "off_plan",
+          "question": "Are the off-plan stores' 5 Star and Loss Revenue cards being checked?",
+          "ownerRole": "Store leader",
+          "tapThrough": "sales",
+          "showWhen": "salesPlan"
+        }
+      ]
+    },
+    "picker_scorecard": {
+      "checks": [
+        {
+          "id": "floor_coach",
+          "question": "Is {shopper} being floor-coached on {items} during a live wave?",
+          "ownerRole": "Store leader",
+          "tapThrough": "pickerScorecard",
+          "showWhen": "namedShopper"
+        }
+      ]
+    }
+  }
+}
