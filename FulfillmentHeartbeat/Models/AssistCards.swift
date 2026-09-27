@@ -655,22 +655,42 @@ enum AssistRank {
         return min(3, ratio)
     }
 
-    private static func scheduleRatio(_ row: MetricRow) -> Double? {
-        var terms: [Double] = []
+    struct ScheduleComponent: Equatable {
+        enum Kind: Equatable {
+            case efficiency, staffing, under, over
+        }
+
+        var kind: Kind
+        var value: Double
+        var ratio: Double
+    }
+
+    /// Winning schedule term from `scheduleRatio`. Same order and formula, so a tie keeps the earlier component.
+    static func scheduleComponent(_ row: MetricRow) -> ScheduleComponent? {
+        var best: ScheduleComponent?
+        func consider(_ kind: ScheduleComponent.Kind, _ value: Double, _ ratio: Double) {
+            guard ratio.isFinite else { return }
+            if best == nil || ratio > best!.ratio {
+                best = ScheduleComponent(kind: kind, value: value, ratio: ratio)
+            }
+        }
         if let efficiency = row.number("schedule_efficiency_pct") {
-            terms.append(max(0, (HeartbeatMath.scheduleGoal - efficiency) / 5))
+            consider(.efficiency, efficiency, max(0, (HeartbeatMath.scheduleGoal - efficiency) / 5))
         }
         if let staffing = row.number("staffing_efficiency_pct") {
-            terms.append(max(0, (HeartbeatMath.scheduleGoal - staffing) / 5))
+            consider(.staffing, staffing, max(0, (HeartbeatMath.scheduleGoal - staffing) / 5))
         }
         if let under = row.number("under_schedule_pct", "under_scheduled") {
-            terms.append(max(0, (under - 0.05) / 4.95))
+            consider(.under, under, max(0, (under - 0.05) / 4.95))
         }
         if let over = row.number("over_schedule_pct", "over_scheduled") {
-            terms.append(max(0, (over - 0.05) / 4.95))
+            consider(.over, over, max(0, (over - 0.05) / 4.95))
         }
-        guard let worst = terms.max(), worst.isFinite else { return nil }
-        return worst
+        return best
+    }
+
+    private static func scheduleRatio(_ row: MetricRow) -> Double? {
+        scheduleComponent(row)?.ratio
     }
 
     /// Same health `distance` uses. PPH follows the Assist ranking band; every other metric uses `HeartbeatMath.health`.
@@ -993,6 +1013,844 @@ enum AssistPriority {
     }
 }
 
+struct AssistPlanStep: Equatable, Identifiable {
+    var id: String
+    var index: Int
+    var whereText: String
+    var brokeText: String
+    var who: [String]
+    var what: [String]
+    var actions: [AssistAction]
+}
+
+/// Section 17. Directive steps built only from pack fields already on the snapshot.
+/// Shopper, day, and item lines are omitted when those rows are absent.
+enum AssistPlan {
+    static let stepLimit = 5
+    static let shopperLimit = 5
+    static let itemLimit = 3
+    static let dayLimit = 2
+
+    struct ShopperHit: Equatable {
+        var name: String
+        var store: String
+        var storeName: String
+        var line: String
+        var gap: Double
+        var measure: String
+        var compliance: Double?
+        var pph: Double?
+        var destination: HubDestination
+    }
+
+    /// `sections` is section 6 order. `visitSections` is the top-card list that 16.2 ranks (defaults to `sections`).
+    static func steps(
+        snapshot: AssistSnapshot,
+        sections: [MetricSection],
+        visitSections: [MetricSection]? = nil,
+        limit: Int = stepLimit
+    ) -> [AssistPlanStep] {
+        guard limit > 0 else { return [] }
+        let basis = visitSections ?? sections
+        let visits = AssistPriority.visitCandidates(
+            sections: basis,
+            rows: snapshot.rows,
+            filters: snapshot.filters,
+            roster: snapshot.rosterStores
+        )
+        var visitIndex: [String: Int] = [:]
+        for (offset, visit) in visits.enumerated() {
+            visitIndex[visit.store] = offset
+        }
+        let singleStore = DashboardFilters.parts(snapshot.filters.store).count == 1
+        let level = AssistScope.level(snapshot.filters)
+        let wide = level == .company || level == .region || level == .division
+        var built: [AssistPlanStep] = []
+        for section in sections {
+            if built.count >= limit { break }
+            var located = locate(section: section, snapshot: snapshot)
+            located.sort { lhs, rhs in
+                let left = visitIndex[lhs.pick.store] ?? Int.max
+                let right = visitIndex[rhs.pick.store] ?? Int.max
+                if left != right { return left < right }
+                return HeartbeatFormat.storeOrder(lhs.pick.store, rhs.pick.store)
+            }
+            guard !located.isEmpty else { continue }
+            if singleStore {
+                built.append(storeStep(section: section, place: located[0], snapshot: snapshot, slot: built.count))
+                continue
+            }
+            var covered = Set<String>()
+            if wide, let cluster = dominantDistrict(located, section: section) {
+                built.append(districtStep(section: section, cluster: cluster, snapshot: snapshot, slot: built.count))
+                covered = Set(cluster.members.map(\.pick.store))
+                if built.count >= limit { break }
+            }
+            for place in located where !covered.contains(place.pick.store) {
+                if built.count >= limit { break }
+                built.append(storeStep(section: section, place: place, snapshot: snapshot, slot: built.count))
+            }
+        }
+        return built.enumerated().map { offset, step in
+            var copy = step
+            copy.index = offset + 1
+            return copy
+        }
+    }
+
+    static func coaching(snapshot: AssistSnapshot, name: String? = nil, limit: Int = shopperLimit) -> [AssistPlanStep] {
+        var hits = shopperHits(snapshot: snapshot, stores: nil, measure: nil)
+        if let name {
+            let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            hits = hits.filter { $0.name.lowercased() == wanted }
+        }
+        return hits.prefix(limit).enumerated().map { offset, hit in
+            let whereText = shopperWhere(hit, snapshot: snapshot)
+            let broke = shopperBroke(hit)
+            let action = action(
+                id: "coach-\(hit.store)-\(offset)",
+                question: coachSentence([hit.name], measure: hit.measure),
+                owner: "Store manager",
+                button: "Open \(screenName(hit.destination))",
+                filters: AssistPriority.storeFilters(snapshot.filters, store: hit.store),
+                destination: hit.destination
+            )
+            return AssistPlanStep(
+                id: "coach-\(hit.store)-\(hit.name)",
+                index: offset + 1,
+                whereText: whereText,
+                brokeText: broke,
+                who: [],
+                what: [],
+                actions: [action]
+            )
+        }
+    }
+
+    private struct Place {
+        var pick: AssistPriority.Candidate
+        var row: MetricRow
+        var district: String
+        var om: String
+    }
+
+    private struct DistrictCluster {
+        var key: String
+        var members: [Place]
+        var worst: Place
+    }
+
+    private static func locate(section: MetricSection, snapshot: AssistSnapshot) -> [Place] {
+        let picks = AssistPriority.candidates(
+            section: section,
+            rows: snapshot.rows[section] ?? [],
+            filters: snapshot.filters,
+            roster: snapshot.rosterStores
+        )
+        return picks.compactMap { pick in
+            guard let row = storeRow(section: section, store: pick.store, snapshot: snapshot) else { return nil }
+            return Place(pick: pick, row: row, district: districtLabel(row), om: omLabel(row))
+        }
+    }
+
+    private static func dominantDistrict(
+        _ located: [Place],
+        section: MetricSection
+    ) -> DistrictCluster? {
+        var groups: [String: [Place]] = [:]
+        for place in located where !place.district.isEmpty {
+            groups[place.district, default: []].append(place)
+        }
+        guard let best = groups.max(by: { lhs, rhs in
+            if lhs.value.count != rhs.value.count { return lhs.value.count < rhs.value.count }
+            let left = located.firstIndex { $0.district == lhs.key } ?? Int.max
+            let right = located.firstIndex { $0.district == rhs.key } ?? Int.max
+            return left > right
+        }) else { return nil }
+        guard best.value.count >= 3, best.value.count * 2 >= located.count else { return nil }
+        guard sameComponent(section, best.value) else { return nil }
+        let worst = best.value.max { lhs, rhs in
+            if lhs.pick.gap != rhs.pick.gap { return lhs.pick.gap < rhs.pick.gap }
+            return HeartbeatFormat.storeOrder(rhs.pick.store, lhs.pick.store)
+        }
+        guard let worst else { return nil }
+        return DistrictCluster(key: best.key, members: best.value, worst: worst)
+    }
+
+    private static func sameComponent(_ section: MetricSection, _ members: [Place]) -> Bool {
+        guard section == .scheduleQuality else { return true }
+        let kinds = members.compactMap { AssistRank.scheduleComponent($0.row)?.kind }
+        guard let first = kinds.first else { return false }
+        return kinds.count == members.count && kinds.allSatisfy { $0 == first }
+    }
+
+    private static func storeStep(
+        section: MetricSection,
+        place: Place,
+        snapshot: AssistSnapshot,
+        slot: Int
+    ) -> AssistPlanStep {
+        let stores: Set<String> = [place.pick.store]
+        let people = people(for: section, stores: stores, snapshot: snapshot)
+        let items = itemLines(section: section, stores: stores, snapshot: snapshot)
+        let broke = brokeText(section: section, row: place.row, stores: stores, snapshot: snapshot)
+        return AssistPlanStep(
+            id: "plan-\(section.rawValue)-\(place.pick.store)-\(slot)",
+            index: slot + 1,
+            whereText: storeWhere(place),
+            brokeText: broke,
+            who: people.prefix(shopperLimit).map(\.line),
+            what: items,
+            actions: doActions(
+                section: section,
+                place: place,
+                district: nil,
+                people: people,
+                items: items,
+                stores: stores,
+                snapshot: snapshot,
+                slot: slot
+            )
+        )
+    }
+
+    private static func districtStep(
+        section: MetricSection,
+        cluster: DistrictCluster,
+        snapshot: AssistSnapshot,
+        slot: Int
+    ) -> AssistPlanStep {
+        let stores = Set(cluster.members.map(\.pick.store))
+        let people = people(for: section, stores: stores, snapshot: snapshot)
+        let items = itemLines(section: section, stores: stores, snapshot: snapshot)
+        return AssistPlanStep(
+            id: "plan-\(section.rawValue)-district-\(cluster.key)-\(slot)",
+            index: slot + 1,
+            whereText: "District \(cluster.key)",
+            brokeText: brokeText(section: section, row: cluster.worst.row, stores: stores, snapshot: snapshot),
+            who: people.prefix(shopperLimit).map(\.line),
+            what: items,
+            actions: doActions(
+                section: section,
+                place: cluster.worst,
+                district: cluster.key,
+                people: people,
+                items: items,
+                stores: stores,
+                snapshot: snapshot,
+                slot: slot
+            )
+        )
+    }
+
+    private static func doActions(
+        section: MetricSection,
+        place: Place,
+        district: String?,
+        people: [ShopperHit],
+        items: [String],
+        stores: Set<String>,
+        snapshot: AssistSnapshot,
+        slot: Int
+    ) -> [AssistAction] {
+        var actions: [AssistAction] = []
+        let metric = screenName(HubDestination.from(section: section))
+        let named = Array(people.prefix(2))
+        if !named.isEmpty, let measure = named.first?.measure {
+            let shared = Set(named.map(\.store))
+            let filters: DashboardFilters
+            let destination: HubDestination
+            if shared.count == 1, let store = shared.first {
+                filters = AssistPriority.storeFilters(snapshot.filters, store: store)
+                destination = named[0].destination
+            } else if let district {
+                filters = districtFilters(snapshot.filters, district: district)
+                destination = HubDestination.from(section: section)
+            } else {
+                filters = AssistPriority.storeFilters(snapshot.filters, store: place.pick.store)
+                destination = named[0].destination
+            }
+            actions.append(action(
+                id: "plan-\(slot)-coach",
+                question: coachSentence(named.map(\.name), measure: measure),
+                owner: "Store manager",
+                button: "Open \(screenName(destination))",
+                filters: filters,
+                destination: destination
+            ))
+        }
+        if !items.isEmpty, actions.count < 3 {
+            let names = items.map(itemName)
+            let filters = district == nil
+                ? AssistPriority.storeFilters(snapshot.filters, store: place.pick.store)
+                : districtFilters(snapshot.filters, district: district ?? "")
+            let owner = district == nil ? "Store manager" : "District leader"
+            actions.append(action(
+                id: "plan-\(slot)-items",
+                question: "Check shelf and sub rules for \(english(names))",
+                owner: owner,
+                button: "Open Pre-Sub OOS",
+                filters: filters,
+                destination: .preSubOOS
+            ))
+        }
+        if section == .scheduleQuality, actions.count < 3 {
+            let days = scheduleDays(row: place.row, stores: stores, snapshot: snapshot)
+            let focusStore = scheduleDayStore(row: place.row, stores: stores, snapshot: snapshot)
+            let filters: DashboardFilters
+            let owner: String
+            let whereName: String
+            if let focusStore {
+                filters = AssistPriority.storeFilters(snapshot.filters, store: focusStore.store)
+                owner = "Store manager"
+                whereName = focusStore.label
+            } else if let district {
+                filters = districtFilters(snapshot.filters, district: district)
+                owner = "District leader"
+                whereName = "District \(district)"
+            } else {
+                filters = AssistPriority.storeFilters(snapshot.filters, store: place.pick.store)
+                owner = "Store manager"
+                whereName = storeWhere(place)
+            }
+            actions.append(action(
+                id: "plan-\(slot)-schedule",
+                question: scheduleAction(days: days, component: AssistRank.scheduleComponent(place.row), place: whereName),
+                owner: owner,
+                button: "Open Schedule",
+                filters: filters,
+                destination: .scheduleQuality
+            ))
+        }
+        if let district, actions.count < 3 {
+            let alreadyDistrict = actions.contains { $0.filters?.store.isEmpty == true && $0.filters?.district == district }
+            if !alreadyDistrict {
+                actions.append(action(
+                    id: "plan-\(slot)-district",
+                    question: "Review \(metric.lowercased()) across District \(district)",
+                    owner: "District leader",
+                    button: "Open \(metric)",
+                    filters: districtFilters(snapshot.filters, district: district),
+                    destination: HubDestination.from(section: section)
+                ))
+            }
+        }
+        if actions.isEmpty {
+            let label = storeTitle(place)
+            actions.append(action(
+                id: "plan-\(slot)-walk",
+                question: "Walk \(label) for \(metric.lowercased()) today",
+                owner: "Store manager",
+                button: "Open \(metric)",
+                filters: AssistPriority.storeFilters(snapshot.filters, store: place.pick.store),
+                destination: HubDestination.from(section: section)
+            ))
+        }
+        return Array(actions.prefix(3))
+    }
+
+    private static func people(for section: MetricSection, stores: Set<String>, snapshot: AssistSnapshot) -> [ShopperHit] {
+        switch section {
+        case .pickPath, .pickPathPicker:
+            return shopperHits(snapshot: snapshot, stores: stores, measure: "path")
+        case .pph:
+            return shopperHits(snapshot: snapshot, stores: stores, measure: "PPH")
+        default:
+            return []
+        }
+    }
+
+    static func shopperHits(snapshot: AssistSnapshot, stores: Set<String>?, measure: String?) -> [ShopperHit] {
+        struct Raw {
+            var name: String
+            var store: String
+            var storeName: String
+            var compliance: Double?
+            var pph: Double?
+            var pathGap: Double
+            var pphGap: Double
+            var fromScorecard: Bool
+        }
+        var raw: [String: Raw] = [:]
+        func take(_ row: MetricRow, compliance: Double?, pph: Double?, fromScorecard: Bool) {
+            guard let name = shopperName(row) else { return }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { return }
+            if row.textPayload["lost_grain"] == "market" { return }
+            if let stores, !stores.contains(store) { return }
+            let key = "\(store)|\(name.lowercased())"
+            var entry = raw[key] ?? Raw(
+                name: name,
+                store: store,
+                storeName: HeartbeatMath.usableStoreName(row.storeName) ?? "",
+                compliance: nil,
+                pph: nil,
+                pathGap: 0,
+                pphGap: 0,
+                fromScorecard: fromScorecard
+            )
+            if entry.storeName.isEmpty {
+                entry.storeName = HeartbeatMath.usableStoreName(row.storeName) ?? ""
+            }
+            if let compliance {
+                entry.compliance = compliance
+                entry.pathGap = AssistRank.round4(min(3, max(0, (HeartbeatMath.pickPathGoal - compliance) / 10)))
+            }
+            if let pph {
+                entry.pph = pph
+                let band = AssistRank.pphRankingBand
+                entry.pphGap = AssistRank.round4(min(3, max(0, (band.goal - pph) / (band.goal - band.risk))))
+            }
+            entry.fromScorecard = entry.fromScorecard || fromScorecard
+            raw[key] = entry
+        }
+        let pathRows = AssistRank.scoringRows(AssistScope.slice(snapshot.rows[.pickPathPicker] ?? [], filters: snapshot.filters))
+        for row in pathRows {
+            guard HeartbeatMath.isRealPicker(row) else { continue }
+            guard let compliance = row.number("compliance_pct") else { continue }
+            let health = HeartbeatMath.band(compliance, good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk)
+            guard health == .risk || health == .watch else { continue }
+            take(row, compliance: compliance, pph: row.number("pph"), fromScorecard: false)
+        }
+        let scoreRows = AssistRank.scoringRows(AssistScope.slice(snapshot.rows[.pickerScorecard] ?? [], filters: snapshot.filters))
+        for row in scoreRows {
+            guard HeartbeatMath.isRealPicker(row), HeartbeatMath.pickerHasVolume(row) else { continue }
+            let compliance = row.number("compliance_pct")
+            let pph = row.number("pph")
+            let pathOff = compliance.map { HeartbeatMath.band($0, good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk) }
+            let pphOff = pph.map { AssistRank.pphHealth($0) }
+            let pathBad = pathOff == .risk || pathOff == .watch
+            let pphBad = pphOff == .risk || pphOff == .watch
+            guard pathBad || pphBad else { continue }
+            take(row, compliance: pathBad ? compliance : nil, pph: pphBad ? pph : nil, fromScorecard: true)
+        }
+        let pphRows = AssistRank.scoringRows(AssistScope.slice(snapshot.rows[.pph] ?? [], filters: snapshot.filters))
+        for row in pphRows {
+            guard HeartbeatMath.isRealPicker(row), let pph = HeartbeatMath.pphNumber(row) else { continue }
+            guard shopperName(row) != nil else { continue }
+            let health = AssistRank.pphHealth(pph)
+            guard health == .risk || health == .watch else { continue }
+            take(row, compliance: nil, pph: pph, fromScorecard: false)
+        }
+        var hits: [ShopperHit] = []
+        for entry in raw.values {
+            let pathBad = entry.compliance != nil && entry.pathGap > 0
+            let pphBad = entry.pph != nil && entry.pphGap > 0
+            let usePath: Bool
+            if measure == "path" {
+                guard pathBad else { continue }
+                usePath = true
+            } else if measure == "PPH" {
+                guard pphBad else { continue }
+                usePath = false
+            } else if pathBad && pphBad {
+                usePath = entry.pathGap >= entry.pphGap
+            } else if pathBad {
+                usePath = true
+            } else if pphBad {
+                usePath = false
+            } else {
+                continue
+            }
+            let gap = usePath ? entry.pathGap : entry.pphGap
+            let measureName = usePath ? "path" : "PPH"
+            let destination: HubDestination = usePath ? .pickPath : (entry.fromScorecard ? .pickerScorecard : .pph)
+            hits.append(ShopperHit(
+                name: entry.name,
+                store: entry.store,
+                storeName: entry.storeName,
+                line: shopperLine(entry.name, compliance: entry.compliance, pph: entry.pph, prefer: measureName),
+                gap: gap,
+                measure: measureName,
+                compliance: entry.compliance,
+                pph: entry.pph,
+                destination: destination
+            ))
+        }
+        return hits.sorted { lhs, rhs in
+            if lhs.gap != rhs.gap { return lhs.gap > rhs.gap }
+            if lhs.store != rhs.store { return HeartbeatFormat.storeOrder(lhs.store, rhs.store) }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private static func itemLines(section: MetricSection, stores: Set<String>, snapshot: AssistSnapshot) -> [String] {
+        guard section == .missingItems || section == .preSubOOS else { return [] }
+        let rows = AssistRank.scoringRows(AssistScope.slice(snapshot.rows[.preSubOOSItem] ?? [], filters: snapshot.filters))
+        let ranked = rows.compactMap { row -> (String, Double)? in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard stores.contains(store) else { return nil }
+            guard let pct = row.number("presub_pct"), pct > HeartbeatMath.missingItemsGoal else { return nil }
+            let name = itemLabel(row)
+            guard !name.isEmpty else { return nil }
+            return (name, pct)
+        }.sorted { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+            return lhs.0.localizedCaseInsensitiveCompare(rhs.0) == .orderedAscending
+        }
+        return ranked.prefix(itemLimit).map { "\($0.0) \(compactPercent($0.1))" }
+    }
+
+    private static func brokeText(
+        section: MetricSection,
+        row: MetricRow,
+        stores: Set<String>,
+        snapshot: AssistSnapshot
+    ) -> String {
+        if section == .scheduleQuality, let component = AssistRank.scheduleComponent(row) {
+            let days = scheduleDays(row: row, stores: stores, snapshot: snapshot)
+            return scheduleBroke(component, days: days)
+        }
+        guard let reading = metricReading(section, row) else { return section.overviewLead }
+        return "\(reading.name) \(reading.value) (goal \(reading.goal), risk line \(reading.risk))"
+    }
+
+    private static func scheduleBroke(_ component: AssistRank.ScheduleComponent, days: [(String, String)]) -> String {
+        let label = scheduleLabel(component.kind)
+        let (goal, risk) = scheduleLines(component.kind)
+        if days.isEmpty {
+            let value = component.kind == .under || component.kind == .over
+                ? scheduleAmount(component.value)
+                : compactPercent(component.value)
+            return "\(label) \(value) (goal \(goal), risk line \(risk))"
+        }
+        let shown = days.map { "\($0.0) \($0.1)" }.joined(separator: ", ")
+        return "\(label) \(shown) (goal \(goal), risk line \(risk))"
+    }
+
+    private static func scheduleDays(
+        row: MetricRow,
+        stores: Set<String>,
+        snapshot: AssistSnapshot
+    ) -> [(String, String)] {
+        guard let component = AssistRank.scheduleComponent(row) else { return [] }
+        return dayPoints(kind: component.kind, stores: stores, snapshot: snapshot).map { day, value in
+            let shown = component.kind == .under || component.kind == .over
+                ? scheduleAmount(value)
+                : compactPercent(value)
+            return (day, shown)
+        }
+    }
+
+    private static func scheduleDayStore(
+        row: MetricRow,
+        stores: Set<String>,
+        snapshot: AssistSnapshot
+    ) -> (store: String, label: String)? {
+        guard let component = AssistRank.scheduleComponent(row) else { return nil }
+        let keys = dayKeys(component.kind)
+        let pools = (snapshot.rows[.labor] ?? []) + (snapshot.rows[.scheduleQuality] ?? [])
+        let rows = AssistRank.scoringRows(AssistScope.slice(pools, filters: snapshot.filters))
+        var found = Set<String>()
+        var label = ""
+        for row in rows {
+            guard isDayRow(row), rowValue(row, keys: keys) != nil else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard stores.contains(store) else { continue }
+            found.insert(store)
+            if label.isEmpty {
+                let name = HeartbeatMath.usableStoreName(row.storeName) ?? ""
+                label = name.isEmpty ? "Store \(store)" : "Store \(store) \(name)"
+            }
+        }
+        guard found.count == 1, let store = found.first else { return nil }
+        return (store, label)
+    }
+
+    private static func dayPoints(
+        kind: AssistRank.ScheduleComponent.Kind,
+        stores: Set<String>,
+        snapshot: AssistSnapshot
+    ) -> [(String, Double)] {
+        let keys = dayKeys(kind)
+        let pools = (snapshot.rows[.labor] ?? []) + (snapshot.rows[.scheduleQuality] ?? [])
+        let rows = AssistRank.scoringRows(AssistScope.slice(pools, filters: snapshot.filters))
+        var found: [(String, Double)] = []
+        for row in rows {
+            guard isDayRow(row) else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard stores.contains(store) else { continue }
+            guard let value = rowValue(row, keys: keys) else { continue }
+            let day = (row.textPayload["day"] ?? row.textPayload["weekday"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !day.isEmpty else { continue }
+            found.append((day, value))
+        }
+        let higherIsWorse = kind == .under || kind == .over
+        found.sort { lhs, rhs in
+            if lhs.1 != rhs.1 { return higherIsWorse ? lhs.1 > rhs.1 : lhs.1 < rhs.1 }
+            return lhs.0.localizedCaseInsensitiveCompare(rhs.0) == .orderedAscending
+        }
+        var seen = Set<String>()
+        var unique: [(String, Double)] = []
+        for item in found where seen.insert(item.0).inserted {
+            unique.append(item)
+        }
+        return Array(unique.prefix(dayLimit))
+    }
+
+    private static func dayKeys(_ kind: AssistRank.ScheduleComponent.Kind) -> [String] {
+        switch kind {
+        case .efficiency: return ["schedule_efficiency_pct"]
+        case .staffing: return ["staffing_efficiency_pct"]
+        case .under: return ["under_schedule_pct", "under_scheduled"]
+        case .over: return ["over_schedule_pct", "over_scheduled"]
+        }
+    }
+
+    private static func isDayRow(_ row: MetricRow) -> Bool {
+        if row.textPayload["labor_grain"] == "day" { return true }
+        let day = row.textPayload["day"] ?? row.textPayload["weekday"] ?? ""
+        return !day.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func scheduleAction(
+        days: [(String, String)],
+        component: AssistRank.ScheduleComponent?,
+        place: String
+    ) -> String {
+        let kind = component?.kind
+        if !days.isEmpty, kind == .under || kind == .over {
+            let names = english(days.map(\.0))
+            let word = kind == .over ? "over-schedule" : "under-schedule"
+            return "Review the \(names) \(word) at \(place)"
+        }
+        let word: String
+        switch kind {
+        case .staffing: word = "staffing efficiency"
+        case .under: word = "under-schedule"
+        case .over: word = "over-schedule"
+        default: word = "schedule efficiency"
+        }
+        return "Review \(word) at \(place)"
+    }
+
+    private static func metricReading(_ section: MetricSection, _ row: MetricRow) -> (name: String, value: String, goal: String, risk: String)? {
+        switch section {
+        case .pickPath, .pickPathPicker:
+            guard let value = row.number("compliance_pct") else { return nil }
+            return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.pickPathGoal), plain(HeartbeatMath.pickPathRisk))
+        case .missingItems:
+            guard let value = row.number(MissingItemDept.totalKey) else { return nil }
+            return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.missingItemsGoal), plain(HeartbeatMath.missingItemsWatch))
+        case .preSubOOS:
+            guard let value = row.number("presub_pct") ?? row.number(MissingItemDept.totalKey) else { return nil }
+            return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.missingItemsGoal), plain(HeartbeatMath.missingItemsWatch))
+        case .prepNotReady:
+            guard let value = row.number("pnr_rate_pct") else { return nil }
+            return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.pnrGoal), plain(HeartbeatMath.pnrWatch))
+        case .dynacap:
+            guard let value = row.number("dynacap_rate", "pieces_per_hour") else { return nil }
+            return (section.overviewLead, plain(value), plain(HeartbeatMath.dynacapGoal), plain(HeartbeatMath.dynacapRisk))
+        case .pph:
+            guard let value = HeartbeatMath.pphNumber(row) else { return nil }
+            let band = AssistRank.pphRankingBand
+            return (section.overviewLead, plain(value), plain(band.goal), plain(band.risk))
+        case .labor:
+            guard let value = row.number("target_vs_actual_pct") else { return nil }
+            return (section.overviewLead, compactPercent(value), "0", plain(HeartbeatMath.laborWatch))
+        case .fiveStar:
+            guard let value = row.number("star_rating") else { return nil }
+            return (section.overviewLead, plain(value), "4.5", "4")
+        case .lostRevenue:
+            guard let value = row.number("lost_revenue_pct") else { return nil }
+            return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.lostRevenueGood), plain(HeartbeatMath.lostRevenueWatch))
+        case .sales:
+            if let yoy = row.number("sales_yoy_pct") {
+                return (section.overviewLead, compactPercent(yoy), "0", "3")
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private static func scheduleLabel(_ kind: AssistRank.ScheduleComponent.Kind) -> String {
+        switch kind {
+        case .efficiency: return "Schedule efficiency"
+        case .staffing: return "Staffing efficiency"
+        case .under: return "Under-scheduled"
+        case .over: return "Over-scheduled"
+        }
+    }
+
+    private static func scheduleLines(_ kind: AssistRank.ScheduleComponent.Kind) -> (String, String) {
+        switch kind {
+        case .efficiency, .staffing:
+            return (plain(HeartbeatMath.scheduleGoal), plain(HeartbeatMath.scheduleWatch))
+        case .under, .over:
+            return ("5", plain(HeartbeatMath.scheduleVarianceWatch))
+        }
+    }
+
+    private static func shopperLine(_ name: String, compliance: Double?, pph: Double?, prefer: String) -> String {
+        var parts: [String] = []
+        if prefer == "PPH" {
+            if let pph { parts.append("\(plain(pph)) PPH") }
+            if let compliance { parts.append("\(compactPercent(compliance)) path") }
+        } else {
+            if let compliance { parts.append("\(compactPercent(compliance)) path") }
+            if let pph { parts.append("\(plain(pph)) PPH") }
+        }
+        if parts.isEmpty { return name }
+        return "\(name) \(parts.joined(separator: ", "))"
+    }
+
+    private static func shopperBroke(_ hit: ShopperHit) -> String {
+        if hit.measure == "PPH", let pph = hit.pph {
+            let band = AssistRank.pphRankingBand
+            var text = "PPH \(plain(pph)) (goal \(plain(band.goal)), risk line \(plain(band.risk)))"
+            if let compliance = hit.compliance {
+                text += ", \(compactPercent(compliance)) path"
+            }
+            return text
+        }
+        if let compliance = hit.compliance {
+            var text = "Path \(compactPercent(compliance)) (goal \(plain(HeartbeatMath.pickPathGoal)), risk line \(plain(HeartbeatMath.pickPathRisk)))"
+            if let pph = hit.pph {
+                text += ", \(plain(pph)) PPH"
+            }
+            return text
+        }
+        return hit.line
+    }
+
+    private static func shopperWhere(_ hit: ShopperHit, snapshot: AssistSnapshot) -> String {
+        var text = "\(hit.name) at Store \(hit.store)"
+        if !hit.storeName.isEmpty { text += " \(hit.storeName)" }
+        if let row = storeRow(section: .pickPath, store: hit.store, snapshot: snapshot)
+            ?? storeRow(section: .pickPathPicker, store: hit.store, snapshot: snapshot) {
+            let district = districtLabel(row)
+            let om = omLabel(row)
+            if !district.isEmpty { text += ", District \(district)" }
+            if !om.isEmpty { text += ", OM \(om)" }
+        }
+        return text
+    }
+
+    private static func storeWhere(_ place: Place) -> String {
+        var text = storeTitle(place)
+        if !place.district.isEmpty { text += ", District \(place.district)" }
+        if !place.om.isEmpty { text += ", OM \(place.om)" }
+        return text
+    }
+
+    private static func storeTitle(_ place: Place) -> String {
+        if place.pick.name.isEmpty { return "Store \(place.pick.store)" }
+        return "Store \(place.pick.store) \(place.pick.name)"
+    }
+
+    private static func coachSentence(_ names: [String], measure: String) -> String {
+        let who = english(names)
+        if measure == "PPH" { return "Coach \(who) on PPH today" }
+        return "Coach \(who) on path today"
+    }
+
+    private static func english(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default:
+            let head = names.dropLast().joined(separator: ", ")
+            return "\(head), and \(names[names.count - 1])"
+        }
+    }
+
+    private static func itemName(_ line: String) -> String {
+        if let space = line.firstIndex(of: " ") {
+            return String(line[..<space])
+        }
+        return line
+    }
+
+    private static func itemLabel(_ row: MetricRow) -> String {
+        for key in ["bpn", "item", "item_name"] {
+            let value = row.textPayload[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !value.isEmpty { return value }
+        }
+        return ""
+    }
+
+    private static func shopperName(_ row: MetricRow) -> String? {
+        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty || name.compare("Unknown shopper", options: .caseInsensitive) == .orderedSame {
+            return nil
+        }
+        return name
+    }
+
+    private static func storeRow(section: MetricSection, store: String, snapshot: AssistSnapshot) -> MetricRow? {
+        let rows = AssistRank.scoringRows(AssistScope.slice(snapshot.rows[section] ?? [], filters: snapshot.filters))
+        return HeartbeatMath.latestPerStore(rows).first {
+            HeartbeatMath.canonicalStore($0.storeNumber) == store
+        }
+    }
+
+    private static func districtLabel(_ row: MetricRow) -> String {
+        HeartbeatMath.displayGrainLabel(row.district)
+    }
+
+    private static func omLabel(_ row: MetricRow) -> String {
+        let source = row.operationsOM.isEmpty ? row.omArea : row.operationsOM
+        return HeartbeatMath.canonicalOM(source)
+    }
+
+    private static func districtFilters(_ filters: DashboardFilters, district: String) -> DashboardFilters {
+        var next = filters
+        next.district = district
+        next.store = ""
+        return next
+    }
+
+    private static func screenName(_ destination: HubDestination) -> String {
+        if let section = destination.section { return section.overviewLead }
+        return destination.title
+    }
+
+    private static func action(
+        id: String,
+        question: String,
+        owner: String,
+        button: String,
+        filters: DashboardFilters,
+        destination: HubDestination
+    ) -> AssistAction {
+        AssistAction.open(
+            id: id,
+            question: question,
+            owner: owner,
+            buttonTitle: button,
+            filters: filters,
+            destination: destination
+        )
+    }
+
+    private static func rowValue(_ row: MetricRow, keys: [String]) -> Double? {
+        for key in keys {
+            if let value = row.number(key) { return value }
+        }
+        return nil
+    }
+
+    private static func scheduleAmount(_ value: Double) -> String {
+        let scaled = abs(value) <= 1.5 ? value * 100 : value
+        return compactPercent(scaled)
+    }
+
+    private static func compactPercent(_ value: Double) -> String {
+        "\(plain(value))%"
+    }
+
+    private static func plain(_ value: Double) -> String {
+        let tenths = (value * 10).rounded() / 10
+        if abs(tenths - tenths.rounded()) < 0.001 {
+            return String(Int(tenths.rounded()))
+        }
+        return String(format: "%.1f", tenths)
+    }
+}
+
 enum AssistChildGrain: Equatable {
     case region, division, district, om, store
 }
@@ -1271,6 +2129,7 @@ struct AssistAnswer: Equatable {
     var healthyFacts: [AssistFact]
     var chips: [String]
     var visitStores: [AssistStoreStop]
+    var plan: [AssistPlanStep]
 
     static let empty = AssistAnswer(
         scopeLabel: "Total company",
@@ -1286,7 +2145,8 @@ struct AssistAnswer: Equatable {
         noticeAction: nil,
         healthyFacts: [],
         chips: [],
-        visitStores: []
+        visitStores: [],
+        plan: []
     )
 }
 
@@ -1328,7 +2188,7 @@ extension AssistSnapshot {
     }
 
     /// Sections an answer reads. `allLatest` is the cached index, not a roster walk.
-    static let answerSections: [MetricSection] = MetricSection.dashboardCards + [.pickPathPicker]
+    static let answerSections: [MetricSection] = MetricSection.dashboardCards + [.pickPathPicker, .preSubOOSItem]
 
     /// History is only for trend cells. Sales uses year-over-year on the row.
     static let trendSections: [MetricSection] = MetricSection.dashboardCards.filter { section in
@@ -1964,23 +2824,16 @@ enum AssistComposer {
         base: DashboardFilters
     ) -> AssistAnswer {
         var answer = shell(snapshot, playbook: playbook, base: base, showHeader: false)
-        let people = shopperRows(snapshot)
+        _ = base
         let wanted: String?
         if case .shopper(let name) = intent { wanted = name } else { wanted = nil }
-        let chosen = people.filter { row in
-            guard let wanted else { return true }
-            let name = cleanName(row)?.lowercased() ?? ""
-            return name == wanted.lowercased() || (row.shopperId?.lowercased() == wanted.lowercased())
-        }.prefix(5)
-        if chosen.isEmpty {
+        let plan = AssistPlan.coaching(snapshot: snapshot, name: wanted)
+        if plan.isEmpty {
             answer.noticeTitle = "No shopper in \(answer.scopeLabel) needs coaching."
             answer.noticeBody = "Picker rows in this scope are at goal, or the pack has no shopper name."
             return answer
         }
-        let level = AssistScope.level(snapshot.filters)
-        answer.issues = chosen.enumerated().compactMap { index, row in
-            shopperIssue(row, rank: index + 1, snapshot: snapshot, playbook: playbook, base: base, level: level)
-        }
+        answer.plan = plan
         return answer
     }
 
@@ -2102,6 +2955,14 @@ enum AssistComposer {
                     roster: snapshot.rosterStores
                 )
             }
+        }
+        if (showHeader || single) && !answer.issues.isEmpty {
+            let visit = Array(rank(snapshot).prefix(3).map(\.section))
+            answer.plan = AssistPlan.steps(
+                snapshot: snapshot,
+                sections: ranked.map(\.section),
+                visitSections: visit
+            )
         }
         answer.rankedLines = ranked.map(AssistCopy.rankedLine)
         answer.emptyNote = emptyNote(snapshot)
@@ -2862,88 +3723,6 @@ enum AssistComposer {
             seeAllStores: nil,
             rankedLine: "\(child.label): \(AssistCopy.grouped(child.storesAtRisk)) stores with an at-risk scorecard.",
             accessibilityLabel: "Rank \(rank), \(child.label). \(headline). \(child.storesAtRisk) of \(child.storeCount) stores with an at-risk scorecard."
-        )
-    }
-
-    private static func shopperRows(_ snapshot: AssistSnapshot) -> [MetricRow] {
-        let rows = (snapshot.rows[.pickerScorecard] ?? []).filter {
-            HeartbeatMath.isRealPicker($0) && HeartbeatMath.pickerHasVolume($0)
-        }
-        return rows.filter { row in
-            HeartbeatMath.pickerMetricReadout(row).contains { $0.health.needsAction }
-        }.sorted { lhs, rhs in
-            let left = lhs.number("pph") ?? .greatestFiniteMagnitude
-            let right = rhs.number("pph") ?? .greatestFiniteMagnitude
-            return left < right
-        }
-    }
-
-    private static func shopperIssue(
-        _ row: MetricRow,
-        rank: Int,
-        snapshot: AssistSnapshot,
-        playbook: AssistPlaybook.File?,
-        base: DashboardFilters,
-        level: AssistScopeLevel
-    ) -> AssistIssue? {
-        _ = base
-        guard let name = cleanName(row) else { return nil }
-        let failing = HeartbeatMath.pickerMetricReadout(row).filter { $0.health.needsAction }.map(\.name)
-        guard !failing.isEmpty else { return nil }
-        let store = HeartbeatMath.canonicalStore(row.storeNumber)
-        let items = failing.prefix(3).joined(separator: ", ")
-        var filters = snapshot.filters
-        filters.store = store
-        let stay: DashboardFilters? = filters
-        var checks: [AssistAction] = []
-        if let check = playbook?.metric(MetricSection.pickerScorecard.rawValue)?.checks.first,
-           let raw = check.question, !raw.isEmpty {
-            let filled = AssistCopy.fill(raw, ["shopper": name, "items": items, "store": store], limit: AssistCopy.actionLimit)
-            let question = filled ?? (raw.contains("{") ? nil : raw)
-            if let question {
-                checks.append(AssistAction.open(
-                    id: "shopper-\(rank)",
-                    question: question,
-                    owner: level == .store ? (check.owner.isEmpty ? "Store lead" : check.owner) : AssistScope.levelOwner(level),
-                    buttonTitle: AssistCopy.screenTitle(.pickerScorecard),
-                    filters: stay ?? filters,
-                    destination: .pickerScorecard
-                ))
-            }
-        }
-        let headline = clip("\(name) at store \(store)", AssistCopy.headlineLimit)
-        let footer = AssistCopy.screenTitle(.pickerScorecard)
-        return AssistIssue(
-            id: "shopper-\(store)-\(name)",
-            rank: rank,
-            title: "Picker",
-            statusText: "At risk",
-            statusSymbol: "person.fill",
-            statusHealth: .risk,
-            headline: headline,
-            numberLabel: "Failing",
-            numberValue: items,
-            facts: [AssistFact(label: "Store", value: store)],
-            scope: "Scope: \(AssistScope.scopeLine(snapshot.filters, roster: snapshot.rosterStores))",
-            footer: footer,
-            footerAction: AssistAction.open(
-                id: "shopper-footer-\(rank)",
-                question: footer,
-                owner: "",
-                buttonTitle: footer,
-                filters: stay ?? filters,
-                destination: .pickerScorecard
-            ),
-            checks: checks,
-            moreChecks: [],
-            why: nil,
-            causeChecks: [],
-            failingCauseIDs: [],
-            drivenBy: [],
-            goHere: [],
-            seeAllStores: nil,
-            rankedLine: "\(name) at store \(store): \(items).",
-            accessibilityLabel: "\(name) at store \(store). \(items)."
         )
     }
 

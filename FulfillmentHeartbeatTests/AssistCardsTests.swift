@@ -714,6 +714,9 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(view.contains("issue.why"))
         XCTAssertTrue(view.contains("Go here first:"))
         XCTAssertTrue(view.contains("Visit these stores first"))
+        XCTAssertTrue(view.contains("Your plan"))
+        XCTAssertTrue(view.contains("What broke"))
+        XCTAssertTrue(cards.contains("AssistPlan.steps"))
         XCTAssertTrue(view.contains("storeStopButton"))
         XCTAssertTrue(view.contains("accessibilityElement(children: .ignore)"))
         XCTAssertTrue(cards.contains("Fix these"))
@@ -810,6 +813,27 @@ final class AssistCardsTests: XCTestCase {
             XCTAssertTrue(issue.goHere.isEmpty, issue.id)
             XCTAssertNil(issue.seeAllStores, issue.id)
         }
+        XCTAssertEqual(answer.plan.map(\.whereText), [
+            "Store 10 Alpha, District J3",
+            "Store 10 Alpha, District J3",
+            "Store 10 Alpha, District J3",
+        ])
+        XCTAssertEqual(answer.plan.map(\.brokeText), [
+            "Pick Path 70% (goal 90, risk line 80)",
+            "Missing Items 8% (goal 5, risk line 6.5)",
+            "Under-scheduled Tue 14%, Sat 11% (goal 5, risk line 5)",
+        ])
+        XCTAssertEqual(answer.plan[0].who, [
+            "J. Smith 61% path, 38 PPH",
+            "A. Lee 70% path, 55 PPH",
+            "C. Kim 88% path",
+        ])
+        XCTAssertEqual(answer.plan[1].what, ["MILK 22%", "BREAD 15%", "EGGS 9%"])
+        XCTAssertTrue(answer.plan[0].what.isEmpty)
+        XCTAssertTrue(answer.plan[2].who.isEmpty)
+        XCTAssertFalse(answer.plan[2].brokeText.contains("Mon"))
+        XCTAssertEqual(answer.plan[0].actions.first?.filters?.store, "10")
+        XCTAssertEqual(answer.plan[0].actions.first?.destination, .pickPath)
     }
 
     func testFixFirstAnswerNamesThePriorityStores() throws {
@@ -831,6 +855,152 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(answer.visitStores.first?.action.filters?.store, "10")
         let names = answer.issues.prefix(3).map { MetricSection(rawValue: $0.id)?.overviewLead ?? "" }
         XCTAssertEqual(answer.visitStores.first?.text, "Store 10 Alpha: \(names.joined(separator: ", "))")
+        XCTAssertEqual(answer.plan.map(\.whereText), [
+            "District J3",
+            "Store 40 Delta, District A9",
+            "Store 30 Cedar, District B2",
+            "Store 10 Alpha, District J3",
+            "Store 15 Echo, District J3",
+        ])
+    }
+
+    func testPlanNamesShoppersItemsAndDaysFromTheFixture() throws {
+        let book = try loadPlaybook()
+        let snapshot = prioritySnapshot()
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        let plan = answer.plan
+        XCTAssertEqual(plan.count, 5)
+        XCTAssertEqual(plan[0].brokeText, "Pick Path 55% (goal 90, risk line 80)")
+        XCTAssertEqual(plan[1].brokeText, "Pick Path 75% (goal 90, risk line 80)")
+        XCTAssertEqual(plan[2].brokeText, "Pick Path 60% (goal 90, risk line 80)")
+        XCTAssertEqual(plan[3].brokeText, "Missing Items 8% (goal 5, risk line 6.5)")
+        XCTAssertEqual(plan[4].brokeText, "Missing Items 7% (goal 5, risk line 6.5)")
+
+        let j3 = Set(["10", "12", "15", "20"])
+        let j3Shoppers = rankedPathShoppers(snapshot.rows[.pickPathPicker] ?? [], stores: j3)
+        XCTAssertEqual(plan[0].who.map(shopperName), Array(j3Shoppers.prefix(5)))
+        XCTAssertEqual(plan[0].who, [
+            "J. Smith 61% path, 38 PPH",
+            "A. Lee 70% path, 55 PPH",
+            "C. Kim 88% path",
+        ])
+        XCTAssertEqual(plan[1].who, ["Z. Worst 40% path"])
+        XCTAssertTrue(plan[2].who.isEmpty)
+        XCTAssertTrue(plan[2].what.isEmpty)
+        XCTAssertFalse(plan[2].actions[0].question.localizedCaseInsensitiveContains("hour"))
+        XCTAssertEqual(plan[2].actions[0].question, "Walk Store 30 Cedar for pick path today")
+        XCTAssertEqual(plan[2].actions[0].owner, "Store manager")
+        XCTAssertEqual(plan[2].actions[0].filters?.store, "30")
+        XCTAssertEqual(plan[2].actions[0].destination, .pickPath)
+
+        let store10Items = rankedItems(snapshot.rows[.preSubOOSItem] ?? [], store: "10")
+        XCTAssertEqual(plan[3].what.map(itemName), store10Items)
+        XCTAssertEqual(plan[3].what, ["MILK 22%", "BREAD 15%", "EGGS 9%"])
+        XCTAssertFalse(plan[3].what.contains { $0.contains("SODA") || $0.contains("OTHER") })
+        XCTAssertTrue(plan[3].who.isEmpty)
+        XCTAssertEqual(plan[3].actions[0].question, "Check shelf and sub rules for MILK, BREAD, and EGGS")
+        XCTAssertEqual(plan[3].actions[0].owner, "Store manager")
+        XCTAssertEqual(plan[3].actions[0].destination, .preSubOOS)
+        XCTAssertEqual(plan[3].actions[0].filters?.store, "10")
+        XCTAssertEqual(plan[4].what, ["OTHER 50%"])
+        XCTAssertEqual(rankedItems(snapshot.rows[.preSubOOSItem] ?? [], store: "15"), ["OTHER"])
+
+        XCTAssertEqual(plan[0].actions[0].question, "Coach J. Smith and A. Lee on path today")
+        XCTAssertEqual(plan[0].actions[0].owner, "Store manager")
+        XCTAssertEqual(plan[0].actions[0].filters?.store, "10")
+        XCTAssertEqual(plan[0].actions[0].destination, .pickPath)
+        XCTAssertEqual(plan[0].actions[1].owner, "District leader")
+        XCTAssertEqual(plan[0].actions[1].filters?.district, "J3")
+        XCTAssertEqual(plan[0].actions[1].filters?.store, "")
+        XCTAssertEqual(plan[0].actions[1].destination, .pickPath)
+        XCTAssertEqual(plan[1].actions[0].question, "Coach Z. Worst on path today")
+        XCTAssertEqual(plan[1].actions[0].filters?.store, "40")
+        XCTAssertEqual(plan[1].actions[0].destination, .pickPath)
+
+        let joined = plan.flatMap { [$0.whereText, $0.brokeText] + $0.who + $0.what + $0.actions.map(\.question) }.joined(separator: "\n")
+        XCTAssertFalse(joined.contains("·"))
+        XCTAssertFalse(joined.localizedCaseInsensitiveContains("placeholder"))
+        XCTAssertFalse(joined.contains("TBD"))
+
+        let schedule = AssistComposer.answer(question: "Tell me more about Schedule", snapshot: snapshot, book: book)
+        let days = rankedDays(snapshot.rows[.labor] ?? [], store: "10")
+        XCTAssertEqual(days, ["Tue", "Sat", "Mon"])
+        let broke = try XCTUnwrap(schedule.plan.first?.brokeText)
+        XCTAssertTrue(broke.contains("\(days[0]) 14%"))
+        XCTAssertTrue(broke.contains("\(days[1]) 11%"))
+        XCTAssertFalse(broke.contains(days[2]))
+        XCTAssertEqual(broke, "Under-scheduled Tue 14%, Sat 11% (goal 5, risk line 5)")
+        XCTAssertEqual(schedule.plan.first?.whereText, "District J3")
+        XCTAssertEqual(schedule.plan.first?.actions.first?.filters?.store, "10")
+        XCTAssertEqual(schedule.plan.first?.actions.first?.destination, .scheduleQuality)
+        XCTAssertTrue(schedule.plan.allSatisfy { $0.brokeText.hasPrefix("Under-scheduled") })
+    }
+
+    func testPlanDistrictScopeFiltersNamedDrivers() throws {
+        let book = try loadPlaybook()
+        var snapshot = prioritySnapshot()
+        snapshot.filters.district = "J3"
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        let named = answer.plan.flatMap(\.who).joined(separator: " ")
+        XCTAssertFalse(named.contains("Z. Worst"))
+        XCTAssertFalse(answer.plan.contains { $0.whereText.contains("40") || $0.whereText.contains("30") || $0.whereText.contains("Cedar") || $0.whereText.contains("Delta") })
+        let j3Shoppers = rankedPathShoppers(snapshot.rows[.pickPathPicker] ?? [], stores: ["10", "12", "15", "20"])
+        XCTAssertEqual(answer.plan[0].who.map(shopperName), Array(j3Shoppers.prefix(5)))
+        XCTAssertEqual(answer.plan[0].whereText, "Store 10 Alpha, District J3")
+        let itemStep = try XCTUnwrap(answer.plan.first { !$0.what.isEmpty })
+        XCTAssertEqual(itemStep.what.map(itemName), rankedItems(snapshot.rows[.preSubOOSItem] ?? [], store: "10"))
+        XCTAssertFalse(answer.plan.contains { $0.what.contains { $0.contains("OTHER") } })
+
+        let schedule = AssistComposer.answer(question: "Tell me more about Schedule", snapshot: snapshot, book: book)
+        let broke = try XCTUnwrap(schedule.plan.first?.brokeText)
+        let days = rankedDays(snapshot.rows[.labor] ?? [], store: "10")
+        XCTAssertEqual(schedule.plan.first?.whereText, "Store 10 Alpha, District J3")
+        XCTAssertTrue(broke.contains(days[0]))
+        XCTAssertTrue(broke.contains(days[1]))
+        XCTAssertFalse(broke.contains(days[2]))
+        XCTAssertFalse(schedule.plan.contains { $0.whereText.contains("40") || $0.whereText.contains("B2") })
+    }
+
+    func testTellMeMoreReturnsPlanCardsForThatMetric() throws {
+        let book = try loadPlaybook()
+        let snapshot = prioritySnapshot()
+        let answer = AssistComposer.answer(question: "Tell me more about Pick Path", snapshot: snapshot, book: book)
+        XCTAssertEqual(answer.issues.map(\.id), ["pick_path"])
+        XCTAssertEqual(answer.plan.map(\.whereText), [
+            "District J3",
+            "Store 40 Delta, District A9",
+            "Store 30 Cedar, District B2",
+        ])
+        XCTAssertTrue(answer.plan.allSatisfy { $0.brokeText.hasPrefix("Pick Path") })
+        XCTAssertTrue(answer.plan.allSatisfy { $0.what.isEmpty })
+    }
+
+    func testCoachingChipRanksShoppersWorstFirst() throws {
+        let book = try loadPlaybook()
+        let snapshot = prioritySnapshot()
+        let answer = AssistComposer.answer(question: "Which shoppers need coaching?", snapshot: snapshot, book: book)
+        let ranked = rankedPathShoppers(snapshot.rows[.pickPathPicker] ?? [], stores: nil)
+        XCTAssertEqual(answer.plan.map { shopperName($0.whereText) }, ranked)
+        XCTAssertEqual(answer.plan.count, 4)
+        let first = answer.plan[0]
+        XCTAssertTrue(first.whereText.contains("Z. Worst"))
+        XCTAssertTrue(first.whereText.contains("Store 40"))
+        XCTAssertTrue(first.whereText.contains("District A9"))
+        XCTAssertEqual(first.brokeText, "Path 40% (goal 90, risk line 80)")
+        XCTAssertEqual(first.actions.count, 1)
+        XCTAssertEqual(first.actions[0].question, "Coach Z. Worst on path today")
+        XCTAssertEqual(first.actions[0].owner, "Store manager")
+        XCTAssertEqual(first.actions[0].destination, .pickPath)
+        XCTAssertEqual(first.actions[0].filters?.store, "40")
+        XCTAssertFalse(answer.plan.contains { $0.whereText.contains("P. Good") || $0.whereText.contains("I. Gnored") })
+
+        var district = snapshot
+        district.filters.district = "J3"
+        let scoped = AssistComposer.answer(question: "Which shoppers need coaching?", snapshot: district, book: book)
+        let j3 = rankedPathShoppers(snapshot.rows[.pickPathPicker] ?? [], stores: Set(["10", "12", "15", "20"]))
+        XCTAssertEqual(scoped.plan.map { shopperName($0.whereText) }, j3)
+        XCTAssertEqual(scoped.plan.first?.actions.first?.filters?.store, "10")
+        XCTAssertFalse(scoped.plan.contains { $0.whereText.contains("Z. Worst") })
     }
 
     private func lostIssue(_ question: String, _ snapshot: AssistSnapshot, _ book: AssistPlaybook.File) throws -> AssistIssue {
@@ -983,9 +1153,10 @@ final class AssistCardsTests: XCTestCase {
         district: String = "",
         om: String = "",
         name: String? = nil,
-        lostGrain: String? = nil
+        lostGrain: String? = nil,
+        text extra: [String: String] = [:]
     ) -> MetricRow {
-        var text: [String: String] = [:]
+        var text: [String: String] = extra
         if !district.isEmpty { text["district"] = district }
         if let lostGrain { text["lost_grain"] = lostGrain }
         return MetricRow(
@@ -997,6 +1168,62 @@ final class AssistCardsTests: XCTestCase {
             payload: payload,
             textPayload: text
         )
+    }
+
+    private func shopperName(_ line: String) -> String {
+        if let range = line.range(of: " at ") {
+            return String(line[..<range.lowerBound])
+        }
+        let words = line.split(separator: " ").map(String.init)
+        return words.prefix { !$0.contains(where: \.isNumber) }.joined(separator: " ")
+    }
+
+    private func itemName(_ line: String) -> String {
+        line.split(separator: " ").first.map(String.init) ?? line
+    }
+
+    private func rankedPathShoppers(_ rows: [MetricRow], stores: Set<String>?) -> [String] {
+        rows.filter { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { return false }
+            if row.textPayload["lost_grain"] == "market" { return false }
+            if let stores, !stores.contains(store) { return false }
+            guard let value = row.number("compliance_pct") else { return false }
+            let health = HeartbeatMath.band(value, good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk)
+            return health == .risk || health == .watch
+        }.sorted { lhs, rhs in
+            let left = lhs.number("compliance_pct") ?? 0
+            let right = rhs.number("compliance_pct") ?? 0
+            if left != right { return left < right }
+            let storeOrder = HeartbeatFormat.storeOrder(lhs.storeNumber, rhs.storeNumber)
+            if storeOrder { return true }
+            if HeartbeatFormat.storeOrder(rhs.storeNumber, lhs.storeNumber) { return false }
+            return (lhs.textPayload["shopper_name"] ?? "") < (rhs.textPayload["shopper_name"] ?? "")
+        }.map { $0.textPayload["shopper_name"] ?? "" }
+    }
+
+    private func rankedItems(_ rows: [MetricRow], store: String) -> [String] {
+        rows.filter { HeartbeatMath.canonicalStore($0.storeNumber) == store }
+            .filter { ($0.number("presub_pct") ?? 0) > HeartbeatMath.missingItemsGoal }
+            .sorted { lhs, rhs in
+                let left = lhs.number("presub_pct") ?? 0
+                let right = rhs.number("presub_pct") ?? 0
+                if left != right { return left > right }
+                return (lhs.textPayload["bpn"] ?? "") < (rhs.textPayload["bpn"] ?? "")
+            }
+            .prefix(3)
+            .map { $0.textPayload["bpn"] ?? "" }
+    }
+
+    private func rankedDays(_ rows: [MetricRow], store: String) -> [String] {
+        rows.filter {
+            $0.textPayload["labor_grain"] == "day" && HeartbeatMath.canonicalStore($0.storeNumber) == store
+        }.sorted { lhs, rhs in
+            let left = lhs.number("under_schedule_pct") ?? 0
+            let right = rhs.number("under_schedule_pct") ?? 0
+            if left != right { return left > right }
+            return (lhs.textPayload["day"] ?? "") < (rhs.textPayload["day"] ?? "")
+        }.map { $0.textPayload["day"] ?? "" }
     }
 
     private func priorityRoster() -> [(number: String, name: String?)] {
@@ -1029,12 +1256,32 @@ final class AssistCardsTests: XCTestCase {
                 row(.missingItems, ["mi_pct": 40], store: "239", division: "Shaws", district: "J3", name: "Ignored"),
             ],
             .scheduleQuality: [
-                row(.scheduleQuality, ["schedule_efficiency_pct": 80], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
-                row(.scheduleQuality, ["schedule_efficiency_pct": 86], store: "15", division: "Shaws", district: "J3", name: "Echo"),
-                row(.scheduleQuality, ["schedule_efficiency_pct": 88], store: "20", division: "Shaws", district: "J3", om: "North", name: "Bravo"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 95, "under_schedule_pct": 0.14], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 95, "under_schedule_pct": 0.11], store: "15", division: "Shaws", district: "J3", name: "Echo"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 95, "under_schedule_pct": 0.08], store: "20", division: "Shaws", district: "J3", om: "North", name: "Bravo"),
                 row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "12", division: "Shaws", district: "J3", name: "Fox"),
                 row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "30", division: "United", district: "B2", name: "Cedar"),
                 row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "40", division: "Jewel Osco", district: "A9", name: "Delta"),
+            ],
+            .pickPathPicker: [
+                row(.pickPathPicker, ["compliance_pct": 61, "pph": 38], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["shopper_name": "J. Smith"]),
+                row(.pickPathPicker, ["compliance_pct": 70, "pph": 55], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["shopper_name": "A. Lee"]),
+                row(.pickPathPicker, ["compliance_pct": 88], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["shopper_name": "C. Kim"]),
+                row(.pickPathPicker, ["compliance_pct": 95], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["shopper_name": "P. Good"]),
+                row(.pickPathPicker, ["compliance_pct": 40], store: "40", division: "Jewel Osco", district: "A9", name: "Delta", text: ["shopper_name": "Z. Worst"]),
+                row(.pickPathPicker, ["compliance_pct": 20], store: "210", division: "Shaws", district: "J3", name: "Ignored", text: ["shopper_name": "I. Gnored"]),
+            ],
+            .preSubOOSItem: [
+                row(.preSubOOSItem, ["presub_pct": 22], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["bpn": "MILK"]),
+                row(.preSubOOSItem, ["presub_pct": 15], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["bpn": "BREAD"]),
+                row(.preSubOOSItem, ["presub_pct": 9], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["bpn": "EGGS"]),
+                row(.preSubOOSItem, ["presub_pct": 4], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["bpn": "SODA"]),
+                row(.preSubOOSItem, ["presub_pct": 50], store: "15", division: "Shaws", district: "J3", name: "Echo", text: ["bpn": "OTHER"]),
+            ],
+            .labor: [
+                row(.labor, ["under_schedule_pct": 0.14], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["labor_grain": "day", "day": "Tue"]),
+                row(.labor, ["under_schedule_pct": 0.11], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["labor_grain": "day", "day": "Sat"]),
+                row(.labor, ["under_schedule_pct": 0.08], store: "10", division: "Shaws", district: "J3", name: "Alpha", text: ["labor_grain": "day", "day": "Mon"]),
             ],
         ]
         for section in MetricSection.dashboardCards where rows[section] == nil {

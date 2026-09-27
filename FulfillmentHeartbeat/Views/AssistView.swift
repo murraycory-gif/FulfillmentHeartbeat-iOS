@@ -211,6 +211,9 @@ struct HeartbeatAssistSheet: View {
             if !answer.visitStores.isEmpty {
                 visitBlock(answer.visitStores)
             }
+            if !answer.plan.isEmpty {
+                planBlock(answer.plan)
+            }
             ForEach(visible) { issue in
                 problemCard(issue, turnID: turn.id, proxy: proxy)
                     .id(issue.id)
@@ -379,6 +382,69 @@ struct HeartbeatAssistSheet: View {
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(AppTheme.cardBorder, lineWidth: 1)
+        }
+    }
+
+    private func planBlock(_ steps: [AssistPlanStep]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your plan")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(steps) { step in
+                VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        planLine("Where", "\(step.index). \(step.whereText)")
+                        planLine("What broke", step.brokeText)
+                        if !step.who.isEmpty {
+                            planLines("Who", step.who)
+                        }
+                        if !step.what.isEmpty {
+                            planLines("What", step.what)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    Text("Do")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    ForEach(step.actions) { action in
+                        actionButton(action)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                }
+            }
+        }
+    }
+
+    private func planLine(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+            Text(value)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func planLines(_ label: String, _ values: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+            ForEach(values, id: \.self) { value in
+                Text(value)
+                    .font(.body)
+                    .foregroundStyle(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
