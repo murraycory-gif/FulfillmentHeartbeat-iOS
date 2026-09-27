@@ -12,6 +12,8 @@
 		AA0100000000000000000A03 /* MainHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B03 /* MainHubView.swift */; };
 		AA0100000000000000000A04 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B04 /* AppTheme.swift */; };
 		AA0100000000000000000A05 /* BuildStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B05 /* BuildStamp.swift */; };
+		AA0100000000000000000A2F /* LoadingQuips.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2F /* LoadingQuips.swift */; };
+		AA0100000000000000000A94 /* LoadingQuipsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B9D /* LoadingQuipsTests.swift */; };
 		AA0100000000000000000A06 /* Domain.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B06 /* Domain.swift */; };
 		AA0100000000000000000A07 /* HeartbeatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B07 /* HeartbeatStore.swift */; };
 		AA0100000000000000000A08 /* WorkbookParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B08 /* WorkbookParser.swift */; };
@@ -68,6 +70,7 @@
 		AA0100000000000000000B03 /* MainHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainHubView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B04 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B05 /* BuildStamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildStamp.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B2F /* LoadingQuips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingQuips.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B06 /* Domain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Domain.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B07 /* HeartbeatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatStore.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B08 /* WorkbookParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParser.swift; sourceTree = "<group>"; };
@@ -95,6 +98,7 @@
 		AA0100000000000000000B2E /* AssistCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistCards.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B99 /* AssistPlaybook.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/AssistPlaybook.json; sourceTree = "<group>"; };
 		AA0100000000000000000B9C /* AssistCardsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistCardsTests.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B9D /* LoadingQuipsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingQuipsTests.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B1F /* AssistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B20 /* MissingItemsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingItemsViews.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B23 /* SalesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SalesViews.swift; sourceTree = "<group>"; };
@@ -150,6 +154,7 @@
 				AA0100000000000000000B03 /* MainHubView.swift */,
 				AA0100000000000000000B04 /* AppTheme.swift */,
 				AA0100000000000000000B05 /* BuildStamp.swift */,
+				AA0100000000000000000B2F /* LoadingQuips.swift */,
 				AA0100000000000000000B15 /* BrandMarkData.swift */,
 				AA0100000000000000000D05 /* Models */,
 				AA0100000000000000000D06 /* Storage */,
@@ -229,6 +234,7 @@
 				AA0100000000000000000B91 /* HeartbeatMathTests.swift */,
 				AA0100000000000000000B92 /* WorkbookParserTests.swift */,
 				AA0100000000000000000B9C /* AssistCardsTests.swift */,
+				AA0100000000000000000B9D /* LoadingQuipsTests.swift */,
 			);
 			path = FulfillmentHeartbeatTests;
 			sourceTree = "<group>";
@@ -388,6 +394,7 @@
 				AA0100000000000000000A03 /* MainHubView.swift in Sources */,
 				AA0100000000000000000A04 /* AppTheme.swift in Sources */,
 				AA0100000000000000000A05 /* BuildStamp.swift in Sources */,
+				AA0100000000000000000A2F /* LoadingQuips.swift in Sources */,
 				AA0100000000000000000A06 /* Domain.swift in Sources */,
 				AA0100000000000000000A07 /* HeartbeatStore.swift in Sources */,
 				AA0100000000000000000A08 /* WorkbookParser.swift in Sources */,
@@ -427,6 +434,7 @@
 				AA0100000000000000000A91 /* HeartbeatMathTests.swift in Sources */,
 				AA0100000000000000000A92 /* WorkbookParserTests.swift in Sources */,
 				AA0100000000000000000A93 /* AssistCardsTests.swift in Sources */,
+				AA0100000000000000000A94 /* LoadingQuipsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
