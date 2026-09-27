@@ -2012,6 +2012,10 @@ struct FilterSheet: View {
     }
 
     private func apply(_ value: String) {
+        if focus == .store, !value.isEmpty {
+            draft = store.draftSelectingStore(value, draft: draft)
+            return
+        }
         var next = draft
         next.toggle(value, in: focus)
         draft = next
@@ -2084,7 +2088,9 @@ struct FilterColumn: View {
 
             if showsHelperCaption {
                 Text(selection.isEmpty
-                     ? "\(options.count) options · tap to select more than one"
+                     ? (title == "Division"
+                        ? "\(options.count) options · tap one to switch"
+                        : "\(options.count) options · tap to select more than one")
                      : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)

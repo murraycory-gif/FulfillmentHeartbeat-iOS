@@ -2576,19 +2576,57 @@ final class HeartbeatStore: ObservableObject {
         case .om:
             return pairs(PulseSeatPack.publishedOMNames(from: roster, filters: draft))
         case .store:
-            var seen: [String: String] = [:]
-            for (number, identity) in roster {
-                if !draft.includesDivision(identity.division) { continue }
-                if !draft.includesDistrict(identity.district) { continue }
-                if !draft.includesOM(identity.om) { continue }
-                if seen[number] == nil { seen[number] = identity.name ?? "" }
-            }
-            return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { number in
-                let name = HeartbeatMath.usableStoreName(seen[number]) ?? ""
+            let source = storeFilterRoster()
+            return source.keys.sorted(by: HeartbeatFormat.storeOrder).map { number in
+                let name = HeartbeatMath.usableStoreName(source[number]?.name) ?? ""
                 let label = name.isEmpty ? number : "\(number) · \(name)"
                 return (id: number, label: label)
             }
         }
+    }
+
+    /// Store search uses the company roster, plus any fact-only store the roster
+    /// gate omitted. The open division must not hide a store number.
+    private func storeFilterRoster() -> [String: HeartbeatMath.StoreIdentity] {
+        let plane = seatRowPlanes[.company]
+        var source = plane?.roster ?? [:]
+        if source.isEmpty { source = roster }
+        let sections = plane?.latestBySection ?? latestBySection
+        let skip: Set<MetricSection> = [.pickerScorecard, .pickPathPicker, .preSubOOSItem]
+        for (section, rows) in sections where !skip.contains(section) {
+            for row in rows {
+                let number = HeartbeatMath.canonicalStore(row.storeNumber)
+                guard !number.isEmpty, !HeartbeatMath.isIgnoredStore(number), source[number] == nil else { continue }
+                source[number] = HeartbeatMath.StoreIdentity(
+                    division: MarketRegion.canonicalName(row.division),
+                    district: HeartbeatMath.canonicalDistrict(row.district),
+                    om: HeartbeatMath.canonicalOM(row.operationsOM),
+                    name: row.storeName
+                )
+            }
+        }
+        return source
+    }
+
+    /// A store outside the draft replaces the seat. A store already inside it toggles.
+    func draftSelectingStore(_ number: String, draft: DashboardFilters) -> DashboardFilters {
+        let canonical = HeartbeatMath.canonicalStore(number)
+        guard !canonical.isEmpty else { return draft }
+        let identity = storeFilterRoster()[canonical]
+        if let identity, draftFits(identity, draft: draft) {
+            var next = draft
+            next.toggle(canonical, in: .store)
+            return next
+        }
+        var next = DashboardFilters()
+        next.store = canonical
+        return next
+    }
+
+    private func draftFits(_ identity: HeartbeatMath.StoreIdentity, draft: DashboardFilters) -> Bool {
+        draft.includesDivision(identity.division)
+            && draft.includesDistrict(identity.district)
+            && draft.includesOM(identity.om)
     }
 
     func suggestedSeatValues(for role: HeartbeatRole) -> [String] {

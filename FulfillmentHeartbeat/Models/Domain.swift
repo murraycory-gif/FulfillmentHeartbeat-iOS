@@ -5099,13 +5099,22 @@ extension DashboardFilters {
             }
             return HeartbeatMath.matches(item, incoming)
         }
+        if focus == .division {
+            if current.contains(where: matches) {
+                current.removeAll(where: matches)
+                division = current.joined(separator: "\n")
+            } else {
+                division = incoming
+                district = ""
+                om = ""
+                store = ""
+            }
+            return
+        }
         if current.contains(where: matches) {
             current.removeAll(where: matches)
         } else {
             current.append(incoming)
-            if focus == .division {
-                current = MarketRegion.uniqueNames(current)
-            }
         }
         let joined = current.joined(separator: "\n")
         switch focus {

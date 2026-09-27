@@ -3120,7 +3120,7 @@ enum AssistComposer {
         let inputs: [AssistRank.Input] = MetricSection.dashboardCards.compactMap { section in
             guard section != .pickerScorecard else { return nil }
             guard let summary = snapshot.summaries[section] else { return nil }
-            let rows = snapshot.rows[section] ?? []
+            let rows = AssistScope.slice(snapshot.rows[section] ?? [], filters: snapshot.filters)
             let distance = AssistRank.distance(section: section, rows: rows)
             var health = summary.health
             var risk = summary.riskCount
@@ -3163,7 +3163,7 @@ enum AssistComposer {
             )
         }
         let risk = section == .pph
-            ? (AssistRank.pphCounts(rows: snapshot.rows[section] ?? [])?.risk ?? summary.riskCount)
+            ? (AssistRank.pphCounts(rows: AssistScope.slice(snapshot.rows[section] ?? [], filters: snapshot.filters))?.risk ?? summary.riskCount)
             : summary.riskCount
         return AssistCopy.headerLine(
             rank: issue.rank,

@@ -993,9 +993,11 @@ final class AssistCardsTests: XCTestCase {
 
     func testDriverWithoutAReadingEmitsNoLine() {
         var snapshot = prioritySnapshot()
-        snapshot.rows[.scheduleQuality] = [
-            row(.scheduleQuality, ["under_schedule_pct": 12], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
-        ]
+        let blank = row(.scheduleQuality, [:], store: "10", division: "Shaws", district: "J3", name: "Alpha")
+        let underOnly = row(.scheduleQuality, ["under_schedule_pct": 12], store: "10", division: "Shaws", district: "J3", name: "Alpha")
+        XCTAssertNil(AssistCopy.storeReading(section: .scheduleQuality, row: blank))
+        XCTAssertNotNil(AssistCopy.storeReading(section: .scheduleQuality, row: underOnly))
+        snapshot.rows[.scheduleQuality] = [blank]
         let picks = AssistPriority.candidates(
             section: .scheduleQuality,
             rows: snapshot.rows[.scheduleQuality] ?? [],
