@@ -673,11 +673,18 @@ enum AssistRank {
         return worst
     }
 
+    /// Same health `distance` uses. PPH follows the Assist ranking band; every other metric uses `HeartbeatMath.health`.
+    static func rowHealth(section: MetricSection, row: MetricRow) -> Health {
+        if section == .pph {
+            guard let value = HeartbeatMath.pphNumber(row) else { return .none }
+            return pphHealth(value)
+        }
+        return HeartbeatMath.health(for: section, row: row)
+    }
+
     static func distance(section: MetricSection, rows: [MetricRow]) -> Double {
         let samples = scoringRows(rows).compactMap { row -> Double? in
-            let health = section == .pph
-                ? HeartbeatMath.pphNumber(row).map(pphHealth) ?? .none
-                : HeartbeatMath.health(for: section, row: row)
+            let health = rowHealth(section: section, row: row)
             guard health == .risk || health == .watch else { return nil }
             return offBand(section: section, row: row)
         }
@@ -733,6 +740,256 @@ enum AssistRank {
 
     static func rank(_ inputs: [Input]) -> [Scored] {
         ordered(inputs.compactMap(score))
+    }
+}
+
+/// One tappable store in a priority list. VoiceOver reads `action.accessibilityLabel` as a single element.
+struct AssistStoreStop: Equatable, Identifiable {
+    var id: String
+    var text: String
+    var action: AssistAction
+}
+
+struct AssistStoreList: Equatable {
+    var shown: [AssistStoreStop]
+    var seeAll: AssistStoreStop?
+
+    static let empty = AssistStoreList(shown: [], seeAll: nil)
+}
+
+/// Section 16. Store rows already on the Assist snapshot (the `displayRows(for:)` pool, scoped by `DashboardFilters`).
+/// Gap/band is `AssistRank.offBand` (table 6.3, including the Assist PPH band). No second formula.
+enum AssistPriority {
+    static let shownLimit = 5
+
+    struct Candidate: Equatable {
+        var store: String
+        var health: Health
+        var gap: Double
+        var name: String
+        var place: String
+        var value: String
+        var goal: String
+    }
+
+    struct Visit: Equatable {
+        var store: String
+        var name: String
+        var missCount: Int
+        var gapSum: Double
+        var metrics: [MetricSection]
+    }
+
+    static func hidesLists(_ filters: DashboardFilters) -> Bool {
+        DashboardFilters.parts(filters.store).count == 1
+    }
+
+    static func candidates(
+        section: MetricSection,
+        rows: [MetricRow],
+        filters: DashboardFilters,
+        roster: [(number: String, name: String?)]
+    ) -> [Candidate] {
+        let scoped = AssistScope.slice(rows, filters: filters)
+        let latest = HeartbeatMath.latestPerStore(AssistRank.scoringRows(scoped))
+        var picks: [Candidate] = []
+        picks.reserveCapacity(latest.count)
+        for row in latest {
+            let health = AssistRank.rowHealth(section: section, row: row)
+            guard health == .risk || health == .watch else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            let gap = AssistRank.round4(AssistRank.offBand(section: section, row: row) ?? 0)
+            let reading = AssistCopy.storeReading(section: section, row: row)
+            picks.append(Candidate(
+                store: store,
+                health: health,
+                gap: gap,
+                name: storeName(row, roster: roster),
+                place: placeLabel(row),
+                value: reading?.value ?? "off goal",
+                goal: reading?.goal ?? AssistCopy.goalShort(section)
+            ))
+        }
+        return picks.sorted { lhs, rhs in
+            if lhs.health != rhs.health { return lhs.health == .risk }
+            if lhs.gap != rhs.gap { return lhs.gap > rhs.gap }
+            return HeartbeatFormat.storeOrder(lhs.store, rhs.store)
+        }
+    }
+
+    static func list(
+        section: MetricSection,
+        rows: [MetricRow],
+        filters: DashboardFilters,
+        roster: [(number: String, name: String?)]
+    ) -> AssistStoreList {
+        let ranked = candidates(section: section, rows: rows, filters: filters, roster: roster)
+        guard !ranked.isEmpty else { return .empty }
+        let destination = HubDestination.from(section: section)
+        let shown = ranked.prefix(shownLimit).map { pick in
+            let text = metricLine(
+                store: pick.store,
+                name: pick.name,
+                place: pick.place,
+                value: pick.value,
+                goal: pick.goal
+            )
+            return stop(
+                id: "\(section.rawValue)-\(pick.store)",
+                text: text,
+                filters: storeFilters(filters, store: pick.store),
+                destination: destination
+            )
+        }
+        let seeAll: AssistStoreStop?
+        if ranked.count > shownLimit {
+            let text = "See all \(AssistCopy.grouped(ranked.count))"
+            seeAll = stop(
+                id: "\(section.rawValue)-see-all",
+                text: text,
+                filters: filters.isActive ? filters : nil,
+                destination: destination
+            )
+        } else {
+            seeAll = nil
+        }
+        return AssistStoreList(shown: Array(shown), seeAll: seeAll)
+    }
+
+    static func visitCandidates(
+        sections: [MetricSection],
+        rows: [MetricSection: [MetricRow]],
+        filters: DashboardFilters,
+        roster: [(number: String, name: String?)]
+    ) -> [Visit] {
+        var byStore: [String: Visit] = [:]
+        for section in sections {
+            let picks = candidates(section: section, rows: rows[section] ?? [], filters: filters, roster: roster)
+            for pick in picks {
+                var visit = byStore[pick.store] ?? Visit(
+                    store: pick.store,
+                    name: pick.name,
+                    missCount: 0,
+                    gapSum: 0,
+                    metrics: []
+                )
+                if visit.name.isEmpty { visit.name = pick.name }
+                visit.missCount += 1
+                visit.gapSum += pick.gap
+                visit.metrics.append(section)
+                byStore[pick.store] = visit
+            }
+        }
+        return byStore.values.sorted { lhs, rhs in
+            if lhs.missCount != rhs.missCount { return lhs.missCount > rhs.missCount }
+            let left = AssistRank.round4(lhs.gapSum)
+            let right = AssistRank.round4(rhs.gapSum)
+            if left != right { return left > right }
+            return HeartbeatFormat.storeOrder(lhs.store, rhs.store)
+        }
+    }
+
+    static func visitStops(
+        sections: [MetricSection],
+        rows: [MetricSection: [MetricRow]],
+        filters: DashboardFilters,
+        roster: [(number: String, name: String?)]
+    ) -> [AssistStoreStop] {
+        visitCandidates(sections: sections, rows: rows, filters: filters, roster: roster)
+            .prefix(shownLimit)
+            .map { visit in
+                let names = visit.metrics.map(\.overviewLead)
+                let text = visitLine(store: visit.store, name: visit.name, metrics: names)
+                return stop(
+                    id: "visit-\(visit.store)",
+                    text: text,
+                    filters: storeFilters(filters, store: visit.store),
+                    destination: .dashboard
+                )
+            }
+    }
+
+    static func storeFilters(_ filters: DashboardFilters, store: String) -> DashboardFilters {
+        var next = filters
+        next.store = store
+        return next
+    }
+
+    static func metricLine(store: String, name: String, place: String, value: String, goal: String) -> String {
+        let full = line(store: store, name: name, place: place, value: value, goal: goal)
+        if full.count <= AssistCopy.headerLimit { return full }
+        let district = shorterPlace(place)
+        let withoutOM = line(store: store, name: name, place: district, value: value, goal: goal)
+        if withoutOM.count <= AssistCopy.headerLimit { return withoutOM }
+        let shortened = line(store: store, name: shortName(name), place: district, value: value, goal: goal)
+        if shortened.count <= AssistCopy.headerLimit { return shortened }
+        return shortened
+    }
+
+    static func visitLine(store: String, name: String, metrics: [String]) -> String {
+        var head = "Store \(store)"
+        if !name.isEmpty { head += " \(name)" }
+        guard !metrics.isEmpty else { return head }
+        return "\(head): \(metrics.joined(separator: ", "))"
+    }
+
+    private static func line(store: String, name: String, place: String, value: String, goal: String) -> String {
+        var head = "Store \(store)"
+        if !name.isEmpty { head += " \(name)" }
+        if !place.isEmpty { head += ", \(place)" }
+        if goal.isEmpty { return "\(head): \(value)" }
+        return "\(head): \(value) (goal \(goal))"
+    }
+
+    private static func shorterPlace(_ place: String) -> String {
+        guard let slash = place.range(of: " / OM ") else { return place }
+        return String(place[..<slash.lowerBound])
+    }
+
+    private static func shortName(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let space = trimmed.firstIndex(of: " ") else { return trimmed }
+        let first = String(trimmed[..<space])
+        return first.count >= 3 ? first : trimmed
+    }
+
+    private static func stop(
+        id: String,
+        text: String,
+        filters: DashboardFilters?,
+        destination: HubDestination
+    ) -> AssistStoreStop {
+        AssistStoreStop(
+            id: id,
+            text: text,
+            action: AssistAction.open(
+                id: id,
+                question: text,
+                owner: "",
+                buttonTitle: text,
+                filters: filters,
+                destination: destination
+            )
+        )
+    }
+
+    private static func storeName(_ row: MetricRow, roster: [(number: String, name: String?)]) -> String {
+        if let name = HeartbeatMath.usableStoreName(row.storeName) { return name }
+        return AssistScope.rosterName(row.storeNumber, roster: roster) ?? ""
+    }
+
+    private static func placeLabel(_ row: MetricRow) -> String {
+        let district = HeartbeatMath.displayGrainLabel(row.district)
+        let omSource = row.operationsOM.isEmpty ? row.omArea : row.operationsOM
+        let om = HeartbeatMath.canonicalOM(omSource)
+        let districtLabel = district.isEmpty ? "" : "District \(district)"
+        let omLabel = om.isEmpty ? "" : "OM \(om)"
+        if !districtLabel.isEmpty && !omLabel.isEmpty {
+            return "\(districtLabel) / \(omLabel)"
+        }
+        if !districtLabel.isEmpty { return districtLabel }
+        return omLabel
     }
 }
 
@@ -968,6 +1225,8 @@ struct AssistAction: Equatable, Identifiable {
 struct AssistHeaderLine: Equatable, Identifiable {
     var text: String
     var issueID: String
+    var stores: [AssistStoreStop] = []
+    var seeAll: AssistStoreStop?
     var id: String { issueID }
 }
 
@@ -991,6 +1250,8 @@ struct AssistIssue: Equatable, Identifiable {
     var causeChecks: [AssistAction]
     var failingCauseIDs: [String]
     var drivenBy: [AssistHeaderLine]
+    var goHere: [AssistStoreStop]
+    var seeAllStores: AssistStoreStop?
     var rankedLine: String
     var accessibilityLabel: String
 }
@@ -1009,6 +1270,7 @@ struct AssistAnswer: Equatable {
     var noticeAction: AssistAction?
     var healthyFacts: [AssistFact]
     var chips: [String]
+    var visitStores: [AssistStoreStop]
 
     static let empty = AssistAnswer(
         scopeLabel: "Total company",
@@ -1023,7 +1285,8 @@ struct AssistAnswer: Equatable {
         noticeBody: nil,
         noticeAction: nil,
         healthyFacts: [],
-        chips: []
+        chips: [],
+        visitStores: []
     )
 }
 
@@ -1284,6 +1547,54 @@ enum AssistCopy {
 
     static func one(_ value: Double) -> String { String(format: "%.1f", value) }
     static func onePct(_ value: Double) -> String { String(format: "%.1f%%", value) }
+
+    /// Store value and goal, same precision as `SectionSummary.headlineText`. Nil when the row has no comparable field.
+    static func storeReading(section: MetricSection, row: MetricRow) -> (value: String, goal: String)? {
+        switch section {
+        case .pickPath, .pickPathPicker:
+            guard let value = row.number("compliance_pct") else { return nil }
+            return (onePct(value), goalShort(section))
+        case .missingItems, .preSubOOS:
+            guard let value = row.number(MissingItemDept.totalKey) else { return nil }
+            return (onePct(value), goalShort(section))
+        case .prepNotReady:
+            guard let value = row.number("pnr_rate_pct") else { return nil }
+            return (onePct(value), goalShort(section))
+        case .dynacap:
+            if let value = row.number("dynacap_rate", "pieces_per_hour") {
+                return (one(value), goalShort(section))
+            }
+            if HeartbeatMath.dynacapAligned(row) == false {
+                return ("not aligned", goalShort(section))
+            }
+            return nil
+        case .scheduleQuality:
+            guard let value = row.number("schedule_efficiency_pct") else { return nil }
+            return (onePct(value), goalShort(section))
+        case .pph:
+            guard let value = HeartbeatMath.pphNumber(row) else { return nil }
+            return (one(value), goalShort(section))
+        case .labor:
+            guard let value = row.number("target_vs_actual_pct") else { return nil }
+            return (String(format: "%.2f%%", value), goalShort(section))
+        case .fiveStar:
+            guard let value = row.number("star_rating") else { return nil }
+            return (String(format: "%.2f", value), goalShort(section))
+        case .lostRevenue:
+            guard let value = row.number("lost_revenue_pct") else { return nil }
+            return (onePct(value), goalShort(section))
+        case .sales:
+            if let yoy = row.number("sales_yoy_pct") {
+                return (onePct(yoy), "0%")
+            }
+            if let plan = row.number("sales_plan_pct") {
+                return (onePct(plan), goalShort(section))
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
 
     static func status(_ health: Health) -> (text: String, symbol: String, ink: Health) {
         switch health {
@@ -1773,8 +2084,23 @@ enum AssistComposer {
         }
         if showHeader && !answer.issues.isEmpty {
             answer.headerTitle = AssistCopy.headerTitle(issueCount: answer.issues.count)
-            answer.headerLines = answer.issues.prefix(3).map { item in
-                AssistHeaderLine(text: headerText(for: item, snapshot: snapshot, level: level), issueID: item.id)
+            let top = Array(answer.issues.prefix(3))
+            answer.headerLines = top.map { item in
+                AssistHeaderLine(
+                    text: headerText(for: item, snapshot: snapshot, level: level),
+                    issueID: item.id,
+                    stores: item.goHere,
+                    seeAll: item.seeAllStores
+                )
+            }
+            if !AssistPriority.hidesLists(snapshot.filters) {
+                let sections = top.compactMap { MetricSection(rawValue: $0.id) }
+                answer.visitStores = AssistPriority.visitStops(
+                    sections: sections,
+                    rows: snapshot.rows,
+                    filters: snapshot.filters,
+                    roster: snapshot.rosterStores
+                )
             }
         }
         answer.rankedLines = ranked.map(AssistCopy.rankedLine)
@@ -1916,6 +2242,14 @@ enum AssistComposer {
         }
         let storesAtRisk = level == .store ? (summary?.headlineText ?? "") : "\(AssistCopy.grouped(scored.risk)) of \(AssistCopy.grouped(scored.storeCount)) stores at risk"
         let whySentence = causes?.why
+        let storeList = AssistPriority.hidesLists(snapshot.filters)
+            ? AssistStoreList.empty
+            : AssistPriority.list(
+                section: section,
+                rows: rows,
+                filters: snapshot.filters,
+                roster: snapshot.rosterStores
+            )
         return AssistIssue(
             id: section.rawValue,
             rank: rank,
@@ -1936,6 +2270,8 @@ enum AssistComposer {
             causeChecks: causes?.checks ?? [],
             failingCauseIDs: causes?.namedIDs ?? [],
             drivenBy: [],
+            goHere: storeList.shown,
+            seeAllStores: storeList.seeAll,
             rankedLine: AssistCopy.rankedLine(scored),
             accessibilityLabel: "Rank \(rank), \(section.title), \(status.text). \(headline). \(storesAtRisk).\(whySentence.map { " Why \($0)." } ?? "") Scope \(scope)."
         )
@@ -2522,6 +2858,8 @@ enum AssistComposer {
             causeChecks: [],
             failingCauseIDs: [],
             drivenBy: [],
+            goHere: [],
+            seeAllStores: nil,
             rankedLine: "\(child.label): \(AssistCopy.grouped(child.storesAtRisk)) stores with an at-risk scorecard.",
             accessibilityLabel: "Rank \(rank), \(child.label). \(headline). \(child.storesAtRisk) of \(child.storeCount) stores with an at-risk scorecard."
         )
@@ -2602,6 +2940,8 @@ enum AssistComposer {
             causeChecks: [],
             failingCauseIDs: [],
             drivenBy: [],
+            goHere: [],
+            seeAllStores: nil,
             rankedLine: "\(name) at store \(store): \(items).",
             accessibilityLabel: "\(name) at store \(store). \(items)."
         )

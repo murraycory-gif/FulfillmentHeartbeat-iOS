@@ -208,6 +208,9 @@ struct HeartbeatAssistSheet: View {
             if let header = answer.headerTitle {
                 headerBlock(header, lines: answer.headerLines, proxy: proxy)
             }
+            if !answer.visitStores.isEmpty {
+                visitBlock(answer.visitStores)
+            }
             ForEach(visible) { issue in
                 problemCard(issue, turnID: turn.id, proxy: proxy)
                     .id(issue.id)
@@ -281,6 +284,7 @@ struct HeartbeatAssistSheet: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(line.text)
+                goHereFirst(line.stores, seeAll: line.seeAll)
             }
         }
         .padding(14)
@@ -294,6 +298,7 @@ struct HeartbeatAssistSheet: View {
 
     private func problemCard(_ issue: AssistIssue, turnID: UUID, proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            goHereFirst(issue.goHere, seeAll: issue.seeAllStores)
             Button {
                 perform(issue.footerAction)
             } label: {
@@ -356,6 +361,60 @@ struct HeartbeatAssistSheet: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(AppTheme.cardBorder, lineWidth: 1)
         }
+    }
+
+    private func visitBlock(_ stores: [AssistStoreStop]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Visit these stores first")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(stores) { stop in
+                storeStopButton(stop)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(AppTheme.cardBorder, lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func goHereFirst(_ stores: [AssistStoreStop], seeAll: AssistStoreStop?) -> some View {
+        if !stores.isEmpty || seeAll != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Go here first:")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(stores) { stop in
+                    storeStopButton(stop)
+                }
+                if let seeAll {
+                    storeStopButton(seeAll)
+                }
+            }
+        }
+    }
+
+    private func storeStopButton(_ stop: AssistStoreStop) -> some View {
+        Button {
+            perform(stop.action)
+        } label: {
+            Text(stop.text)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(stop.action.accessibilityLabel)
+        .accessibilityAddTraits(.isButton)
     }
 
     private func whyBlock(_ issue: AssistIssue, turnID: UUID, proxy: ScrollViewProxy) -> some View {

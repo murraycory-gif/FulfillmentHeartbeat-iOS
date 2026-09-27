@@ -712,8 +712,125 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(view.contains("What to do"))
         XCTAssertTrue(view.contains("More checks"))
         XCTAssertTrue(view.contains("issue.why"))
+        XCTAssertTrue(view.contains("Go here first:"))
+        XCTAssertTrue(view.contains("Visit these stores first"))
+        XCTAssertTrue(view.contains("storeStopButton"))
+        XCTAssertTrue(view.contains("accessibilityElement(children: .ignore)"))
         XCTAssertTrue(cards.contains("Fix these"))
+        XCTAssertTrue(cards.contains("AssistRank.offBand"))
         XCTAssertFalse(view.contains("LazyVGrid"))
+    }
+
+    func testPriorityStoreOrderOnTheFixture() throws {
+        let rows = priorityRows()
+        let roster = priorityRoster()
+        let open = DashboardFilters()
+        let path = AssistPriority.candidates(section: .pickPath, rows: rows[.pickPath] ?? [], filters: open, roster: roster)
+        XCTAssertEqual(path.map(\.store), ["12", "30", "10", "40", "20", "15"])
+        XCTAssertEqual(path.map(\.health), [.risk, .risk, .risk, .risk, .watch, .watch])
+        XCTAssertEqual(path.map(\.gap), [3, 3, 2, 1.5, 1, 0.5])
+        XCTAssertFalse(path.contains { ["210", "239", "999"].contains($0.store) })
+
+        let missing = AssistPriority.candidates(section: .missingItems, rows: rows[.missingItems] ?? [], filters: open, roster: roster)
+        XCTAssertEqual(missing.map(\.store), ["10", "15", "40"])
+        XCTAssertEqual(missing.map(\.health), [.risk, .risk, .watch])
+        XCTAssertFalse(missing.contains { $0.store == "239" })
+
+        let visits = AssistPriority.visitCandidates(sections: [.pickPath, .missingItems, .scheduleQuality], rows: rows, filters: open, roster: roster)
+        XCTAssertEqual(visits.map(\.store), ["10", "15", "40", "20", "12", "30"])
+        XCTAssertEqual(visits.map(\.missCount), [3, 3, 2, 2, 1, 1])
+        XCTAssertEqual(visits[0].metrics, [.pickPath, .missingItems, .scheduleQuality])
+        XCTAssertFalse(visits.contains { ["210", "239", "999"].contains($0.store) })
+
+        let list = AssistPriority.list(section: .pickPath, rows: rows[.pickPath] ?? [], filters: open, roster: roster)
+        XCTAssertEqual(list.shown.map(\.text), [
+            "Store 12 Fox, District J3: 55.0% (goal 90%)",
+            "Store 30 Cedar, District B2: 60.0% (goal 90%)",
+            "Store 10 Alpha, District J3: 70.0% (goal 90%)",
+            "Store 40 Delta, District A9: 75.0% (goal 90%)",
+            "Store 20 Bravo, District J3: 80.0% (goal 90%)",
+        ])
+        XCTAssertLessThanOrEqual(list.shown[0].text.count, 48)
+        XCTAssertEqual(list.seeAll?.text, "See all 6")
+        XCTAssertNil(list.seeAll?.action.filters)
+        XCTAssertEqual(list.seeAll?.action.destination, .pickPath)
+        XCTAssertEqual(list.shown[0].action.destination, .pickPath)
+        XCTAssertEqual(list.shown[0].action.filters?.store, "12")
+        XCTAssertTrue(list.shown[0].action.accessibilityLabel.contains(list.shown[0].text))
+        XCTAssertFalse(list.shown[0].action.accessibilityLabel.contains("\n"))
+
+        let visitStops = AssistPriority.visitStops(sections: [.pickPath, .missingItems, .scheduleQuality], rows: rows, filters: open, roster: roster)
+        XCTAssertEqual(visitStops.map { $0.action.filters?.store }, ["10", "15", "40", "20", "12"])
+        XCTAssertEqual(visitStops[0].text, "Store 10 Alpha: Pick Path, Missing Items, Schedule")
+        XCTAssertEqual(visitStops[0].action.destination, .dashboard)
+        XCTAssertTrue(visitStops[0].action.accessibilityLabel.contains(visitStops[0].text))
+    }
+
+    func testPriorityStoresFollowRegionDistrictAndOM() {
+        let rows = priorityRows()
+        let roster = priorityRoster()
+        var east = DashboardFilters()
+        east.region = "East Region"
+        let eastPath = AssistPriority.candidates(section: .pickPath, rows: rows[.pickPath] ?? [], filters: east, roster: roster)
+        XCTAssertEqual(eastPath.map(\.store), ["12", "10", "40", "20", "15"])
+        XCTAssertFalse(eastPath.contains { $0.store == "30" })
+        let eastList = AssistPriority.list(section: .pickPath, rows: rows[.pickPath] ?? [], filters: east, roster: roster)
+        XCTAssertEqual(eastList.shown[0].action.filters?.region, "East Region")
+        XCTAssertEqual(eastList.shown[0].action.filters?.store, "12")
+        XCTAssertNil(eastList.seeAll)
+        let eastVisits = AssistPriority.visitCandidates(
+            sections: [.pickPath, .missingItems, .scheduleQuality],
+            rows: rows,
+            filters: east,
+            roster: roster
+        )
+        XCTAssertFalse(eastVisits.contains { $0.store == "30" })
+        XCTAssertEqual(eastVisits.first?.store, "10")
+
+        var district = DashboardFilters()
+        district.district = "J3"
+        let districtPath = AssistPriority.candidates(section: .pickPath, rows: rows[.pickPath] ?? [], filters: district, roster: roster)
+        XCTAssertEqual(districtPath.map(\.store), ["12", "10", "20", "15"])
+
+        var om = DashboardFilters()
+        om.om = "North"
+        let omPath = AssistPriority.candidates(section: .pickPath, rows: rows[.pickPath] ?? [], filters: om, roster: roster)
+        XCTAssertEqual(omPath.map(\.store), ["20"])
+    }
+
+    func testSingleStoreScopeHidesPriorityLists() throws {
+        let book = try loadPlaybook()
+        var snapshot = prioritySnapshot()
+        snapshot.filters.store = "10"
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        XCTAssertEqual(answer.headerTitle, "Fix these 3 first")
+        XCTAssertTrue(answer.visitStores.isEmpty)
+        XCTAssertTrue(answer.headerLines.allSatisfy { $0.stores.isEmpty && $0.seeAll == nil })
+        for issue in answer.issues {
+            XCTAssertTrue(issue.goHere.isEmpty, issue.id)
+            XCTAssertNil(issue.seeAllStores, issue.id)
+        }
+    }
+
+    func testFixFirstAnswerNamesThePriorityStores() throws {
+        let book = try loadPlaybook()
+        let snapshot = prioritySnapshot()
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        XCTAssertEqual(answer.issues.prefix(3).map(\.id), ["pick_path", "missing_items", "schedule_quality"])
+        XCTAssertEqual(answer.headerTitle, "Fix these 3 first")
+        let path = try XCTUnwrap(answer.issues.first { $0.id == "pick_path" })
+        XCTAssertEqual(path.goHere.map(\.text).first, "Store 12 Fox, District J3: 55.0% (goal 90%)")
+        XCTAssertEqual(path.goHere.count, 5)
+        XCTAssertEqual(path.seeAllStores?.text, "See all 6")
+        XCTAssertEqual(path.seeAllStores?.action.destination, .pickPath)
+        XCTAssertEqual(answer.headerLines.first?.stores.map(\.text), path.goHere.map(\.text))
+        XCTAssertEqual(answer.headerLines.first?.seeAll?.text, "See all 6")
+        XCTAssertEqual(answer.visitStores.map { $0.action.filters?.store }, ["10", "15", "40", "20", "12"])
+        XCTAssertEqual(answer.visitStores.first?.text, "Store 10 Alpha: Pick Path, Missing Items, Schedule")
+        XCTAssertEqual(answer.visitStores.first?.action.destination, .dashboard)
+        XCTAssertEqual(answer.visitStores.first?.action.filters?.store, "10")
+        let names = answer.issues.prefix(3).map { MetricSection(rawValue: $0.id)?.overviewLead ?? "" }
+        XCTAssertEqual(answer.visitStores.first?.text, "Store 10 Alpha: \(names.joined(separator: ", "))")
     }
 
     private func lostIssue(_ question: String, _ snapshot: AssistSnapshot, _ book: AssistPlaybook.File) throws -> AssistIssue {
@@ -858,13 +975,98 @@ final class AssistCardsTests: XCTestCase {
         )
     }
 
-    private func row(_ section: MetricSection, _ payload: [String: Double], store: String = "304") -> MetricRow {
-        MetricRow(
+    private func row(
+        _ section: MetricSection,
+        _ payload: [String: Double],
+        store: String = "304",
+        division: String = "",
+        district: String = "",
+        om: String = "",
+        name: String? = nil,
+        lostGrain: String? = nil
+    ) -> MetricRow {
+        var text: [String: String] = [:]
+        if !district.isEmpty { text["district"] = district }
+        if let lostGrain { text["lost_grain"] = lostGrain }
+        return MetricRow(
             section: section,
-            division: "",
-            operationsOM: "",
+            division: division,
+            operationsOM: om,
             storeNumber: store,
-            payload: payload
+            storeName: name,
+            payload: payload,
+            textPayload: text
+        )
+    }
+
+    private func priorityRoster() -> [(number: String, name: String?)] {
+        [
+            ("10", "Alpha"), ("12", "Fox"), ("15", "Echo"), ("20", "Bravo"),
+            ("30", "Cedar"), ("40", "Delta"), ("99", "Good"),
+        ]
+    }
+
+    private func priorityRows() -> [MetricSection: [MetricRow]] {
+        var rows: [MetricSection: [MetricRow]] = [
+            .pickPath: [
+                row(.pickPath, ["compliance_pct": 70], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
+                row(.pickPath, ["compliance_pct": 55], store: "12", division: "Shaws", district: "J3", name: "Fox"),
+                row(.pickPath, ["compliance_pct": 85], store: "15", division: "Shaws", district: "J3", name: "Echo"),
+                row(.pickPath, ["compliance_pct": 80], store: "20", division: "Shaws", district: "J3", om: "North", name: "Bravo"),
+                row(.pickPath, ["compliance_pct": 60], store: "30", division: "United", district: "B2", name: "Cedar"),
+                row(.pickPath, ["compliance_pct": 75], store: "40", division: "Jewel Osco", district: "A9", name: "Delta"),
+                row(.pickPath, ["compliance_pct": 95], store: "99", division: "Shaws", district: "J3", name: "Good"),
+                row(.pickPath, ["compliance_pct": 40], store: "210", division: "Shaws", district: "J3", name: "Ignored"),
+                row(.pickPath, ["compliance_pct": 10], store: "999", division: "Shaws", district: "J3", name: "Market", lostGrain: "market"),
+            ],
+            .missingItems: [
+                row(.missingItems, ["mi_pct": 8], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
+                row(.missingItems, ["mi_pct": 7], store: "15", division: "Shaws", district: "J3", name: "Echo"),
+                row(.missingItems, ["mi_pct": 4], store: "20", division: "Shaws", district: "J3", om: "North", name: "Bravo"),
+                row(.missingItems, ["mi_pct": 4], store: "12", division: "Shaws", district: "J3", name: "Fox"),
+                row(.missingItems, ["mi_pct": 4], store: "30", division: "United", district: "B2", name: "Cedar"),
+                row(.missingItems, ["mi_pct": 6.5], store: "40", division: "Jewel Osco", district: "A9", name: "Delta"),
+                row(.missingItems, ["mi_pct": 40], store: "239", division: "Shaws", district: "J3", name: "Ignored"),
+            ],
+            .scheduleQuality: [
+                row(.scheduleQuality, ["schedule_efficiency_pct": 80], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 86], store: "15", division: "Shaws", district: "J3", name: "Echo"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 88], store: "20", division: "Shaws", district: "J3", om: "North", name: "Bravo"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "12", division: "Shaws", district: "J3", name: "Fox"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "30", division: "United", district: "B2", name: "Cedar"),
+                row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "40", division: "Jewel Osco", district: "A9", name: "Delta"),
+            ],
+        ]
+        for section in MetricSection.dashboardCards where rows[section] == nil {
+            rows[section] = []
+        }
+        return rows
+    }
+
+    private func prioritySnapshot() -> AssistSnapshot {
+        let rows = priorityRows()
+        var summaries: [MetricSection: SectionSummary] = [
+            .pickPath: summary(.pickPath, .risk, risk: 4, watch: 2, stores: 7, headline: 75),
+            .missingItems: summary(.missingItems, .risk, risk: 2, watch: 1, stores: 6, headline: 6),
+            .scheduleQuality: summary(.scheduleQuality, .risk, risk: 1, watch: 2, stores: 6, headline: 88),
+        ]
+        for section in MetricSection.dashboardCards where summaries[section] == nil {
+            summaries[section] = summary(section, .good, risk: 0, watch: 0, stores: 6, headline: 95)
+        }
+        return AssistSnapshot(
+            seeded: true,
+            filters: DashboardFilters(),
+            summaries: summaries,
+            rows: rows,
+            history: [:],
+            dataWindow: "Week of Sep 14",
+            rosterStores: priorityRoster(),
+            districts: ["J3", "A9", "B2"],
+            divisions: ["Shaws", "Jewel Osco", "United"],
+            operationsOMs: ["North"],
+            now: Date(),
+            warehouse: rows,
+            packUploads: []
         )
     }
 }
