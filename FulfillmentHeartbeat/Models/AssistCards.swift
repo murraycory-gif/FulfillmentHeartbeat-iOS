@@ -725,6 +725,59 @@ enum AssistRank {
         }
     }
 
+    /// Counts, average, and watch for one card. `rows` are already `AssistScope.slice`d.
+    /// The denominator is stores in that slice that have a value for the metric.
+    static func scopedSummary(section: MetricSection, rows: [MetricRow], prior: SectionSummary?) -> SectionSummary {
+        let upload: UploadRecord? = {
+            guard let prior, let uploaded = prior.lastUploadedAt else { return nil }
+            return UploadRecord(
+                section: section,
+                filename: prior.lastFilename ?? "",
+                rowCount: rows.count,
+                uploadedAt: uploaded
+            )
+        }()
+        var summary = HeartbeatMath.summarize(section, rows: rows, upload: upload)
+        let counted = storesWithData(section: section, rows: rows)
+        summary.storeCount = counted.count
+        summary.riskCount = counted.filter { rowHealth(section: section, row: $0) == .risk }.count
+        summary.watchCount = counted.filter { rowHealth(section: section, row: $0) == .watch }.count
+        if counted.isEmpty {
+            summary.health = .none
+        } else if section == .pph, let headline = summary.headline {
+            summary.health = pphHealth(headline)
+        }
+        if let prior {
+            summary.lastFilename = prior.lastFilename
+            summary.lastUploadedAt = prior.lastUploadedAt
+        }
+        return summary
+    }
+
+    /// One store per number, and only when the row has a comparable value.
+    static func storesWithData(section: MetricSection, rows: [MetricRow]) -> [MetricRow] {
+        let base: [MetricRow]
+        if section == .sales {
+            base = rows.filter {
+                !$0.storeNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && $0.textPayload["sales_grain"] != "company"
+                    && $0.textPayload["sales_grain"] != "day"
+            }
+        } else if section == .labor {
+            base = rows.filter {
+                $0.textPayload["labor_grain"] != "market"
+                    && !$0.storeNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && !HeartbeatMath.isIgnoredStore($0.storeNumber)
+            }
+        } else {
+            base = scoringRows(rows)
+        }
+        let latest = section == .pickerScorecard
+            ? HeartbeatMath.latestPerShopper(base)
+            : HeartbeatMath.latestPerStore(base)
+        return latest.filter { rowHealth(section: section, row: $0) != .none }
+    }
+
     static func score(_ input: Input) -> Scored? {
         guard input.section != .pickerScorecard else { return nil }
         guard input.health != .none, input.storeCount > 0 else { return nil }
@@ -1670,7 +1723,10 @@ enum AssistPlan {
             return (section.overviewLead, compactPercent(value), plain(AssistScoreLine.laborGoal), plain(HeartbeatMath.laborWatch))
         case .fiveStar:
             guard let value = row.number("star_rating") else { return nil }
-            return (section.overviewLead, plain(value), plain(AssistScoreLine.fiveStarGoal), plain(AssistScoreLine.fiveStarPass))
+            let stars = String(format: "%.2f", value)
+            let goal = String(format: "%.2f", AssistScoreLine.fiveStarGoal)
+            let pass = String(format: "%.2f", AssistScoreLine.fiveStarPass)
+            return (section.overviewLead, stars, goal, pass)
         case .lostRevenue:
             guard let value = row.number("lost_revenue_pct") else { return nil }
             return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.lostRevenueGood), plain(HeartbeatMath.lostRevenueWatch))
@@ -1711,8 +1767,9 @@ enum AssistPlan {
             if let compliance { parts.append("\(compactPercent(compliance)) path") }
             if let pph { parts.append("\(plain(pph)) PPH") }
         }
-        if parts.isEmpty { return name }
-        return "\(name) \(parts.joined(separator: ", "))"
+        let label = "Shopper ID \(name)"
+        if parts.isEmpty { return label }
+        return "\(label) \(parts.joined(separator: ", "))"
     }
 
     private static func shopperBroke(_ hit: ShopperHit) -> String {
@@ -1735,7 +1792,7 @@ enum AssistPlan {
     }
 
     private static func shopperWhere(_ hit: ShopperHit, stores: [String: MetricRow]) -> String {
-        var text = "\(hit.name) at Store \(hit.store)"
+        var text = "Shopper ID \(hit.name) at Store \(hit.store)"
         if !hit.storeName.isEmpty { text += " \(hit.storeName)" }
         if let row = stores[hit.store] {
             let district = districtLabel(row)
@@ -1760,8 +1817,9 @@ enum AssistPlan {
 
     private static func coachSentence(_ names: [String], measure: String) -> String {
         let who = english(names)
-        if measure == "PPH" { return "Coach \(who) on PPH today" }
-        return "Coach \(who) on path today"
+        let label = names.count == 1 ? "shopper ID" : "shopper IDs"
+        if measure == "PPH" { return "Coach \(label) \(who) on PPH today" }
+        return "Coach \(label) \(who) on path today"
     }
 
     private static func english(_ names: [String]) -> String {
@@ -1846,20 +1904,11 @@ enum AssistPlan {
 
     /// Pack under/over values are already percent. 0.56 stays 0.56%, never 56%.
     private static func scheduleAmount(_ value: Double) -> String {
-        let hundredths = (value * 100).rounded() / 100
-        let whole = hundredths.rounded()
-        if abs(hundredths - whole) < 0.001 {
-            return "\(Int(whole))%"
-        }
-        let tenths = (hundredths * 10).rounded() / 10
-        if abs(hundredths - tenths) < 0.001 {
-            return String(format: "%.1f%%", hundredths)
-        }
-        return String(format: "%.2f%%", hundredths)
+        AssistCopy.scheduleVariancePercent(value)
     }
 
     private static func compactPercent(_ value: Double) -> String {
-        "\(plain(value))%"
+        AssistCopy.percent(value)
     }
 
     private static func plain(_ value: Double) -> String {
@@ -2263,10 +2312,18 @@ extension AssistSnapshot {
             rows[section] = scoped
             warehouse[section] = scoped
         }
+        var summaries: [MetricSection: SectionSummary] = [:]
+        for section in MetricSection.dashboardCards {
+            summaries[section] = AssistRank.scopedSummary(
+                section: section,
+                rows: rows[section] ?? [],
+                prior: source.summaries[section]
+            )
+        }
         return AssistSnapshot(
             seeded: source.seeded,
             filters: filters,
-            summaries: source.summaries,
+            summaries: summaries,
             rows: rows,
             history: trendHistory(source),
             dataWindow: dataWindow(focus: source.focus, rows: source.historyPool),
@@ -2388,10 +2445,11 @@ enum AssistCopy {
     }
 
     static func storeHeaderLine(rank: Int, shortName: String, value: String, goal: String) -> String {
-        let line = "\(rank). \(shortName): \(value) (goal \(goal))"
+        guard !value.isEmpty, value != "—" else { return "" }
+        let bare = "\(rank). \(shortName): \(value)"
+        let line = goal.isEmpty ? bare : "\(bare) (goal \(goal))"
         if line.count <= headerLimit { return line }
-        let shorter = "\(rank). \(shortName): \(value)"
-        return shorter.count <= headerLimit ? shorter : "\(rank). \(shortName)"
+        return bare.count <= headerLimit ? bare : "\(rank). \(shortName)"
     }
 
     static func goalShort(_ section: MetricSection) -> String {
@@ -2404,7 +2462,7 @@ enum AssistCopy {
         case .dynacap: return "65"
         case .pph: return String(Int(AssistRank.pphRankingBand.goal))
         case .labor: return "\(plainNumber(AssistScoreLine.laborGoal))%"
-        case .lostRevenue: return "3%"
+        case .lostRevenue: return "\(plainNumber(HeartbeatMath.lostRevenueGood))%"
         case .sales: return "100%"
         default: return ""
         }
@@ -2418,16 +2476,38 @@ enum AssistCopy {
         return String(format: "%.1f", tenths)
     }
 
+    /// One decimal for every percent shown on a card or a plan step.
+    static func percent(_ value: Double) -> String {
+        String(format: "%.1f%%", value)
+    }
+
+    /// Under/over pack values are already percent. At or under 1.5, keep hundredths so 0.56 stays 0.56%.
+    static func scheduleVariancePercent(_ value: Double) -> String {
+        if abs(value) > 1.5 {
+            return percent(value)
+        }
+        let hundredths = (value * 100).rounded() / 100
+        let whole = hundredths.rounded()
+        if abs(hundredths - whole) < 0.001 {
+            return "\(Int(whole))%"
+        }
+        let tenths = (hundredths * 10).rounded() / 10
+        if abs(hundredths - tenths) < 0.001 {
+            return String(format: "%.1f%%", hundredths)
+        }
+        return String(format: "%.2f%%", hundredths)
+    }
+
     static func goalFact(_ section: MetricSection) -> String {
         switch section {
         case .scheduleQuality, .pickPath: return "90%"
         case .missingItems, .preSubOOS: return "5% or less"
-        case .fiveStar: return "4.50+"
+        case .fiveStar: return "\(String(format: "%.2f", AssistScoreLine.fiveStarGoal))+"
         case .prepNotReady: return "1.9% or less"
         case .dynacap: return "65"
         case .pph: return String(Int(AssistRank.pphRankingBand.goal))
         case .labor: return "0% or less"
-        case .lostRevenue: return "3% or less"
+        case .lostRevenue: return "\(plainNumber(HeartbeatMath.lostRevenueGood))% or less"
         case .sales: return "Up vs last year"
         default: return ""
         }
@@ -2457,14 +2537,25 @@ enum AssistCopy {
             }
             return nil
         case .scheduleQuality:
-            guard let value = row.number("schedule_efficiency_pct") else { return nil }
-            return (onePct(value), goalShort(section))
+            guard let component = AssistRank.scheduleComponent(row) else { return nil }
+            switch component.kind {
+            case .efficiency:
+                return (percent(component.value), goalShort(section))
+            case .staffing:
+                return ("Staffing \(percent(component.value))", goalShort(section))
+            case .under:
+                let goal = "\(plainNumber(HeartbeatMath.scheduleVarianceWatch))%"
+                return ("Under \(scheduleVariancePercent(component.value))", goal)
+            case .over:
+                let goal = "\(plainNumber(HeartbeatMath.scheduleVarianceWatch))%"
+                return ("Over \(scheduleVariancePercent(component.value))", goal)
+            }
         case .pph:
             guard let value = HeartbeatMath.pphNumber(row) else { return nil }
             return (one(value), goalShort(section))
         case .labor:
             guard let value = row.number("target_vs_actual_pct") else { return nil }
-            return (String(format: "%.2f%%", value), goalShort(section))
+            return (percent(value), goalShort(section))
         case .fiveStar:
             guard let value = row.number("star_rating") else { return nil }
             return (String(format: "%.2f", value), goalShort(section))
@@ -2752,7 +2843,11 @@ enum AssistComposer {
         for section in AssistSnapshot.needed {
             let sliced = AssistScope.slice(source[section] ?? [], filters: filters)
             rows[section] = sliced
-            summaries[section] = HeartbeatMath.summarize(section, rows: sliced, upload: nil)
+            summaries[section] = AssistRank.scopedSummary(
+                section: section,
+                rows: sliced,
+                prior: snapshot.summaries[section]
+            )
             history[section] = HeartbeatMath.history(section, rows: sliced)
         }
         for (section, summary) in snapshot.summaries where next.summaries[section] == nil {
@@ -2966,9 +3061,11 @@ enum AssistComposer {
         if showHeader && !answer.issues.isEmpty {
             answer.headerTitle = AssistCopy.headerTitle(issueCount: answer.issues.count)
             let top = Array(answer.issues.prefix(3))
-            answer.headerLines = top.map { item in
-                AssistHeaderLine(
-                    text: headerText(for: item, snapshot: snapshot, level: level),
+            answer.headerLines = top.compactMap { item in
+                let text = headerText(for: item, snapshot: snapshot, level: level)
+                guard !text.isEmpty else { return nil }
+                return AssistHeaderLine(
+                    text: text,
                     issueID: item.id,
                     stores: item.goHere,
                     seeAll: item.seeAllStores
@@ -3054,12 +3151,15 @@ enum AssistComposer {
             return issue.rank <= 3 ? "\(issue.rank). \(issue.title)" : issue.title
         }
         if level == .store {
-            let value = summary.headline == nil ? issue.numberValue : summary.headlineText
+            guard summary.headline != nil else { return "" }
+            let value = summary.headlineText
+            guard !value.isEmpty, value != "—" else { return "" }
+            let goal = (section == .lostRevenue || section == .sales) ? "" : AssistCopy.goalShort(section)
             return AssistCopy.storeHeaderLine(
                 rank: issue.rank,
                 shortName: section.overviewLead,
                 value: value,
-                goal: AssistCopy.goalShort(section)
+                goal: goal
             )
         }
         let risk = section == .pph
@@ -3205,7 +3305,8 @@ enum AssistComposer {
         case .pickPath:
             return "Shoppers are off the pick path at \(above)"
         case .fiveStar:
-            return "\(above) are below 4.0 stars"
+            let pass = String(format: "%.1f", AssistScoreLine.fiveStarPass)
+            return "\(above) are below \(pass) stars"
         case .preSubOOS:
             return "Items are out before substitution at \(above)"
         case .prepNotReady:
@@ -3245,7 +3346,8 @@ enum AssistComposer {
         case .pickPath:
             return shown.isEmpty ? "Your pick path is off the 90% goal" : "Your pick path is \(shown) (goal 90%)"
         case .fiveStar:
-            return shown.isEmpty ? "Your store is off a 4.50 star rating" : "Your store is at \(shown) stars (healthy is 4.50+)"
+            let goal = String(format: "%.2f", AssistScoreLine.fiveStarGoal)
+            return shown.isEmpty ? "Your store is off a \(goal) star rating" : "Your store is at \(shown) stars (healthy is \(goal)+)"
         case .preSubOOS:
             return shown.isEmpty ? "Your ordered items were out before sub (goal 5% or less)" : "\(shown) of your ordered items were out before sub (goal 5% or less)"
         case .prepNotReady:
@@ -3263,9 +3365,9 @@ enum AssistComposer {
         case .lostRevenue:
             let money = summary?.headlineText ?? shown
             if let pct = summary?.lostRevenuePct {
-                return "Your store lost \(money), \(AssistCopy.onePct(pct)) of eComm sales (goal 3% or less)"
+                return "Your store lost \(money), \(AssistCopy.onePct(pct)) of eComm sales (goal \(AssistCopy.goalFact(.lostRevenue)))"
             }
-            return money.isEmpty ? "Your store is above the 3% lost-sales goal" : "Your store lost \(money) (goal 3% or less)"
+            return money.isEmpty ? "Your store is above the lost-sales goal" : "Your store lost \(money)"
         case .sales:
             let money = summary?.headlineText ?? shown
             if let yoy = summary?.salesYoyPct ?? rows.compactMap({ $0.number("sales_yoy_pct") }).first {
@@ -3310,7 +3412,8 @@ enum AssistComposer {
             facts.append(AssistFact(label: label, value: summary.headlineText))
         }
         let goal = AssistCopy.goalFact(section)
-        if section != .sales && !goal.isEmpty {
+        let dollarHeadline = section == .lostRevenue || section == .sales
+        if !dollarHeadline && section != .sales && !goal.isEmpty {
             facts.append(AssistFact(label: "Goal", value: goal))
         }
         if let trend = trendFact(section: section, rows: rows, snapshot: snapshot) {

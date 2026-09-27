@@ -819,16 +819,16 @@ final class AssistCardsTests: XCTestCase {
             "Store 10 Alpha, District J3",
         ])
         XCTAssertEqual(answer.plan.map(\.brokeText), [
-            "Pick Path 70% (goal 90, risk line 80)",
-            "Missing Items 8% (goal 5, risk line 6.5)",
+            "Pick Path 70.0% (goal 90, risk line 80)",
+            "Missing Items 8.0% (goal 5, risk line 6.5)",
             "Under-scheduled Tue 0.14%, Sat 0.11% (goal 5, risk line 5)",
         ])
         XCTAssertEqual(answer.plan[0].who, [
-            "J. Smith 61% path, 38 PPH",
-            "A. Lee 70% path, 55 PPH",
-            "C. Kim 88% path",
+            "Shopper ID J. Smith 61.0% path, 38 PPH",
+            "Shopper ID A. Lee 70.0% path, 55 PPH",
+            "Shopper ID C. Kim 88.0% path",
         ])
-        XCTAssertEqual(answer.plan[1].what, ["MILK 22%", "BREAD 15%", "EGGS 9%"])
+        XCTAssertEqual(answer.plan[1].what, ["MILK 22.0%", "BREAD 15.0%", "EGGS 9.0%"])
         XCTAssertTrue(answer.plan[0].what.isEmpty)
         XCTAssertTrue(answer.plan[2].who.isEmpty)
         XCTAssertFalse(answer.plan[2].brokeText.contains("Mon"))
@@ -870,21 +870,21 @@ final class AssistCardsTests: XCTestCase {
         let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
         let plan = answer.plan
         XCTAssertEqual(plan.count, 5)
-        XCTAssertEqual(plan[0].brokeText, "Pick Path 55% (goal 90, risk line 80)")
-        XCTAssertEqual(plan[1].brokeText, "Pick Path 75% (goal 90, risk line 80)")
-        XCTAssertEqual(plan[2].brokeText, "Pick Path 60% (goal 90, risk line 80)")
-        XCTAssertEqual(plan[3].brokeText, "Missing Items 8% (goal 5, risk line 6.5)")
-        XCTAssertEqual(plan[4].brokeText, "Missing Items 7% (goal 5, risk line 6.5)")
+        XCTAssertEqual(plan[0].brokeText, "Pick Path 55.0% (goal 90, risk line 80)")
+        XCTAssertEqual(plan[1].brokeText, "Pick Path 75.0% (goal 90, risk line 80)")
+        XCTAssertEqual(plan[2].brokeText, "Pick Path 60.0% (goal 90, risk line 80)")
+        XCTAssertEqual(plan[3].brokeText, "Missing Items 8.0% (goal 5, risk line 6.5)")
+        XCTAssertEqual(plan[4].brokeText, "Missing Items 7.0% (goal 5, risk line 6.5)")
 
         let j3 = Set(["10", "12", "15", "20"])
         let j3Shoppers = rankedPathShoppers(snapshot.rows[.pickPathPicker] ?? [], stores: j3)
         XCTAssertEqual(plan[0].who.map(shopperName), Array(j3Shoppers.prefix(5)))
         XCTAssertEqual(plan[0].who, [
-            "J. Smith 61% path, 38 PPH",
-            "A. Lee 70% path, 55 PPH",
-            "C. Kim 88% path",
+            "Shopper ID J. Smith 61.0% path, 38 PPH",
+            "Shopper ID A. Lee 70.0% path, 55 PPH",
+            "Shopper ID C. Kim 88.0% path",
         ])
-        XCTAssertEqual(plan[1].who, ["Z. Worst 40% path"])
+        XCTAssertEqual(plan[1].who, ["Shopper ID Z. Worst 40.0% path"])
         XCTAssertTrue(plan[2].who.isEmpty)
         XCTAssertTrue(plan[2].what.isEmpty)
         XCTAssertFalse(plan[2].actions[0].question.localizedCaseInsensitiveContains("hour"))
@@ -895,17 +895,17 @@ final class AssistCardsTests: XCTestCase {
 
         let store10Items = rankedItems(snapshot.rows[.preSubOOSItem] ?? [], store: "10")
         XCTAssertEqual(plan[3].what.map(itemName), store10Items)
-        XCTAssertEqual(plan[3].what, ["MILK 22%", "BREAD 15%", "EGGS 9%"])
+        XCTAssertEqual(plan[3].what, ["MILK 22.0%", "BREAD 15.0%", "EGGS 9.0%"])
         XCTAssertFalse(plan[3].what.contains { $0.contains("SODA") || $0.contains("OTHER") })
         XCTAssertTrue(plan[3].who.isEmpty)
         XCTAssertEqual(plan[3].actions[0].question, "Check shelf and sub rules for MILK, BREAD, and EGGS")
         XCTAssertEqual(plan[3].actions[0].owner, "Store manager")
         XCTAssertEqual(plan[3].actions[0].destination, .preSubOOS)
         XCTAssertEqual(plan[3].actions[0].filters?.store, "10")
-        XCTAssertEqual(plan[4].what, ["OTHER 50%"])
+        XCTAssertEqual(plan[4].what, ["OTHER 50.0%"])
         XCTAssertEqual(rankedItems(snapshot.rows[.preSubOOSItem] ?? [], store: "15"), ["OTHER"])
 
-        XCTAssertEqual(plan[0].actions[0].question, "Coach J. Smith and A. Lee on path today")
+        XCTAssertEqual(plan[0].actions[0].question, "Coach shopper IDs J. Smith and A. Lee on path today")
         XCTAssertEqual(plan[0].actions[0].owner, "Store manager")
         XCTAssertEqual(plan[0].actions[0].filters?.store, "10")
         XCTAssertEqual(plan[0].actions[0].destination, .pickPath)
@@ -913,7 +913,7 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(plan[0].actions[1].filters?.district, "J3")
         XCTAssertEqual(plan[0].actions[1].filters?.store, "")
         XCTAssertEqual(plan[0].actions[1].destination, .pickPath)
-        XCTAssertEqual(plan[1].actions[0].question, "Coach Z. Worst on path today")
+        XCTAssertEqual(plan[1].actions[0].question, "Coach shopper ID Z. Worst on path today")
         XCTAssertEqual(plan[1].actions[0].filters?.store, "40")
         XCTAssertEqual(plan[1].actions[0].destination, .pickPath)
 
@@ -986,7 +986,7 @@ final class AssistCardsTests: XCTestCase {
         ]
         let steps = AssistPlan.steps(snapshot: snapshot, sections: [.sales])
         let broke = steps.first?.brokeText ?? ""
-        XCTAssertEqual(broke, "Sales -4% (goal 0, risk line -3)")
+        XCTAssertEqual(broke, "Sales -4.0% (goal 0, risk line -3)")
         XCTAssertTrue(broke.contains("risk line -3"))
         XCTAssertFalse(broke.contains("risk line 3"))
     }
@@ -1025,6 +1025,148 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(answer.plan.contains { $0.what.contains { $0.contains("MILK") } })
     }
 
+    func testUnitedSummaryCountsComeFromTheSlice() throws {
+        let book = try loadPlaybook()
+        var filters = DashboardFilters()
+        filters.division = "United"
+        var company: [MetricSection: SectionSummary] = [:]
+        for section in MetricSection.dashboardCards {
+            company[section] = summary(section, .risk, risk: 1_331, watch: 574, stores: 2_162, headline: 7.6)
+        }
+        var latest: [MetricSection: [MetricRow]] = [:]
+        for section in AssistSnapshot.answerSections {
+            latest[section] = []
+        }
+        var missing: [MetricRow] = []
+        for index in 1...69 {
+            missing.append(row(.missingItems, ["mi_pct": 8], store: String(1000 + index), division: "United", district: "U4", name: "U"))
+        }
+        missing.append(row(.missingItems, ["mi_pct": 2], store: "1999", division: "United", district: "U4", name: "U"))
+        for index in 1...20 {
+            missing.append(row(.missingItems, ["mi_pct": 9], store: String(index), division: "Shaws", district: "J3", name: "S"))
+        }
+        latest[.missingItems] = missing
+        var stars: [MetricRow] = []
+        for index in 1...25 {
+            stars.append(row(.fiveStar, ["star_rating": 3], store: String(1000 + index), division: "United", district: "U4"))
+        }
+        for index in 26...70 {
+            stars.append(row(.fiveStar, ["star_rating": 4.8], store: String(1000 + index), division: "United", district: "U4"))
+        }
+        latest[.fiveStar] = stars
+        var labor: [MetricRow] = []
+        for index in 1...30 {
+            labor.append(row(.labor, ["target_vs_actual_pct": 6], store: String(1000 + index), division: "United", district: "U7"))
+        }
+        for index in 31...62 {
+            labor.append(row(.labor, ["target_vs_actual_pct": 0], store: String(1000 + index), division: "United", district: "U7"))
+        }
+        latest[.labor] = labor
+        latest[.pickPath] = (1...40).map {
+            row(.pickPath, ["compliance_pct": 50], store: String($0), division: "Shaws", district: "J3")
+        }
+        let snapshot = AssistSnapshot.assemble(AssistSnapshot.Source(
+            seeded: true,
+            filters: filters,
+            summaries: company,
+            latest: latest,
+            historyPool: [],
+            focus: nil,
+            rosterStores: [],
+            districts: ["U4", "U7"],
+            divisions: ["United", "Shaws"],
+            operationsOMs: [],
+            packUploads: [],
+            now: Date()
+        ))
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        XCTAssertEqual(answer.headerLines.map(\.text), [
+            "1. Missing Items: 69 of 70 stores",
+            "2. 5 Star: 25 of 70 stores",
+            "3. Labor: 30 of 62 stores",
+        ])
+        let blob = answer.headerLines.map(\.text).joined(separator: " ")
+        XCTAssertFalse(blob.contains("1,331"))
+        XCTAssertFalse(blob.contains("2,162"))
+        XCTAssertFalse(blob.contains("1,175"))
+        let watch = answer.issues.first { $0.id == "missing_items" }?.facts.first { $0.label == "On watch" }?.value
+        XCTAssertEqual(watch, "0")
+    }
+
+    func testScheduleLinePrintsTheRankedMeasure() {
+        let rows = [
+            row(
+                .scheduleQuality,
+                ["schedule_efficiency_pct": 98.7, "staffing_efficiency_pct": 72.2],
+                store: "8",
+                district: "65"
+            ),
+        ]
+        let list = AssistPriority.list(section: .scheduleQuality, rows: rows, filters: DashboardFilters(), roster: [])
+        let text = list.shown.first?.text ?? ""
+        XCTAssertTrue(text.contains("Staffing 72.2%"))
+        XCTAssertTrue(text.contains("goal 90%"))
+        XCTAssertFalse(text.contains("98.7"))
+    }
+
+    func testDenominatorExcludesStoresWithNoData() throws {
+        let book = try loadPlaybook()
+        var company: [MetricSection: SectionSummary] = [:]
+        for section in MetricSection.dashboardCards {
+            company[section] = summary(section, .risk, risk: 1_822, watch: 0, stores: 2_161, headline: 70)
+        }
+        var latest: [MetricSection: [MetricRow]] = [:]
+        for section in AssistSnapshot.answerSections {
+            latest[section] = []
+        }
+        latest[.scheduleQuality] = [
+            row(.scheduleQuality, ["schedule_efficiency_pct": 70], store: "1"),
+            row(.scheduleQuality, ["schedule_efficiency_pct": 60], store: "2"),
+            row(.scheduleQuality, ["schedule_efficiency_pct": 95], store: "3"),
+            row(.scheduleQuality, [:], store: "4"),
+        ]
+        let snapshot = AssistSnapshot.assemble(AssistSnapshot.Source(
+            seeded: true,
+            filters: DashboardFilters(),
+            summaries: company,
+            latest: latest,
+            historyPool: [],
+            focus: nil,
+            rosterStores: [],
+            districts: [],
+            divisions: [],
+            operationsOMs: [],
+            packUploads: [],
+            now: Date()
+        ))
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        XCTAssertEqual(answer.headerLines.first?.text, "1. Schedule: 2 of 3 stores")
+        XCTAssertFalse(answer.headerLines.contains { $0.text.contains("2,161") || $0.text.contains("of 4") })
+    }
+
+    func testDollarMetricHasNoPercentGoal() throws {
+        let book = try loadPlaybook()
+        var snapshot = fixtureSnapshot()
+        snapshot.filters.store = "3493"
+        snapshot.rosterStores = [("3493", nil)]
+        for section in MetricSection.dashboardCards {
+            snapshot.summaries[section] = summary(section, .good, risk: 0, watch: 0, stores: 1, headline: nil)
+        }
+        snapshot.summaries[.lostRevenue] = summary(.lostRevenue, .watch, risk: 0, watch: 1, stores: 1, headline: 539)
+        snapshot.rows[.lostRevenue] = [
+            row(.lostRevenue, ["lost_revenue": 539, "lost_revenue_pct": 3.8], store: "3493"),
+        ]
+        let answer = AssistComposer.answer(question: "What should this store fix first?", snapshot: snapshot, book: book)
+        let header = try XCTUnwrap(answer.headerLines.first?.text)
+        XCTAssertEqual(header, "1. Loss Revenue: $539")
+        XCTAssertFalse(header.contains("%"))
+        XCTAssertFalse(header.contains("goal"))
+        let issue = try XCTUnwrap(answer.issues.first { $0.id == "lost_revenue" })
+        XCTAssertFalse(issue.facts.contains { $0.label == "Goal" })
+        XCTAssertFalse(issue.headline.contains("goal 3%"))
+        XCTAssertFalse(issue.numberValue.contains("%"))
+    }
+
     func testTellMeMoreReturnsPlanCardsForThatMetric() throws {
         let book = try loadPlaybook()
         let snapshot = prioritySnapshot()
@@ -1050,9 +1192,9 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(first.whereText.contains("Z. Worst"))
         XCTAssertTrue(first.whereText.contains("Store 40"))
         XCTAssertTrue(first.whereText.contains("District A9"))
-        XCTAssertEqual(first.brokeText, "Path 40% (goal 90, risk line 80)")
+        XCTAssertEqual(first.brokeText, "Path 40.0% (goal 90, risk line 80)")
         XCTAssertEqual(first.actions.count, 1)
-        XCTAssertEqual(first.actions[0].question, "Coach Z. Worst on path today")
+        XCTAssertEqual(first.actions[0].question, "Coach shopper ID Z. Worst on path today")
         XCTAssertEqual(first.actions[0].owner, "Store manager")
         XCTAssertEqual(first.actions[0].destination, .pickPath)
         XCTAssertEqual(first.actions[0].filters?.store, "40")
@@ -1235,10 +1377,14 @@ final class AssistCardsTests: XCTestCase {
     }
 
     private func shopperName(_ line: String) -> String {
-        if let range = line.range(of: " at ") {
-            return String(line[..<range.lowerBound])
+        var text = line
+        if let range = text.range(of: "Shopper ID ") {
+            text = String(text[range.upperBound...])
         }
-        let words = line.split(separator: " ").map(String.init)
+        if let range = text.range(of: " at ") {
+            return String(text[..<range.lowerBound])
+        }
+        let words = text.split(separator: " ").map(String.init)
         return words.prefix { !$0.contains(where: \.isNumber) }.joined(separator: " ")
     }
 
