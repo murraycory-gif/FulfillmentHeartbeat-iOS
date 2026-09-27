@@ -124,7 +124,7 @@ extension HeartbeatMath {
             out.append(ChecklistFinding(
                 name: "Star rating",
                 value: HeartbeatFormat.stars(row.number("star_rating")),
-                need: "≥ 4.50",
+                need: "≥ \(String(format: "%.2f", HeartbeatMath.fiveStarGoal))",
                 health: fiveStarHealth(row),
                 fact: "Overall rating is off goal. Open 5 Star for the component mix.",
                 shoppers: "",

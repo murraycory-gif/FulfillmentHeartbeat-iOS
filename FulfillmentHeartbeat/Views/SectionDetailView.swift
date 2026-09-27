@@ -835,17 +835,19 @@ struct SectionDetailView: View {
         let coeMark = HeartbeatMath.starMark(value: coe, full: 20, half: 0)
         let ottMark = HeartbeatMath.starMark(value: ott, full: 95, half: 90)
         let othMark = HeartbeatMath.starMark(value: oth, full: 92, half: 78)
-        callout("Avg star rating", summary.headlineText, "5.00 goal · 4.0+ pass", summary.health, selected: fiveStarFocus == .all) {
+        let goal = String(format: "%.2f", HeartbeatMath.fiveStarGoal)
+        let passLine = String(format: "%.1f", HeartbeatMath.fiveStarPass)
+        callout("Avg star rating", summary.headlineText, "\(goal) goal · \(passLine)+ pass", summary.health, selected: fiveStarFocus == .all) {
             fiveStarFocus = .all
         }
-        callout("Goal", "5.00", "Target store rating", .none, brand: true)
-        callout("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good, unit: "stores", selected: fiveStarFocus == .atFive) {
+        callout("Goal", goal, "Target store rating", .none, brand: true)
+        callout("At \(goal)", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good, unit: "stores", selected: fiveStarFocus == .atFive) {
             fiveStarFocus = .atFive
         }
-        callout("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good, unit: "stores", selected: fiveStarFocus == .pass) {
+        callout("Pass \(passLine)+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good, unit: "stores", selected: fiveStarFocus == .pass) {
             fiveStarFocus = .pass
         }
-        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk, unit: "stores", selected: fiveStarFocus == .fail) {
+        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under \(passLine)", fail == 0 ? .good : .risk, unit: "stores", selected: fiveStarFocus == .fail) {
             fiveStarFocus = .fail
         }
         callout("Flash", HeartbeatFormat.pct(flash), flashMark.label, flashMark.health, selected: fiveStarFocus == .flash) {

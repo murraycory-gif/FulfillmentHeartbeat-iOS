@@ -902,6 +902,12 @@ struct PulseCaches {
             if !filters.includesStore(number) { continue }
             allowed.insert(HeartbeatMath.canonicalStore(number))
         }
+        // A typed store is the scope even when the roster omitted it or its
+        // division / district / OM key does not match the open seat.
+        for raw in filters.stores {
+            let store = HeartbeatMath.canonicalStore(raw)
+            if !store.isEmpty { allowed.insert(store) }
+        }
         return allowed
     }
 

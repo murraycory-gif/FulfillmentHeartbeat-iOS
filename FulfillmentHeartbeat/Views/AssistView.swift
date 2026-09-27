@@ -14,6 +14,7 @@ struct HeartbeatAssistSheet: View {
     @State private var expandedChecks: Set<String> = []
     @State private var expandedWhy: Set<String> = []
     @State private var pending: Task<Void, Never>?
+    @State private var askedOpening = false
     @FocusState private var fieldFocused: Bool
 
     private var stackFacts: Bool { dynamicTypeSize.isAccessibilitySize }
@@ -38,7 +39,10 @@ struct HeartbeatAssistSheet: View {
             .navigationTitle("Heartbeat Assist")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .onAppear { reloadChips() }
+        .onAppear {
+            reloadChips()
+            askOpeningQuestionIfNeeded()
+        }
         .onDisappear { pending?.cancel() }
         .onChange(of: store.filters) { _, _ in
             reloadChips()
@@ -668,6 +672,16 @@ struct HeartbeatAssistSheet: View {
                 .foregroundStyle(AppTheme.text)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// The sheet used to open on chips only. Ask the scope's fix-first question so company and store answers are on screen.
+    private func askOpeningQuestionIfNeeded() {
+        guard turns.isEmpty, !askedOpening else { return }
+        askedOpening = true
+        let question = AssistScope.level(store.filters) == .store
+            ? "What should this store fix first?"
+            : "What should we fix first?"
+        ask(question)
     }
 
     private func ask(_ raw: String) {

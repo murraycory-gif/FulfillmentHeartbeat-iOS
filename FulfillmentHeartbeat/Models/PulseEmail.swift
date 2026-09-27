@@ -1008,12 +1008,14 @@ enum PulseMail {
             let coe = HeartbeatMath.average(scored.compactMap { $0.number("coe_pct") })
             let ott = HeartbeatMath.average(scored.compactMap { $0.number("ott_pct") })
             let oth = HeartbeatMath.average(scored.compactMap { $0.number("oth5_pct") })
+            let goal = String(format: "%.2f", HeartbeatMath.fiveStarGoal)
+            let passLine = String(format: "%.1f", HeartbeatMath.fiveStarPass)
             items = [
-                tile("Avg star rating", summary?.headlineText ?? "—", "5.00 goal · 4.0+ pass", summary?.health ?? .none),
-                tile("Goal", "5.00", "Target store rating", .none, brand: true),
-                tile("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good),
-                tile("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good),
-                tile("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk),
+                tile("Avg star rating", summary?.headlineText ?? "—", "\(goal) goal · \(passLine)+ pass", summary?.health ?? .none),
+                tile("Goal", goal, "Target store rating", .none, brand: true),
+                tile("At \(goal)", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good),
+                tile("Pass \(passLine)+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good),
+                tile("Fail", HeartbeatFormat.num(Double(fail)), "Stores under \(passLine)", fail == 0 ? .good : .risk),
                 tile("Flash", HeartbeatFormat.pct(flash), HeartbeatMath.starMark(value: flash, full: 75, half: 55).label, HeartbeatMath.starMark(value: flash, full: 75, half: 55).health),
                 tile("Presubs", HeartbeatFormat.pct(presub), HeartbeatMath.starMark(value: presub, full: 5, half: 6, invert: true).label, HeartbeatMath.starMark(value: presub, full: 5, half: 6, invert: true).health),
                 tile("COE", HeartbeatFormat.pct(coe), HeartbeatMath.starMark(value: coe, full: 20, half: 0).label, HeartbeatMath.starMark(value: coe, full: 20, half: 0).health),

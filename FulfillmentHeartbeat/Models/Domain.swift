@@ -782,7 +782,8 @@ struct SectionSummary: Identifiable, Equatable, Codable {
 /// Band lines for health, `AssistRank.offBand`, and the plan breakpoint. One table.
 enum AssistScoreLine {
     static let pickPathGoal = 90.0
-    static let fiveStarGoal = 4.5
+    /// Same 5 Star goal the Scorecard prints. Pass stays 4.0; it is not goal minus 0.5.
+    static let fiveStarGoal = 5.0
     static let fiveStarPass = 4.0
     static let salesWatch = -3.0
     static let laborGoal = 0.0

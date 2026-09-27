@@ -250,7 +250,7 @@ enum AssistAutoCheck {
                let summary = summaries[section],
                let headline = summary.headline, headline.isFinite {
                 numeric = headline
-                valueText = summary.headlineText
+                valueText = AssistCopy.shownHeadline(section, summary)
             } else if let average = HeartbeatMath.average(readings.map(\.value)) {
                 numeric = average
                 valueText = String(format: "%.1f", average)
@@ -1902,7 +1902,7 @@ enum AssistPlan {
         return nil
     }
 
-    /// Pack under/over values are already percent. 0.56 stays 0.56%, never 56%.
+    /// Pack under/over values are already percent. One decimal, never ×100.
     private static func scheduleAmount(_ value: Double) -> String {
         AssistCopy.scheduleVariancePercent(value)
     }
@@ -2476,26 +2476,22 @@ enum AssistCopy {
         return String(format: "%.1f", tenths)
     }
 
-    /// One decimal for every percent shown on a card or a plan step.
+    /// One decimal for every measured percent on a card, header, or plan step.
     static func percent(_ value: Double) -> String {
         String(format: "%.1f%%", value)
     }
 
-    /// Under/over pack values are already percent. At or under 1.5, keep hundredths so 0.56 stays 0.56%.
+    /// Under/over pack values are already percent. Same one-decimal formatter as every other percent.
     static func scheduleVariancePercent(_ value: Double) -> String {
-        if abs(value) > 1.5 {
-            return percent(value)
+        percent(value)
+    }
+
+    /// Assist display of a card headline. Labor's dashboard text keeps two decimals; Assist uses `percent`.
+    static func shownHeadline(_ section: MetricSection, _ summary: SectionSummary) -> String {
+        if section == .labor, let headline = summary.headline {
+            return percent(headline)
         }
-        let hundredths = (value * 100).rounded() / 100
-        let whole = hundredths.rounded()
-        if abs(hundredths - whole) < 0.001 {
-            return "\(Int(whole))%"
-        }
-        let tenths = (hundredths * 10).rounded() / 10
-        if abs(hundredths - tenths) < 0.001 {
-            return String(format: "%.1f%%", hundredths)
-        }
-        return String(format: "%.2f%%", hundredths)
+        return summary.headlineText
     }
 
     static func goalFact(_ section: MetricSection) -> String {
@@ -2514,7 +2510,7 @@ enum AssistCopy {
     }
 
     static func one(_ value: Double) -> String { String(format: "%.1f", value) }
-    static func onePct(_ value: Double) -> String { String(format: "%.1f%%", value) }
+    static func onePct(_ value: Double) -> String { percent(value) }
 
     /// Store value and goal, same precision as `SectionSummary.headlineText`. Nil when the row has no comparable field.
     static func storeReading(section: MetricSection, row: MetricRow) -> (value: String, goal: String)? {
@@ -2926,14 +2922,14 @@ enum AssistComposer {
             }
             answer.healthyFacts = healthyOnes.compactMap { section in
                 guard let summary = snapshot.summaries[section], summary.headline != nil else { return nil }
-                return AssistFact(label: section.overviewLead, value: "\(summary.headlineText) (goal \(AssistCopy.goalFact(section)))")
+                return AssistFact(label: section.overviewLead, value: "\(AssistCopy.shownHeadline(section, summary)) (goal \(AssistCopy.goalFact(section)))")
             }
         } else {
             answer.noticeTitle = "Scorecards at goal"
             answer.noticeBody = "These scorecards are at goal in \(answer.scopeLabel)."
             answer.healthyFacts = healthyOnes.compactMap { section in
                 guard let summary = snapshot.summaries[section], summary.headline != nil else { return nil }
-                return AssistFact(label: section.overviewLead, value: "\(summary.headlineText) (goal \(AssistCopy.goalFact(section)))")
+                return AssistFact(label: section.overviewLead, value: "\(AssistCopy.shownHeadline(section, summary)) (goal \(AssistCopy.goalFact(section)))")
             }
         }
         answer.emptyNote = emptyNote(snapshot)
@@ -3152,7 +3148,7 @@ enum AssistComposer {
         }
         if level == .store {
             guard summary.headline != nil else { return "" }
-            let value = summary.headlineText
+            let value = AssistCopy.shownHeadline(section, summary)
             guard !value.isEmpty, value != "—" else { return "" }
             let goal = (section == .lostRevenue || section == .sales) ? "" : AssistCopy.goalShort(section)
             return AssistCopy.storeHeaderLine(
@@ -3285,7 +3281,7 @@ enum AssistComposer {
         }
         let risk = AssistCopy.grouped(scored.risk)
         let total = AssistCopy.grouped(scored.storeCount)
-        let value = summary?.headlineText ?? ""
+        let value = summary.map { AssistCopy.shownHeadline(section, $0) } ?? ""
         let above = scored.risk == 1 ? "1 of \(total) stores" : "\(risk) of \(total) stores"
         let text: String
         if level == .store {
@@ -3409,7 +3405,7 @@ enum AssistComposer {
             case .sales: label = "eComm sales"
             default: label = "Average"
             }
-            facts.append(AssistFact(label: label, value: summary.headlineText))
+            facts.append(AssistFact(label: label, value: AssistCopy.shownHeadline(section, summary)))
         }
         let goal = AssistCopy.goalFact(section)
         let dollarHeadline = section == .lostRevenue || section == .sales
@@ -3936,7 +3932,7 @@ enum AssistComposer {
         var best: (String, Double)?
         for section in sections {
             guard let summary = snapshot.summaries[section], let room = headroom(section, summary), room >= 0 else { continue }
-            let text = "\(section.overviewLead) at \(summary.headlineText) (goal \(AssistCopy.goalFact(section)))"
+            let text = "\(section.overviewLead) at \(AssistCopy.shownHeadline(section, summary)) (goal \(AssistCopy.goalFact(section)))"
             if best == nil || room < best!.1 { best = (text, room) }
         }
         return best?.0

@@ -821,7 +821,7 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(answer.plan.map(\.brokeText), [
             "Pick Path 70.0% (goal 90, risk line 80)",
             "Missing Items 8.0% (goal 5, risk line 6.5)",
-            "Under-scheduled Tue 0.14%, Sat 0.11% (goal 5, risk line 5)",
+            "Under-scheduled Tue 0.1%, Sat 0.1% (goal 5, risk line 5)",
         ])
         XCTAssertEqual(answer.plan[0].who, [
             "Shopper ID J. Smith 61.0% path, 38 PPH",
@@ -926,10 +926,10 @@ final class AssistCardsTests: XCTestCase {
         let days = rankedDays(snapshot.rows[.labor] ?? [], store: "10")
         XCTAssertEqual(days, ["Tue", "Sat", "Mon"])
         let broke = try XCTUnwrap(schedule.plan.first?.brokeText)
-        XCTAssertTrue(broke.contains("\(days[0]) 0.14%"))
-        XCTAssertTrue(broke.contains("\(days[1]) 0.11%"))
+        XCTAssertTrue(broke.contains("\(days[0]) 0.1%"))
+        XCTAssertTrue(broke.contains("\(days[1]) 0.1%"))
         XCTAssertFalse(broke.contains(days[2]))
-        XCTAssertEqual(broke, "Under-scheduled Tue 0.14%, Sat 0.11% (goal 5, risk line 5)")
+        XCTAssertEqual(broke, "Under-scheduled Tue 0.1%, Sat 0.1% (goal 5, risk line 5)")
         XCTAssertEqual(schedule.plan.first?.whereText, "District J3")
         XCTAssertEqual(schedule.plan.first?.actions.first?.filters?.store, "10")
         XCTAssertEqual(schedule.plan.first?.actions.first?.destination, .scheduleQuality)
@@ -975,7 +975,7 @@ final class AssistCardsTests: XCTestCase {
             ),
         ]
         let steps = AssistPlan.steps(snapshot: snapshot, sections: [.scheduleQuality])
-        XCTAssertEqual(steps.first?.brokeText, "Over-scheduled 0.56% (goal 5, risk line 5)")
+        XCTAssertEqual(steps.first?.brokeText, "Over-scheduled 0.6% (goal 5, risk line 5)")
         XCTAssertFalse(steps.contains { $0.brokeText.contains("56.3") })
     }
 
@@ -1082,10 +1082,11 @@ final class AssistCardsTests: XCTestCase {
             now: Date()
         ))
         let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        // Goal is 5.00, so a 4.8 is watch and Labor outranks 5 Star. The risk count stays 25.
         XCTAssertEqual(answer.headerLines.map(\.text), [
             "1. Missing Items: 69 of 70 stores",
-            "2. 5 Star: 25 of 70 stores",
-            "3. Labor: 30 of 62 stores",
+            "2. Labor: 30 of 62 stores",
+            "3. 5 Star: 25 of 70 stores",
         ])
         let blob = answer.headerLines.map(\.text).joined(separator: " ")
         XCTAssertFalse(blob.contains("1,331"))

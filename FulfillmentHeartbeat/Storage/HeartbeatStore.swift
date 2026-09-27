@@ -2831,6 +2831,11 @@ final class HeartbeatStore: ObservableObject {
             _ = materializeSeatFromCompany(key, to: dest)
             localUsable = PulseSeatPack.isUsable(at: dest)
         }
+        // An empty cooked store seat (Haggen 3493 under a Southern roster) is not a pack.
+        if storeSeatLacksFacts(key, at: dest) {
+            try? fileManager.removeItem(at: dest)
+            localUsable = false
+        }
         let alreadyOn = !forceReload
             && activeSeatKey == key
             && PulseSeatPack.isUsable(at: activePackURL)
@@ -2902,6 +2907,10 @@ final class HeartbeatStore: ObservableObject {
                     _ = materializeSeatFromCompany(key, to: dest)
                     localUsable = PulseSeatPack.isUsable(at: dest)
                 }
+                if storeSeatLacksFacts(key, at: dest) {
+                    try? fileManager.removeItem(at: dest)
+                    localUsable = false
+                }
                 guard localUsable else {
                     failSeatSwap(key)
                     return false
@@ -2926,6 +2935,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func failSeatSwap(_ key: PulseSeatPack.Key) {
+        if backfillStoreFactsFromCompany(key) {
+            errorMessage = nil
+            lastPaintedSeatKey = key
+            publishSeatPaint(force: true)
+            return
+        }
         guard !PulseLaunch.shouldSilentNoOpOnSeatSwapFailure() else { return }
         errorMessage = PulseSeatPack.missingSeatMessage(key)
         publishSeatPaint()
@@ -3460,22 +3475,95 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Kitchen only. Field iPad Release must fail instead of calling this.
+    /// Facts come from the company seat when the market file is roster-only.
     @discardableResult
     private func materializeSeatFromCompany(_ key: PulseSeatPack.Key, to dest: URL) -> Bool {
         guard PulseSeatPack.shouldMaterializeMissingSeat() else { return false }
-        guard PulseSQLite.exists(at: companySQLiteURL) else { return false }
-        do {
-            _ = try PulseSeatPack.materialize(
-                from: companySQLiteURL,
-                key: key,
-                roster: roster,
-                uploads: uploads,
-                to: dest
-            )
-            return PulseSeatPack.isUsable(at: dest)
-        } catch {
-            return false
+        for source in companyFactPackURLs() where source != dest {
+            do {
+                _ = try PulseSeatPack.materialize(
+                    from: source,
+                    key: key,
+                    roster: roster,
+                    uploads: uploads,
+                    to: dest
+                )
+            } catch {
+                continue
+            }
+            if !storeSeatLacksFacts(key, at: dest), PulseSeatPack.isUsable(at: dest) {
+                return true
+            }
+            try? fileManager.removeItem(at: dest)
         }
+        return false
+    }
+
+    /// Company seat first, then the market sqlite. A store typed into the filter
+    /// still has to be readable when the active roster is another division.
+    private func companyFactPackURLs() -> [URL] {
+        var urls: [URL] = []
+        let seat = PulseSeatPack.localURL(root: rootURL, key: .company)
+        if PulseSQLite.exists(at: seat) { urls.append(seat) }
+        if PulseSQLite.exists(at: companySQLiteURL), !urls.contains(companySQLiteURL) {
+            urls.append(companySQLiteURL)
+        }
+        return urls
+    }
+
+    /// True when a store seat file has no dashboard facts for that store.
+    private func storeSeatLacksFacts(_ key: PulseSeatPack.Key, at url: URL) -> Bool {
+        guard key.grain == .store else { return false }
+        guard PulseSQLite.exists(at: url) else { return true }
+        return PulseSQLite.readStores(
+            from: url,
+            sections: Set(MetricSection.dashboardCards),
+            stores: [key.id]
+        ).isEmpty
+    }
+
+    private func memoryHasStoreFacts(_ store: String) -> Bool {
+        let wanted = Set(HeartbeatMath.storeAliases(store))
+        for section in MetricSection.dashboardCards {
+            for row in latestBySection[section] ?? [] {
+                let number = HeartbeatMath.canonicalStore(row.storeNumber)
+                if wanted.contains(number) || wanted.contains(row.storeNumber) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// In-memory only. Field devices must not write a store seat file.
+    /// Dashboard tiles read `cachedSummaries`, so the slice is applied here too.
+    @discardableResult
+    private func backfillStoreFactsFromCompany(_ key: PulseSeatPack.Key) -> Bool {
+        guard key.grain == .store else { return false }
+        if !memoryHasStoreFacts(key.id) {
+            var found: [MetricRow] = []
+            for source in companyFactPackURLs() {
+                let rows = PulseSQLite.readStores(
+                    from: source,
+                    sections: Set(MetricSection.allCases),
+                    stores: [key.id]
+                )
+                if !rows.isEmpty {
+                    found = rows
+                    break
+                }
+            }
+            guard !found.isEmpty else { return false }
+            installSeatRowsFromPack(
+                PulseSQLite.Pack(rows: found, uploads: uploads, seeded: true, counts: [:], writtenAt: nil, chrome: nil),
+                key: key
+            )
+        }
+        guard memoryHasStoreFacts(key.id) else { return false }
+        activeSeatKey = key
+        seeded = true
+        applySeatSliceNow()
+        return true
     }
 
     func loadSampleMarket() {
