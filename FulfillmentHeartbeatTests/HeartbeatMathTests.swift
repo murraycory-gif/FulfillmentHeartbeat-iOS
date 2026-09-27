@@ -427,8 +427,15 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let fourWide = HubLayout.calloutColumns(count: 4, width: 1_000)
         XCTAssertEqual(fourWide, 4)
-        let fourTight = HubLayout.calloutColumns(count: 4, width: 600)
-        XCTAssertLessThanOrEqual(fourTight, 2)
+        // 600pt on pad-regular / Mac is the <760 band (≤2 columns). An iPhone
+        // sim host sets livePhoneIdiom, and isPhone then ignores sizeClass
+        // .regular, so the same width uses the phone 520–699 band (3).
+        let fourTight = HubLayout.calloutColumns(count: 4, width: 600, sizeClass: .regular)
+        if HubLayout.livePhoneIdiom {
+            XCTAssertEqual(fourTight, 3)
+        } else {
+            XCTAssertLessThanOrEqual(fourTight, 2)
+        }
         let tile = HubLayout.calloutTileMinWidth(columns: 4, width: 900, phone: false)
         XCTAssertLessThanOrEqual(tile * 4 + HubLayout.calloutGridSpacing * 3, 900)
         XCTAssertEqual(HubLayout.calloutTileHeight(phone: false), HubLayout.calloutMinHeight(phone: false))
