@@ -610,7 +610,8 @@ enum AssistRank {
         switch section {
         case .pickPath, .pickPathPicker:
             guard let value = row.number("compliance_pct") else { return nil }
-            ratio = max(0, HeartbeatMath.pickPathGoal - value) / 10
+            let width = AssistScoreLine.pickPathGoal - HeartbeatMath.pickPathRisk
+            ratio = max(0, AssistScoreLine.pickPathGoal - value) / width
         case .missingItems, .preSubOOS:
             guard let value = row.number(MissingItemDept.totalKey) else { return nil }
             ratio = max(0, value - HeartbeatMath.missingItemsGoal) / 1.5
@@ -633,16 +634,17 @@ enum AssistRank {
             ratio = max(0, band.goal - value) / (band.goal - band.risk)
         case .labor:
             guard let value = row.number("target_vs_actual_pct") else { return nil }
-            ratio = max(0, value - 0) / HeartbeatMath.laborWatch
+            ratio = max(0, value - AssistScoreLine.laborGoal) / HeartbeatMath.laborWatch
         case .fiveStar:
             guard let value = row.number("star_rating") else { return nil }
-            ratio = max(0, 4.5 - value) / 0.5
+            let width = AssistScoreLine.fiveStarGoal - AssistScoreLine.fiveStarPass
+            ratio = max(0, AssistScoreLine.fiveStarGoal - value) / width
         case .lostRevenue:
             guard let value = row.number("lost_revenue_pct") else { return nil }
             ratio = max(0, value - HeartbeatMath.lostRevenueGood) / 2
         case .sales:
             if let yoy = row.number("sales_yoy_pct") {
-                ratio = max(0, 0 - yoy) / 3
+                ratio = max(0, 0 - yoy) / abs(AssistScoreLine.salesWatch)
             } else if let plan = row.number("sales_plan_pct") {
                 ratio = max(0, HeartbeatMath.salesPlanGood - plan) / 5
             } else {
@@ -674,11 +676,12 @@ enum AssistRank {
                 best = ScheduleComponent(kind: kind, value: value, ratio: ratio)
             }
         }
+        let scheduleWidth = HeartbeatMath.scheduleGoal - AssistScoreLine.scheduleWatch
         if let efficiency = row.number("schedule_efficiency_pct") {
-            consider(.efficiency, efficiency, max(0, (HeartbeatMath.scheduleGoal - efficiency) / 5))
+            consider(.efficiency, efficiency, max(0, (HeartbeatMath.scheduleGoal - efficiency) / scheduleWidth))
         }
         if let staffing = row.number("staffing_efficiency_pct") {
-            consider(.staffing, staffing, max(0, (HeartbeatMath.scheduleGoal - staffing) / 5))
+            consider(.staffing, staffing, max(0, (HeartbeatMath.scheduleGoal - staffing) / scheduleWidth))
         }
         if let under = row.number("under_schedule_pct", "under_scheduled") {
             consider(.under, under, max(0, (under - 0.05) / 4.95))
@@ -820,15 +823,15 @@ enum AssistPriority {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
             let gap = AssistRank.round4(AssistRank.offBand(section: section, row: row) ?? 0)
-            let reading = AssistCopy.storeReading(section: section, row: row)
+            guard let reading = AssistCopy.storeReading(section: section, row: row) else { continue }
             picks.append(Candidate(
                 store: store,
                 health: health,
                 gap: gap,
                 name: storeName(row, roster: roster),
                 place: placeLabel(row),
-                value: reading?.value ?? "off goal",
-                goal: reading?.goal ?? AssistCopy.goalShort(section)
+                value: reading.value,
+                goal: reading.goal
             ))
         }
         return picks.sorted { lhs, rhs in
@@ -1104,8 +1107,9 @@ enum AssistPlan {
             let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             hits = hits.filter { $0.name.lowercased() == wanted }
         }
+        let stores = storeIndex(snapshot: snapshot, sections: [.pickPath, .pickPathPicker])
         return hits.prefix(limit).enumerated().map { offset, hit in
-            let whereText = shopperWhere(hit, snapshot: snapshot)
+            let whereText = shopperWhere(hit, stores: stores)
             let broke = shopperBroke(hit)
             let action = action(
                 id: "coach-\(hit.store)-\(offset)",
@@ -1141,6 +1145,7 @@ enum AssistPlan {
     }
 
     private static func locate(section: MetricSection, snapshot: AssistSnapshot) -> [Place] {
+        let index = storeIndex(snapshot: snapshot, sections: [section])
         let picks = AssistPriority.candidates(
             section: section,
             rows: snapshot.rows[section] ?? [],
@@ -1148,9 +1153,24 @@ enum AssistPlan {
             roster: snapshot.rosterStores
         )
         return picks.compactMap { pick in
-            guard let row = storeRow(section: section, store: pick.store, snapshot: snapshot) else { return nil }
+            guard let row = index[pick.store] else { return nil }
             return Place(pick: pick, row: row, district: districtLabel(row), om: omLabel(row))
         }
+    }
+
+    /// One latest row per store for these sections. Built once per compose, not once per candidate.
+    private static func storeIndex(snapshot: AssistSnapshot, sections: [MetricSection]) -> [String: MetricRow] {
+        var index: [String: MetricRow] = [:]
+        for section in sections {
+            let scoped = AssistScope.slice(snapshot.rows[section] ?? [], filters: snapshot.filters)
+            let latest = HeartbeatMath.latestPerStore(AssistRank.scoringRows(scoped))
+            for row in latest {
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                if store.isEmpty || index[store] != nil { continue }
+                index[store] = row
+            }
+        }
+        return index
     }
 
     private static func dominantDistrict(
@@ -1394,12 +1414,11 @@ enum AssistPlan {
             }
             if let compliance {
                 entry.compliance = compliance
-                entry.pathGap = AssistRank.round4(min(3, max(0, (HeartbeatMath.pickPathGoal - compliance) / 10)))
+                entry.pathGap = AssistRank.round4(AssistRank.offBand(section: .pickPathPicker, row: row) ?? 0)
             }
             if let pph {
                 entry.pph = pph
-                let band = AssistRank.pphRankingBand
-                entry.pphGap = AssistRank.round4(min(3, max(0, (band.goal - pph) / (band.goal - band.risk))))
+                entry.pphGap = AssistRank.round4(AssistRank.offBand(section: .pph, row: row) ?? 0)
             }
             entry.fromScorecard = entry.fromScorecard || fromScorecard
             raw[key] = entry
@@ -1408,7 +1427,7 @@ enum AssistPlan {
         for row in pathRows {
             guard HeartbeatMath.isRealPicker(row) else { continue }
             guard let compliance = row.number("compliance_pct") else { continue }
-            let health = HeartbeatMath.band(compliance, good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk)
+            let health = HeartbeatMath.band(compliance, good: AssistScoreLine.pickPathGoal, watch: HeartbeatMath.pickPathRisk)
             guard health == .risk || health == .watch else { continue }
             take(row, compliance: compliance, pph: row.number("pph"), fromScorecard: false)
         }
@@ -1417,7 +1436,7 @@ enum AssistPlan {
             guard HeartbeatMath.isRealPicker(row), HeartbeatMath.pickerHasVolume(row) else { continue }
             let compliance = row.number("compliance_pct")
             let pph = row.number("pph")
-            let pathOff = compliance.map { HeartbeatMath.band($0, good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk) }
+            let pathOff = compliance.map { HeartbeatMath.band($0, good: AssistScoreLine.pickPathGoal, watch: HeartbeatMath.pickPathRisk) }
             let pphOff = pph.map { AssistRank.pphHealth($0) }
             let pathBad = pathOff == .risk || pathOff == .watch
             let pphBad = pphOff == .risk || pphOff == .watch
@@ -1629,7 +1648,7 @@ enum AssistPlan {
         switch section {
         case .pickPath, .pickPathPicker:
             guard let value = row.number("compliance_pct") else { return nil }
-            return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.pickPathGoal), plain(HeartbeatMath.pickPathRisk))
+            return (section.overviewLead, compactPercent(value), plain(AssistScoreLine.pickPathGoal), plain(HeartbeatMath.pickPathRisk))
         case .missingItems:
             guard let value = row.number(MissingItemDept.totalKey) else { return nil }
             return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.missingItemsGoal), plain(HeartbeatMath.missingItemsWatch))
@@ -1648,16 +1667,16 @@ enum AssistPlan {
             return (section.overviewLead, plain(value), plain(band.goal), plain(band.risk))
         case .labor:
             guard let value = row.number("target_vs_actual_pct") else { return nil }
-            return (section.overviewLead, compactPercent(value), "0", plain(HeartbeatMath.laborWatch))
+            return (section.overviewLead, compactPercent(value), plain(AssistScoreLine.laborGoal), plain(HeartbeatMath.laborWatch))
         case .fiveStar:
             guard let value = row.number("star_rating") else { return nil }
-            return (section.overviewLead, plain(value), "4.5", "4")
+            return (section.overviewLead, plain(value), plain(AssistScoreLine.fiveStarGoal), plain(AssistScoreLine.fiveStarPass))
         case .lostRevenue:
             guard let value = row.number("lost_revenue_pct") else { return nil }
             return (section.overviewLead, compactPercent(value), plain(HeartbeatMath.lostRevenueGood), plain(HeartbeatMath.lostRevenueWatch))
         case .sales:
             if let yoy = row.number("sales_yoy_pct") {
-                return (section.overviewLead, compactPercent(yoy), "0", "3")
+                return (section.overviewLead, compactPercent(yoy), "0", plain(AssistScoreLine.salesWatch))
             }
             return nil
         default:
@@ -1677,9 +1696,9 @@ enum AssistPlan {
     private static func scheduleLines(_ kind: AssistRank.ScheduleComponent.Kind) -> (String, String) {
         switch kind {
         case .efficiency, .staffing:
-            return (plain(HeartbeatMath.scheduleGoal), plain(HeartbeatMath.scheduleWatch))
+            return (plain(HeartbeatMath.scheduleGoal), plain(AssistScoreLine.scheduleWatch))
         case .under, .over:
-            return ("5", plain(HeartbeatMath.scheduleVarianceWatch))
+            return (plain(HeartbeatMath.scheduleVarianceWatch), plain(HeartbeatMath.scheduleVarianceWatch))
         }
     }
 
@@ -1706,7 +1725,7 @@ enum AssistPlan {
             return text
         }
         if let compliance = hit.compliance {
-            var text = "Path \(compactPercent(compliance)) (goal \(plain(HeartbeatMath.pickPathGoal)), risk line \(plain(HeartbeatMath.pickPathRisk)))"
+            var text = "Path \(compactPercent(compliance)) (goal \(plain(AssistScoreLine.pickPathGoal)), risk line \(plain(HeartbeatMath.pickPathRisk)))"
             if let pph = hit.pph {
                 text += ", \(plain(pph)) PPH"
             }
@@ -1715,11 +1734,10 @@ enum AssistPlan {
         return hit.line
     }
 
-    private static func shopperWhere(_ hit: ShopperHit, snapshot: AssistSnapshot) -> String {
+    private static func shopperWhere(_ hit: ShopperHit, stores: [String: MetricRow]) -> String {
         var text = "\(hit.name) at Store \(hit.store)"
         if !hit.storeName.isEmpty { text += " \(hit.storeName)" }
-        if let row = storeRow(section: .pickPath, store: hit.store, snapshot: snapshot)
-            ?? storeRow(section: .pickPathPicker, store: hit.store, snapshot: snapshot) {
+        if let row = stores[hit.store] {
             let district = districtLabel(row)
             let om = omLabel(row)
             if !district.isEmpty { text += ", District \(district)" }
@@ -1780,13 +1798,6 @@ enum AssistPlan {
         return name
     }
 
-    private static func storeRow(section: MetricSection, store: String, snapshot: AssistSnapshot) -> MetricRow? {
-        let rows = AssistRank.scoringRows(AssistScope.slice(snapshot.rows[section] ?? [], filters: snapshot.filters))
-        return HeartbeatMath.latestPerStore(rows).first {
-            HeartbeatMath.canonicalStore($0.storeNumber) == store
-        }
-    }
-
     private static func districtLabel(_ row: MetricRow) -> String {
         HeartbeatMath.displayGrainLabel(row.district)
     }
@@ -1833,9 +1844,18 @@ enum AssistPlan {
         return nil
     }
 
+    /// Pack under/over values are already percent. 0.56 stays 0.56%, never 56%.
     private static func scheduleAmount(_ value: Double) -> String {
-        let scaled = abs(value) <= 1.5 ? value * 100 : value
-        return compactPercent(scaled)
+        let hundredths = (value * 100).rounded() / 100
+        let whole = hundredths.rounded()
+        if abs(hundredths - whole) < 0.001 {
+            return "\(Int(whole))%"
+        }
+        let tenths = (hundredths * 10).rounded() / 10
+        if abs(hundredths - tenths) < 0.001 {
+            return String(format: "%.1f%%", hundredths)
+        }
+        return String(format: "%.2f%%", hundredths)
     }
 
     private static func compactPercent(_ value: Double) -> String {
@@ -2378,16 +2398,24 @@ enum AssistCopy {
         switch section {
         case .scheduleQuality: return "90%"
         case .missingItems, .preSubOOS: return "5%"
-        case .pickPath: return "90%"
-        case .fiveStar: return "4.50"
+        case .pickPath: return "\(plainNumber(AssistScoreLine.pickPathGoal))%"
+        case .fiveStar: return String(format: "%.2f", AssistScoreLine.fiveStarGoal)
         case .prepNotReady: return "1.9%"
         case .dynacap: return "65"
         case .pph: return String(Int(AssistRank.pphRankingBand.goal))
-        case .labor: return "0%"
+        case .labor: return "\(plainNumber(AssistScoreLine.laborGoal))%"
         case .lostRevenue: return "3%"
         case .sales: return "100%"
         default: return ""
         }
+    }
+
+    private static func plainNumber(_ value: Double) -> String {
+        let tenths = (value * 10).rounded() / 10
+        if abs(tenths - tenths.rounded()) < 0.001 {
+            return String(Int(tenths.rounded()))
+        }
+        return String(format: "%.1f", tenths)
     }
 
     static func goalFact(_ section: MetricSection) -> String {
@@ -3814,16 +3842,16 @@ enum AssistComposer {
     private static func headroom(_ section: MetricSection, _ summary: SectionSummary) -> Double? {
         guard let avg = summary.headline else { return nil }
         switch section {
-        case .pickPath: return (avg - HeartbeatMath.pickPathGoal) / 10
+        case .pickPath: return (avg - AssistScoreLine.pickPathGoal) / (AssistScoreLine.pickPathGoal - HeartbeatMath.pickPathRisk)
         case .missingItems, .preSubOOS: return (HeartbeatMath.missingItemsGoal - avg) / 1.5
         case .prepNotReady: return (HeartbeatMath.pnrGoal - avg) / 0.6
         case .dynacap: return (avg - HeartbeatMath.dynacapGoal) / 5
-        case .scheduleQuality: return (avg - HeartbeatMath.scheduleGoal) / 5
+        case .scheduleQuality: return (avg - HeartbeatMath.scheduleGoal) / (HeartbeatMath.scheduleGoal - AssistScoreLine.scheduleWatch)
         case .pph:
             let band = AssistRank.pphRankingBand
             return (avg - band.goal) / (band.goal - band.risk)
-        case .labor: return (0 - avg) / HeartbeatMath.laborWatch
-        case .fiveStar: return (avg - 4.5) / 0.5
+        case .labor: return (AssistScoreLine.laborGoal - avg) / HeartbeatMath.laborWatch
+        case .fiveStar: return (avg - AssistScoreLine.fiveStarGoal) / (AssistScoreLine.fiveStarGoal - AssistScoreLine.fiveStarPass)
         case .lostRevenue:
             guard let pct = summary.lostRevenuePct else { return nil }
             return (HeartbeatMath.lostRevenueGood - pct) / 2

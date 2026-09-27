@@ -779,6 +779,16 @@ struct SectionSummary: Identifiable, Equatable, Codable {
     }
 }
 
+/// Band lines for health, `AssistRank.offBand`, and the plan breakpoint. One table.
+enum AssistScoreLine {
+    static let pickPathGoal = 90.0
+    static let fiveStarGoal = 4.5
+    static let fiveStarPass = 4.0
+    static let salesWatch = -3.0
+    static let laborGoal = 0.0
+    static let scheduleWatch = 85.0
+}
+
 enum HeartbeatMath {
     static func dashboardCallouts(_ summaries: [SectionSummary]) -> [SectionSummary] {
         let order = Dictionary(uniqueKeysWithValues: MetricSection.dashboardCards.enumerated().map { ($0.element, $0.offset) })
@@ -2520,7 +2530,7 @@ enum HeartbeatMath {
                 secondary: scored.isEmpty
                     ? "No 5 Star rows in this filter"
                     : "\(five) of \(scored.count) at 5.00 · \(pass) pass · \(fail) fail",
-                health: scored.isEmpty ? .none : band(headline, good: 4.5, watch: fiveStarPass),
+                health: scored.isEmpty ? .none : band(headline, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass),
                 watchCount: scored.filter { fiveStarHealth($0) == .watch }.count,
                 riskCount: scored.filter { fiveStarHealth($0) == .risk }.count,
                 lastFilename: upload?.filename,
@@ -2859,22 +2869,23 @@ enum HeartbeatMath {
     static let pphGoal = 80.0
     static let pphRisk = 74.0
     static let laborWatch = 3.0
+    static let laborGoal = AssistScoreLine.laborGoal
     static let lostRevenueGood = 3.0
     static let lostRevenueWatch = 5.0
     static let salesPlanGood = 100.0
     static let salesPlanWatch = 95.0
-    static let salesYoyWatch = -5.0
+    static let salesYoyWatch = AssistScoreLine.salesWatch
     static let missingItemsGoal = 5.0
     static let missingItemsWatch = 6.50
-    static let pickPathGoal = 90.0
+    static let pickPathGoal = AssistScoreLine.pickPathGoal
     static let pickPathRisk = 80.0
     static let dynacapGoal = 65.0
     static let dynacapRisk = 60.0
     static let scheduleGoal = 90.0
-    static let scheduleWatch = 85.0
+    static let scheduleWatch = AssistScoreLine.scheduleWatch
     static let scheduleVarianceWatch = 5.0
-    static let fiveStarGoal = 5.0
-    static let fiveStarPass = 4.0
+    static let fiveStarGoal = AssistScoreLine.fiveStarGoal
+    static let fiveStarPass = AssistScoreLine.fiveStarPass
 
     enum StarMark: Double {
         case none = 0
@@ -2899,7 +2910,7 @@ enum HeartbeatMath {
     }
 
     static func fiveStarHealth(_ row: MetricRow) -> Health {
-        band(row.number("star_rating"), good: 4.5, watch: fiveStarPass)
+        band(row.number("star_rating"), good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
     }
 
     static func starMark(value: Double?, full: Double, half: Double, invert: Bool = false) -> StarMark {
@@ -3695,7 +3706,7 @@ enum HeartbeatMath {
 
     private static func fiveStarExpandCellHealth(key: String, number: Double?) -> Health {
         if key.contains("rating") || key.contains("star") {
-            return band(number, good: 4.5, watch: fiveStarPass)
+            return band(number, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
         }
         if key.contains("flash") {
             return starMark(value: number, full: 75, half: 55).health
@@ -3881,7 +3892,7 @@ enum HeartbeatMath {
     static func salesHealth(planPct: Double?, yoy: Double?) -> Health {
         if let yoy {
             if yoy > 0 { return .good }
-            if yoy >= -3 { return .watch }
+            if yoy >= AssistScoreLine.salesWatch { return .watch }
             return .risk
         }
         if let planPct {

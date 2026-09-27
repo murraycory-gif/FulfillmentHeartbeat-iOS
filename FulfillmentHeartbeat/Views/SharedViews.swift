@@ -5520,7 +5520,7 @@ private struct FiveStarRollupRow: Identifiable {
 
     var health: Health {
         guard rating != nil else { return .none }
-        return HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+        return HeartbeatMath.band(rating, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
     }
 }
 
@@ -5715,7 +5715,7 @@ private struct FiveStarMetricLine: View, Equatable {
     let oth: Double?
 
     var body: some View {
-        let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+        let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
         ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.fiveStarMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)

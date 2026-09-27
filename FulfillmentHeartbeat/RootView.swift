@@ -87,8 +87,13 @@ struct LaunchSplashView: View {
                         .font(.system(size: phone ? 16 : 17, weight: .semibold))
                         .foregroundStyle(AppTheme.blue)
                         .padding(.top, 4)
-                    } else {
+                    } else if PulseLaunch.shouldShowGroceryLoadQuips() {
                         LaunchLoadingQuip(progress: store.importProgress)
+                    } else {
+                        Text(PulseLaunch.seatLoadTitle)
+                            .font(.system(size: phone ? 16 : 18, weight: .semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .multilineTextAlignment(.center)
                     }
                 }
                 .padding(.top, 4)

@@ -2211,10 +2211,11 @@ enum PulseLaunch {
     /// Kept for the unused pager path; paging itself is off.
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
-    /// Grocery one-liners are banned on load. Keep the array empty.
+    /// Unused seat-load deck. Launch lines live in LoadingQuips.
     static let aisleQuips: [String] = []
 
-    static func shouldShowGroceryLoadQuips() -> Bool { false }
+    /// Rotating grocery lines on the launch splash. Owner reversed HB-0828.383.
+    static func shouldShowGroceryLoadQuips() -> Bool { true }
 
     static var seatLoadTitle: String { "Loading Heartbeat" }
 

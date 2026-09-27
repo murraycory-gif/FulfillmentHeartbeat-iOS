@@ -821,7 +821,7 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(answer.plan.map(\.brokeText), [
             "Pick Path 70% (goal 90, risk line 80)",
             "Missing Items 8% (goal 5, risk line 6.5)",
-            "Under-scheduled Tue 14%, Sat 11% (goal 5, risk line 5)",
+            "Under-scheduled Tue 0.14%, Sat 0.11% (goal 5, risk line 5)",
         ])
         XCTAssertEqual(answer.plan[0].who, [
             "J. Smith 61% path, 38 PPH",
@@ -926,10 +926,10 @@ final class AssistCardsTests: XCTestCase {
         let days = rankedDays(snapshot.rows[.labor] ?? [], store: "10")
         XCTAssertEqual(days, ["Tue", "Sat", "Mon"])
         let broke = try XCTUnwrap(schedule.plan.first?.brokeText)
-        XCTAssertTrue(broke.contains("\(days[0]) 14%"))
-        XCTAssertTrue(broke.contains("\(days[1]) 11%"))
+        XCTAssertTrue(broke.contains("\(days[0]) 0.14%"))
+        XCTAssertTrue(broke.contains("\(days[1]) 0.11%"))
         XCTAssertFalse(broke.contains(days[2]))
-        XCTAssertEqual(broke, "Under-scheduled Tue 14%, Sat 11% (goal 5, risk line 5)")
+        XCTAssertEqual(broke, "Under-scheduled Tue 0.14%, Sat 0.11% (goal 5, risk line 5)")
         XCTAssertEqual(schedule.plan.first?.whereText, "District J3")
         XCTAssertEqual(schedule.plan.first?.actions.first?.filters?.store, "10")
         XCTAssertEqual(schedule.plan.first?.actions.first?.destination, .scheduleQuality)
@@ -959,6 +959,70 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertTrue(broke.contains(days[1]))
         XCTAssertFalse(broke.contains(days[2]))
         XCTAssertFalse(schedule.plan.contains { $0.whereText.contains("40") || $0.whereText.contains("B2") })
+    }
+
+    func testScheduleAmountAtOrUnderOneAndAHalfStaysUnscaled() {
+        var snapshot = prioritySnapshot()
+        snapshot.rows[.labor] = []
+        snapshot.rows[.scheduleQuality] = [
+            row(
+                .scheduleQuality,
+                ["schedule_efficiency_pct": 95, "over_schedule_pct": 0.56],
+                store: "10",
+                division: "Shaws",
+                district: "J3",
+                name: "Alpha"
+            ),
+        ]
+        let steps = AssistPlan.steps(snapshot: snapshot, sections: [.scheduleQuality])
+        XCTAssertEqual(steps.first?.brokeText, "Over-scheduled 0.56% (goal 5, risk line 5)")
+        XCTAssertFalse(steps.contains { $0.brokeText.contains("56.3") })
+    }
+
+    func testSalesRiskLineKeepsItsSign() {
+        var snapshot = prioritySnapshot()
+        snapshot.rows[.sales] = [
+            row(.sales, ["sales_yoy_pct": -4], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
+        ]
+        let steps = AssistPlan.steps(snapshot: snapshot, sections: [.sales])
+        let broke = steps.first?.brokeText ?? ""
+        XCTAssertEqual(broke, "Sales -4% (goal 0, risk line -3)")
+        XCTAssertTrue(broke.contains("risk line -3"))
+        XCTAssertFalse(broke.contains("risk line 3"))
+    }
+
+    func testDriverWithoutAReadingEmitsNoLine() {
+        var snapshot = prioritySnapshot()
+        snapshot.rows[.scheduleQuality] = [
+            row(.scheduleQuality, ["under_schedule_pct": 12], store: "10", division: "Shaws", district: "J3", name: "Alpha"),
+        ]
+        let picks = AssistPriority.candidates(
+            section: .scheduleQuality,
+            rows: snapshot.rows[.scheduleQuality] ?? [],
+            filters: snapshot.filters,
+            roster: snapshot.rosterStores
+        )
+        XCTAssertTrue(picks.isEmpty)
+        let steps = AssistPlan.steps(snapshot: snapshot, sections: [.scheduleQuality])
+        XCTAssertTrue(steps.isEmpty)
+        XCTAssertFalse(steps.contains { $0.brokeText.localizedCaseInsensitiveContains("off goal") })
+    }
+
+    func testDivisionOnlyFilterAppliesToPlanDrivers() throws {
+        let book = try loadPlaybook()
+        var snapshot = prioritySnapshot()
+        snapshot.filters.division = "Shaws"
+        let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
+        let blob = answer.plan.flatMap { step in
+            [step.whereText, step.brokeText] + step.who + step.what + step.actions.map(\.question)
+        }.joined(separator: "\n")
+        XCTAssertFalse(blob.contains("Z. Worst"))
+        XCTAssertFalse(blob.contains("Store 30"))
+        XCTAssertFalse(blob.contains("Store 40"))
+        XCTAssertFalse(blob.contains("Cedar"))
+        XCTAssertFalse(blob.contains("Delta"))
+        XCTAssertTrue(blob.contains("J. Smith"))
+        XCTAssertTrue(answer.plan.contains { $0.what.contains { $0.contains("MILK") } })
     }
 
     func testTellMeMoreReturnsPlanCardsForThatMetric() throws {

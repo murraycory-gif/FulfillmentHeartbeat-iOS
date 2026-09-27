@@ -97,22 +97,32 @@ struct LaunchLoadingQuip: View {
     }
 
     var body: some View {
-        ZStack {
-            Text(line)
-                .font(.system(.body, design: .default).weight(.semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity)
-                .id(line)
-                .transition(reduceMotion ? .identity : .opacity)
-        }
-        .accessibilityHidden(true)
-        .onChange(of: progress.loaded) { _, _ in
-            advance()
-        }
-        .task(id: progress.loaded) {
-            await rotateWhileStepRuns()
+        Group {
+            if PulseLaunch.shouldShowGroceryLoadQuips() {
+                ZStack {
+                    Text(line)
+                        .font(.system(.body, design: .default).weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity)
+                        .id(line)
+                        .transition(reduceMotion ? .identity : .opacity)
+                }
+                .accessibilityHidden(true)
+                .onChange(of: progress.loaded) { _, _ in
+                    advance()
+                }
+                .task(id: progress.loaded) {
+                    await rotateWhileStepRuns()
+                }
+            } else {
+                Text(PulseLaunch.seatLoadTitle)
+                    .font(.system(.body, design: .default).weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
         }
     }
 
