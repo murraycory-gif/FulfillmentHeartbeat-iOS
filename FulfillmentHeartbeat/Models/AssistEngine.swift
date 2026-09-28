@@ -120,6 +120,13 @@ enum HeartbeatAssist {
                 "Is this a map problem or no-shows?",
                 "What do we change on the map?",
             ]
+        case .scheduleCheck:
+            return [
+                "Which stores need a schedule fix?",
+                "Who is under scheduled this week?",
+                "Which divisions are below 90% efficiency?",
+                "Which stores are not scheduled yet?",
+            ]
         case .pph:
             return [
                 "Who is the worst district for PPH?",
@@ -227,6 +234,9 @@ enum HeartbeatAssist {
                 filter: store.filters.summary,
                 wrong: "Ask about \(dest.title) in \(store.filters.summary). Tap a prompt or type a store, district, or LDAP."
             )
+        }
+        if dest == .scheduleCheck {
+            return ScheduleCheckMath.assistText(pack: store.scheduleCheck, filters: store.filters)
         }
         guard store.seeded else {
             return coachFallback(

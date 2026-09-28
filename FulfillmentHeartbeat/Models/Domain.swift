@@ -229,6 +229,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case prepNotReady
     case dynacap
     case scheduleQuality
+    case scheduleCheck
     case pph
     case labor
     case pickerScorecard
@@ -248,6 +249,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return MetricSection.prepNotReady.title
         case .dynacap: return MetricSection.dynacap.title
         case .scheduleQuality: return MetricSection.scheduleQuality.title
+        case .scheduleCheck: return "Upcoming Weeks Schedule Check"
         case .pph: return MetricSection.pph.title
         case .labor: return MetricSection.labor.title
         case .pickerScorecard: return MetricSection.pickerScorecard.title
@@ -267,6 +269,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return MetricSection.prepNotReady.symbol
         case .dynacap: return MetricSection.dynacap.symbol
         case .scheduleQuality: return MetricSection.scheduleQuality.symbol
+        case .scheduleCheck: return "calendar.badge.exclamationmark"
         case .pph: return MetricSection.pph.symbol
         case .labor: return MetricSection.labor.symbol
         case .pickerScorecard: return MetricSection.pickerScorecard.symbol
@@ -292,7 +295,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return .lostRevenue
         case .missingItems: return .missingItems
         case .preSubOOS: return .preSubOOS
-        case .dashboard, .settings: return nil
+        case .dashboard, .settings, .scheduleCheck: return nil
         }
     }
 
@@ -315,7 +318,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
+    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .scheduleCheck, .pickerScorecard, .pph, .labor] }
     static var settingsItems: [HubDestination] { [.settings] }
     static var primaryTabs: [HubDestination] { [.dashboard] }
     static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }

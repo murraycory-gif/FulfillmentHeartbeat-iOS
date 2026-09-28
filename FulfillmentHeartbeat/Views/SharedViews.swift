@@ -11026,6 +11026,7 @@ struct HubBrandBar: View {
         .onChange(of: compactBannerDestination) { _, _ in scheduleBannerHealth() }
         .onChange(of: store.filters.summary) { _, _ in scheduleBannerHealth() }
         .onChange(of: store.seatPaintStamp) { _, _ in scheduleBannerHealth() }
+        .onChange(of: store.scheduleCheckStamp) { _, _ in scheduleBannerHealth() }
     }
 
     private var compactPageBanner: some View {
@@ -11043,7 +11044,7 @@ struct HubBrandBar: View {
                 filters: store.filters,
                 weekWindow: compactBannerWindow
             ),
-            updated: CommandCenterLayout.updatedBannerLine(store.packPublishedAt),
+            updated: CommandCenterLayout.updatedBannerLine(compactBannerUpdated),
             health: compactBannerHealth,
             metrics: metrics
         )
@@ -11060,8 +11061,22 @@ struct HubBrandBar: View {
         return phoneBannerHealth(allowRowWalk: true)
     }
 
+    private var compactBannerUpdated: Date? {
+        if compactBannerDestination == .scheduleCheck {
+            return store.scheduleCheck?.publishedDate
+        }
+        return store.packPublishedAt
+    }
+
     private func phoneBannerHealth(allowRowWalk: Bool) -> Health {
         if compactBannerDestination == .settings { return .none }
+        if compactBannerDestination == .scheduleCheck {
+            guard let pack = store.scheduleCheck else { return .none }
+            return ScheduleCheckMath.effHealth(
+                ScheduleCheckMath.summary(pack: pack, filters: store.filters).eff,
+                notScheduled: false
+            )
+        }
         if let section = compactBannerDestination.section {
             return CommandCenterLayout.displayedHealth(
                 store.phonePageChromeCard(for: section, allowRowWalk: allowRowWalk)
@@ -11081,6 +11096,11 @@ struct HubBrandBar: View {
             settledBannerHealth = .none
             return
         }
+        if compactBannerDestination == .scheduleCheck {
+            settledBannerDest = .scheduleCheck
+            settledBannerHealth = phoneBannerHealth(allowRowWalk: false)
+            return
+        }
         let dest = compactBannerDestination
         settledBannerDest = dest
         settledBannerHealth = phoneBannerHealth(allowRowWalk: false)
@@ -11095,6 +11115,7 @@ struct HubBrandBar: View {
 
     private var compactBannerDestination: HubDestination {
         if router.current == .settings { return .settings }
+        if router.current == .scheduleCheck { return .scheduleCheck }
         if let section = PulseLaunch.activeScorecardSection(
             visible: router.current,
             pushed: router.pushedSection
@@ -11106,6 +11127,10 @@ struct HubBrandBar: View {
 
     private var compactBannerWindow: String? {
         if compactBannerDestination == .settings { return nil }
+        if compactBannerDestination == .scheduleCheck {
+            guard let week = store.scheduleCheck?.week else { return "NO DATA" }
+            return "Week \(week)"
+        }
         if compactBannerDestination.section == .sales, let coverage = store.salesCoverageLabel() {
             return coverage
         }

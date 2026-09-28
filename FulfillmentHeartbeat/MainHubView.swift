@@ -472,6 +472,8 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        case .scheduleCheck:
+            return scheduleCheckNavHealth()
         default:
             guard let section = dest.section else { return .none }
             return store.summary(for: section).health
@@ -482,10 +484,20 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        case .scheduleCheck:
+            return scheduleCheckNavHealth()
         default:
             guard let section = dest.section else { return .none }
             return store.cheapPhonePageChrome(section).health
         }
+    }
+
+    private func scheduleCheckNavHealth() -> Health {
+        guard let pack = store.scheduleCheck else { return .none }
+        return ScheduleCheckMath.effHealth(
+            ScheduleCheckMath.summary(pack: pack, filters: store.filters).eff,
+            notScheduled: false
+        )
     }
 
     private func healthRank(_ health: Health) -> Int {
@@ -574,6 +586,10 @@ struct MainHubView: View {
                 SettingsNotificationsPage()
                     .hubPageCanvas()
             }
+            if router.current == .scheduleCheck {
+                ScheduleCheckView()
+                    .hubPageCanvas()
+            }
         }
     }
 
@@ -636,6 +652,8 @@ struct MainHubView: View {
             }
         case .settings:
             SettingsNotificationsPage().hubPageCanvas()
+        case .scheduleCheck:
+            ScheduleCheckView().hubPageCanvas()
         }
     }
 }
@@ -955,6 +973,8 @@ struct CompactNavSheet: View {
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        case .scheduleCheck:
+            return scheduleCheckNavHealth()
         default:
             guard let section = dest.section else { return .none }
             if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint()
@@ -965,6 +985,14 @@ struct CompactNavSheet: View {
             }
             return store.summary(for: section).health
         }
+    }
+
+    private func scheduleCheckNavHealth() -> Health {
+        guard let pack = store.scheduleCheck else { return .none }
+        return ScheduleCheckMath.effHealth(
+            ScheduleCheckMath.summary(pack: pack, filters: store.filters).eff,
+            notScheduled: false
+        )
     }
 
     private func healthRank(_ health: Health) -> Int {

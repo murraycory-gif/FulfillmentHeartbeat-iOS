@@ -58,6 +58,7 @@ final class HeartbeatStore: ObservableObject {
     private let snapshotURL: URL
     private let heavyURL: URL
     private let cardsURL: URL
+    private let scheduleCheckURL: URL
     private let checklistURL: URL
     private let masterLinkURL: URL
     private let filtersURL: URL
@@ -144,6 +145,11 @@ final class HeartbeatStore: ObservableObject {
     private var packChrome: PulseDashChrome?
     /// Cook / publish time for the chrome on screen. Nil shows "Updated —".
     private(set) var packPublishedAt: Date?
+    /// Upcoming Weeks Schedule Check. Separate from the Heartbeat sqlite pack.
+    @Published private(set) var scheduleCheck: ScheduleCheckPack?
+    @Published private(set) var scheduleCheckReady = false
+    @Published private(set) var scheduleCheckStamp = 0
+    private var scheduleLoadTask: Task<Void, Never>?
     /// Top banner while a newer published pack replaces the one on screen.
     @Published var newDataBanner: String?
     /// Settings → Notifications. Echo of UserDefaults so the toggles repaint.
@@ -166,6 +172,46 @@ final class HeartbeatStore: ObservableObject {
     private var pendingLaunchFilters: DashboardFilters?
     private var seatLoadHalloweenStartedAt: Date?
 
+    /// Page open. Does not run during launch, and does not touch the Heartbeat pack.
+    func loadScheduleCheck() {
+        guard scheduleLoadTask == nil else { return }
+        scheduleLoadTask = Task { await self.refreshScheduleCheck() }
+    }
+
+    func reloadScheduleCheck() async {
+        await refreshScheduleCheck()
+    }
+
+    private func refreshScheduleCheck() async {
+        defer {
+            scheduleCheckReady = true
+            scheduleCheckStamp += 1
+        }
+        if let cached = ScheduleCheckPack.read(from: scheduleCheckURL) {
+            scheduleCheck = cached
+        }
+        if let cooked = ScheduleCheckPack.read(from: ScheduleCheckPack.macCookedFileURL) {
+            let cookedAt = cooked.publishedDate ?? .distantPast
+            let cachedAt = scheduleCheck?.publishedDate ?? .distantPast
+            if scheduleCheck == nil || cookedAt >= cachedAt {
+                scheduleCheck = cooked
+            }
+        }
+        let staging = scheduleCheckURL.deletingLastPathComponent().appendingPathComponent("schedule-check.incoming.json")
+        do {
+            _ = try await PulseCloud.downloadObject(ScheduleCheckPack.objectName, to: staging, timeout: 60)
+            if let incoming = ScheduleCheckPack.read(from: staging) {
+                if fileManager.fileExists(atPath: scheduleCheckURL.path) {
+                    try? fileManager.removeItem(at: scheduleCheckURL)
+                }
+                try? fileManager.moveItem(at: staging, to: scheduleCheckURL)
+                scheduleCheck = incoming
+            }
+        } catch {
+            try? fileManager.removeItem(at: staging)
+        }
+    }
+
     init(rootURL: URL? = nil) {
         fileManager = .default
         let root = rootURL ?? Self.defaultRoot()
@@ -178,6 +224,7 @@ final class HeartbeatStore: ObservableObject {
         snapshotURL = root.appendingPathComponent("heartbeat.json")
         heavyURL = root.appendingPathComponent("heartbeat-heavy.json")
         cardsURL = root.appendingPathComponent(PulseCards.fileName)
+        scheduleCheckURL = root.appendingPathComponent(ScheduleCheckPack.fileName)
         checklistURL = root.appendingPathComponent("checklist.json")
         masterLinkURL = root.appendingPathComponent("master-link.json")
         filtersURL = root.appendingPathComponent("filters.json")

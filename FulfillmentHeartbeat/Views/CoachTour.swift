@@ -218,6 +218,14 @@ enum CoachTour: Equatable {
                     body: "Markets then stores. Pair this with Schedule Quality when punch vs target is off."
                 ),
             ]
+        case .scheduleCheck:
+            return [
+                CoachStep(
+                    icon: "calendar.badge.exclamationmark",
+                    heading: "Upcoming weeks",
+                    body: "Action Needed, Summary, then Store Detail. Filters apply at every grain. Stores at Under 100% and Eff 0% are not scheduled yet."
+                ),
+            ]
         case .settings:
             return [
                 CoachStep(
