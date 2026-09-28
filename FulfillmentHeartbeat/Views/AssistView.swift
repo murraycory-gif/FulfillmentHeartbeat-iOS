@@ -710,8 +710,16 @@ struct HeartbeatAssistSheet: View {
             defer { flight.ids.remove(id) }
             await Task.yield()
             guard turns.contains(where: { $0.id == id }) else { return }
-            let source = AssistSnapshot.source(from: store, focus: focus)
-            guard AssistExchange.packReady(source) else { return }
+            let started = Date()
+            var source = AssistSnapshot.source(from: store, focus: focus)
+            while !AssistExchange.packReady(source) {
+                if Date().timeIntervalSince(started) >= AssistExchange.packWaitSeconds {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard turns.contains(where: { $0.id == id }) else { return }
+                source = AssistSnapshot.source(from: store, focus: focus)
+            }
             let answer = await AssistSnapshot.compose(question: question, source: source)
             replaceTurn(id, with: AssistExchange.visible(answer))
         }

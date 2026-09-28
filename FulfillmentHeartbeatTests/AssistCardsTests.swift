@@ -1299,6 +1299,53 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(AssistExchange.openingQuestion(filters: store), "What should this store fix first?")
     }
 
+    /// Company facts stay on disk. Assist still plans from the dashboard cards.
+    func testCompanyAssistPlansFromDashboardRollupsWhenFactsAreReleased() async throws {
+        XCTAssertEqual(AssistExchange.packWaitSeconds, 5)
+        var summaries: [MetricSection: SectionSummary] = [:]
+        for section in MetricSection.dashboardCards {
+            let atRisk = section == .lostRevenue || section == .sales
+            summaries[section] = summary(
+                section,
+                atRisk ? .risk : .good,
+                risk: atRisk ? 40 : 0,
+                watch: atRisk ? 8 : 0,
+                stores: 2_000,
+                headline: section == .sales ? 84_800_000 : (section == .lostRevenue ? 2_400_000 : 90)
+            )
+        }
+        let source = AssistSnapshot.Source(
+            seeded: true,
+            filters: DashboardFilters(),
+            summaries: summaries,
+            latest: [:],
+            historyPool: [],
+            focus: nil,
+            rosterStores: [],
+            districts: [],
+            divisions: [],
+            operationsOMs: [],
+            packUploads: [],
+            now: Date()
+        )
+        XCTAssertTrue(AssistExchange.packReady(source))
+        XCTAssertTrue(source.latest.isEmpty)
+        let snapshot = AssistSnapshot.assemble(source)
+        XCTAssertTrue(snapshot.rows.values.allSatisfy(\.isEmpty))
+        XCTAssertEqual(snapshot.summaries[.lostRevenue]?.riskCount, 40)
+        XCTAssertEqual(snapshot.summaries[.sales]?.headline ?? 0, 84_800_000, accuracy: 1)
+        XCTAssertEqual(snapshot.summaries[.lostRevenue]?.health, .risk)
+        let answer = await AssistSnapshot.compose(
+            question: "What should we fix first?",
+            source: source
+        )
+        XCTAssertFalse(answer.plan.isEmpty)
+        XCTAssertNotEqual(answer.noticeTitle, "Loading data")
+        XCTAssertTrue(answer.plan.contains { $0.whereText == MetricSection.lostRevenue.title })
+        XCTAssertTrue(answer.plan.contains { $0.brokeText.contains("40 at risk") })
+        XCTAssertFalse(answer.plan.contains { $0.whereText.contains("Store ") })
+    }
+
     private func loadPlaybook() throws -> AssistPlaybook.File {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

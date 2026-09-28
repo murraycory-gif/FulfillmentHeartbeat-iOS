@@ -1131,7 +1131,13 @@ enum AssistPlan {
                 if left != right { return left < right }
                 return HeartbeatFormat.storeOrder(lhs.pick.store, rhs.pick.store)
             }
-            guard !located.isEmpty else { continue }
+            guard !located.isEmpty else {
+                if AssistScope.level(snapshot.filters) == .company,
+                   let step = rollupStep(section: section, snapshot: snapshot, slot: built.count) {
+                    built.append(step)
+                }
+                continue
+            }
             if singleStore {
                 built.append(storeStep(section: section, place: located[0], snapshot: snapshot, slot: built.count))
                 continue
@@ -1152,6 +1158,40 @@ enum AssistPlan {
             copy.index = offset + 1
             return copy
         }
+    }
+
+    /// Company plan when the fact rows are on disk. Uses the same card the dashboard shows.
+    private static func rollupStep(
+        section: MetricSection,
+        snapshot: AssistSnapshot,
+        slot: Int
+    ) -> AssistPlanStep? {
+        guard let summary = snapshot.summaries[section] else { return nil }
+        guard summary.riskCount + summary.watchCount > 0 else { return nil }
+        guard summary.health != .none || summary.headline != nil else { return nil }
+        let shown = AssistCopy.shownHeadline(section, summary)
+        let risk = summary.riskCount == 1 ? "1 at risk" : "\(summary.riskCount) at risk"
+        let watch = summary.watchCount > 0 ? " · \(summary.watchCount) watch" : ""
+        let counts = risk + watch
+        let broke = shown.isEmpty || shown == "—" ? counts : "\(shown) · \(counts)"
+        return AssistPlanStep(
+            id: "plan-\(section.rawValue)-company-\(slot)",
+            index: slot + 1,
+            whereText: section.title,
+            brokeText: broke,
+            who: [],
+            what: [],
+            actions: [
+                action(
+                    id: "open-\(section.rawValue)-company-\(slot)",
+                    question: "Open \(section.title)",
+                    owner: "Total company",
+                    button: "Open \(section.overviewLead)",
+                    filters: DashboardFilters(),
+                    destination: .from(section: section)
+                )
+            ]
+        )
     }
 
     static func coaching(snapshot: AssistSnapshot, name: String? = nil, limit: Int = shopperLimit) -> [AssistPlanStep] {
@@ -2201,6 +2241,9 @@ enum AssistExchange {
         readingsReady(seeded: source.seeded, summaries: source.summaries)
     }
 
+    /// A turn left on "Loading data" retries until the dashboard rollups land, then answers anyway.
+    static let packWaitSeconds: TimeInterval = 5
+
     private static func readingsReady(
         seeded: Bool,
         summaries: [MetricSection: SectionSummary]
@@ -2331,12 +2374,21 @@ extension AssistSnapshot {
                 uploads.append(uploaded)
             }
         }
+        if !store.filters.isActive {
+            for section in MetricSection.dashboardCards {
+                summaries[section] = store.summary(for: section)
+            }
+        }
         for record in store.uploads {
             uploads.append(record.uploadedAt)
         }
         var latest: [MetricSection: [MetricRow]] = [:]
-        for section in answerSections {
-            latest[section] = store.allLatest(for: section)
+        // Company answers from the dashboard cards. Copying `allLatest` would
+        // decode or retain the company fact plane.
+        if store.filters.isActive {
+            for section in answerSections {
+                latest[section] = store.allLatest(for: section)
+            }
         }
         // Trend history reads `latest`. `store.rows` is the warehouse tape;
         // retaining it for a question keeps a second company fact set alive.
@@ -2370,11 +2422,20 @@ extension AssistSnapshot {
         }
         var summaries: [MetricSection: SectionSummary] = [:]
         for section in MetricSection.dashboardCards {
-            summaries[section] = AssistRank.scopedSummary(
-                section: section,
-                rows: rows[section] ?? [],
+            let scoped = rows[section] ?? []
+            if let kept = dashboardRollup(
+                filters: filters,
+                rows: scoped,
                 prior: source.summaries[section]
-            )
+            ) {
+                summaries[section] = kept
+            } else {
+                summaries[section] = AssistRank.scopedSummary(
+                    section: section,
+                    rows: scoped,
+                    prior: source.summaries[section]
+                )
+            }
         }
         return AssistSnapshot(
             seeded: source.seeded,
@@ -2403,6 +2464,22 @@ extension AssistSnapshot {
         await Task.detached(priority: .userInitiated) { () -> [String] in
             AssistComposer.chips(for: assemble(source))
         }.value
+    }
+
+    /// Company with the fact plane released keeps the dashboard card. An empty
+    /// `summarize` would mark every scorecard No data and drop the plan.
+    static func dashboardRollup(
+        filters: DashboardFilters,
+        rows: [MetricRow],
+        prior: SectionSummary?
+    ) -> SectionSummary? {
+        guard !filters.isActive, rows.isEmpty, let prior else { return nil }
+        let hasReading = prior.health != .none
+            || prior.headline != nil
+            || prior.storeCount > 0
+            || prior.riskCount > 0
+            || prior.watchCount > 0
+        return hasReading ? prior : nil
     }
 
     private static func trendHistory(_ source: Source) -> [MetricSection: [HistoryPoint]] {
