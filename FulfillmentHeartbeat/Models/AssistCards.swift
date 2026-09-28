@@ -2193,8 +2193,20 @@ enum AssistExchange {
 
     /// Seeded summaries with a real reading. Chrome-only zeros are not ready.
     static func packReady(_ snapshot: AssistSnapshot) -> Bool {
-        guard snapshot.seeded, !snapshot.summaries.isEmpty else { return false }
-        return snapshot.summaries.values.contains { summary in
+        readingsReady(seeded: snapshot.seeded, summaries: snapshot.summaries)
+    }
+
+    /// The sheet checks readiness on `AssistSnapshot.Source` before compose builds a snapshot.
+    static func packReady(_ source: AssistSnapshot.Source) -> Bool {
+        readingsReady(seeded: source.seeded, summaries: source.summaries)
+    }
+
+    private static func readingsReady(
+        seeded: Bool,
+        summaries: [MetricSection: SectionSummary]
+    ) -> Bool {
+        guard seeded, !summaries.isEmpty else { return false }
+        return summaries.values.contains { summary in
             summary.health != .none || summary.headline != nil || summary.storeCount > 0
         }
     }
