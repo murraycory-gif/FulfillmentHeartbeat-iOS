@@ -323,12 +323,22 @@ enum CommandCenterLayout {
 
     /// Gray store-count subtitle — same Labor / Picker line, no gold bullet.
     static func phoneScorecardSubtitle(_ card: SectionSummary) -> String? {
-        card.storeCount > 0 ? "\(card.storeCount) stores" : nil
+        if HeartbeatMath.isPrepThinNote(card.secondary) { return card.secondary }
+        return card.storeCount > 0 ? "\(card.storeCount) stores" : nil
     }
 
     /// Existing headline only. Do not invent a second metric.
+    /// Thin Prep keeps the store-coverage tile and dashes the rate tiles.
     static func phoneScorecardChips(_ card: SectionSummary) -> [PhoneMetricChip] {
-        [
+        if let coverage = HeartbeatMath.prepCoverageTile(fromNote: card.secondary) {
+            return [
+                PhoneMetricChip(label: "Stores", value: coverage, health: .none),
+                PhoneMetricChip(label: "PNR %", value: "—", health: .none),
+                PhoneMetricChip(label: "Goal", value: "—", health: .none),
+                PhoneMetricChip(label: "Watch", value: "—", health: .none),
+            ]
+        }
+        return [
             PhoneMetricChip(
                 label: "Result",
                 value: compactValue(card),

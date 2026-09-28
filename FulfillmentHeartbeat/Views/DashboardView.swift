@@ -653,7 +653,9 @@ private struct OverviewMetricColumns: View {
                     label: item.label,
                     stores: HeartbeatFormat.num(Double(item.storeCount)),
                     values: item.values,
-                    health: item.health == .none && item.storeCount > 0 ? .good : item.health,
+                    health: section == .prepNotReady
+                        ? item.health
+                        : (item.health == .none && item.storeCount > 0 ? .good : item.health),
                     header: false,
                     stripe: index.isMultiple(of: 2)
                 )
@@ -881,7 +883,7 @@ struct PhoneScorecardRow: View {
                 cornerRadii: RectangleCornerRadii(topLeading: corner, bottomLeading: corner, bottomTrailing: 0, topTrailing: 0),
                 style: .continuous
             )
-            .fill(AppTheme.healthInk(health == .none ? .good : health))
+            .fill(scorecardAccent)
             .frame(width: CommandCenterLayout.phoneScorecardAccentWidth())
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneScorecardStackSpacing()) {
                 HStack(alignment: .top, spacing: compact ? 8 : 12) {
@@ -902,7 +904,7 @@ struct PhoneScorecardRow: View {
                             Text(subtitle)
                                 .font((compact ? Font.subheadline : Font.body).weight(.semibold))
                                 .foregroundStyle(AppTheme.textSecondary)
-                                .lineLimit(2)
+                                .lineLimit(3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -958,7 +960,7 @@ struct PhoneScorecardRow: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.22), lineWidth: 1)
+                .stroke(scorecardAccent.opacity(0.22), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.07), radius: CommandCenterLayout.phoneScorecardShadowRadius(), y: compact ? 2 : 4)
 
@@ -971,6 +973,11 @@ struct PhoneScorecardRow: View {
         } else {
             card
         }
+    }
+
+    /// NO DATA stays gray. A missing grade must not borrow the healthy green bar.
+    private var scorecardAccent: Color {
+        health == .none ? AppTheme.textTertiary : AppTheme.healthInk(health)
     }
 
     private func chipInk(_ health: Health) -> Color {
@@ -1239,13 +1246,13 @@ struct DashScopeGrainCard: View {
                 Spacer(minLength: 4)
                 Text(child.value)
                     .font(HubLayout.MacReadable.metricValueFont)
-                    .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
+                    .foregroundStyle(dashInk(shownHealth(child.health)))
                 if grain != .store {
                     Text(storeCountLine(child.count, title: false))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(AppTheme.textSecondary)
                 }
-                HealthBadge(health: child.health, prominent: true, compact: true)
+                HealthBadge(health: shownHealth(child.health), prominent: true, compact: true)
             }
             if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
                 DashFlagGrid(
@@ -1258,7 +1265,13 @@ struct DashScopeGrainCard: View {
     }
 
     private var displayHealth: Health {
-        line.health == .none ? .good : line.health
+        shownHealth(line.health)
+    }
+
+    /// Prep with no grade stays NO DATA. Other sections still treat an empty grade as healthy.
+    private func shownHealth(_ health: Health) -> Health {
+        if section == .prepNotReady { return health }
+        return health == .none ? .good : health
     }
 
     private func storeCountLine(_ count: Int, title: Bool) -> String {

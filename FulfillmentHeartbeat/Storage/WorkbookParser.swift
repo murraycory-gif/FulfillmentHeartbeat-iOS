@@ -2813,6 +2813,17 @@ enum WorkbookParser {
 
     /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
     /// DATE banner + DIVISION / District / OM / Store + Net Prep Not Ready Hours % Total.
+    /// Store #, Store, division, district, and OM are not a Prep Not Ready rate.
+    /// A blank Total cell must stay blank instead of borrowing the store number.
+    private static func prepIdentityColumn(_ index: Int, header: [String], rawHeader: [String]) -> Bool {
+        let name = index < header.count ? header[index] : ""
+        let raw = index < rawHeader.count ? rawHeader[index] : ""
+        if isStoreHashHeader(raw) || isExactStoreHeader(raw) { return true }
+        if storeKeys.contains(name) || name == "store" || name.hasPrefix("store") { return true }
+        if divisionKeys.contains(name) || districtKeys.contains(name) || omKeys.contains(name) { return true }
+        return false
+    }
+
     private static func parsePrepHours(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
@@ -2873,7 +2884,7 @@ enum WorkbookParser {
             var raw = totalIdx < line.count ? line[totalIdx] : ""
             if cellNumber(raw) == nil {
                 for index in stride(from: line.count - 1, through: 0, by: -1) {
-                    if index == storeIdx || index == divIdx || index == distIdx || index == omIdx { continue }
+                    if prepIdentityColumn(index, header: header, rawHeader: rawHeader) { continue }
                     let candidate = index < line.count ? line[index] : ""
                     if cellNumber(candidate) != nil {
                         raw = candidate
@@ -2881,11 +2892,10 @@ enum WorkbookParser {
                     }
                 }
             }
-            guard let value = cellNumber(raw) else { continue }
-
             var payload: [String: Double] = [:]
-            applyMetric(&payload, header: "pnr_rate_pct", value: value)
-            guard payload["pnr_rate_pct"] != nil else { continue }
+            if let value = cellNumber(raw) {
+                applyMetric(&payload, header: "pnr_rate_pct", value: value)
+            }
 
             var text: [String: String] = [:]
             if !carryDist.isEmpty { text["district"] = carryDist }

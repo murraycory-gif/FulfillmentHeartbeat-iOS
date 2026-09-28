@@ -993,6 +993,13 @@ enum HeartbeatAssist {
         private func prepBrief() -> String {
             var lines = header("Prep not ready")
             let rows = storeRows(.prepNotReady)
+            let coverage = HeartbeatMath.prepCoverage(rows)
+            if coverage.thin {
+                lines.append("ISSUE")
+                lines.append(coverage.note)
+                lines.append("Prep is not graded. Reporting is too thin to call it healthy.")
+                return join(lines)
+            }
             let avg = HeartbeatMath.average(rows.compactMap { $0.number("pnr_rate_pct") })
             lines.append("ISSUE")
             lines.append("Avg PNR hours \(HeartbeatFormat.pct(avg)) in \(filter). Goal 1.9% or less. Above 2.5% is at risk. Grocery owns prep, not e-comm.")
@@ -1358,6 +1365,8 @@ enum HeartbeatAssist {
             case .pickPath, .pickPathPicker:
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number("compliance_pct") }))
             case .prepNotReady:
+                let coverage = HeartbeatMath.prepCoverage(rows)
+                if coverage.thin { return coverage.note }
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number("pnr_rate_pct") }))
             case .dynacap:
                 return HeartbeatFormat.num(HeartbeatMath.average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1)

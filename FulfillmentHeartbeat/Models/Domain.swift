@@ -924,12 +924,12 @@ enum HeartbeatMath {
             buckets[key, default: []].append(row)
         }
         return buckets.map { key, group -> (DashScopeLine, Double) in
-            let worst = worstHealth(section, rows: group)
+            let card = scopeCard(section: section, rows: group)
             let line = DashScopeLine(
                 label: displayGrainLabel(key),
-                value: scopeHeadline(section, rows: group),
-                health: worst,
-                count: group.count
+                value: card.value,
+                health: card.health,
+                count: card.count
             )
             let rank: Double
             if section == .fiveStar {
@@ -1064,6 +1064,10 @@ enum HeartbeatMath {
                 health
             )
         case .prepNotReady:
+            let coverage = prepCoverage(rows)
+            if coverage.thin {
+                return (["—", "—", "—"], .none)
+            }
             return (
                 [
                     HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") })),
@@ -1209,6 +1213,15 @@ enum HeartbeatMath {
         pphRows: [MetricRow] = []
     ) -> CompanyCardTiles? {
         let tiles: CompanyCardTiles
+        if section == .prepNotReady {
+            let coverage = prepCoverage(rows)
+            if coverage.thin {
+                return CompanyCardTiles(
+                    labels: ["Stores", "PNR %", "Goal", "Watch"],
+                    values: [coverage.coverageTile, "—", "—", "—"]
+                )
+            }
+        }
         if section == .sales {
             guard let total = salesCompanyRow(rows), salesHeadlineDollars(total) > 0 else { return nil }
             tiles = CompanyCardTiles(
@@ -1600,12 +1613,12 @@ enum HeartbeatMath {
             if group.isEmpty {
                 return (DashScopeLine(label: label, value: "—", health: .none, count: 0), section == .fiveStar ? -1 : 0)
             }
-            let worst = worstHealth(section, rows: group)
+            let card = scopeCard(section: section, rows: group)
             let line = DashScopeLine(
                 label: label,
-                value: scopeHeadline(section, rows: group),
-                health: worst,
-                count: group.count
+                value: card.value,
+                health: card.health,
+                count: card.count
             )
             let rank = section == .fiveStar ? fiveStarPresubScore(group) : 0
             return (line, rank)
@@ -1625,6 +1638,17 @@ enum HeartbeatMath {
 
     static func fiveStarPresubScore(_ rows: [MetricRow]) -> Double {
         average(rows.compactMap { $0.number("presub_pct") }) ?? -1
+    }
+
+    /// One grain card. Thin Prep stays ungraded: the value is the coverage note.
+    static func scopeCard(section: MetricSection, rows: [MetricRow]) -> (value: String, health: Health, count: Int) {
+        if section == .prepNotReady {
+            let coverage = prepCoverage(rows)
+            if coverage.thin {
+                return (coverage.note, .none, coverage.inScope)
+            }
+        }
+        return (scopeHeadline(section, rows: rows), worstHealth(section, rows: rows), rows.count)
     }
 
     static func worstHealth(_ section: MetricSection, rows: [MetricRow]) -> Health {
@@ -2586,6 +2610,7 @@ enum HeartbeatMath {
             guard row.number("compliance_pct") != nil else { return .none }
             return band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
         case .prepNotReady:
+            guard row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil else { return .none }
             return band(row.number("pnr_rate_pct"), good: pnrGoal, watch: pnrWatch, invert: true)
         case .dynacap:
             if let rate = row.number("dynacap_rate", "pieces_per_hour") {
@@ -2626,6 +2651,63 @@ enum HeartbeatMath {
             let recDelivery = row.number("rec_delivery")
         else { return nil }
         return near(pickup, recPickup) && near(delivery, recDelivery)
+    }
+
+    /// Stores on the Prep tab in this scope, and how many of them have a Prep Not Ready Hours % value.
+    struct PrepCoverage: Equatable {
+        var reported: Int
+        var inScope: Int
+
+        /// Under half the stores in scope reported. Do not grade those rows.
+        var thin: Bool { inScope > 0 && reported * 2 < inScope }
+
+        var note: String {
+            HeartbeatMath.prepThinNote(reported: reported, inScope: inScope)
+        }
+
+        var coverageTile: String {
+            "\(HeartbeatMath.groupedCount(reported)) of \(HeartbeatMath.groupedCount(inScope))"
+        }
+    }
+
+    static func groupedCount(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    static func prepThinNote(reported: Int, inScope: Int) -> String {
+        "Only \(groupedCount(reported)) of \(groupedCount(inScope)) stores reported Prep Not Ready this upload."
+    }
+
+    static func isPrepThinNote(_ text: String) -> Bool {
+        text.hasPrefix("Only ") && text.hasSuffix("stores reported Prep Not Ready this upload.")
+    }
+
+    /// "36 of 1,297" from the thin-coverage note. Nil when the card is graded.
+    static func prepCoverageTile(fromNote text: String) -> String? {
+        guard isPrepThinNote(text) else { return nil }
+        let rest = text.dropFirst("Only ".count)
+        guard let end = rest.range(of: " stores reported Prep Not Ready this upload.") else { return nil }
+        let tile = String(rest[..<end.lowerBound])
+        return tile.isEmpty ? nil : tile
+    }
+
+    /// Distinct stores on the rows passed in. A store counts as reported when any of its rows has a rate.
+    /// Ignored stores stay out, matching the other scorecards.
+    static func prepCoverage(_ rows: [MetricRow]) -> PrepCoverage {
+        var reportedByStore: [String: Bool] = [:]
+        for row in rows {
+            let store = canonicalStore(row.storeNumber)
+            if store.isEmpty || store.caseInsensitiveCompare("TOTAL") == .orderedSame { continue }
+            if isIgnoredStore(store) { continue }
+            let hasRate = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+            reportedByStore[store] = (reportedByStore[store] ?? false) || hasRate
+        }
+        let reported = reportedByStore.values.filter { $0 }.count
+        return PrepCoverage(reported: reported, inScope: reportedByStore.count)
     }
 
     static func summarize(_ section: MetricSection, rows: [MetricRow], upload: UploadRecord?) -> SectionSummary {
@@ -2680,6 +2762,21 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .prepNotReady:
+            let coverage = prepCoverage(rows)
+            if coverage.thin {
+                return SectionSummary(
+                    section: section,
+                    storeCount: coverage.inScope,
+                    headline: nil,
+                    headlineLabel: "Avg PNR hours",
+                    secondary: coverage.note,
+                    health: .none,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: upload?.filename,
+                    lastUploadedAt: upload?.uploadedAt
+                )
+            }
             let rates = latest.compactMap { $0.number("pnr_rate_pct") }
             if rates.isEmpty, !PulseLaunch.shouldInventPrepRateOnEmptyStore() {
                 return SectionSummary(

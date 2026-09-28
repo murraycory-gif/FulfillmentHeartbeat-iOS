@@ -936,7 +936,8 @@ final class HeartbeatStore: ObservableObject {
         }
         var chips = CommandCenterLayout.phoneScorecardChips(painted)
         if PulseLaunch.shouldShowDashboardThisWeekDetail(),
-           PulseLaunch.shouldMergeDashboardResultAndThisWeek() {
+           PulseLaunch.shouldMergeDashboardResultAndThisWeek(),
+           !HeartbeatMath.isPrepThinNote(painted.secondary) {
             chips.append(contentsOf: PhoneThisWeekChrome.chips(section: section, store: self))
         }
         if PulseLaunch.shouldCachePhoneDashboardSectionPaint() {

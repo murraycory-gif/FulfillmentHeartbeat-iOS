@@ -1601,6 +1601,100 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(empty.health, .none)
     }
 
+    func testPrepThinCoverageIsNotHealthy() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491")
+        XCTAssertEqual(
+            HeartbeatMath.prepThinNote(reported: 36, inScope: 1297),
+            "Only 36 of 1,297 stores reported Prep Not Ready this upload."
+        )
+        XCTAssertEqual(
+            HeartbeatMath.prepCoverageTile(fromNote: HeartbeatMath.prepThinNote(reported: 36, inScope: 1297)),
+            "36 of 1,297"
+        )
+
+        func prepRow(_ store: String, rate: Double?) -> MetricRow {
+            var payload: [String: Double] = [:]
+            if let rate { payload["pnr_rate_pct"] = rate }
+            return MetricRow(
+                section: .prepNotReady,
+                division: "United",
+                operationsOM: "Pat Ruiz",
+                storeNumber: store,
+                payload: payload
+            )
+        }
+
+        var thinRows = [prepRow("10", rate: 0.01), prepRow("11", rate: 0.01)]
+        for store in 12...19 {
+            thinRows.append(prepRow("\(store)", rate: nil))
+        }
+        let thin = HeartbeatMath.summarize(.prepNotReady, rows: thinRows, upload: nil)
+        XCTAssertEqual(thin.health, .none)
+        XCTAssertEqual(thin.health.label.uppercased(), "NO DATA")
+        XCTAssertNil(thin.headline)
+        XCTAssertEqual(thin.headlineText, "—")
+        XCTAssertEqual(thin.secondary, HeartbeatMath.prepThinNote(reported: 2, inScope: 10))
+        XCTAssertEqual(thin.watchCount, 0)
+        XCTAssertEqual(thin.riskCount, 0)
+        XCTAssertEqual(thin.storeCount, 10)
+        let table = HeartbeatMath.dashboardTableValues(.prepNotReady, rows: thinRows)
+        XCTAssertEqual(table.values, ["—", "—", "—"])
+        XCTAssertEqual(table.health, .none)
+        let tiles = HeartbeatMath.companyCardTiles(section: .prepNotReady, rows: thinRows)
+        XCTAssertEqual(tiles?.values, ["2 of 10", "—", "—", "—"])
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(thin), .none)
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardSubtitle(thin), thin.secondary)
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardChips(thin).map(\.value), ["2 of 10", "—", "—", "—"])
+        XCTAssertTrue(CommandCenterLayout.phoneScorecardChips(thin).allSatisfy { $0.health == .none })
+        let grain = HeartbeatMath.scopeCard(section: .prepNotReady, rows: thinRows)
+        XCTAssertEqual(grain.health, .none)
+        XCTAssertEqual(grain.value, thin.secondary)
+        XCTAssertEqual(grain.count, 10)
+
+        let halfRows = [prepRow("1", rate: 0.5), prepRow("2", rate: nil)]
+        XCTAssertFalse(HeartbeatMath.prepCoverage(halfRows).thin)
+        let half = HeartbeatMath.summarize(.prepNotReady, rows: halfRows, upload: nil)
+        XCTAssertEqual(half.health, .good)
+        XCTAssertNotNil(half.headline)
+        XCTAssertFalse(HeartbeatMath.isPrepThinNote(half.secondary))
+
+        let scoped = AssistRank.scopedSummary(section: .prepNotReady, rows: thinRows, prior: nil)
+        XCTAssertEqual(scoped.health, .none)
+        XCTAssertNil(scoped.headline)
+        XCTAssertEqual(scoped.secondary, thin.secondary)
+        XCTAssertNil(
+            AssistRank.score(
+                AssistRank.Input(
+                    section: .prepNotReady,
+                    health: scoped.health,
+                    risk: scoped.riskCount,
+                    watch: scoped.watchCount,
+                    distance: 0,
+                    storeCount: scoped.storeCount
+                )
+            )
+        )
+
+        let csv = """
+        DIVISION,District,OM,Store #,Store,Net Prep Not Ready Hours % Total
+        Southwest,97,A,1,10,0.0001
+        Southwest,97,A,1,11,
+        Southwest,97,A,1,12,
+        """
+        let parsed = WorkbookParser.parseCSV(csv).map { $0.asRow(section: .prepNotReady) }
+        XCTAssertEqual(parsed.count, 3)
+        XCTAssertEqual(parsed.filter { $0.number("pnr_rate_pct") != nil }.count, 1)
+        let parsedSummary = HeartbeatMath.summarize(.prepNotReady, rows: parsed, upload: nil)
+        XCTAssertEqual(parsedSummary.health, .none)
+        XCTAssertNil(parsedSummary.headline)
+        XCTAssertEqual(parsedSummary.secondary, HeartbeatMath.prepThinNote(reported: 1, inScope: 3))
+
+        let stillEmpty = HeartbeatMath.summarize(.prepNotReady, rows: [], upload: nil)
+        XCTAssertEqual(stillEmpty.secondary, "No Prep rows this week")
+        XCTAssertEqual(stillEmpty.headlineText, "0%")
+        XCTAssertEqual(stillEmpty.health, .none)
+    }
+
     @MainActor
     func testClearFiltersResetsChromeAndCompanyGrain() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

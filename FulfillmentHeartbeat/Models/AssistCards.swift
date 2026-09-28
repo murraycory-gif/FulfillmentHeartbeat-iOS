@@ -747,6 +747,17 @@ enum AssistRank {
         } else if section == .pph, let headline = summary.headline {
             summary.health = pphHealth(headline)
         }
+        if section == .prepNotReady {
+            let coverage = HeartbeatMath.prepCoverage(rows)
+            if coverage.thin {
+                summary.health = .none
+                summary.headline = nil
+                summary.secondary = coverage.note
+                summary.watchCount = 0
+                summary.riskCount = 0
+                summary.storeCount = coverage.inScope
+            }
+        }
         if let prior {
             summary.lastFilename = prior.lastFilename
             summary.lastUploadedAt = prior.lastUploadedAt
@@ -3109,6 +3120,9 @@ enum AssistComposer {
         let withData = MetricSection.dashboardCards.filter { section in
             guard section != .pickerScorecard else { return false }
             let summary = snapshot.summaries[section]
+            if section == .prepNotReady, let summary, HeartbeatMath.isPrepThinNote(summary.secondary) {
+                return false
+            }
             return (summary?.storeCount ?? 0) > 0 && summary?.health != .none
         }
         let healthyOnes = withData.filter { section in

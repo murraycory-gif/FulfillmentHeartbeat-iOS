@@ -1912,7 +1912,9 @@ enum PulseLaunch {
         guard shouldPaintDashboardResultFromActiveSeat(), filters.isActive else {
             return metricPageHeroCard(card, rows: rows)
         }
-        let facts = HeartbeatMath.metricFactRows(card.section, rows: rows)
+        let facts = card.section == .prepNotReady
+            ? rows
+            : HeartbeatMath.metricFactRows(card.section, rows: rows)
         var next = HeartbeatMath.summarize(card.section, rows: facts, upload: nil)
         next.lastFilename = card.lastFilename
         next.lastUploadedAt = card.lastUploadedAt

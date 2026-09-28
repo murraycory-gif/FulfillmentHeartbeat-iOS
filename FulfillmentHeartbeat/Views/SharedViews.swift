@@ -2228,7 +2228,7 @@ struct StoreTable: View {
                             label: section == .pickerScorecard ? row.shopperName : HeartbeatMath.storeDisplayLabel(row),
                             value: view.primary,
                             count: nil,
-                            health: health == .none ? .good : health
+                            health: section == .prepNotReady ? health : (health == .none ? .good : health)
                         )
                     }
                 }
@@ -4795,8 +4795,13 @@ private struct PrepRollupRow: Identifiable {
     let label: String
     let storeCount: Int
     let pnr: Double?
+    let reported: Int
+    let inScope: Int
 
-    var health: Health { PrepMath.pnrHealth(pnr) }
+    var thin: Bool { HeartbeatMath.PrepCoverage(reported: reported, inScope: inScope).thin }
+    var health: Health { thin ? .none : PrepMath.pnrHealth(pnr) }
+    var note: String? { thin ? HeartbeatMath.prepThinNote(reported: reported, inScope: inScope) : nil }
+    var coverageTile: String { HeartbeatMath.PrepCoverage(reported: reported, inScope: inScope).coverageTile }
 }
 
 private enum PrepRollupBuilder {
@@ -4805,9 +4810,7 @@ private enum PrepRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter {
-            !$0.storeNumber.isEmpty && $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
-        }
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {
@@ -4827,12 +4830,15 @@ private enum PrepRollupBuilder {
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
             }
+            let coverage = HeartbeatMath.prepCoverage(group)
             result.append(
                 PrepRollupRow(
                     id: key,
                     label: label,
-                    storeCount: group.count,
-                    pnr: HeartbeatMath.average(group.compactMap { $0.number("pnr_rate_pct") })
+                    storeCount: coverage.inScope,
+                    pnr: coverage.thin ? nil : HeartbeatMath.average(group.compactMap { $0.number("pnr_rate_pct") }),
+                    reported: coverage.reported,
+                    inScope: coverage.inScope
                 )
             )
         }
@@ -4948,11 +4954,15 @@ private struct PrepMetricLine: View, Equatable {
     let pnr: Double?
 
     static func == (lhs: PrepMetricLine, rhs: PrepMetricLine) -> Bool {
-        lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr
+        lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr && lhs.thin == rhs.thin && lhs.note == rhs.note
     }
 
+    var thin: Bool = false
+    var note: String? = nil
+
     var body: some View {
-        let health = PrepMath.pnrHealth(pnr)
+        let health: Health = thin ? .none : PrepMath.pnrHealth(pnr)
+        VStack(alignment: .leading, spacing: 4) {
         ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.prepMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
@@ -4967,13 +4977,21 @@ private struct PrepMetricLine: View, Equatable {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            cell(HeartbeatFormat.pct(pnr), health)
-            cell(PrepMath.goalText, .none, brand: true)
-            cell(PrepMath.watchText, .watch)
+            cell(thin ? "—" : HeartbeatFormat.pct(pnr), health)
+            cell(thin ? "—" : PrepMath.goalText, .none, brand: true)
+            cell(thin ? "—" : PrepMath.watchText, thin ? .none : .watch)
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
+            if let note, !note.isEmpty {
+                Text(note)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+            }
+        }
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -5126,13 +5144,27 @@ struct PrepRollupTable: View {
                     if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                         VStack(spacing: 6) {
                             ForEach(summary.prefix(40)) { row in
-                                PhoneGrainRow(
-                                    label: row.label,
-                                    value: HeartbeatFormat.pct(row.pnr),
-                                    count: grain == .store ? nil : row.storeCount,
-                                    health: row.health,
-                                    metricLabel: "PNR"
-                                )
+                                if row.thin {
+                                    PhoneScorecardRow(
+                                        title: row.label,
+                                        subtitle: row.note,
+                                        chips: [
+                                            PhoneMetricChip(label: "Stores", value: row.coverageTile, health: .none),
+                                            PhoneMetricChip(label: "PNR %", value: "—", health: .none),
+                                            PhoneMetricChip(label: "Goal", value: "—", health: .none),
+                                            PhoneMetricChip(label: "Watch", value: "—", health: .none),
+                                        ],
+                                        health: .none
+                                    )
+                                } else {
+                                    PhoneGrainRow(
+                                        label: row.label,
+                                        value: HeartbeatFormat.pct(row.pnr),
+                                        count: grain == .store ? nil : row.storeCount,
+                                        health: row.health,
+                                        metricLabel: "PNR"
+                                    )
+                                }
                             }
                         }
                         .padding(.horizontal, 10)
@@ -5155,7 +5187,9 @@ struct PrepRollupTable: View {
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
                             labelWidth: grain.labelWidth,
-                            pnr: row.pnr
+                            pnr: row.pnr,
+                            thin: row.thin,
+                            note: row.note
                         )
                     }
                                     }
@@ -5187,13 +5221,13 @@ struct PrepRollupTable: View {
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
-                rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil))
+                rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil, reported: 0, inScope: 0))
             }
             if let orphan = RollupMarketFill.unassignedIfRealOrphans(
                 markets: store.marketStores(),
                 isRoster: store.isOfficialRosterStore
             ) {
-                rows.append(PrepRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, pnr: nil))
+                rows.append(PrepRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, pnr: nil, reported: 0, inScope: 0))
             }
             rows.sort { ($0.pnr ?? -1) > ($1.pnr ?? -1) }
         }
