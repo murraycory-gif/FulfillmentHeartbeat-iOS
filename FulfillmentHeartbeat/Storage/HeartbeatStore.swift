@@ -145,6 +145,10 @@ final class HeartbeatStore: ObservableObject {
     private var companySeatChrome: PulseDashChrome?
     private var seatChromeByKey: [PulseSeatPack.Key: PulseDashChrome] = [:]
     private var seatRowPlanes: [PulseSeatPack.Key: SeatRowPlane] = [:]
+    /// Company plane is holding a division/region slice, not the company file.
+    private var companyFactsAreScoped = false
+    /// id / name / division index. Rebuilt when a company seat installs, never from fact rows.
+    private var cachedCompanyStoreIndex: [String: HeartbeatMath.StoreIdentity]?
     private var packPickerFactCount = 0
     private var factsOwned: Set<MetricSection> = []
     private var didAdoptExcelFacts = false
@@ -2585,27 +2589,29 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    /// Store search uses the company roster, plus any fact-only store the roster
-    /// gate omitted. The open division must not hide a store number.
+    /// Store search uses the company roster plus a light index (id, name, division).
+    /// It does not walk fact rows, so opening Filters does not keep the company
+    /// payloads in memory. The open division must not hide a store number.
     private func storeFilterRoster() -> [String: HeartbeatMath.StoreIdentity] {
         let plane = seatRowPlanes[.company]
         var source = plane?.roster ?? [:]
         if source.isEmpty { source = roster }
-        let sections = plane?.latestBySection ?? latestBySection
-        let skip: Set<MetricSection> = [.pickerScorecard, .pickPathPicker, .preSubOOSItem]
-        for (section, rows) in sections where !skip.contains(section) {
-            for row in rows {
-                let number = HeartbeatMath.canonicalStore(row.storeNumber)
-                guard !number.isEmpty, !HeartbeatMath.isIgnoredStore(number), source[number] == nil else { continue }
-                source[number] = HeartbeatMath.StoreIdentity(
-                    division: MarketRegion.canonicalName(row.division),
-                    district: HeartbeatMath.canonicalDistrict(row.district),
-                    om: HeartbeatMath.canonicalOM(row.operationsOM),
-                    name: row.storeName
-                )
-            }
+        for (number, identity) in companyStoreIndex() where source[number] == nil {
+            source[number] = identity
         }
         return source
+    }
+
+    private func companyStoreIndex() -> [String: HeartbeatMath.StoreIdentity] {
+        if let cachedCompanyStoreIndex { return cachedCompanyStoreIndex }
+        for url in companyFactPackURLs() {
+            let index = PulseSQLite.readStoreIndex(from: url)
+            if !index.isEmpty {
+                cachedCompanyStoreIndex = index
+                return index
+            }
+        }
+        return [:]
     }
 
     /// A store outside the draft replaces the seat. A store already inside it toggles.
@@ -2809,6 +2815,17 @@ final class HeartbeatStore: ObservableObject {
     @discardableResult
     private func swapToSeatPack(_ key: PulseSeatPack.Key, forceReload: Bool = false) async -> Bool {
         seatInstallTask?.cancel()
+        if key != .company || filters.isActive {
+            releaseResidentCompanyFacts()
+        }
+        if key == .company, filters.isActive {
+            if installActiveFilterWithoutCompanyFacts() {
+                publishSeatPaint(force: true)
+                return true
+            }
+            failSeatSwap(key)
+            return false
+        }
         guard PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() else {
             failSeatSwap(key)
             return false
@@ -2817,6 +2834,12 @@ final class HeartbeatStore: ObservableObject {
         try? fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         var localUsable = PulseSeatPack.isUsable(at: dest)
         if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            localUsable = false
+        }
+        // A store file that contains the company roster was materialized by decoding
+        // every fact. Drop it and read that store's rows only.
+        if key.grain == .store, localUsable, PulseSQLite.distinctStoreCount(from: dest) > 8 {
+            try? fileManager.removeItem(at: dest)
             localUsable = false
         }
         if !localUsable {
@@ -2838,6 +2861,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let alreadyOn = !forceReload
             && activeSeatKey == key
+            && !companyFactsAreScoped
             && PulseSeatPack.isUsable(at: activePackURL)
             && !latestBySection.isEmpty
         let cached = forceReload ? nil : cachedChrome(for: key)
@@ -3255,6 +3279,10 @@ final class HeartbeatStore: ObservableObject {
         bySection = PulseLaunch.joiningAisleMapper(bySection)
         latestBySection = bySection
         filteredLatest = bySection
+        if key == .company {
+            companyFactsAreScoped = false
+            cachedCompanyStoreIndex = nil
+        }
         rebuildPickPathPickerIndex(scorecard: bySection[.pickerScorecard] ?? [])
         refreshFilterOptions()
         refreshSalesExpandCache()
@@ -3324,7 +3352,7 @@ final class HeartbeatStore: ObservableObject {
     /// Warm company chrome so Clear / filter bounce can paint heroes before warehouse.
     private func cachePublishedCompanySeatChrome() async {
         guard let dest = await ensurePublishedCompanySeatPack() else { return }
-        guard let pack = try? PulseSQLite.read(from: dest), let chrome = pack.chrome else { return }
+        guard let chrome = PulseSQLite.readChrome(from: dest) else { return }
         companySeatChrome = chrome
         seatChromeByKey[.company] = chrome
     }
@@ -3474,6 +3502,81 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    /// Drop the pinned company fact arrays before a filter read so the phone
+    /// never holds the company payloads and the next scope at the same time.
+    /// The roster on the company plane stays, for the store picker.
+    private func releaseResidentCompanyFacts() {
+        if var plane = seatRowPlanes[.company] {
+            plane.latestBySection = [:]
+            plane.filteredLatest = [:]
+            plane.cachedSalesScopeRows = []
+            plane.cachedSalesDayRows = []
+            plane.filteredMarket = []
+            seatRowPlanes[.company] = plane
+        }
+        if activeSeatKey == nil || activeSeatKey == .company {
+            latestBySection = [:]
+            filteredLatest = [:]
+            rows = []
+            companyFactsAreScoped = false
+        }
+    }
+
+    /// Division and region filters use the company seat key. Read that scope's
+    /// stores from sqlite instead of decoding the company file again.
+    @discardableResult
+    private func installActiveFilterWithoutCompanyFacts() -> Bool {
+        let identities = storeFilterRoster()
+        let allowed = PulseCaches.allowedStores(roster: identities, filters: filters) ?? []
+        guard !allowed.isEmpty else { return false }
+        let sections = PulseSeatPack.sectionsForScopedRead(grain: .company, storeCount: allowed.count)
+        var found: [MetricRow] = []
+        for source in companyFactPackURLs() {
+            let rows = PulseSQLite.readStores(
+                from: source,
+                sections: sections,
+                stores: allowed
+            )
+            if !rows.isEmpty {
+                found = rows
+                break
+            }
+        }
+        guard !found.isEmpty else { return false }
+        installScopedFactRows(found)
+        activeSeatKey = .company
+        seeded = true
+        lastPaintedSeatKey = .company
+        applySeatSliceNow()
+        return true
+    }
+
+    /// Install a filter slice without replacing the company roster or pinning
+    /// a second copy of the company fact arrays.
+    private func installScopedFactRows(_ found: [MetricRow]) {
+        var bySection: [MetricSection: [MetricRow]] = [:]
+        bySection.reserveCapacity(16)
+        for row in found {
+            bySection[row.section, default: []].append(row)
+        }
+        let incoming = PulseCaches.storeRoster(from: found)
+        for (number, identity) in incoming where roster[number] == nil {
+            roster[number] = identity
+        }
+        if let prep = bySection[.prepNotReady], !prep.isEmpty {
+            bySection[.prepNotReady] = HeartbeatMath.applyRoster(
+                HeartbeatMath.latestPerStore(prep),
+                roster: roster
+            )
+        }
+        bySection = PulseLaunch.joiningAisleMapper(bySection)
+        latestBySection = bySection
+        filteredLatest = bySection
+        companyFactsAreScoped = true
+        rebuildPickPathPickerIndex(scorecard: bySection[.pickerScorecard] ?? [])
+        refreshSalesExpandCache()
+    }
+
     /// Kitchen only. Field iPad Release must fail instead of calling this.
     /// Facts come from the company seat when the market file is roster-only.
     @discardableResult
@@ -3486,7 +3589,11 @@ final class HeartbeatStore: ObservableObject {
                     key: key,
                     roster: roster,
                     uploads: uploads,
-                    to: dest
+                    to: dest,
+                    sections: PulseSeatPack.sectionsForScopedRead(
+                        grain: key.grain,
+                        storeCount: key.grain == .store ? 1 : 64
+                    )
                 )
             } catch {
                 continue
@@ -3545,7 +3652,7 @@ final class HeartbeatStore: ObservableObject {
             for source in companyFactPackURLs() {
                 let rows = PulseSQLite.readStores(
                     from: source,
-                    sections: Set(MetricSection.allCases),
+                    sections: PulseSeatPack.sectionsForScopedRead(grain: .store, storeCount: 1),
                     stores: [key.id]
                 )
                 if !rows.isEmpty {

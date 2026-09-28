@@ -100,7 +100,14 @@ enum PulseSQLite {
         try FileManager.default.moveItem(at: temp, to: url)
     }
 
+    /// Full-file fact decodes. A filter change must leave this at 0.
+    static var companyFactReadCount = 0
+    /// Rows decoded into `MetricRow`, payloads included. Filter tests use this
+    /// to prove a store query did not materialize the rest of the company.
+    static var decodedFactRowCount = 0
+
     static func read(from url: URL, skipping skip: Set<MetricSection> = [], only: Set<MetricSection> = []) throws -> Pack {
+        companyFactReadCount += 1
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
             throw PulseSQLError.open
@@ -265,31 +272,175 @@ enum PulseSQLite {
         return out
     }
 
+    /// How many store numbers are in the file, without decoding payloads.
+    static func distinctStoreCount(from url: URL) -> Int {
+        guard exists(at: url) else { return 0 }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return 0
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "PRAGMA mmap_size=0;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size=-500;", nil, nil, nil)
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT COUNT(DISTINCT store_number) FROM facts WHERE store_number != '';",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else { return 0 }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+
+    /// Picker list. Store number, division, OM, and name only — never `payload_json`.
+    /// Roster rows also contribute district from `text_json`, which is one small row per store.
+    static func readStoreIndex(from url: URL) -> [String: HeartbeatMath.StoreIdentity] {
+        guard exists(at: url) else { return [:] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return [:]
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "PRAGMA mmap_size=0;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size=-2000;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA query_only=ON;", nil, nil, nil)
+
+        var index: [String: HeartbeatMath.StoreIdentity] = [:]
+        mergeRosterIdentities(db: db, into: &index)
+        mergeColumnIdentities(db: db, into: &index)
+        return index
+    }
+
+    private static func mergeRosterIdentities(
+        db: OpaquePointer,
+        into index: inout [String: HeartbeatMath.StoreIdentity]
+    ) {
+        var stmt: OpaquePointer?
+        let sql = """
+        SELECT store_number, division, operations_om, store_name, text_json
+        FROM facts WHERE section = ?;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+        bind(stmt, 1, MetricSection.storeRoster.rawValue)
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let number = HeartbeatMath.canonicalStore(string(stmt, 0))
+            guard !number.isEmpty, !HeartbeatMath.isIgnoredStore(number) else { continue }
+            let text = decodeText(optional(stmt, 4) ?? "{}")
+            var identity = index[number] ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
+            let division = MarketRegion.canonicalName(string(stmt, 1))
+            if !division.isEmpty { identity.division = division }
+            let district = HeartbeatMath.canonicalDistrict(text["district"] ?? "")
+            if !district.isEmpty { identity.district = district }
+            let om = HeartbeatMath.canonicalOM(string(stmt, 2))
+            if !om.isEmpty { identity.om = om }
+            if let name = optional(stmt, 3), !name.isEmpty { identity.name = name }
+            index[number] = identity
+        }
+    }
+
+    private static func mergeColumnIdentities(
+        db: OpaquePointer,
+        into index: inout [String: HeartbeatMath.StoreIdentity]
+    ) {
+        var stmt: OpaquePointer?
+        let sql = """
+        SELECT store_number,
+               MAX(CASE WHEN division IS NOT NULL AND division != '' THEN division END),
+               MAX(CASE WHEN operations_om IS NOT NULL AND operations_om != '' THEN operations_om END),
+               MAX(CASE WHEN store_name IS NOT NULL AND store_name != '' THEN store_name END)
+        FROM facts
+        WHERE store_number != ''
+        GROUP BY store_number;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let number = HeartbeatMath.canonicalStore(string(stmt, 0))
+            guard !number.isEmpty, !HeartbeatMath.isIgnoredStore(number), index[number] == nil else { continue }
+            let name = optional(stmt, 3)
+            index[number] = HeartbeatMath.StoreIdentity(
+                division: MarketRegion.canonicalName(string(stmt, 1)),
+                district: "",
+                om: HeartbeatMath.canonicalOM(string(stmt, 2)),
+                name: (name?.isEmpty == false) ? name : nil
+            )
+        }
+    }
+
+    /// A store number the `IN` list missed (padding, a trailing decimal). SQLite returns
+    /// only the matching rows, so the rest of the company file stays out of Swift.
     private static func rowsMatchingSection(
         db: OpaquePointer,
         section: MetricSection,
         stores: Set<String>
     ) -> [MetricRow] {
+        var ints: [Int] = []
+        var seenInt = Set<Int>()
+        for store in stores {
+            let canonical = HeartbeatMath.canonicalStore(store)
+            if let value = Int(canonical), value > 0, seenInt.insert(value).inserted {
+                ints.append(value)
+            }
+        }
+        var pool: [MetricRow] = []
+        let chunkSize = 180
+        var start = 0
+        while start < ints.count {
+            let end = min(start + chunkSize, ints.count)
+            let slice = Array(ints[start..<end])
+            start = end
+            let marks = Array(repeating: "?", count: slice.count).joined(separator: ",")
+            let sql = """
+            SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+            FROM facts
+            WHERE section = ? AND CAST(store_number AS INTEGER) IN (\(marks))
+              AND CAST(store_number AS INTEGER) != 0;
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { continue }
+            defer { sqlite3_finalize(stmt) }
+            bind(stmt, 1, section.rawValue)
+            for (offset, value) in slice.enumerated() {
+                bind(stmt, Int32(offset + 2), value)
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let row = metricRow(stmt) {
+                    pool.append(row)
+                }
+            }
+        }
+        if section == .dynacap || section == .scheduleQuality {
+            pool.append(contentsOf: emptyStoreRows(db: db, section: section))
+        }
+        guard !pool.isEmpty else { return [] }
+        return PulseCaches.rowsMatchingStores(pool, stores: stores, skipMarket: true)
+    }
+
+    private static func emptyStoreRows(db: OpaquePointer, section: MetricSection) -> [MetricRow] {
         var stmt: OpaquePointer?
         let sql = """
         SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
-        FROM facts WHERE section = ?;
+        FROM facts WHERE section = ? AND store_number = '' LIMIT 40;
         """
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
         defer { sqlite3_finalize(stmt) }
         bind(stmt, 1, section.rawValue)
-        var pool: [MetricRow] = []
-        pool.reserveCapacity(2_200)
+        var out: [MetricRow] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             if let row = metricRow(stmt) {
-                pool.append(row)
+                out.append(row)
             }
         }
-        return PulseCaches.rowsMatchingStores(pool, stores: stores, skipMarket: true)
+        return out
     }
 
     private static func metricRow(_ stmt: OpaquePointer?) -> MetricRow? {
         guard let stmt else { return nil }
+        decodedFactRowCount += 1
         let sectionRaw = string(stmt, 1)
         guard let section = MetricSection(rawValue: sectionRaw) else { return nil }
         let rawStore = string(stmt, 2)

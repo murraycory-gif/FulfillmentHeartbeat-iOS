@@ -2326,8 +2326,9 @@ extension AssistSnapshot {
         for section in answerSections {
             latest[section] = store.allLatest(for: section)
         }
-        // Copy-on-write. Trend history scans this pool in `assemble`, off the main actor.
-        let historyPool = store.rows
+        // Trend history reads `latest`. `store.rows` is the warehouse tape;
+        // retaining it for a question keeps a second company fact set alive.
+        let historyPool: [MetricRow] = []
         return Source(
             seeded: store.seeded,
             filters: store.filters,
@@ -2369,7 +2370,7 @@ extension AssistSnapshot {
             summaries: summaries,
             rows: rows,
             history: trendHistory(source),
-            dataWindow: dataWindow(focus: source.focus, rows: source.historyPool),
+            dataWindow: dataWindow(focus: source.focus, rows: source.historyPool, latest: source.latest),
             rosterStores: source.rosterStores,
             districts: source.districts,
             divisions: source.divisions,
@@ -2394,12 +2395,16 @@ extension AssistSnapshot {
 
     private static func trendHistory(_ source: Source) -> [MetricSection: [HistoryPoint]] {
         var grouped: [MetricSection: [MetricRow]] = [:]
-        for row in source.historyPool where trendSectionSet.contains(row.section) {
-            grouped[row.section, default: [MetricRow]()].append(row)
+        if !source.historyPool.isEmpty {
+            for row in source.historyPool where trendSectionSet.contains(row.section) {
+                grouped[row.section, default: [MetricRow]()].append(row)
+            }
         }
         var history: [MetricSection: [HistoryPoint]] = [:]
         for section in trendSections {
-            let sectionRows = grouped[section] ?? []
+            let sectionRows = source.historyPool.isEmpty
+                ? (source.latest[section] ?? [])
+                : (grouped[section] ?? [])
             guard !sectionRows.isEmpty else { continue }
             let scoped: [MetricRow]
             if source.filters.isActive {
@@ -2407,7 +2412,7 @@ extension AssistSnapshot {
                     sectionRows,
                     filters: source.filters,
                     relaxUnknown: false,
-                    universe: source.historyPool
+                    universe: source.historyPool.isEmpty ? sectionRows : source.historyPool
                 )
             } else {
                 scoped = sectionRows
@@ -2420,7 +2425,31 @@ extension AssistSnapshot {
         return history
     }
 
-    private static func dataWindow(focus: MetricSection?, rows: [MetricRow]) -> String? {
+    private static func dataWindow(
+        focus: MetricSection?,
+        rows: [MetricRow],
+        latest: [MetricSection: [MetricRow]] = [:]
+    ) -> String? {
+        if rows.isEmpty, !latest.isEmpty {
+            var found: [MetricSection: String] = [:]
+            for (section, sectionRows) in latest {
+                for row in sectionRows {
+                    let text = row.textPayload["data_window"] ?? ""
+                    if !text.isEmpty {
+                        found[section] = text
+                        break
+                    }
+                }
+            }
+            if let focus, let text = found[focus], !text.isEmpty {
+                return text
+            }
+            let labels = MetricSection.uploadOrder.compactMap { found[$0] }
+            if Set(labels).count == 1 {
+                return labels.first
+            }
+            return labels.first
+        }
         var found: [MetricSection: String] = [:]
         for row in rows where found[row.section] == nil {
             let text = row.textPayload["data_window"] ?? ""

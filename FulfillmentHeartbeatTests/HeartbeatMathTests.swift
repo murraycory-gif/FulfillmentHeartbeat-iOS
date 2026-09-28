@@ -4157,6 +4157,78 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseSQLite.needsAttentionStores(from: dest).allSatisfy { districtStores.contains($0) })
     }
 
+    /// Filter changes must not decode the company fact file.
+    /// Expected phone memory during a filter, including Store 3493: the chosen
+    /// scope's rows only (a store is a few megabytes of decoded rows, not the
+    /// company payloads). The picker is an id / name / division index. Peak
+    /// stays well under 1 GB because the company file is not expanded in Swift.
+    func testFilterChangeDoesNotDecodeTheCompanyFactSet() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.485")
+        func row(_ section: MetricSection, _ store: String, _ division: String, payload: [String: Double]) -> MetricRow {
+            MetricRow(
+                section: section,
+                division: division,
+                operationsOM: "OM",
+                storeNumber: store,
+                storeName: store == "3493" ? "Haggen 3493" : "United 22",
+                payload: payload,
+                textPayload: ["district": store == "3493" ? "39" : "U5"]
+            )
+        }
+        let haggen = [
+            row(.lostRevenue, "3493", "Haggen", ["lost_revenue": 539]),
+            row(.missingItems, "3493", "Haggen", [MissingItemDept.totalKey: 8.9]),
+            row(.pickPath, "3493", "Haggen", ["compliance_pct": 82.1]),
+        ]
+        let other = row(.sales, "22", "United", ["sales_dollars": 100])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("filter-scope-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let company = tmp.appendingPathComponent("company.sqlite")
+        try PulseSQLite.write(rows: haggen + [other], uploads: [], seeded: true, chrome: nil, to: company)
+
+        let readsBefore = PulseSQLite.companyFactReadCount
+        PulseSQLite.decodedFactRowCount = 0
+        let index = PulseSQLite.readStoreIndex(from: company)
+        XCTAssertEqual(index["3493"]?.division, "Haggen")
+        XCTAssertEqual(index["3493"]?.name, "Haggen 3493")
+        XCTAssertEqual(index["22"]?.division, "United")
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0, "store index must not decode fact payloads")
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, readsBefore)
+
+        PulseSQLite.decodedFactRowCount = 0
+        let dest = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .store, id: "3493"))
+        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try PulseSeatPack.materialize(
+            from: company,
+            key: PulseSeatPack.Key(grain: .store, id: "3493"),
+            roster: [:],
+            uploads: [],
+            to: dest
+        )
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, readsBefore, "store materialize must not read the company file")
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, haggen.count, "only Store 3493 rows are decoded")
+
+        XCTAssertThrowsError(
+            try PulseSeatPack.materialize(
+                from: company,
+                key: .company,
+                roster: ["22": HeartbeatMath.StoreIdentity(division: "United", district: "U5", om: "OM", name: "United 22")],
+                uploads: [],
+                to: tmp.appendingPathComponent("company-seat.sqlite")
+            )
+        )
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, readsBefore)
+
+        let pack = try PulseSQLite.read(from: dest)
+        let stores = Set(pack.rows.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
+        XCTAssertEqual(stores, ["3493"])
+        XCTAssertFalse(stores.contains("22"))
+        XCTAssertEqual(PulseSQLite.distinctStoreCount(from: company), 2)
+        XCTAssertEqual(PulseSQLite.distinctStoreCount(from: dest), 1)
+    }
+
     func testSeatPackIndexedSchemaAtomicSwapAndCacheCeiling() throws {
         let risk = MetricRow(
             section: .fiveStar,
