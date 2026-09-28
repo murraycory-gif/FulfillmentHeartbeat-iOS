@@ -219,7 +219,7 @@ enum PulseSeatPack {
 
     /// Dashboard rows for a filter. Shopper tape is included only for a single store,
     /// so a division or district change does not decode the company picker file.
-    static func sectionsForScopedRead(grain: Key.Grain, storeCount: Int) -> Set<MetricSection> {
+    static func sectionsForScopedRead(grain: Grain, storeCount: Int) -> Set<MetricSection> {
         var sections = Set(MetricSection.dashboardCards)
         sections.remove(.pickerScorecard)
         sections.insert(.aisleMapper)
