@@ -12,10 +12,12 @@ struct PulseDashChrome: Codable {
     var companyTiles: [String: CompanyCardTiles]
     /// Workbook Total / market rows for Sales, Loss, and Labor. One row each.
     var companyRollupRows: [String: MetricRow]
+    /// When this pack was cooked. Missing on older chrome. Never invent a clock time.
+    var publishedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
-        case companyTiles, companyRollupRows
+        case companyTiles, companyRollupRows, publishedAt
     }
 
     init(
@@ -27,7 +29,8 @@ struct PulseDashChrome: Codable {
         pickerOpportunity: Int = 0,
         pickerStrong: Int = 0,
         companyTiles: [String: CompanyCardTiles] = [:],
-        companyRollupRows: [String: MetricRow] = [:]
+        companyRollupRows: [String: MetricRow] = [:],
+        publishedAt: Date? = nil
     ) {
         self.summaries = summaries
         self.flags = flags
@@ -38,6 +41,7 @@ struct PulseDashChrome: Codable {
         self.pickerStrong = pickerStrong
         self.companyTiles = companyTiles
         self.companyRollupRows = companyRollupRows
+        self.publishedAt = publishedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -51,6 +55,7 @@ struct PulseDashChrome: Codable {
         pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
         companyTiles = try container.decodeIfPresent([String: CompanyCardTiles].self, forKey: .companyTiles) ?? [:]
         companyRollupRows = try container.decodeIfPresent([String: MetricRow].self, forKey: .companyRollupRows) ?? [:]
+        publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -64,6 +69,7 @@ struct PulseDashChrome: Codable {
         try container.encode(pickerStrong, forKey: .pickerStrong)
         try container.encode(companyTiles, forKey: .companyTiles)
         try container.encode(companyRollupRows, forKey: .companyRollupRows)
+        try container.encodeIfPresent(publishedAt, forKey: .publishedAt)
     }
 
     static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {
@@ -107,7 +113,8 @@ struct PulseDashChrome: Codable {
             pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
             pickerStrong: caches.cachedPickerBoard.strongCount,
             companyTiles: HeartbeatMath.companyScopeTiles(latest: companySource),
-            companyRollupRows: HeartbeatMath.companyScopeRollups(latest: companySource)
+            companyRollupRows: HeartbeatMath.companyScopeRollups(latest: companySource),
+            publishedAt: Date()
         )
     }
 

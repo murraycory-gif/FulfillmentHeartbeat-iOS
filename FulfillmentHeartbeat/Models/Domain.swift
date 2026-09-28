@@ -5493,6 +5493,34 @@ enum HeartbeatFormat {
         guard let date else { return "No data" }
         return "Updated \(stamp(date))"
     }
+
+    /// Page header clock. Device local time. Example: `Mon 9/28 3:10 PM`.
+    static func publishClock(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "EEE M/d h:mm a"
+        return formatter.string(from: date)
+    }
+
+    static func parsePackTimestamp(_ raw: String) -> Date? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let parser = ISO8601DateFormatter()
+        if let date = parser.date(from: trimmed) { return date }
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return parser.date(from: trimmed)
+    }
+}
+
+extension HeartbeatMath {
+    /// Cook time on chrome, then the pack file's written time, then a summary upload.
+    /// Nil when none of those exist. Does not substitute `Date()`.
+    static func packPublishDate(chrome: PulseDashChrome?, writtenAt: Date?) -> Date? {
+        if let published = chrome?.publishedAt { return published }
+        if let writtenAt { return writtenAt }
+        return chrome?.summaries.compactMap(\.lastUploadedAt).max()
+    }
 }
 
 struct StoreCellViewModel {

@@ -758,17 +758,19 @@ struct PhoneMetricChip: Identifiable, Hashable {
 
 /// Classic Albertsons navy overview banner. Compact — no RESULT cavern,
 /// no white Labor scorecard chrome. STATUS pill stays on navy.
-/// Line 1 is the page name. Line 2 is `{Filter seat} | {week}`, smaller.
+/// Line 1 is the page name. Line 2 is `{Filter seat} | {week}` and wraps.
+/// Line 3 is when this pack was published.
 struct PhoneCompactPageBanner: View {
     let title: String
     var subtitle: String = ""
+    var updated: String = ""
     var health: Health = .none
 
     var body: some View {
         let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
         let corner: CGFloat = compact ? 10 : 14
         HStack(alignment: .center, spacing: compact ? 8 : 10) {
-            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(HubLayout.phoneBannerTitleFont())
                     .foregroundStyle(Color.white)
@@ -778,9 +780,15 @@ struct PhoneCompactPageBanner: View {
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(HubLayout.phoneBannerSubtitleFont())
-                        .foregroundStyle(Color.white.opacity(0.88))
+                        .foregroundStyle(Color.white)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !updated.isEmpty {
+                    Text(updated)
+                        .font(HubLayout.phoneBannerUpdatedFont())
+                        .foregroundStyle(Color.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -793,7 +801,13 @@ struct PhoneCompactPageBanner: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(subtitle.isEmpty ? "\(title), \(health.label)" : "\(title), \(subtitle), \(health.label)")
+        .accessibilityLabel(bannerAccessibilityLabel)
+    }
+
+    private var bannerAccessibilityLabel: String {
+        [title, subtitle, updated, health.label]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 }
 

@@ -142,6 +142,8 @@ final class HeartbeatStore: ObservableObject {
     private var heavyLoadStarted = false
     private var usingPackChrome = false
     private var packChrome: PulseDashChrome?
+    /// Cook / publish time for the chrome on screen. Nil shows "Updated —".
+    private(set) var packPublishedAt: Date?
     private var companySeatChrome: PulseDashChrome?
     private var seatChromeByKey: [PulseSeatPack.Key: PulseDashChrome] = [:]
     private var seatRowPlanes: [PulseSeatPack.Key: SeatRowPlane] = [:]
@@ -3701,7 +3703,7 @@ final class HeartbeatStore: ObservableObject {
             roster = index
             cachedCompanyStoreIndex = index
         }
-        applyDashChrome(chrome)
+        applyDashChrome(chrome, packURL: dest)
         companySeatChrome = chrome
         seatChromeByKey[.company] = chrome
         activeSeatKey = .company
@@ -6125,7 +6127,7 @@ final class HeartbeatStore: ObservableObject {
             PulseSQLite.readChrome(from: url)
         }.value
         if let chrome {
-            applyDashChrome(chrome)
+            applyDashChrome(chrome, packURL: url)
         }
         packPickerFactCount = max(
             packPickerFactCount,
@@ -6164,7 +6166,7 @@ final class HeartbeatStore: ObservableObject {
         let url = sqliteURL
         if !filters.isActive {
             if let chrome = chromeFirst ?? PulseSQLite.readChrome(from: url) {
-                applyDashChrome(chrome)
+                applyDashChrome(chrome, packURL: url)
                 seeded = !cachedSummaries.isEmpty
             }
             noteResidentMemory("dashboard")
@@ -6174,9 +6176,15 @@ final class HeartbeatStore: ObservableObject {
         noteResidentMemory("filter")
     }
 
-    private func applyDashChrome(_ chrome: PulseDashChrome) {
+    private func applyDashChrome(_ chrome: PulseDashChrome, packURL: URL? = nil) {
         packChrome = chrome
         usingPackChrome = true
+        let fileTime: Date? = chrome.publishedAt == nil
+            ? (packURL ?? activePackURL).flatMap {
+                HeartbeatFormat.parsePackTimestamp(PulseSQLite.writtenAtString(at: $0))
+            }
+            : nil
+        packPublishedAt = HeartbeatMath.packPublishDate(chrome: chrome, writtenAt: fileTime)
         if !chrome.summaries.isEmpty {
             cachedSummaries = chrome.summaries
         }
@@ -7150,7 +7158,7 @@ final class HeartbeatStore: ObservableObject {
     private func hydrateDeferredPack(from url: URL, uploads: [UploadRecord]) async {
         _ = uploads
         if let chrome = PulseSQLite.readChrome(from: url) {
-            applyDashChrome(chrome)
+            applyDashChrome(chrome, packURL: url)
             seeded = !cachedSummaries.isEmpty
         }
         noteResidentMemory("dashboard")
@@ -7344,7 +7352,8 @@ final class HeartbeatStore: ObservableObject {
                 pickerOpportunity: cachedPickerBoard.opportunityCount,
                 pickerStrong: cachedPickerBoard.strongCount,
                 companyTiles: packChrome?.companyTiles ?? [:],
-                companyRollupRows: packChrome?.companyRollupRows ?? [:]
+                companyRollupRows: packChrome?.companyRollupRows ?? [:],
+                publishedAt: packChrome?.publishedAt ?? packPublishedAt
             )
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(

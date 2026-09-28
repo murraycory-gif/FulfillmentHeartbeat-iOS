@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import FulfillmentHeartbeat
 
@@ -10821,7 +10822,116 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(banner.contains("phoneBannerTitleFont()"), banner)
         XCTAssertTrue(banner.contains("phoneBannerSubtitleFont()"), banner)
         XCTAssertTrue(banner.contains("layoutPriority(1)"), "STATUS pill must not clip")
-        XCTAssertFalse(banner.contains("lineLimit(2)"), "title and subtitle are one line each")
+        XCTAssertTrue(banner.contains("lineLimit(2)"), "week subtitle wraps instead of an ellipsis")
+        XCTAssertFalse(banner.contains("minimumScaleFactor(0.7)"), "subtitle must stay at least 13pt")
+    }
+
+    /// The navy page header names when this pack was published, in local time.
+    func testPageHeaderShowsPackPublishTime() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491")
+        XCTAssertEqual(CommandCenterLayout.updatedBannerLine(nil), "Updated —")
+
+        let published = Date(timeIntervalSince1970: 1_758_820_200)
+        let line = CommandCenterLayout.updatedBannerLine(published)
+        XCTAssertEqual(line, "Updated \(HeartbeatFormat.publishClock(published))")
+        XCTAssertTrue(line.hasPrefix("Updated "))
+        XCTAssertFalse(line.contains("—"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let parts = calendar.dateComponents([.month, .day, .minute], from: published)
+        XCTAssertTrue(line.contains("\(parts.month ?? 0)/\(parts.day ?? 0)"))
+        XCTAssertTrue(line.contains(String(format: ":%02d", parts.minute ?? -1)))
+
+        let cooked = Date(timeIntervalSince1970: 1_700_000_000)
+        let fileTime = Date(timeIntervalSince1970: 1_600_000_000)
+        let uploaded = Date(timeIntervalSince1970: 1_500_000_000)
+        let withCook = PulseDashChrome(
+            summaries: [summaryCard(uploaded: uploaded)],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0,
+            publishedAt: cooked
+        )
+        XCTAssertEqual(HeartbeatMath.packPublishDate(chrome: withCook, writtenAt: fileTime), cooked)
+        let fromFile = PulseDashChrome(
+            summaries: [summaryCard(uploaded: uploaded)],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0
+        )
+        XCTAssertEqual(HeartbeatMath.packPublishDate(chrome: fromFile, writtenAt: fileTime), fileTime)
+        XCTAssertEqual(HeartbeatMath.packPublishDate(chrome: fromFile, writtenAt: nil), uploaded)
+        let empty = PulseDashChrome(summaries: [], flags: [:], packs: [:], pickerShoppers: 0)
+        XCTAssertNil(HeartbeatMath.packPublishDate(chrome: empty, writtenAt: nil))
+        XCTAssertNil(HeartbeatFormat.parsePackTimestamp(""))
+        XCTAssertNil(HeartbeatFormat.parsePackTimestamp("not-a-time"))
+
+        let week = "Total Company | Week 31 · Sun 9/27 only (1 of 7 days)"
+        let font = UIFont.systemFont(ofSize: 13, weight: .semibold)
+        let textWidth = (week as NSString).size(withAttributes: [.font: font]).width
+        let iPhone13 = CGFloat(390)
+        let oneLine = iPhone13 - 24 - 20 - 8 - 80
+        XCTAssertLessThanOrEqual(textWidth, oneLine * 2, "two lines hold the week label at 13pt on iPhone 13")
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let brand = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        let bannerStart = try XCTUnwrap(brand.range(of: "private var compactPageBanner"))
+        let bannerEnd = try XCTUnwrap(brand.range(of: "private var compactBannerHealth"))
+        let mounted = String(brand[bannerStart.lowerBound..<bannerEnd.lowerBound])
+        XCTAssertTrue(mounted.contains("updated: CommandCenterLayout.updatedBannerLine(store.packPublishedAt)"), mounted)
+
+        let theme = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/AppTheme.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(theme.contains("? .footnote : .subheadline"), "subtitle is at least 13pt at Dynamic Type Large")
+
+        let stamp = ISO8601DateFormatter().string(from: published)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("header-publish-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let seat = PulseSeatPack.localURL(root: tmp, key: .company)
+        let chrome = PulseDashChrome(
+            summaries: [summaryCard(uploaded: nil)],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 1
+        )
+        try PulseSQLite.write(rows: [], uploads: [], seeded: true, chrome: chrome, writtenAt: published, to: seat)
+        let store = HeartbeatStore(rootURL: tmp)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(
+            store.packPublishedAt?.timeIntervalSince1970 ?? 0,
+            published.timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertEqual(CommandCenterLayout.updatedBannerLine(store.packPublishedAt), line)
+        XCTAssertEqual(
+            HeartbeatFormat.parsePackTimestamp(stamp)?.timeIntervalSince1970 ?? 0,
+            published.timeIntervalSince1970,
+            accuracy: 1
+        )
+    }
+
+    private func summaryCard(uploaded: Date?) -> SectionSummary {
+        SectionSummary(
+            section: .sales,
+            storeCount: 1,
+            headline: 1,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: uploaded
+        )
     }
 
     /// 455: Total Company pages show This Week company rollup above Regions.

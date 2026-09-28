@@ -11000,6 +11000,7 @@ struct HubBrandBar: View {
                 filters: store.filters,
                 weekWindow: compactBannerWindow
             ),
+            updated: CommandCenterLayout.updatedBannerLine(store.packPublishedAt),
             health: compactBannerHealth
         )
     }

@@ -428,12 +428,17 @@ enum HubLayout {
         )
     }
 
-    /// Smaller than `phoneBannerTitleFont`. Soft FAIL same bold size on both lines.
+    /// At least 13pt at Dynamic Type Large. Caption is 12pt and was clipping the week line.
     static func phoneBannerSubtitleFont() -> Font {
         AppTheme.rounded(
-            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .caption : .subheadline,
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .footnote : .subheadline,
             weight: .semibold
         )
+    }
+
+    /// Smaller than the 13pt subtitle. Still a text style so Large type stays readable.
+    static func phoneBannerUpdatedFont() -> Font {
+        AppTheme.rounded(.caption2, weight: .semibold)
     }
     static func phoneBannerIconFont() -> Font {
         AppTheme.rounded(

@@ -386,6 +386,12 @@ enum CommandCenterLayout {
         "\(overviewSeatLabel(filters)) | \(overviewWeekLabel(weekWindow))"
     }
 
+    /// Line 3. Missing publish time stays an em dash. Never a guessed clock.
+    static func updatedBannerLine(_ date: Date?) -> String {
+        guard let date else { return "Updated —" }
+        return "Updated \(HeartbeatFormat.publishClock(date))"
+    }
+
     private static func overviewGrain(_ raw: String, suffix: String, grainFirst: Bool = false) -> String {
         let values = DashboardFilters.parts(raw).map { HeartbeatMath.displayGrainLabel($0) }.filter { !$0.isEmpty }
         guard !values.isEmpty else { return "Total Company" }
