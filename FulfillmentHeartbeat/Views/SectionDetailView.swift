@@ -153,7 +153,9 @@ struct SectionDetailView: View {
                     icon: section.symbol,
                     title: section.bannerTitle,
                     accessory: store.filters.summary,
-                    trailing: store.dataWindow(for: section)
+                    trailing: section == .sales
+                        ? (store.salesCoverageLabel() ?? store.dataWindow(for: section))
+                        : store.dataWindow(for: section)
                 )
             }
             List {
@@ -424,6 +426,20 @@ struct SectionDetailView: View {
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+
+            if section == .sales,
+               HeartbeatMath.salesShowsPartialWeekNote(dayCount: store.salesPopulatedDayCount()) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(AppTheme.blue)
+                    Text(HeartbeatMath.salesPartialWeekNote)
+                        .font(HubLayout.MacReadable.metricLineFont)
+                        .foregroundStyle(AppTheme.text)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
             if showTables, showStoreTable, missingInFile {
@@ -1200,6 +1216,10 @@ struct PhoneSectionPage: View {
 
     @ViewBuilder
     private var warningNotes: some View {
+        if section == .sales,
+           HeartbeatMath.salesShowsPartialWeekNote(dayCount: store.salesPopulatedDayCount()) {
+            phoneNote(HeartbeatMath.salesPartialWeekNote, tone: .none)
+        }
         if section == .labor, store.laborNeedsReload() {
             phoneNote(
                 "The Labor pack is missing the Power BI Total row, so company tiles cannot match -0.04% Target vs Actual.",
@@ -1247,11 +1267,13 @@ struct PhoneSectionPage: View {
     @ViewBuilder
     private var salesWeekAndDays: some View {
         let stores = store.salesStores()
-        let total = SalesPack(rows: stores)
+        let company = store.filters.isActive ? nil : store.salesCompanyFact()
+        let total = SalesPack(company: company, stores: stores)
         PhoneSectionHeading(title: "This week")
         OverviewSalesPhoneCard(
             label: salesScopeTitle,
             count: HeartbeatMath.metricStoreCount(.sales, rows: stores),
+            detail: store.salesCoverageLabel(),
             pack: total
         )
         let days = SalesRollupBuilder.dayRows(
@@ -1536,7 +1558,11 @@ struct PhoneCompanyThisWeekBlock: View {
                 OverviewSalesPhoneCard(
                     label: seat,
                     count: storeCount,
-                    pack: SalesPack(rows: store.salesStores())
+                    detail: store.salesCoverageLabel(),
+                    pack: SalesPack(
+                        company: store.filters.isActive ? nil : store.salesCompanyFact(),
+                        stores: store.salesStores()
+                    )
                 )
             } else {
                 let scored = HeartbeatMath.dashboardTableValues(

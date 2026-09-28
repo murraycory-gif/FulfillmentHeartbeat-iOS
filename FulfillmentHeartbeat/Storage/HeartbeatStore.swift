@@ -617,6 +617,27 @@ final class HeartbeatStore: ObservableObject {
         SalesRollupBuilder.source(from: seatRows(for: .sales), filters: DashboardFilters(), roster: roster)
     }
 
+    /// Week and the weekday columns that actually have dollars, orders, or items.
+    func salesCoverageLabel() -> String? {
+        let stores = salesStores()
+        let company = salesCompanyFact()
+        var pool = stores
+        if let company { pool.append(company) }
+        let week = [
+            company?.textPayload["sales_week"],
+            company?.recordedOn,
+            stores.compactMap { $0.textPayload["sales_week"] }.first { !$0.isEmpty },
+            stores.compactMap(\.recordedOn).first { !$0.isEmpty },
+        ].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+        return HeartbeatMath.salesCoverageLabel(rows: pool, weekKey: week)
+    }
+
+    func salesPopulatedDayCount() -> Int {
+        var pool = salesStores()
+        if let company = salesCompanyFact() { pool.append(company) }
+        return HeartbeatMath.salesPopulatedDayIndexes(pool).count
+    }
+
     func refreshSalesExpandCache() {
         let source = salesStores()
         let grain = effectiveDashboardGrain

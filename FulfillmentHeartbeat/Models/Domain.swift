@@ -3868,10 +3868,14 @@ enum HeartbeatMath {
     }
 
     static func salesPriorFromYoY(current: Double, yoyPct: Double?) -> Double? {
-        guard current > 0, let yoyPct else { return nil }
+        guard current.isFinite, current > 0, let yoyPct, yoyPct.isFinite else { return nil }
+        // Blank, Infinity, and a rate at or below -100% have no prior-year dollars.
+        guard yoyPct > -100, abs(yoyPct) < 1_000 else { return nil }
         let factor = 1 + yoyPct / 100
-        guard factor > 0.02 else { return nil }
-        return current / factor
+        guard factor.isFinite, factor > 0 else { return nil }
+        let prior = current / factor
+        guard prior.isFinite, prior > 0 else { return nil }
+        return prior
     }
 
     static func salesRollupYoY(current: [Double], yoyPct: [Double?]) -> Double? {
@@ -3884,6 +3888,85 @@ enum HeartbeatMath {
         }
         guard lastYear > 0, thisYear > 0 else { return nil }
         return (thisYear / lastYear - 1) * 100
+    }
+
+    static let salesWeekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    static let salesPartialWeekNote = "Partial week — YOY compares these days only"
+
+    static func salesRowHasDay(_ row: MetricRow, index: Int) -> Bool {
+        guard (0..<7).contains(index) else { return false }
+        let prefix = "sales_d\(index)_"
+        let dollars = row.payload[prefix + "dollars"]
+        let orders = row.payload[prefix + "orders"]
+        let items = row.payload[prefix + "items"]
+        if dollars == nil, orders == nil, items == nil { return false }
+        return (dollars ?? 0) > 0 || (orders ?? 0) > 0 || (items ?? 0) > 0
+    }
+
+    static func salesPopulatedDayIndexes(_ rows: [MetricRow]) -> [Int] {
+        (0..<7).filter { index in rows.contains { salesRowHasDay($0, index: index) } }
+    }
+
+    static func salesShowsPartialWeekNote(dayCount: Int) -> Bool {
+        dayCount > 0 && dayCount < 7
+    }
+
+    /// `202631` → fiscal 2026 week 31. Week 1 is the Sunday after the last Saturday in February.
+    static func salesFiscalWeekSunday(year: Int, week: Int) -> Date? {
+        guard (1...53).contains(week) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        guard let march1 = calendar.date(from: DateComponents(year: year, month: 3, day: 1)),
+              let februaryLast = calendar.date(byAdding: .day, value: -1, to: march1)
+        else { return nil }
+        let weekday = calendar.component(.weekday, from: februaryLast)
+        let backToSaturday = (weekday - 7 + 7) % 7
+        guard let saturday = calendar.date(byAdding: .day, value: -backToSaturday, to: februaryLast),
+              let start = calendar.date(byAdding: .day, value: 1, to: saturday)
+        else { return nil }
+        return calendar.date(byAdding: .day, value: (week - 1) * 7, to: start)
+    }
+
+    /// Days that actually have dollars, orders, or items. Example: `Week 31 · Sun 9/27 only (1 of 7 days)`.
+    static func salesCoverageLabel(rows: [MetricRow], weekKey: String) -> String? {
+        let days = salesPopulatedDayIndexes(rows)
+        guard !days.isEmpty else { return nil }
+        let parts = salesWeekParts(weekKey)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let sunday = parts.flatMap { salesFiscalWeekSunday(year: $0.year, week: $0.week) }
+        let dated = days.map { index -> String in
+            let name = salesWeekdayShort[index]
+            guard let sunday,
+                  let day = calendar.date(byAdding: .day, value: index, to: sunday)
+            else { return name }
+            let month = calendar.component(.month, from: day)
+            let date = calendar.component(.day, from: day)
+            return "\(name) \(month)/\(date)"
+        }
+        let list: String
+        if dated.count == 1 {
+            list = "\(dated[0]) only"
+        } else if dated.count == 7, let first = dated.first, let last = dated.last {
+            list = "\(first)–\(last)"
+        } else {
+            list = dated.joined(separator: ", ")
+        }
+        let count = "(\(dated.count) of 7 days)"
+        if let parts {
+            return "Week \(parts.week) · \(list) \(count)"
+        }
+        return "\(list) \(count)"
+    }
+
+    static func salesWeekParts(_ raw: String) -> (year: Int, week: Int)? {
+        let digits = raw.filter(\.isNumber)
+        guard digits.count == 6,
+              let year = Int(digits.prefix(4)),
+              let week = Int(digits.suffix(2)),
+              (1...53).contains(week)
+        else { return nil }
+        return (year, week)
     }
 
     static func salesHealth(_ row: MetricRow) -> Health {

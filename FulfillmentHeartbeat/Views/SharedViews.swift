@@ -11052,6 +11052,9 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerWindow: String? {
+        if compactBannerDestination.section == .sales, let coverage = store.salesCoverageLabel() {
+            return coverage
+        }
         if let section = compactBannerDestination.section {
             return store.dataWindow(for: section)
         }

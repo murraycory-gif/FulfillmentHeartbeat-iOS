@@ -277,14 +277,16 @@ private struct OverviewSalesColumns: View {
 struct OverviewSalesPhoneCard: View {
     let label: String
     var count: Int? = nil
+    var detail: String? = nil
     let pack: SalesPack
 
     var body: some View {
         let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
+        let stores = count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil }
         return PhoneScorecardRow(
             title: label,
             eyebrow: "Sales",
-            subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
+            subtitle: detail ?? stores,
             chips: Self.chips(pack: pack),
             health: cardHealth
         )
@@ -365,13 +367,7 @@ enum SalesRollupBuilder {
 
     /// Real day payload. `text_json.sales_days` is a label list and is not a day.
     static func rowHasSalesDayPayload(_ row: MetricRow, index: Int) -> Bool {
-        guard weekdayNames.indices.contains(index) else { return false }
-        let prefix = "sales_d\(index)_"
-        let dollars = row.payload[prefix + "dollars"]
-        let orders = row.payload[prefix + "orders"]
-        let items = row.payload[prefix + "items"]
-        if dollars == nil, orders == nil, items == nil { return false }
-        return (dollars ?? 0) > 0 || (orders ?? 0) > 0 || (items ?? 0) > 0
+        HeartbeatMath.salesRowHasDay(row, index: index)
     }
 
     static func salesDayIndexes(in rows: [MetricRow]) -> [Int] {
