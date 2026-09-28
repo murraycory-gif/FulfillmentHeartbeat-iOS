@@ -442,6 +442,23 @@ struct SectionDetailView: View {
                 .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
+            if section == .lostRevenue,
+               HeartbeatMath.lostRevenueMissingStoreNoteApplies(
+                   filters: store.filters,
+                   rows: store.seatRows(for: .lostRevenue)
+               ) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(AppTheme.blue)
+                    Text(HeartbeatMath.lostRevenueMissingStoreNote)
+                        .font(HubLayout.MacReadable.metricLineFont)
+                        .foregroundStyle(AppTheme.text)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+
             if showTables, showStoreTable, missingInFile {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "info.circle.fill")
@@ -723,16 +740,13 @@ struct SectionDetailView: View {
         }()
         // Result card, Total Company row, and the dashboard tile share this
         // company number: the market Total Opportunity when that row is present.
-        let dollars = HeartbeatMath.lostRevenueTODollars(pool, key: "lost_revenue")
+        let dollars = HeartbeatMath.lostRevenueReportedValue(pool, key: "lost_revenue")
         let pct = market?.number("lost_revenue_pct") ?? summary.lostRevenuePct
-        let sales: Double? = {
-            let value = HeartbeatMath.lostRevenueTODollars(pool, key: "ecomm_sales")
-            return rows.isEmpty && HeartbeatMath.lostRevenueMarketRow(in: pool) == nil ? nil : value
-        }()
+        let sales = HeartbeatMath.lostRevenueReportedValue(pool, key: "ecomm_sales")
         let goalPct = HeartbeatMath.lostRevenueGoalPct(rows: rows, market: store.filters.isActive ? nil : store.lostRevenueMarketRow())
-        let post = HeartbeatMath.lostRevenueTODollars(pool, key: "post_sub_oos_foregone")
+        let post = HeartbeatMath.lostRevenueReportedValue(pool, key: "post_sub_oos_foregone")
         HubCalloutGrid(width: pageWidth, count: 8) {
-            callout("Total lost revenue", HeartbeatFormat.money(rows.isEmpty && market == nil ? nil : dollars), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct), selected: lostRevenueFocus == .all) {
+            callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct), selected: lostRevenueFocus == .all) {
                 lostRevenueFocus = .all
             }
             callout("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good, unit: "stores", selected: lostRevenueFocus == .healthy) {
@@ -747,7 +761,7 @@ struct SectionDetailView: View {
             callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct))
             callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
             callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
-            callout("Post Sub OOS", HeartbeatFormat.money(rows.isEmpty ? nil : post), "Foregone revenue", .none)
+            callout("Post Sub OOS", HeartbeatFormat.money(post), "Foregone revenue", .none)
         }
     }
 
@@ -1402,9 +1416,12 @@ struct PhoneSectionPage: View {
             : []
         let scored = HeartbeatMath.dashboardTableValues(section, rows: [row], pphRows: pphRows)
         let health = HeartbeatMath.health(for: section, row: row)
+        let missingLoss = section == .lostRevenue && !HeartbeatMath.hasMetricFact(.lostRevenue, row)
         return PhoneScorecardRow(
             title: HeartbeatMath.storeDisplayLabel(row),
-            subtitle: row.district.isEmpty ? nil : HeartbeatMath.canonicalDistrict(row.district),
+            subtitle: missingLoss
+                ? HeartbeatMath.lostRevenueMissingStoreNote
+                : (row.district.isEmpty ? nil : HeartbeatMath.canonicalDistrict(row.district)),
             chips: metricChips(values: scored.values, health: scored.health),
             health: health == .none ? (scored.health == .none && scored.values.contains(where: { $0 != "—" }) ? .good : scored.health) : health
         )
@@ -1573,9 +1590,15 @@ struct PhoneCompanyThisWeekBlock: View {
                 PhoneScorecardRow(
                     title: seat,
                     eyebrow: CommandCenterLayout.glanceTitle(section),
-                    subtitle: storeCount > 0
-                        ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
-                        : nil,
+                    subtitle: section == .lostRevenue
+                        && HeartbeatMath.lostRevenueMissingStoreNoteApplies(
+                            filters: store.filters,
+                            rows: store.seatRows(for: .lostRevenue)
+                        )
+                        ? HeartbeatMath.lostRevenueMissingStoreNote
+                        : (storeCount > 0
+                            ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
+                            : nil),
                     chips: PhoneThisWeekChrome.chips(section: section, store: store),
                     health: health
                 )

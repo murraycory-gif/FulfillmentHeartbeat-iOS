@@ -998,23 +998,24 @@ enum HeartbeatMath {
         }
         switch section {
         case .lostRevenue:
-            let sales = lostRevenueTODollars(rows, key: "ecomm_sales")
-            let lost = lostRevenueTODollars(rows, key: "lost_revenue")
             let market = lostRevenueMarketRow(in: rows)
-            let pct = market?.number("lost_revenue_pct")
-                ?? (sales > 0 ? lost / sales * 100 : average(lostRevenueStoreRows(rows).compactMap { $0.number("lost_revenue_pct") }))
+            let facts = lostRevenueStoreRows(rows).filter { hasMetricFact(.lostRevenue, $0) }
+            if market == nil, facts.isEmpty {
+                return (dash, .none)
+            }
+            let pct = lostRevenueReportedPct(rows)
             let goal = lostRevenueInheritedGoalPct(rows: rows, fallback: goalFallback)
             return (
                 [
-                    HeartbeatFormat.money(lost),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "lost_revenue")),
                     HeartbeatFormat.pct(pct),
                     HeartbeatFormat.pct(goal),
-                    HeartbeatFormat.money(sales),
-                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "post_sub_oos_foregone")),
-                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "refund_lost")),
-                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "missed_sales")),
-                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "cancelled_lost")),
-                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "kill_switch_lost")),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "ecomm_sales")),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "post_sub_oos_foregone")),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "refund_lost")),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "missed_sales")),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "cancelled_lost")),
+                    HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "kill_switch_lost")),
                 ],
                 lostRevenueHealth(pct: pct)
             )
@@ -3800,6 +3801,47 @@ enum HeartbeatMath {
                 && !isIgnoredStore($0.storeNumber)
                 && !$0.storeNumber.isEmpty
         }
+    }
+
+    static let lostRevenueMissingStoreNote = "Store not in this week's Loss report"
+
+    /// Store filter whose seat has no Loss Revenue workbook row. A roster placeholder is not a row.
+    static func lostRevenueMissingStoreNoteApplies(filters: DashboardFilters, rows: [MetricRow]) -> Bool {
+        guard !DashboardFilters.parts(filters.store).isEmpty else { return false }
+        let stores = lostRevenueStoreRows(rows)
+        if stores.isEmpty { return true }
+        return stores.allSatisfy { !hasMetricFact(.lostRevenue, $0) }
+    }
+
+    /// Market Total key when that row is in the book. Otherwise the sum of store keys that exist.
+    /// Missing keys stay nil so the tile is an em dash. An explicit 0 stays 0.
+    static func lostRevenueReportedValue(_ rows: [MetricRow], key: String) -> Double? {
+        if let market = lostRevenueMarketRow(in: rows), let value = market.number(key) {
+            return value
+        }
+        let values = lostRevenueStoreRows(rows)
+            .filter { hasMetricFact(.lostRevenue, $0) }
+            .compactMap { $0.number(key) }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +)
+    }
+
+    static func lostRevenueReportedPct(_ rows: [MetricRow]) -> Double? {
+        if let market = lostRevenueMarketRow(in: rows) {
+            if let direct = market.number("lost_revenue_pct") { return direct }
+            if let sales = market.number("ecomm_sales"), sales > 0, let lost = market.number("lost_revenue") {
+                return lost / sales * 100
+            }
+            return nil
+        }
+        let facts = lostRevenueStoreRows(rows).filter { hasMetricFact(.lostRevenue, $0) }
+        let salesValues = facts.compactMap { $0.number("ecomm_sales") }
+        let lostValues = facts.compactMap { $0.number("lost_revenue") }
+        let sales = salesValues.reduce(0, +)
+        if sales > 0, !lostValues.isEmpty {
+            return lostValues.reduce(0, +) / sales * 100
+        }
+        return average(facts.compactMap { $0.number("lost_revenue_pct") })
     }
 
     /// Unfiltered: Excel Total / market-row TO key. Filtered seat: SUM of that TO key.
