@@ -2183,6 +2183,49 @@ struct AssistIssue: Equatable, Identifiable {
     var accessibilityLabel: String
 }
 
+/// What the sheet shows for one question. The view must not wait on compose to draw the question.
+enum AssistExchange {
+    static func openingQuestion(filters: DashboardFilters) -> String {
+        AssistScope.level(filters) == .store
+            ? "What should this store fix first?"
+            : "What should we fix first?"
+    }
+
+    /// Seeded summaries with a real reading. Chrome-only zeros are not ready.
+    static func packReady(_ snapshot: AssistSnapshot) -> Bool {
+        guard snapshot.seeded, !snapshot.summaries.isEmpty else { return false }
+        return snapshot.summaries.values.contains { summary in
+            summary.health != .none || summary.headline != nil || summary.storeCount > 0
+        }
+    }
+
+    static func loadingAnswer(scope: String) -> AssistAnswer {
+        var answer = AssistAnswer.empty
+        answer.scopeLabel = scope
+        answer.noticeTitle = "Loading data"
+        answer.noticeBody = "The answer will show here when this scope's numbers are ready."
+        return answer
+    }
+
+    static func showsBody(_ answer: AssistAnswer) -> Bool {
+        if let title = answer.noticeTitle, !title.isEmpty { return true }
+        if let header = answer.headerTitle, !header.isEmpty { return true }
+        if !answer.issues.isEmpty || !answer.plan.isEmpty || !answer.visitStores.isEmpty { return true }
+        if !answer.healthyFacts.isEmpty { return true }
+        if let note = answer.emptyNote, !note.isEmpty { return true }
+        return false
+    }
+
+    /// A compose result the sheet can render. An empty card becomes a fallback sentence.
+    static func visible(_ answer: AssistAnswer) -> AssistAnswer {
+        if showsBody(answer) { return answer }
+        var copy = answer
+        copy.noticeTitle = "I can answer from the numbers on this device. Try one of these:"
+        copy.noticeBody = "Ask what to fix first, or name a scorecard."
+        return copy
+    }
+}
+
 struct AssistAnswer: Equatable {
     var scopeLabel: String
     var dataWindow: String?
@@ -2616,7 +2659,16 @@ struct AssistChild: Equatable {
 
 enum AssistComposer {
     static func chips(for snapshot: AssistSnapshot, book: AssistPlaybook.File? = nil) -> [String] {
-        answer(question: "What should we fix first?", snapshot: snapshot, book: book).chips
+        // Chips only. The full answer builds plans and shopper lists; running it here
+        // made company open do that work twice before the sheet could show a line.
+        _ = book
+        if !snapshot.seeded || snapshot.summaries.isEmpty { return [] }
+        let lens = narrowed(snapshot, intent: .fix)
+        if lens.filters.isActive && MetricSection.dashboardCards.allSatisfy({ (lens.summaries[$0]?.storeCount ?? 0) == 0 }) {
+            return []
+        }
+        if lens.summaries.values.allSatisfy({ $0.health == .none }) { return [] }
+        return chipList(lens, ranked: rank(lens), level: AssistScope.level(lens.filters))
     }
 
     static func answer(

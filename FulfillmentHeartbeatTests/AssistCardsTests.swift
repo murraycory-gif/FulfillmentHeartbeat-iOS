@@ -1251,6 +1251,54 @@ final class AssistCardsTests: XCTestCase {
         return snapshot
     }
 
+    func testCompanyScopeOpenAndSendAlwaysHaveAVisibleAnswer() throws {
+        let book = try loadPlaybook()
+        let company = DashboardFilters()
+        XCTAssertEqual(AssistScope.level(company), .company)
+        XCTAssertEqual(AssistScope.label(company, roster: []), "Total company")
+        XCTAssertEqual(AssistExchange.openingQuestion(filters: company), "What should we fix first?")
+
+        let snapshot = prioritySnapshot()
+        XCTAssertTrue(AssistExchange.packReady(snapshot))
+        let opened = AssistExchange.visible(AssistComposer.answer(
+            question: AssistExchange.openingQuestion(filters: snapshot.filters),
+            snapshot: snapshot,
+            book: book
+        ))
+        XCTAssertTrue(AssistExchange.showsBody(opened))
+        XCTAssertEqual(opened.headerTitle, "Fix these 3 first")
+        XCTAssertFalse(opened.issues.isEmpty)
+
+        let sent = AssistExchange.visible(AssistComposer.answer(
+            question: "when is lunch",
+            snapshot: snapshot,
+            book: book
+        ))
+        XCTAssertTrue(AssistExchange.showsBody(sent))
+        XCTAssertNotNil(sent.noticeTitle)
+
+        var unloaded = snapshot
+        unloaded.seeded = false
+        unloaded.summaries = [:]
+        XCTAssertFalse(AssistExchange.packReady(unloaded))
+        let waiting = AssistComposer.answer(
+            question: "What should we fix first?",
+            snapshot: unloaded,
+            book: book
+        )
+        XCTAssertEqual(waiting.noticeTitle, "No Heartbeat data on this device yet.")
+        XCTAssertTrue(AssistExchange.showsBody(waiting))
+
+        let loading = AssistExchange.loadingAnswer(scope: "Total company")
+        XCTAssertEqual(loading.noticeTitle, "Loading data")
+        XCTAssertTrue(AssistExchange.showsBody(loading))
+        XCTAssertTrue(AssistExchange.showsBody(AssistExchange.visible(.empty)))
+
+        var store = DashboardFilters()
+        store.store = "3493"
+        XCTAssertEqual(AssistExchange.openingQuestion(filters: store), "What should this store fix first?")
+    }
+
     private func loadPlaybook() throws -> AssistPlaybook.File {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

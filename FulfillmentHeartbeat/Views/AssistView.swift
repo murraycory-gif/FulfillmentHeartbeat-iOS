@@ -13,8 +13,8 @@ struct HeartbeatAssistSheet: View {
     @State private var expandedRanked: Set<UUID> = []
     @State private var expandedChecks: Set<String> = []
     @State private var expandedWhy: Set<String> = []
-    @State private var pending: Task<Void, Never>?
     @State private var askedOpening = false
+    @State private var flight = AssistFlight()
     @FocusState private var fieldFocused: Bool
 
     private var stackFacts: Bool { dynamicTypeSize.isAccessibilitySize }
@@ -43,9 +43,14 @@ struct HeartbeatAssistSheet: View {
             reloadChips()
             askOpeningQuestionIfNeeded()
         }
-        .onDisappear { pending?.cancel() }
         .onChange(of: store.filters) { _, _ in
             reloadChips()
+        }
+        .onChange(of: store.seeded) { _, _ in
+            resumeLoading()
+        }
+        .onChange(of: store.seatPaintStamp) { _, _ in
+            resumeLoading()
         }
     }
 
@@ -674,45 +679,68 @@ struct HeartbeatAssistSheet: View {
         }
     }
 
-    /// The sheet used to open on chips only. Ask the scope's fix-first question so company and store answers are on screen.
+    /// Ask the scope's fix-first question as soon as the sheet opens.
     private func askOpeningQuestionIfNeeded() {
         guard turns.isEmpty, !askedOpening else { return }
         askedOpening = true
-        let question = AssistScope.level(store.filters) == .store
-            ? "What should this store fix first?"
-            : "What should we fix first?"
-        ask(question)
+        ask(AssistExchange.openingQuestion(filters: store.filters))
     }
 
+    /// The question is drawn before compose. Send is not queued behind chips or an earlier answer.
     private func ask(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
-        let source = AssistSnapshot.source(from: store, focus: router.current.section)
-        enqueue {
-            let answer = await AssistSnapshot.compose(question: text, source: source)
-            if Task.isCancelled { return }
-            self.turns.append(AssistTurn(question: text, answer: answer))
-            self.chips = answer.chips
+        let id = UUID()
+        let scope = AssistScope.label(store.filters, roster: store.stores)
+        turns.append(AssistTurn(
+            id: id,
+            question: text,
+            answer: AssistExchange.loadingAnswer(scope: scope),
+            waitingForPack: true
+        ))
+        scheduleCompose(id: id, question: text)
+    }
+
+    private func scheduleCompose(id: UUID, question: String) {
+        guard flight.ids.insert(id).inserted else { return }
+        let focus = router.current.section
+        let flight = flight
+        Task { @MainActor in
+            defer { flight.ids.remove(id) }
+            await Task.yield()
+            guard turns.contains(where: { $0.id == id }) else { return }
+            let source = AssistSnapshot.source(from: store, focus: focus)
+            guard AssistExchange.packReady(source) else { return }
+            let answer = await AssistSnapshot.compose(question: question, source: source)
+            replaceTurn(id, with: AssistExchange.visible(answer))
+        }
+    }
+
+    private func replaceTurn(_ id: UUID, with answer: AssistAnswer) {
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].answer = answer
+        turns[index].waitingForPack = false
+        if !answer.chips.isEmpty {
+            chips = answer.chips
+        }
+    }
+
+    /// A turn left on "Loading data" answers once the seat has numbers.
+    private func resumeLoading() {
+        for turn in turns where turn.waitingForPack {
+            scheduleCompose(id: turn.id, question: turn.question)
         }
     }
 
     private func reloadChips() {
-        let source = AssistSnapshot.source(from: store, focus: router.current.section)
-        enqueue {
+        let focus = router.current.section
+        Task { @MainActor in
+            await Task.yield()
+            let source = AssistSnapshot.source(from: store, focus: focus)
             let next = await AssistSnapshot.chips(from: source)
-            if Task.isCancelled { return }
-            self.chips = next
-        }
-    }
-
-    /// Snapshot and compose run off the main actor. View state is written back here, in order.
-    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
-        let previous = pending
-        pending = Task { @MainActor in
-            await previous?.value
-            if Task.isCancelled { return }
-            await work()
+            guard !next.isEmpty else { return }
+            chips = next
         }
     }
 
@@ -727,10 +755,15 @@ struct HeartbeatAssistSheet: View {
     }
 }
 
+private final class AssistFlight {
+    var ids = Set<UUID>()
+}
+
 private struct AssistTurn: Identifiable {
-    let id = UUID()
+    let id: UUID
     var question: String
     var answer: AssistAnswer
+    var waitingForPack: Bool
 }
 
 private struct AssistColumn<Content: View>: View {
