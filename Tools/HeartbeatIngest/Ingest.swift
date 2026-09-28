@@ -50,6 +50,12 @@ enum HeartbeatIngest {
         )
         var chrome = PulseDashChrome.from(caches, grain: .region)
         chrome.preSubItemTabPresent = tops.tabPresent
+        PickerScopeRollups.apply(
+            onto: &chrome,
+            rows: rows.filter { $0.section == .pickerScorecard },
+            roster: roster,
+            includeCompany: true
+        )
         try PulseSQLite.write(
             rows: rows,
             uploads: uploads,
@@ -65,6 +71,9 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        if let company = chrome.pickerRollups[PreSubTopItems.companyScope] {
+            print("  picker rollup shoppers=\(company.shoppers) stores=\(company.stores) healthy=\(company.healthy) watch=\(company.watch) risk=\(company.risk)")
+        }
         print("  pre-sub item tab=\(tops.tabPresent) top scopes=\(tops.lists.count)")
         let tiled = chrome.companyTiles.keys.sorted().joined(separator: ", ")
         print("  company card tiles: \(chrome.companyTiles.count) [\(tiled)]")

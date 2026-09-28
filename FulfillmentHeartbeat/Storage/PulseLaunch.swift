@@ -2087,14 +2087,25 @@ enum PulseLaunch {
         return max(filteredCount, warehouseSlicedCount, chromeCount)
     }
 
-    /// Live expand table for the current seat. Shopper facts win over chrome.
+    /// Live expand table for the current seat. Cooked scope rollups win over a
+    /// first-chunk warehouse so region cards are not 80 shoppers.
     static func pickerExpandTable(
         seatRows: [MetricRow],
         chrome: PulseDashChrome?,
         filters: DashboardFilters,
         grain: DashScopeGrain,
-        packOrder: [String] = []
+        packOrder: [String] = [],
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        if let chrome, !chrome.pickerRollups.isEmpty {
+            let cooked = PickerScopeRollups.grainRows(
+                rollups: chrome.pickerRollups,
+                grain: grain,
+                filters: filters,
+                roster: roster
+            )
+            if HeartbeatMath.grainRowsAreLive(cooked) { return cooked }
+        }
         if !seatRows.isEmpty {
             let table = HeartbeatMath.dashboardGrainTableFilled(
                 section: .pickerScorecard,

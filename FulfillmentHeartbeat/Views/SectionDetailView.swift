@@ -1327,6 +1327,23 @@ struct PhoneSectionPage: View {
                     )
                 }
             }
+        } else if section == .pickerScorecard {
+            let cooked = store.pickerGrainTable(grain: grain)
+            let rows = cooked.isEmpty ? metricGrainRows(for: grain) : cooked
+            if !rows.isEmpty {
+                PhoneSectionHeading(title: grain.title)
+                ForEach(rows) { row in
+                    PhoneScorecardRow(
+                        title: HeartbeatMath.displayGrainLabel(row.label),
+                        subtitle: row.storeCount > 0
+                            ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
+                            : nil,
+                        chips: metricChips(values: row.values, health: row.health),
+                        health: row.health == .none && row.storeCount > 0 ? .good : row.health,
+                        preSubTop: preSubTop(scope: PreSubTopItems.grainScope(grain, label: row.label))
+                    )
+                }
+            }
         } else {
             let rows = metricGrainRows(for: grain)
             if !rows.isEmpty {
@@ -1584,7 +1601,19 @@ struct PhoneCompanyThisWeekBlock: View {
         let seat = CommandCenterLayout.overviewSeatLabel(store.filters)
         VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
             PhoneSectionHeading(title: "This Week")
-            if !store.filters.isActive, store.companyCardTiles(for: section) != nil {
+            if section == .pickerScorecard,
+               let roll = store.pickerScopeRollup(PreSubTopItems.seatScope(store.filters)),
+               roll.shoppers > 0 {
+                PhoneScorecardRow(
+                    title: seat,
+                    eyebrow: CommandCenterLayout.glanceTitle(section),
+                    subtitle: roll.stores == 1 ? "1 store" : "\(roll.stores) stores",
+                    chips: zip(HeartbeatMath.dashboardTableHeaders(.pickerScorecard), roll.tileValues).map { header, value in
+                        PhoneMetricChip(label: header, value: value, health: roll.cardHealth)
+                    },
+                    health: roll.cardHealth
+                )
+            } else if !store.filters.isActive, store.companyCardTiles(for: section) != nil {
                 companyRollupCard(seat: seat)
             } else if section == .sales {
                 let storeCount = HeartbeatMath.metricStoreCount(

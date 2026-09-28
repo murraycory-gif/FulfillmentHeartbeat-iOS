@@ -5411,6 +5411,278 @@ struct HeartbeatSnapshot: Codable {
     }
 }
 
+/// One scope's Picker ScoreCard. Shoppers are distinct PICKER ids.
+/// Stores are distinct stores. Healthy + Watch + At Risk equals Shoppers.
+struct PickerScopeRollup: Codable, Equatable, Sendable {
+    var shoppers: Int
+    var stores: Int
+    var healthy: Int
+    var watch: Int
+    var risk: Int
+
+    var cardHealth: Health {
+        if risk > 0 { return .risk }
+        if watch > 0 { return .watch }
+        if healthy > 0 { return .good }
+        return .none
+    }
+
+    var tileValues: [String] {
+        [
+            HeartbeatFormat.num(Double(shoppers)),
+            HeartbeatFormat.num(Double(healthy)),
+            HeartbeatFormat.num(Double(watch)),
+            HeartbeatFormat.num(Double(risk)),
+        ]
+    }
+}
+
+/// Cook-time picker counts for every grain. The phone reads this map.
+/// It does not decode the Picker ScorCard tab to paint region cards.
+enum PickerScopeRollups {
+    static func distinctPickerCount(_ rows: [MetricRow]) -> Int {
+        var ids = Set<String>()
+        ids.reserveCapacity(rows.count)
+        for row in rows {
+            guard let id = pickerID(row) else { continue }
+            ids.insert(id)
+        }
+        return ids.count
+    }
+
+    static func catalog(
+        rows: [MetricRow],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        includeCompany: Bool
+    ) -> [String: PickerScopeRollup] {
+        let bag = ScopeBag()
+        for row in rows {
+            guard row.section == .pickerScorecard, let id = pickerID(row) else { continue }
+            var stamped = HeartbeatMath.stampRoster(row, roster: roster)
+            let store = HeartbeatMath.canonicalStore(stamped.storeNumber)
+            if let identity = rosterIdentity(store, roster: roster) {
+                if !identity.om.isEmpty { stamped.operationsOM = identity.om }
+                if !identity.district.isEmpty { stamped.textPayload["district"] = identity.district }
+            }
+            var tone = HeartbeatMath.pickerStatusTone(stamped)
+            if tone == .none { tone = .watch }
+            if includeCompany {
+                bag.add(PreSubTopItems.companyScope, id: id, store: store, tone: tone)
+            }
+            if let region = MarketRegion.resolved(division: stamped.division, district: stamped.district) {
+                bag.add(PreSubTopItems.regionScope(region.rawValue), id: id, store: store, tone: tone)
+            }
+            let division = RollupMarketFill.divisionKey(stamped.division)
+            if !division.isEmpty {
+                bag.add(PreSubTopItems.divisionScope(division), id: id, store: store, tone: tone)
+            }
+            let district = RollupMarketFill.districtKey(stamped.district)
+            if !district.isEmpty {
+                bag.add(PreSubTopItems.districtScope(district), id: id, store: store, tone: tone)
+            }
+            let om = HeartbeatMath.canonicalOM(stamped.operationsOM)
+            if !om.isEmpty {
+                bag.add(PreSubTopItems.omScope(om), id: id, store: store, tone: tone)
+            }
+            bag.add(PreSubTopItems.storeScope(store), id: id, store: store, tone: tone)
+        }
+        return bag.finish()
+    }
+
+    static func apply(
+        onto chrome: inout PulseDashChrome,
+        rows: [MetricRow],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        includeCompany: Bool
+    ) {
+        let rollups = catalog(rows: rows, roster: roster, includeCompany: includeCompany)
+        guard !rollups.isEmpty else { return }
+        chrome.pickerRollups = rollups
+        guard includeCompany, let company = rollups[PreSubTopItems.companyScope] else { return }
+        chrome.pickerShoppers = company.shoppers
+        chrome.pickerStrong = company.healthy
+        chrome.pickerOpportunity = company.risk
+        chrome.companyTiles[MetricSection.pickerScorecard.rawValue] = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.pickerScorecard),
+            values: company.tileValues
+        )
+        let secondary = "\(company.risk) opportunity · \(company.healthy) doing well"
+        if let index = chrome.summaries.firstIndex(where: { $0.section == .pickerScorecard }) {
+            chrome.summaries[index].headline = Double(company.shoppers)
+            chrome.summaries[index].headlineLabel = "Shoppers"
+            chrome.summaries[index].watchCount = company.watch
+            chrome.summaries[index].riskCount = company.risk
+            chrome.summaries[index].secondary = secondary
+            if chrome.summaries[index].health == .none {
+                chrome.summaries[index].health = company.cardHealth
+            }
+        }
+    }
+
+    /// Region / division / district / store cards for the active filter.
+    static func grainRows(
+        rollups: [String: PickerScopeRollup],
+        grain: DashScopeGrain,
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        guard !rollups.isEmpty else { return [] }
+        let labels = grainLabels(rollups: rollups, grain: grain, filters: filters, roster: roster)
+        return labels.compactMap { label in
+            let key = PreSubTopItems.grainScope(grain, label: label)
+            guard let roll = rollups[key], roll.shoppers > 0 else { return nil }
+            return HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: roll.stores,
+                values: roll.tileValues,
+                health: roll.cardHealth
+            )
+        }
+    }
+
+    private static func pickerID(_ row: MetricRow) -> String? {
+        guard HeartbeatMath.isRealPicker(row) || HeartbeatMath.pickerHasVolume(row) else { return nil }
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { return nil }
+        if store.caseInsensitiveCompare("TOTAL") == .orderedSame { return nil }
+        let id = HeartbeatMath.canonicalShopper(row.shopperKey)
+        return id.isEmpty ? nil : id
+    }
+
+    private static func rosterIdentity(
+        _ store: String,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> HeartbeatMath.StoreIdentity? {
+        if let hit = roster[store] { return hit }
+        for alias in HeartbeatMath.storeAliases(store) {
+            if let hit = roster[alias] { return hit }
+        }
+        return nil
+    }
+
+    private static func grainLabels(
+        rollups: [String: PickerScopeRollup],
+        grain: DashScopeGrain,
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [String] {
+        switch grain {
+        case .region:
+            return MarketRegion.allCases.map(\.rawValue).filter { label in
+                rollups[PreSubTopItems.regionScope(label)] != nil && regionMatches(label, filters: filters)
+            }
+        case .division:
+            return prefixed(rollups, "division:")
+                .filter { filters.includesDivision($0) }
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        case .district:
+            let present = prefixed(rollups, "district:")
+            let allowed = allowedKeys(filters: filters, roster: roster) { identity, _ in
+                RollupMarketFill.districtKey(identity.district)
+            }
+            let labels = allowed.isEmpty && !filters.isActive ? present : present.filter { allowed.contains($0) }
+            return labels.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        case .store:
+            let present = prefixed(rollups, "store:")
+            let allowed = allowedKeys(filters: filters, roster: roster) { _, store in store }
+            let labels = allowed.isEmpty && !filters.isActive ? present : present.filter { allowed.contains($0) }
+            return labels.sorted { HeartbeatFormat.storeOrder($0, $1) }
+        }
+    }
+
+    private static func prefixed(_ rollups: [String: PickerScopeRollup], _ prefix: String) -> [String] {
+        rollups.keys.compactMap { key in
+            guard key.hasPrefix(prefix) else { return nil }
+            let label = String(key.dropFirst(prefix.count))
+            return label.isEmpty ? nil : label
+        }
+    }
+
+    private static func regionMatches(_ label: String, filters: DashboardFilters) -> Bool {
+        if filters.region.isEmpty { return true }
+        let labelRegion = MarketRegion.named(label) ?? MarketRegion(rawValue: label)
+        return filters.regions.contains { raw in
+            let selected = MarketRegion.named(raw) ?? MarketRegion(rawValue: raw)
+            if let labelRegion, let selected { return labelRegion == selected }
+            return raw == label
+        }
+    }
+
+    private static func allowedKeys(
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        key: (HeartbeatMath.StoreIdentity, String) -> String
+    ) -> Set<String> {
+        var out = Set<String>()
+        for (store, identity) in roster {
+            let number = HeartbeatMath.canonicalStore(store)
+            guard !number.isEmpty else { continue }
+            guard filters.includesStore(number),
+                  filters.includesDivision(identity.division),
+                  filters.includesDistrict(identity.district),
+                  filters.includesOM(identity.om)
+            else { continue }
+            let label = key(identity, number)
+            if !label.isEmpty { out.insert(label) }
+        }
+        return out
+    }
+
+    private final class Bucket {
+        var tones: [String: Health] = [:]
+        var stores = Set<String>()
+
+        func add(id: String, store: String, tone: Health) {
+            if !store.isEmpty { stores.insert(store) }
+            if let have = tones[id] {
+                if tone.dashboardRank < have.dashboardRank { tones[id] = tone }
+            } else {
+                tones[id] = tone
+            }
+        }
+
+        func finish() -> PickerScopeRollup {
+            var healthy = 0
+            var watch = 0
+            var risk = 0
+            for tone in tones.values {
+                switch tone {
+                case .good: healthy += 1
+                case .risk: risk += 1
+                case .watch, .none: watch += 1
+                }
+            }
+            return PickerScopeRollup(
+                shoppers: tones.count,
+                stores: stores.count,
+                healthy: healthy,
+                watch: watch,
+                risk: risk
+            )
+        }
+    }
+
+    private final class ScopeBag {
+        var scopes: [String: Bucket] = [:]
+
+        func add(_ scope: String, id: String, store: String, tone: Health) {
+            guard !scope.isEmpty else { return }
+            if scopes[scope] == nil { scopes[scope] = Bucket() }
+            scopes[scope]?.add(id: id, store: store, tone: tone)
+        }
+
+        func finish() -> [String: PickerScopeRollup] {
+            var out: [String: PickerScopeRollup] = [:]
+            out.reserveCapacity(scopes.count)
+            for (scope, bucket) in scopes {
+                let roll = bucket.finish()
+                if roll.shoppers > 0 { out[scope] = roll }
+            }
+            return out
+        }
+    }
+}
+
 /// Cook-time top 10 Pre-Sub OOS items for one scope. The phone reads one key
 /// at a time from `presub_top`. It never sums the 16.8k item rows.
 enum PreSubTopItems {

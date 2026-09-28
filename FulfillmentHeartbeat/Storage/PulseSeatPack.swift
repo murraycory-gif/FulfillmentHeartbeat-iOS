@@ -330,6 +330,15 @@ enum PulseSeatPack {
                 uploads: uploads
             )
         }
+        // Company facts drop the shopper tape. Roll counts from the full tab
+        // first so region cards are not the first 80 streamed rows.
+        let pickerSource = key.grain == .company ? rows : scoped
+        PickerScopeRollups.apply(
+            onto: &chrome,
+            rows: pickerSource.filter { $0.section == .pickerScorecard },
+            roster: directory,
+            includeCompany: key.grain == .company
+        )
         if seatN > 0 {
             chrome.summaries = PulseLaunch.pinCompanyRosterStoreCounts(chrome.summaries, rosterStores: seatN)
         }

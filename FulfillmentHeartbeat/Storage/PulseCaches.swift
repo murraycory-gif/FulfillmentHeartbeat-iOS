@@ -17,10 +17,13 @@ struct PulseDashChrome: Codable {
     /// Workbook had a Pre-Sub OOS Item tab. Nil on older chrome — treat as missing.
     /// The top-10 lists themselves live in `presub_top`, not in this JSON.
     var preSubItemTabPresent: Bool?
+    /// Picker ScoreCard counts at every grain. Keyed like Pre-Sub scopes
+    /// (`company`, `region:East Region`, `division:United`, `store:10`).
+    var pickerRollups: [String: PickerScopeRollup]
 
     enum CodingKeys: String, CodingKey {
         case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
-        case companyTiles, companyRollupRows, publishedAt, preSubItemTabPresent
+        case companyTiles, companyRollupRows, publishedAt, preSubItemTabPresent, pickerRollups
     }
 
     init(
@@ -34,7 +37,8 @@ struct PulseDashChrome: Codable {
         companyTiles: [String: CompanyCardTiles] = [:],
         companyRollupRows: [String: MetricRow] = [:],
         publishedAt: Date? = nil,
-        preSubItemTabPresent: Bool? = nil
+        preSubItemTabPresent: Bool? = nil,
+        pickerRollups: [String: PickerScopeRollup] = [:]
     ) {
         self.summaries = summaries
         self.flags = flags
@@ -47,6 +51,7 @@ struct PulseDashChrome: Codable {
         self.companyRollupRows = companyRollupRows
         self.publishedAt = publishedAt
         self.preSubItemTabPresent = preSubItemTabPresent
+        self.pickerRollups = pickerRollups
     }
 
     init(from decoder: Decoder) throws {
@@ -62,6 +67,7 @@ struct PulseDashChrome: Codable {
         companyRollupRows = try container.decodeIfPresent([String: MetricRow].self, forKey: .companyRollupRows) ?? [:]
         publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
         preSubItemTabPresent = try container.decodeIfPresent(Bool.self, forKey: .preSubItemTabPresent)
+        pickerRollups = try container.decodeIfPresent([String: PickerScopeRollup].self, forKey: .pickerRollups) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -77,6 +83,9 @@ struct PulseDashChrome: Codable {
         try container.encode(companyRollupRows, forKey: .companyRollupRows)
         try container.encodeIfPresent(publishedAt, forKey: .publishedAt)
         try container.encodeIfPresent(preSubItemTabPresent, forKey: .preSubItemTabPresent)
+        if !pickerRollups.isEmpty {
+            try container.encode(pickerRollups, forKey: .pickerRollups)
+        }
     }
 
     static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {

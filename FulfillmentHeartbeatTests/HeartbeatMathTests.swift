@@ -629,6 +629,115 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(cards.contains("PreSubTopItems.missingTabNote"))
     }
 
+    /// Company Shoppers is the distinct PICKER count. Region shopper sums match
+    /// that total. A first-chunk seat cannot replace the cooked region cards.
+    func testPickerScopeRollupsMatchDistinctPickers() throws {
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "10": .init(division: "NorCal", district: "03", om: "Jino Arvin", name: "Alpha"),
+            "11": .init(division: "SoCal", district: "04", om: "Jino Arvin", name: "Beta"),
+            "20": .init(division: "Jewel Osco", district: "J1", om: "Pat Ruiz", name: "East"),
+            "30": .init(division: "United", district: "U1", om: "Alex Kim", name: "South"),
+            "40": .init(division: "Haggen", district: "39", om: "Luke Lomas", name: "West"),
+            "210": .init(division: "NorCal", district: "03", om: "Jino Arvin", name: "Ignored"),
+        ]
+        func picker(_ id: String, _ store: String, pph: Double) -> MetricRow {
+            MetricRow(
+                section: .pickerScorecard,
+                division: "Southwest",
+                operationsOM: "Not the roster OM",
+                storeNumber: store,
+                payload: ["pph": pph, "orders": 4],
+                textPayload: ["shopper_id": id, "shopper_name": id, "district": "ZZ"]
+            )
+        }
+        let rows = [
+            picker("A1", "10", pph: 90),
+            picker("A1", "10", pph: 90),
+            picker("A2", "10", pph: 76),
+            picker("A2", "11", pph: 76),
+            picker("A3", "11", pph: 50),
+            picker("E1", "20", pph: 90),
+            picker("E2", "20", pph: 40),
+            picker("S1", "30", pph: 75),
+            picker("W1", "40", pph: 60),
+            picker("Z1", "210", pph: 90),
+        ]
+        var chrome = PulseDashChrome(summaries: [], flags: [:], packs: [:], pickerShoppers: 0)
+        PickerScopeRollups.apply(onto: &chrome, rows: rows, roster: roster, includeCompany: true)
+        let company = chrome.pickerRollups[PreSubTopItems.companyScope]
+        XCTAssertEqual(company?.shoppers, PickerScopeRollups.distinctPickerCount(rows))
+        XCTAssertEqual(company?.shoppers, 7)
+        XCTAssertEqual(company?.stores, 5)
+        XCTAssertEqual((company?.healthy ?? 0) + (company?.watch ?? 0) + (company?.risk ?? 0), company?.shoppers)
+        XCTAssertEqual(company?.healthy, 2)
+        XCTAssertEqual(company?.watch, 2)
+        XCTAssertEqual(company?.risk, 3)
+        let regionNames = MarketRegion.allCases.map(\.rawValue)
+        let regionSum = regionNames.reduce(0) { sum, name in
+            sum + (chrome.pickerRollups[PreSubTopItems.regionScope(name)]?.shoppers ?? 0)
+        }
+        XCTAssertEqual(regionSum, company?.shoppers)
+        let california = chrome.pickerRollups[PreSubTopItems.regionScope("California Region")]
+        XCTAssertEqual(california?.shoppers, 3)
+        XCTAssertEqual(california?.stores, 2)
+        XCTAssertEqual(california?.healthy, 1)
+        XCTAssertEqual(california?.watch, 1)
+        XCTAssertEqual(california?.risk, 1)
+        XCTAssertEqual((california?.healthy ?? 0) + (california?.watch ?? 0) + (california?.risk ?? 0), 3)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("East Region")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("East Region")]?.stores, 1)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("South Region")]?.shoppers, 1)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("West Region")]?.shoppers, 1)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.omScope("Pat Ruiz")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.districtScope("J1")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.storeScope("10")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.storeScope("10")]?.stores, 1)
+        XCTAssertNil(chrome.pickerRollups[PreSubTopItems.storeScope("210")])
+        XCTAssertEqual(chrome.pickerShoppers, 7)
+        XCTAssertEqual(chrome.companyTiles[MetricSection.pickerScorecard.rawValue]?.values.first, HeartbeatFormat.num(Double(7)))
+        let sample = Array(rows.prefix(2))
+        let table = PulseLaunch.pickerExpandTable(
+            seatRows: sample,
+            chrome: chrome,
+            filters: DashboardFilters(),
+            grain: .region,
+            roster: roster
+        )
+        XCTAssertEqual(table.count, 4)
+        let card = table.first { $0.label == "California Region" }
+        XCTAssertEqual(card?.storeCount, 2)
+        XCTAssertEqual(card?.values.first, "3")
+        XCTAssertEqual(card?.values, ["3", "1", "1", "1"])
+        var eastOnly = DashboardFilters()
+        eastOnly.region = "East Region"
+        let eastDivisions = PickerScopeRollups.grainRows(
+            rollups: chrome.pickerRollups,
+            grain: .division,
+            filters: eastOnly,
+            roster: roster
+        )
+        XCTAssertEqual(eastDivisions.map(\.label), ["Jewel Osco"])
+        XCTAssertEqual(eastDivisions.first?.storeCount, 1)
+        let cook = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/PulseSeatPack.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cook.contains("PickerScopeRollups.catalog") || cook.contains("PickerScopeRollups.apply"))
+        XCTAssertTrue(cook.contains("key.grain == .company ? rows : scoped"))
+        let page = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(page.contains("pickerGrainTable"))
+        XCTAssertTrue(page.contains("pickerScopeRollup"))
+    }
+
     func testPPHDashboardHasTotalCalloutAndDynacapFallsBackToBookPPH() {
         let stores = [
             MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pph": 81]),

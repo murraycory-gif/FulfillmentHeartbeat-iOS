@@ -665,6 +665,20 @@ final class HeartbeatStore: ObservableObject {
         return tiles
     }
 
+    func pickerScopeRollup(_ scope: String) -> PickerScopeRollup? {
+        guard !scope.isEmpty else { return nil }
+        return packChrome?.pickerRollups[scope]
+    }
+
+    func pickerGrainTable(grain: DashScopeGrain) -> [HeartbeatMath.DashboardGrainTableRow] {
+        PickerScopeRollups.grainRows(
+            rollups: packChrome?.pickerRollups ?? [:],
+            grain: grain,
+            filters: filters,
+            roster: roster
+        )
+    }
+
     private func companyRollupFact(_ section: MetricSection) -> MetricRow? {
         guard !filters.isActive else { return nil }
         return packChrome?.companyRollupRows[section.rawValue]
@@ -998,9 +1012,10 @@ final class HeartbeatStore: ObservableObject {
             )
             let table = PulseLaunch.pickerExpandTable(
                 seatRows: seat,
-                chrome: nil,
+                chrome: packChrome,
                 filters: filters,
-                grain: grain
+                grain: grain,
+                roster: roster
             )
             if PulseLaunch.pickerExpandHasStatusBuckets(table) {
                 return table
@@ -6355,9 +6370,10 @@ final class HeartbeatStore: ObservableObject {
             }
             let table = PulseLaunch.pickerExpandTable(
                 seatRows: latest,
-                chrome: nil,
+                chrome: packChrome,
                 filters: filters,
-                grain: grain
+                grain: grain,
+                roster: roster
             )
             if HeartbeatMath.grainRowsAreLive(table) {
                 cachedGrainTables[.pickerScorecard] = table
@@ -6405,7 +6421,8 @@ final class HeartbeatStore: ObservableObject {
                 chrome: packChrome,
                 filters: filters,
                 grain: grain,
-                packOrder: cachedGrainPacks[.pickerScorecard]?.map(\.line.label) ?? []
+                packOrder: cachedGrainPacks[.pickerScorecard]?.map(\.line.label) ?? [],
+                roster: roster
             )
             if HeartbeatMath.grainRowsAreLive(table) {
                 cachedGrainTables[.pickerScorecard] = table
@@ -7383,7 +7400,8 @@ final class HeartbeatStore: ObservableObject {
                 companyTiles: packChrome?.companyTiles ?? [:],
                 companyRollupRows: packChrome?.companyRollupRows ?? [:],
                 publishedAt: packChrome?.publishedAt ?? packPublishedAt,
-                preSubItemTabPresent: packChrome?.preSubItemTabPresent
+                preSubItemTabPresent: packChrome?.preSubItemTabPresent,
+                pickerRollups: packChrome?.pickerRollups ?? [:]
             )
             let keptTops = PulseSQLite.readPreSubTops(from: packURL)
             try await Task.detached(priority: .utility) {
