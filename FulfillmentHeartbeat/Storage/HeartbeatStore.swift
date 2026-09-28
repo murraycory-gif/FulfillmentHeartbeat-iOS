@@ -613,6 +613,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func salesCompanyFact() -> MetricRow? {
+        if let pinned = companyRollupFact(.sales),
+           HeartbeatMath.salesHeadlineDollars(pinned) > 0 {
+            return pinned
+        }
         touchResidentFacts()
         let pool = (latestBySection[.sales] ?? []) + rows.filter { $0.section == .sales }
         if let hit = pool.first(where: { $0.textPayload["sales_grain"] == "company" }) {
@@ -624,12 +628,33 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    /// Company card tiles from chrome. Nil when a filter is on or the workbook value was never cooked.
+    func companyCardTiles(for section: MetricSection) -> CompanyCardTiles? {
+        guard !filters.isActive else { return nil }
+        guard let tiles = packChrome?.companyTiles[section.rawValue],
+              HeartbeatMath.companyTilesHaveWorkbookValue(tiles) else { return nil }
+        return tiles
+    }
+
+    private func companyRollupFact(_ section: MetricSection) -> MetricRow? {
+        guard !filters.isActive else { return nil }
+        return packChrome?.companyRollupRows[section.rawValue]
+    }
+
     func salesStores() -> [MetricRow] {
         SalesRollupBuilder.source(from: seatRows(for: .sales), filters: DashboardFilters(), roster: roster)
     }
 
     /// Week and the weekday columns that actually have dollars, orders, or items.
     func salesCoverageLabel() -> String? {
+        if !filters.isActive,
+           let company = salesCompanyFact(),
+           HeartbeatMath.salesHeadlineDollars(company) > 0 {
+            let week = [company.textPayload["sales_week"], company.recordedOn]
+                .compactMap { $0 }
+                .first { !$0.isEmpty } ?? ""
+            return HeartbeatMath.salesCoverageLabel(rows: [company], weekKey: week)
+        }
         let stores = salesStores()
         let company = salesCompanyFact()
         var pool = stores
@@ -2033,6 +2058,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func lostRevenueMarketRow() -> MetricRow? {
+        if let pinned = companyRollupFact(.lostRevenue),
+           pinned.number("lost_revenue") != nil || pinned.textPayload["lost_grain"] == "market" {
+            return pinned
+        }
         touchResidentFacts()
         let isMarket: (MetricRow) -> Bool = { $0.textPayload["lost_grain"] == "market" }
         if let row = latestBySection[.lostRevenue]?.first(where: isMarket) { return row }
@@ -3661,7 +3690,8 @@ final class HeartbeatStore: ObservableObject {
     @discardableResult
     func installCompanyRollup(at dest: URL) -> Bool {
         guard PulseSQLite.exists(at: dest) else { return false }
-        guard let chrome = PulseSQLite.readChrome(from: dest) else { return false }
+        guard var chrome = PulseSQLite.readChrome(from: dest) else { return false }
+        chrome = mergingCompanyRollups(into: chrome, at: dest)
         let index = PulseSQLite.readStoreIndex(from: dest)
         latestBySection = [:]
         filteredLatest = [:]
@@ -3685,6 +3715,35 @@ final class HeartbeatStore: ObservableObject {
         publishSeatPaint(force: true)
         noteResidentMemory("dashboard")
         return seeded
+    }
+
+    /// Old packs predate company tiles. Pull the Total / market rows only and format those cards.
+    /// Sections without a single rollup row stay empty until the cook writes `companyTiles`.
+    private func mergingCompanyRollups(into chrome: PulseDashChrome, at dest: URL) -> PulseDashChrome {
+        let missing = MetricSection.dashboardCards.contains { section in
+            guard let tiles = chrome.companyTiles[section.rawValue] else { return true }
+            return !HeartbeatMath.companyTilesHaveWorkbookValue(tiles)
+        }
+        guard missing else { return chrome }
+        let found = PulseSQLite.readCompanyRollupRows(from: dest)
+        guard !found.isEmpty else { return chrome }
+        var next = chrome
+        var bySection: [MetricSection: [MetricRow]] = [:]
+        for row in found {
+            bySection[row.section, default: []].append(row)
+        }
+        for section in MetricSection.dashboardCards {
+            if let tiles = next.companyTiles[section.rawValue], HeartbeatMath.companyTilesHaveWorkbookValue(tiles) {
+                continue
+            }
+            let rows = bySection[section] ?? []
+            guard let tiles = HeartbeatMath.companyCardTiles(section: section, rows: rows) else { continue }
+            next.companyTiles[section.rawValue] = tiles
+            if let rollup = HeartbeatMath.companyRollupRow(section: section, rows: rows) {
+                next.companyRollupRows[section.rawValue] = rollup
+            }
+        }
+        return next
     }
 
     /// Synchronous scope read used by the filter swap. Does not open the company file.
@@ -7283,7 +7342,9 @@ final class HeartbeatStore: ObservableObject {
                 tables: Dictionary(uniqueKeysWithValues: cachedGrainTables.map { ($0.key.rawValue, $0.value) }),
                 pickerShoppers: cachedPickerBoard.shopperCount,
                 pickerOpportunity: cachedPickerBoard.opportunityCount,
-                pickerStrong: cachedPickerBoard.strongCount
+                pickerStrong: cachedPickerBoard.strongCount,
+                companyTiles: packChrome?.companyTiles ?? [:],
+                companyRollupRows: packChrome?.companyRollupRows ?? [:]
             )
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(

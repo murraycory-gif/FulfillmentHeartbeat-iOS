@@ -1544,8 +1544,17 @@ enum PhoneThisWeekChrome {
     }
 
     static func chips(section: MetricSection, store: HeartbeatStore) -> [PhoneMetricChip] {
+        if let tiles = store.companyCardTiles(for: section) {
+            let health = CommandCenterLayout.displayedHealth(store.cheapPhonePageChrome(section))
+            return zip(tiles.labels, tiles.values).map { label, value in
+                PhoneMetricChip(label: label, value: value, health: health)
+            }
+        }
         if section == .sales {
-            return OverviewSalesPhoneCard.chips(pack: SalesPack(rows: store.cachedPhoneDashboardRows(for: .sales)))
+            return OverviewSalesPhoneCard.chips(pack: SalesPack(
+                company: store.filters.isActive ? nil : store.salesCompanyFact(),
+                stores: store.cachedPhoneDashboardRows(for: .sales)
+            ))
         }
         let rows = companyRows(section: section, store: store)
         let pphRows = section == .dynacap ? factRows(section: .pph, store: store) : []
@@ -1565,13 +1574,15 @@ struct PhoneCompanyThisWeekBlock: View {
 
     var body: some View {
         let seat = CommandCenterLayout.overviewSeatLabel(store.filters)
-        let storeCount = HeartbeatMath.metricStoreCount(
-            section,
-            rows: PhoneThisWeekChrome.factRows(section: section, store: store)
-        )
         VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
             PhoneSectionHeading(title: "This Week")
-            if section == .sales {
+            if !store.filters.isActive, store.companyCardTiles(for: section) != nil {
+                companyRollupCard(seat: seat)
+            } else if section == .sales {
+                let storeCount = HeartbeatMath.metricStoreCount(
+                    section,
+                    rows: PhoneThisWeekChrome.factRows(section: section, store: store)
+                )
                 OverviewSalesPhoneCard(
                     label: seat,
                     count: storeCount,
@@ -1582,6 +1593,10 @@ struct PhoneCompanyThisWeekBlock: View {
                     )
                 )
             } else {
+                let storeCount = HeartbeatMath.metricStoreCount(
+                    section,
+                    rows: PhoneThisWeekChrome.factRows(section: section, store: store)
+                )
                 let scored = HeartbeatMath.dashboardTableValues(
                     section,
                     rows: PhoneThisWeekChrome.companyRows(section: section, store: store)
@@ -1604,6 +1619,22 @@ struct PhoneCompanyThisWeekBlock: View {
                 )
             }
         }
+    }
+
+    @ViewBuilder
+    private func companyRollupCard(seat: String) -> some View {
+        let card = store.cheapPhonePageChrome(section)
+        let health = CommandCenterLayout.displayedHealth(card)
+        let count = card.storeCount
+        let coverage = section == .sales ? store.salesCoverageLabel() : nil
+        let stores = count > 0 ? (count == 1 ? "1 store" : "\(count) stores") : nil
+        PhoneScorecardRow(
+            title: seat,
+            eyebrow: CommandCenterLayout.glanceTitle(section),
+            subtitle: coverage ?? stores,
+            chips: PhoneThisWeekChrome.chips(section: section, store: store),
+            health: health
+        )
     }
 }
 

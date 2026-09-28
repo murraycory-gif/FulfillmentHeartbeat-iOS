@@ -586,6 +586,12 @@ enum Health: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Formatted company-scope card tiles. Labels match the phone card. Values are the workbook rollup, not an empty fact walk.
+struct CompanyCardTiles: Codable, Equatable {
+    var labels: [String]
+    var values: [String]
+}
+
 struct MetricRow: Identifiable, Codable, Hashable {
     var id: UUID
     var section: MetricSection
@@ -1135,6 +1141,117 @@ enum HeartbeatMath {
         default:
             return ([scopeHeadline(section, rows: rows)], health)
         }
+    }
+
+    /// Phone Sales card. Same eight tiles as `OverviewSalesPhoneCard`.
+    static let salesPhoneTileLabels = ["Sales $", "YoY", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"]
+
+    static func salesPhoneTiles(_ pack: SalesPack) -> CompanyCardTiles {
+        CompanyCardTiles(labels: salesPhoneTileLabels, values: salesPhoneTileValues(pack))
+    }
+
+    static func salesPhoneTileValues(_ pack: SalesPack) -> [String] {
+        [
+            HeartbeatFormat.money(pack.sales),
+            HeartbeatFormat.pct(pack.yoy),
+            HeartbeatFormat.num(pack.orders, digits: 0),
+            HeartbeatFormat.pct(pack.ordersYoy),
+            HeartbeatFormat.money(pack.aos),
+            HeartbeatFormat.num(pack.aiv, digits: 2),
+            HeartbeatFormat.num(pack.ipt, digits: 1),
+            HeartbeatFormat.num(pack.items, digits: 0),
+        ]
+    }
+
+    /// Company Sales uses the workbook Total row. Ratios fill from dollars, orders, and items when the Total row omits them.
+    static func salesPackFromWorkbookTotal(_ row: MetricRow) -> SalesPack {
+        let base = SalesPack(row)
+        return SalesPack(
+            sales: base.sales,
+            yoy: base.yoy,
+            orders: base.orders,
+            ordersYoy: base.ordersYoy,
+            aos: base.aos ?? ratio(base.sales, base.orders),
+            aiv: base.aiv ?? ratio(base.sales, base.items),
+            items: base.items,
+            ipt: base.ipt ?? ratio(base.items, base.orders),
+            hd: base.hd,
+            dug: base.dug,
+            health: base.health
+        )
+    }
+
+    private static func ratio(_ numerator: Double?, _ denominator: Double?) -> Double? {
+        guard let numerator, let denominator, denominator > 0 else { return nil }
+        return numerator / denominator
+    }
+
+    static func companyTileIsBlank(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "—" || trimmed == "-" || trimmed == "–"
+    }
+
+    static func companyTilesHaveWorkbookValue(_ tiles: CompanyCardTiles) -> Bool {
+        !tiles.values.isEmpty && tiles.values.contains { !companyTileIsBlank($0) }
+    }
+
+    /// One company card, formatted the same way the phone paints it.
+    /// Sales is the workbook Total row (`sales_grain=company`), never a sum of stores.
+    static func companyCardTiles(
+        section: MetricSection,
+        rows: [MetricRow],
+        pphRows: [MetricRow] = []
+    ) -> CompanyCardTiles? {
+        let tiles: CompanyCardTiles
+        if section == .sales {
+            guard let total = salesCompanyRow(rows), salesHeadlineDollars(total) > 0 else { return nil }
+            tiles = CompanyCardTiles(
+                labels: salesPhoneTileLabels,
+                values: salesPhoneTileValues(salesPackFromWorkbookTotal(total))
+            )
+        } else {
+            guard !rows.isEmpty else { return nil }
+            let scored = dashboardTableValues(section, rows: rows, pphRows: pphRows)
+            tiles = CompanyCardTiles(
+                labels: dashboardTableHeaders(section),
+                values: scored.values
+            )
+        }
+        return companyTilesHaveWorkbookValue(tiles) ? tiles : nil
+    }
+
+    /// Sales Total, Loss market, and Labor market rows. Other sections are tile strings only.
+    static func companyRollupRow(section: MetricSection, rows: [MetricRow]) -> MetricRow? {
+        switch section {
+        case .sales:
+            guard let total = salesCompanyRow(rows), salesHeadlineDollars(total) > 0 else { return nil }
+            return total
+        case .lostRevenue:
+            return lostRevenueMarketRow(in: rows)
+        case .labor:
+            return rows.first { $0.textPayload["labor_grain"] == "market" }
+        default:
+            return nil
+        }
+    }
+
+    static func companyScopeTiles(latest: [MetricSection: [MetricRow]]) -> [String: CompanyCardTiles] {
+        let pph = latest[.pph] ?? []
+        var out: [String: CompanyCardTiles] = [:]
+        for section in MetricSection.dashboardCards {
+            guard let tiles = companyCardTiles(section: section, rows: latest[section] ?? [], pphRows: pph) else { continue }
+            out[section.rawValue] = tiles
+        }
+        return out
+    }
+
+    static func companyScopeRollups(latest: [MetricSection: [MetricRow]]) -> [String: MetricRow] {
+        var out: [String: MetricRow] = [:]
+        for section in [MetricSection.sales, .lostRevenue, .labor] {
+            guard let row = companyRollupRow(section: section, rows: latest[section] ?? []) else { continue }
+            out[section.rawValue] = row
+        }
+        return out
     }
 
     /// Pack chrome may still say "J3CHICAGO" / "308 - J3 CHICAGO" while buckets are keyed "J3".

@@ -8,9 +8,14 @@ struct PulseDashChrome: Codable {
     var pickerShoppers: Int
     var pickerOpportunity: Int
     var pickerStrong: Int
+    /// Company card tiles keyed by `MetricSection.rawValue`. Painted with fact payloads released.
+    var companyTiles: [String: CompanyCardTiles]
+    /// Workbook Total / market rows for Sales, Loss, and Labor. One row each.
+    var companyRollupRows: [String: MetricRow]
 
     enum CodingKeys: String, CodingKey {
         case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
+        case companyTiles, companyRollupRows
     }
 
     init(
@@ -20,7 +25,9 @@ struct PulseDashChrome: Codable {
         tables: [String: [HeartbeatMath.DashboardGrainTableRow]] = [:],
         pickerShoppers: Int,
         pickerOpportunity: Int = 0,
-        pickerStrong: Int = 0
+        pickerStrong: Int = 0,
+        companyTiles: [String: CompanyCardTiles] = [:],
+        companyRollupRows: [String: MetricRow] = [:]
     ) {
         self.summaries = summaries
         self.flags = flags
@@ -29,6 +36,8 @@ struct PulseDashChrome: Codable {
         self.pickerShoppers = pickerShoppers
         self.pickerOpportunity = pickerOpportunity
         self.pickerStrong = pickerStrong
+        self.companyTiles = companyTiles
+        self.companyRollupRows = companyRollupRows
     }
 
     init(from decoder: Decoder) throws {
@@ -40,6 +49,21 @@ struct PulseDashChrome: Codable {
         pickerShoppers = try container.decodeIfPresent(Int.self, forKey: .pickerShoppers) ?? 0
         pickerOpportunity = try container.decodeIfPresent(Int.self, forKey: .pickerOpportunity) ?? 0
         pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
+        companyTiles = try container.decodeIfPresent([String: CompanyCardTiles].self, forKey: .companyTiles) ?? [:]
+        companyRollupRows = try container.decodeIfPresent([String: MetricRow].self, forKey: .companyRollupRows) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(summaries, forKey: .summaries)
+        try container.encode(flags, forKey: .flags)
+        try container.encode(packs, forKey: .packs)
+        try container.encode(tables, forKey: .tables)
+        try container.encode(pickerShoppers, forKey: .pickerShoppers)
+        try container.encode(pickerOpportunity, forKey: .pickerOpportunity)
+        try container.encode(pickerStrong, forKey: .pickerStrong)
+        try container.encode(companyTiles, forKey: .companyTiles)
+        try container.encode(companyRollupRows, forKey: .companyRollupRows)
     }
 
     static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {
@@ -73,6 +97,7 @@ struct PulseDashChrome: Codable {
                 tables[MetricSection.pickerScorecard] = pickerTable
             }
         }
+        let companySource = caches.latestBySection
         return PulseDashChrome(
             summaries: caches.cachedSummaries,
             flags: Dictionary(uniqueKeysWithValues: caches.cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
@@ -80,7 +105,9 @@ struct PulseDashChrome: Codable {
             tables: Dictionary(uniqueKeysWithValues: tables.map { ($0.key.rawValue, $0.value) }),
             pickerShoppers: caches.cachedPickerBoard.shopperCount,
             pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
-            pickerStrong: caches.cachedPickerBoard.strongCount
+            pickerStrong: caches.cachedPickerBoard.strongCount,
+            companyTiles: HeartbeatMath.companyScopeTiles(latest: companySource),
+            companyRollupRows: HeartbeatMath.companyScopeRollups(latest: companySource)
         )
     }
 

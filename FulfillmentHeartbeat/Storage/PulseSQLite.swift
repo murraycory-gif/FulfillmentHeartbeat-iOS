@@ -809,6 +809,42 @@ enum PulseSQLite {
         return try? decoder.decode(PulseDashChrome.self, from: data)
     }
 
+    /// Workbook Total / market rows only. Does not count as a company fact read.
+    static func readCompanyRollupRows(from url: URL) -> [MetricRow] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        let sql = """
+        SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+        FROM facts
+        WHERE text_json LIKE '%"sales_grain":"company"%'
+           OR text_json LIKE '%"lost_grain":"market"%'
+           OR text_json LIKE '%"labor_grain":"market"%'
+        LIMIT 40;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        var out: [MetricRow] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let row = metricRow(stmt) else { continue }
+            switch row.section {
+            case .sales:
+                if row.textPayload["sales_grain"] == "company" { out.append(row) }
+            case .lostRevenue:
+                if row.textPayload["lost_grain"] == "market" { out.append(row) }
+            case .labor:
+                if row.textPayload["labor_grain"] == "market" { out.append(row) }
+            default:
+                break
+            }
+        }
+        return out
+    }
+
     static func readChrome(from url: URL) -> PulseDashChrome? {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
