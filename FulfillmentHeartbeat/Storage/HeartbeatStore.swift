@@ -598,11 +598,20 @@ final class HeartbeatStore: ObservableObject {
         rows(for: section, relaxUnknown: relaxUnknown)
     }
 
+    /// Walks or copies of the resident fact plane. Company Assist must leave this unchanged.
+    static var residentFactTouchCount = 0
+
+    private func touchResidentFacts() {
+        Self.residentFactTouchCount &+= 1
+    }
+
     func allLatest(for section: MetricSection) -> [MetricRow] {
-        latestBySection[section] ?? []
+        touchResidentFacts()
+        return latestBySection[section] ?? []
     }
 
     func salesCompanyFact() -> MetricRow? {
+        touchResidentFacts()
         let pool = (latestBySection[.sales] ?? []) + rows.filter { $0.section == .sales }
         if let hit = pool.first(where: { $0.textPayload["sales_grain"] == "company" }) {
             return hit
@@ -749,6 +758,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
+        touchResidentFacts()
         if filters.isActive {
             return rollupStores(for: section)
         }
@@ -900,6 +910,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     var summaries: [SectionSummary] { cachedSummaries }
+
+    /// Dashboard cards already painted. Company Assist reads this and nothing from the fact plane.
+    func installPaintedDashboardRollups(_ cards: [SectionSummary]) {
+        cachedSummaries = cards
+        seeded = true
+    }
 
     func dashboardFlags(for section: MetricSection) -> [HeartbeatMath.FiveStarFlag] {
         cachedCardFlags[section] ?? []
@@ -2015,6 +2031,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func lostRevenueMarketRow() -> MetricRow? {
+        touchResidentFacts()
         let isMarket: (MetricRow) -> Bool = { $0.textPayload["lost_grain"] == "market" }
         if let row = latestBySection[.lostRevenue]?.first(where: isMarket) { return row }
         if let row = filteredLatest[.lostRevenue]?.first(where: isMarket) { return row }
@@ -2055,7 +2072,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dataWindow(for section: MetricSection) -> String? {
-        rows.first { $0.section == section && !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
+        touchResidentFacts()
+        return rows.first { $0.section == section && !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
     }
 
     func sharedDataWindow() -> String? {

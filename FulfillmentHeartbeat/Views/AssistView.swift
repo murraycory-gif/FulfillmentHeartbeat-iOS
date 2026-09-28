@@ -79,6 +79,8 @@ struct HeartbeatAssistSheet: View {
     }
 
     private var currentWindow: String? {
+        // Company scope has no fact rows on the sheet. `dataWindow` walks the warehouse.
+        guard store.filters.isActive else { return nil }
         if let section = router.current.section {
             return store.dataWindow(for: section)
         }

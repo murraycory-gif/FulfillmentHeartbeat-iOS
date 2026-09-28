@@ -1346,6 +1346,99 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertFalse(answer.plan.contains { $0.whereText.contains("Store ") })
     }
 
+    /// Opening Assist at Total company must not decode or copy the company fact plane.
+    @MainActor
+    func testCompanyAssistDoesNotDecodeTheCompanyFactSet() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-assist-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = HeartbeatStore(rootURL: root)
+        var cards: [SectionSummary] = []
+        for section in MetricSection.dashboardCards {
+            let atRisk = section == .lostRevenue || section == .sales
+            cards.append(summary(
+                section,
+                atRisk ? .risk : .good,
+                risk: atRisk ? 40 : 0,
+                watch: atRisk ? 8 : 0,
+                stores: 2_000,
+                headline: section == .sales ? 84_800_000 : (section == .lostRevenue ? 2_400_000 : 90)
+            ))
+        }
+        store.installPaintedDashboardRollups(cards)
+
+        let fact = MetricRow(
+            section: .sales,
+            division: "United",
+            operationsOM: "OM",
+            storeNumber: "22",
+            storeName: "United 22",
+            payload: ["sales_dollars": 63_554.66, "sales_yoy_pct": -79.47],
+            textPayload: ["sales_grain": "store", "district": "U5", "data_window": "Week 31"]
+        )
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: [fact], uploads: [], seeded: true, chrome: nil, to: seat)
+        try PulseSQLite.write(
+            rows: [fact],
+            uploads: [],
+            seeded: true,
+            chrome: nil,
+            to: root.appendingPathComponent(PulseSQLite.fileName)
+        )
+
+        let reads = PulseSQLite.companyFactReadCount
+        let decoded = PulseSQLite.decodedFactRowCount
+        let touches = HeartbeatStore.residentFactTouchCount
+
+        let source = AssistSnapshot.source(from: store, focus: nil)
+        XCTAssertEqual(AssistScope.level(source.filters), .company)
+        XCTAssertTrue(AssistExchange.packReady(source))
+        XCTAssertTrue(source.latest.isEmpty)
+        XCTAssertTrue(source.historyPool.isEmpty)
+        XCTAssertEqual(source.summaries[.lostRevenue]?.riskCount, 40)
+        XCTAssertEqual(source.summaries[.sales]?.headline ?? 0, 84_800_000, accuracy: 1)
+
+        let snapshot = AssistSnapshot.assemble(source)
+        XCTAssertTrue(snapshot.rows.values.allSatisfy(\.isEmpty))
+        XCTAssertTrue(snapshot.warehouse.values.allSatisfy(\.isEmpty))
+
+        let legacy = HeartbeatAssist.answer(
+            "What should we fix first?",
+            dest: .dashboard,
+            store: store
+        )
+        XCTAssertFalse(legacy.isEmpty)
+        XCTAssertFalse(legacy.contains("Store "))
+
+        XCTAssertEqual(
+            PulseSQLite.companyFactReadCount,
+            reads,
+            "company Assist must not read the company sqlite"
+        )
+        XCTAssertEqual(
+            PulseSQLite.decodedFactRowCount,
+            decoded,
+            "company Assist must not decode fact rows"
+        )
+        XCTAssertEqual(
+            HeartbeatStore.residentFactTouchCount,
+            touches,
+            "company Assist must not copy the resident fact plane"
+        )
+
+        let answer = await AssistSnapshot.compose(
+            question: "What should we fix first?",
+            source: source
+        )
+        XCTAssertFalse(answer.plan.isEmpty)
+        XCTAssertNotEqual(answer.noticeTitle, "Loading data")
+        XCTAssertTrue(answer.plan.contains { $0.whereText == MetricSection.lostRevenue.title })
+        XCTAssertFalse(answer.plan.contains { $0.whereText.contains("Store ") })
+    }
+
     private func loadPlaybook() throws -> AssistPlaybook.File {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

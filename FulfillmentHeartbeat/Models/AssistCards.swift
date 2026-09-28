@@ -2366,6 +2366,9 @@ extension AssistSnapshot {
 
     @MainActor
     static func source(from store: HeartbeatStore, focus: MetricSection?) -> Source {
+        if !store.filters.isActive {
+            return companyRollupSource(from: store, focus: focus)
+        }
         var summaries: [MetricSection: SectionSummary] = [:]
         var uploads: [Date] = []
         for item in store.summaries {
@@ -2374,24 +2377,14 @@ extension AssistSnapshot {
                 uploads.append(uploaded)
             }
         }
-        if !store.filters.isActive {
-            for section in MetricSection.dashboardCards {
-                summaries[section] = store.summary(for: section)
-            }
-        }
         for record in store.uploads {
             uploads.append(record.uploadedAt)
         }
         var latest: [MetricSection: [MetricRow]] = [:]
-        // Company answers from the dashboard cards. Copying `allLatest` would
-        // decode or retain the company fact plane.
-        if store.filters.isActive {
-            for section in answerSections {
-                latest[section] = store.allLatest(for: section)
-            }
+        for section in answerSections {
+            latest[section] = store.allLatest(for: section)
         }
-        // Trend history reads `latest`. `store.rows` is the warehouse tape;
-        // retaining it for a question keeps a second company fact set alive.
+        // Trend history reads `latest`. `store.rows` is the warehouse tape.
         let historyPool: [MetricRow] = []
         return Source(
             seeded: store.seeded,
@@ -2399,6 +2392,37 @@ extension AssistSnapshot {
             summaries: summaries,
             latest: latest,
             historyPool: historyPool,
+            focus: focus,
+            rosterStores: store.stores,
+            districts: store.districts,
+            divisions: store.divisions,
+            operationsOMs: store.operationsOMs,
+            packUploads: uploads,
+            now: Date()
+        )
+    }
+
+    /// Total company. The dashboard cards are already in memory. This does not
+    /// call `summary(for:)`, `allLatest`, warehouse rows, picker tape, or sqlite.
+    @MainActor
+    static func companyRollupSource(from store: HeartbeatStore, focus: MetricSection?) -> Source {
+        var summaries: [MetricSection: SectionSummary] = [:]
+        var uploads: [Date] = []
+        for item in store.summaries {
+            summaries[item.section] = item
+            if let uploaded = item.lastUploadedAt {
+                uploads.append(uploaded)
+            }
+        }
+        for record in store.uploads {
+            uploads.append(record.uploadedAt)
+        }
+        return Source(
+            seeded: store.seeded,
+            filters: store.filters,
+            summaries: summaries,
+            latest: [:],
+            historyPool: [],
             focus: focus,
             rosterStores: store.stores,
             districts: store.districts,

@@ -233,6 +233,9 @@ enum HeartbeatAssist {
                 wrong: "The Heartbeat pack is not on this device yet. Stay on Dashboard — the server pack fills the cards when it lands."
             )
         }
+        if !store.filters.isActive {
+            return companyDashboardAnswer(question: q, dest: dest, store: store)
+        }
         var intent = intent(for: q, dest: dest)
         let brain = Brain(dest: dest, store: store)
         if case .overview = intent, let storeHit = brain.namedStore(in: q) {
@@ -249,6 +252,34 @@ enum HeartbeatAssist {
             }
         }
         return brain.answer(intent, question: q)
+    }
+
+    /// Company scope stays on the painted cards. `Brain` walks fact rows and picker tape.
+    @MainActor
+    private static func companyDashboardAnswer(question _: String, dest: HubDestination, store: HeartbeatStore) -> String {
+        let cards = store.summaries.filter { summary in
+            summary.health != .none || summary.headline != nil || summary.storeCount > 0
+        }
+        if cards.isEmpty {
+            return coachFallback(
+                dest: dest,
+                filter: "Total company",
+                wrong: "Dashboard cards are not on screen yet."
+            )
+        }
+        var lines = [
+            "Heartbeat Assist — \(dest.title)",
+            "Total company",
+            "",
+            "WHAT'S WRONG",
+        ]
+        for card in cards where card.riskCount + card.watchCount > 0 {
+            lines.append("• \(card.section.title): \(card.headlineText)  ·  \(card.riskCount) at risk")
+        }
+        if lines.last == "WHAT'S WRONG" {
+            lines.append("No scorecard is off goal on the company dashboard.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     @MainActor
