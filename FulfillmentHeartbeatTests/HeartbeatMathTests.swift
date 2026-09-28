@@ -11226,6 +11226,43 @@ final class HeartbeatMathTests: XCTestCase {
         )
     }
 
+    /// A newer published pack raises the same clock the Updated header uses, then the banner can dismiss.
+    func testNewDataBannerUsesPublishClock() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491")
+        let onScreen = Date(timeIntervalSince1970: 1_700_000_000)
+        let incoming = Date(timeIntervalSince1970: 1_758_820_200)
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: nil, incoming: incoming))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: nil))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: onScreen))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: incoming, incoming: onScreen))
+        let banner = NewDataAlert.bannerText(onScreen: onScreen, incoming: incoming)
+        let clock = HeartbeatFormat.publishClock(incoming)
+        XCTAssertEqual(banner, "New data uploaded \(clock)")
+        XCTAssertEqual(banner, "New data uploaded \(CommandCenterLayout.updatedBannerLine(incoming).replacingOccurrences(of: "Updated ", with: ""))")
+        XCTAssertGreaterThan(NewDataAlert.dismissAfterSeconds, 0)
+        XCTAssertFalse(NewDataPushPrompt.shouldOffer(dataOnScreen: false, alreadyAnswered: false))
+        XCTAssertFalse(NewDataPushPrompt.shouldOffer(dataOnScreen: true, alreadyAnswered: true))
+        XCTAssertTrue(NewDataPushPrompt.shouldOffer(dataOnScreen: true, alreadyAnswered: false))
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let app = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/RootView.swift"), encoding: .utf8)
+        XCTAssertTrue(app.contains("NewDataUploadBanner"))
+        XCTAssertTrue(app.contains("Allow alerts"))
+        XCTAssertTrue(app.contains("Not now"))
+        let store = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"), encoding: .utf8)
+        XCTAssertTrue(store.contains("NewDataAlert.bannerText"))
+        XCTAssertTrue(store.contains("pullLatestWorkbookIfNeeded") || store.contains("showNewDataBanner"))
+        let entitlements = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements"), encoding: .utf8)
+        XCTAssertTrue(entitlements.contains("aps-environment"))
+        let sender = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/send_push.py"), encoding: .utf8)
+        XCTAssertTrue(sender.contains("push skipped: no key"))
+        XCTAssertTrue(sender.contains("Heartbeat: new data uploaded"))
+        let workflow = try String(contentsOf: root.appendingPathComponent(".github/workflows/cook-heartbeat-pack.yml"), encoding: .utf8)
+        XCTAssertTrue(workflow.contains("send_push.py"))
+    }
+
     /// 455: Total Company pages show This Week company rollup above Regions.
     func testArchitecture455CompanyThisWeekRollupAboveRegions() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.491")

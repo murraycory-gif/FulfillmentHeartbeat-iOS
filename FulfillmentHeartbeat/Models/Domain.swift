@@ -5968,6 +5968,28 @@ extension HeartbeatMath {
     }
 }
 
+/// In-app "new data" banner. The clock is `HeartbeatFormat.publishClock`, the same
+/// string the Updated header line uses.
+enum NewDataAlert {
+    static let dismissAfterSeconds: TimeInterval = 5
+
+    /// Nil unless a published pack is strictly newer than the one already on screen.
+    /// A first launch with no on-screen time does not count as new data.
+    static func bannerText(onScreen: Date?, incoming: Date?) -> String? {
+        guard let incoming, let onScreen, incoming > onScreen else { return nil }
+        return "New data uploaded \(HeartbeatFormat.publishClock(incoming))"
+    }
+}
+
+/// Lock-screen alert permission. Asked once, and only after a pack is on screen.
+enum NewDataPushPrompt {
+    static let answeredKey = "hb.pushPromptAnswered"
+
+    static func shouldOffer(dataOnScreen: Bool, alreadyAnswered: Bool) -> Bool {
+        dataOnScreen && !alreadyAnswered
+    }
+}
+
 struct StoreCellViewModel {
     var primary: String
     var extra: String

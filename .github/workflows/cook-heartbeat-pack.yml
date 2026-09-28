@@ -162,3 +162,15 @@ jobs:
         run: |
           set -euo pipefail
           Tools/HeartbeatIngest/publish-cloud.sh seats /tmp/current.sqlite
+
+      - name: Notify devices
+        if: env.skip != '1' && env.company_live == '1'
+        continue-on-error: true
+        env:
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
+          APNS_BUNDLE_ID: com.corymurray.FulfillmentHeartbeat
+          PUSH_WORKER_URL: ${{ secrets.PUSH_WORKER_URL }}
+          PUSH_LIST_SECRET: ${{ secrets.PUSH_LIST_SECRET }}
+        run: python3 Tools/HeartbeatPush/send_push.py /tmp/packs/seat/company/all/current.sqlite

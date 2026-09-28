@@ -1,8 +1,10 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct FulfillmentHeartbeatApp: App {
+    @UIApplicationDelegateAdaptor(HeartbeatPushBridge.self) private var pushBridge
     @StateObject private var store = HeartbeatStore()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -46,6 +48,7 @@ struct FulfillmentHeartbeatApp: App {
                     store.flush()
                 } else if phase == .active {
                     store.pullLatestWorkbookIfNeeded()
+                    NewDataPush.registerIfAuthorized()
                 }
             }
             .onAppear {
@@ -68,6 +71,74 @@ struct FulfillmentHeartbeatApp: App {
         .defaultSize(width: 1280, height: 860)
         #endif
     }
+}
+
+/// APNs registration. The pre-prompt lives on the hub; this only runs after Allow.
+enum NewDataPush {
+    static let tokenKey = "hb.apnsToken"
+
+    static var environment: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "prod"
+        #endif
+    }
+
+    static func requestSystemPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            guard granted else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    static func registerIfAuthorized() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    static func storeAndPost(deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        UserDefaults.standard.set(hex, forKey: tokenKey)
+        post(token: hex)
+    }
+
+    static func post(token: String, bundle: Bundle = .main) {
+        let raw = (bundle.object(forInfoDictionaryKey: "HBPushWorkerURL") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let base = URL(string: raw), !raw.isEmpty else { return }
+        let endpoint = base.appendingPathComponent("token")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = [
+            "token": token,
+            "env": environment,
+            "appVersion": BuildStamp.id,
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request).resume()
+    }
+}
+
+final class HeartbeatPushBridge: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        NewDataPush.storeAndPost(deviceToken: deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {}
 }
 
 private extension UIFont {

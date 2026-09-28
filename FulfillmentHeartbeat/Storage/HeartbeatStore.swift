@@ -144,6 +144,11 @@ final class HeartbeatStore: ObservableObject {
     private var packChrome: PulseDashChrome?
     /// Cook / publish time for the chrome on screen. Nil shows "Updated —".
     private(set) var packPublishedAt: Date?
+    /// Top banner while a newer published pack replaces the one on screen.
+    @Published var newDataBanner: String?
+    /// One-time lock-screen alert question. Stays false until a pack is on screen.
+    @Published var offerPushPrePrompt = false
+    private var newDataBannerTask: Task<Void, Never>?
     /// Scope key → cooked top 10. Filled one card at a time. Never the item plane.
     private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
     private var preSubTopCacheURL: String = ""
@@ -309,6 +314,7 @@ final class HeartbeatStore: ObservableObject {
         if !needsRolePick {
             noteHubInteractive()
             startCloudHydrateIfNeeded()
+            considerPushPrePrompt()
         }
         setBootPhase(.presentingSeat)
         if PulseLaunch.shouldPlaySeatLoadHalloween() {
@@ -2817,6 +2823,7 @@ final class HeartbeatStore: ObservableObject {
             pinUnfilteredLostRevenueHeadline()
         }
         lockPickerDashboard()
+        considerPushPrePrompt()
         // Seat paint skipped grains while Who's looking was up. Start them now.
         scheduleGrainPaint(generation: paintGeneration)
         startCloudHydrateIfNeeded()
@@ -2835,10 +2842,45 @@ final class HeartbeatStore: ObservableObject {
             filters = pending
         }
         startCloudHydrateIfNeeded()
+        considerPushPrePrompt()
     }
 
     private func noteHubInteractive() {
         if hubBecameInteractiveAt == nil { hubBecameInteractiveAt = Date() }
+    }
+
+    func showNewDataBanner(_ text: String) {
+        newDataBanner = text
+    }
+
+    /// Starts when the banner is actually on screen, so a splash cannot eat the five seconds.
+    func armNewDataBannerDismiss() {
+        newDataBannerTask?.cancel()
+        let text = newDataBanner
+        guard text != nil else { return }
+        newDataBannerTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(NewDataAlert.dismissAfterSeconds * 1_000_000_000))
+            guard !Task.isCancelled, newDataBanner == text else { return }
+            newDataBanner = nil
+        }
+    }
+
+    func considerPushPrePrompt() {
+        let dataOnScreen = isReady && !needsRolePick && packPublishedAt != nil
+        let answered = UserDefaults.standard.bool(forKey: NewDataPushPrompt.answeredKey)
+        guard NewDataPushPrompt.shouldOffer(dataOnScreen: dataOnScreen, alreadyAnswered: answered) else { return }
+        offerPushPrePrompt = true
+    }
+
+    func declinePushPrePrompt() {
+        UserDefaults.standard.set(true, forKey: NewDataPushPrompt.answeredKey)
+        offerPushPrePrompt = false
+    }
+
+    func acceptPushPrePrompt() {
+        UserDefaults.standard.set(true, forKey: NewDataPushPrompt.answeredKey)
+        offerPushPrePrompt = false
+        NewDataPush.requestSystemPermission()
     }
 
     private func startCloudHydrateIfNeeded() {
@@ -6228,7 +6270,11 @@ final class HeartbeatStore: ObservableObject {
                 HeartbeatFormat.parsePackTimestamp(PulseSQLite.writtenAtString(at: $0))
             }
             : nil
+        let previousPublish = packPublishedAt
         packPublishedAt = HeartbeatMath.packPublishDate(chrome: chrome, writtenAt: fileTime)
+        if let text = NewDataAlert.bannerText(onScreen: previousPublish, incoming: packPublishedAt) {
+            showNewDataBanner(text)
+        }
         if !chrome.summaries.isEmpty {
             cachedSummaries = chrome.summaries
         }
