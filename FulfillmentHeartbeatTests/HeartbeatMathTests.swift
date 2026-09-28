@@ -4164,7 +4164,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// stays well under 1 GB because the company file is not expanded in Swift.
     func testFilterChangeDoesNotDecodeTheCompanyFactSet() throws {
         XCTAssertEqual(BuildStamp.id, "HB-0828.489")
-        func row(_ section: MetricSection, _ store: String, _ division: String, payload: [String: Double]) -> MetricRow {
+        func row(_ section: MetricSection, _ store: String, _ division: String, _ payload: [String: Double]) -> MetricRow {
             MetricRow(
                 section: section,
                 division: division,
