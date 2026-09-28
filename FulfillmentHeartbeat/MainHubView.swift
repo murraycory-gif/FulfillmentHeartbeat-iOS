@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum HubNavSelection {
     static func lightsIcon(selected: Bool) -> Bool { selected }
@@ -569,6 +570,10 @@ struct MainHubView: View {
                     .allowsHitTesting(isVisibleScorecard(section))
                     .accessibilityHidden(!isVisibleScorecard(section))
             }
+            if router.current == .settings {
+                SettingsNotificationsPage()
+                    .hubPageCanvas()
+            }
         }
     }
 
@@ -629,6 +634,101 @@ struct MainHubView: View {
             if let section = dest.section {
                 SectionDetailView(section: section).hubPageCanvas()
             }
+        case .settings:
+            SettingsNotificationsPage().hubPageCanvas()
+        }
+    }
+}
+
+/// Pages → Settings. Two UserDefaults toggles. Does not read pack rows.
+struct SettingsNotificationsPage: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var permissionDenied = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Notifications")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                VStack(spacing: 0) {
+                    toggleRow(
+                        title: "New data alerts",
+                        identifier: "new-data-alerts-toggle",
+                        isOn: Binding(
+                            get: { store.newDataAlertsEnabled },
+                            set: { store.setNewDataAlertsEnabled($0) }
+                        )
+                    )
+                    Divider().overlay(AppTheme.cardBorder)
+                    toggleRow(
+                        title: "In-app new data banner",
+                        identifier: "in-app-new-data-banner-toggle",
+                        isOn: Binding(
+                            get: { store.inAppNewDataBannerEnabled },
+                            set: { store.setInAppNewDataBannerEnabled($0) }
+                        )
+                    )
+                }
+                .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                if store.newDataAlertsEnabled, permissionDenied {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("iOS is blocking alerts for Heartbeat. Turn Notifications on in iOS Settings.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button {
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(url)
+                        } label: {
+                            Text("Open iOS Settings")
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.blue)
+                        .accessibilityIdentifier("open-ios-settings")
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                            .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    )
+                }
+            }
+            .padding(20)
+        }
+        .background(AppTheme.bg)
+        .accessibilityIdentifier("settings-notifications")
+        .onAppear { refreshPermission() }
+        .onChange(of: store.newDataAlertsEnabled) { _, _ in refreshPermission() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshPermission() }
+        }
+    }
+
+    private func toggleRow(title: String, identifier: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Text(title)
+                .font(.body)
+                .foregroundStyle(AppTheme.text)
+        }
+        .tint(AppTheme.blue)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func refreshPermission() {
+        NewDataPush.refreshAuthorizationDenied { denied in
+            permissionDenied = denied
         }
     }
 }
@@ -758,6 +858,16 @@ struct CompactNavSheet: View {
                         .padding(.horizontal, 4)
                     ForEach(HubDestination.sectionItems) { item in
                         navRow(item)
+                    }
+                    if !HubDestination.settingsItems.isEmpty {
+                        Text("SETTINGS")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 14)
+                        ForEach(HubDestination.settingsItems) { item in
+                            navRow(item)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)

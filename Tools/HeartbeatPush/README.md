@@ -4,6 +4,8 @@ The app asks once, after a pack is on screen, then registers its APNs device tok
 
 The alert text is `Heartbeat: new data uploaded Mon 9/28 3:10 PM`. The clock uses `APNS_DISPLAY_TZ` (default `America/Chicago`) and the same pack timestamp as the in-app Updated line (`chrome.publishedAt`, otherwise `written_at`).
 
+Pages → Settings → Notifications has two switches, stored in UserDefaults. New data alerts ON posts the device token with `optedOut: false` and asks for permission when iOS has not granted it. OFF posts the same token with `optedOut: true`. The sender skips those tokens. The in-app banner defaults to ON. If iOS permission is denied, the page shows Open iOS Settings.
+
 ## What you set up
 
 1. Apple key. In the Apple Developer account for team `M7FL68Q43A`, create a Key with Apple Push Notifications service (APNs) enabled. Download the `.p8` once. Note the Key ID. The bundle id is `com.corymurray.FulfillmentHeartbeat`.

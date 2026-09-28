@@ -41,7 +41,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(HubDestination.metricItems.contains { $0.rawValue == "checklist" })
         XCTAssertFalse(HubDestination.settingsItems.contains { $0.rawValue == "checklist" })
         XCTAssertFalse(HubDestination.allCases.contains { $0.rawValue == "upload" })
-        XCTAssertTrue(HubDestination.settingsItems.isEmpty)
+        XCTAssertEqual(HubDestination.settingsItems, [.settings])
+        XCTAssertFalse(HubDestination.sectionItems.contains(.settings))
         XCTAssertTrue(HubNavSelection.lightsIcon(selected: true))
         XCTAssertFalse(HubNavSelection.lightsIcon(selected: false))
     }
@@ -11261,6 +11262,60 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(sender.contains("Heartbeat: new data uploaded"))
         let workflow = try String(contentsOf: root.appendingPathComponent(".github/workflows/cook-heartbeat-pack.yml"), encoding: .utf8)
         XCTAssertTrue(workflow.contains("send_push.py"))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: incoming, bannerEnabled: false))
+        XCTAssertFalse(NewDataPushPrompt.shouldOffer(
+            dataOnScreen: true,
+            alreadyAnswered: false,
+            preferenceChosen: true
+        ))
+    }
+
+    /// Settings toggles live in UserDefaults. The cook skips a token marked opted out.
+    func testNewDataAlertTogglesPersistAndSenderSkipsOptOut() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491")
+        let suite = "hb-newdata-toggles-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertFalse(NewDataPreferences.pushAlertsEnabled(in: defaults))
+        XCTAssertFalse(NewDataPreferences.pushPreferenceChosen(in: defaults))
+        XCTAssertTrue(NewDataPreferences.bannerEnabled(in: defaults))
+
+        defaults.set("abc123", forKey: NewDataPreferences.registeredTokenKey)
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: defaults))
+
+        NewDataPreferences.setPushAlertsEnabled(false, in: defaults)
+        NewDataPreferences.setBannerEnabled(false, in: defaults)
+        let again = UserDefaults(suiteName: suite)!
+        XCTAssertTrue(NewDataPreferences.pushPreferenceChosen(in: again))
+        XCTAssertFalse(NewDataPreferences.pushAlertsEnabled(in: again))
+        XCTAssertFalse(NewDataPreferences.bannerEnabled(in: again))
+
+        NewDataPreferences.setPushAlertsEnabled(true, in: defaults)
+        NewDataPreferences.setBannerEnabled(true, in: defaults)
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: again))
+        XCTAssertTrue(NewDataPreferences.bannerEnabled(in: again))
+
+        XCTAssertEqual(HubDestination.settings.symbol, "gearshape.fill")
+        XCTAssertEqual(HubDestination.settings.title, "Settings")
+        XCTAssertNil(HubDestination.settings.section)
+        XCTAssertFalse(HubDestination.sectionItems.contains(.settings))
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pages = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/MainHubView.swift"), encoding: .utf8)
+        XCTAssertTrue(pages.contains("New data alerts"))
+        XCTAssertTrue(pages.contains("In-app new data banner"))
+        XCTAssertTrue(pages.contains("Open iOS Settings"))
+        XCTAssertTrue(pages.contains("SettingsNotificationsPage"))
+        let sender = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/send_push.py"), encoding: .utf8)
+        XCTAssertTrue(sender.contains("def should_deliver"))
+        XCTAssertTrue(sender.contains("push skipped: opted out"))
+        XCTAssertTrue(sender.contains("if not should_deliver(device)"))
+        let worker = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/worker/src/index.ts"), encoding: .utf8)
+        XCTAssertTrue(worker.contains("optedOut"))
     }
 
     /// 455: Total Company pages show This Week company rollup above Regions.

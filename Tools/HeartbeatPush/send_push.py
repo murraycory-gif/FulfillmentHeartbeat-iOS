@@ -67,9 +67,11 @@ def main(argv: list[str]) -> int:
         ("prod", "api.push.apple.com"),
     ):
         for device in list_tokens(worker, secret, scope):
-            token = str(device.get("token") or "")
-            if not token:
+            if not should_deliver(device):
+                if device.get("optedOut") is True:
+                    print(f"push skipped: opted out env={scope}")
                 continue
+            token = str(device.get("token") or "")
             status = send_alert(host, token, bundle, jwt, alert)
             if status == 410:
                 delete_token(worker, secret, scope, token)
@@ -127,6 +129,14 @@ def already_sent(worker: str, secret: str, stamp: str) -> bool:
 
 def mark_sent(worker: str, secret: str, stamp: str) -> None:
     worker_json("PUT", f"{worker}/sent", secret, {"stamp": stamp})
+
+
+def should_deliver(device: dict) -> bool:
+    """Opted-out phones stay in KV so the toggle can turn back on. Do not alert them."""
+    token = str(device.get("token") or "").strip()
+    if not token:
+        return False
+    return device.get("optedOut") is not True
 
 
 def list_tokens(worker: str, secret: str, scope: str) -> list[dict]:

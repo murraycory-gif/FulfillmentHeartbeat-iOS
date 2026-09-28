@@ -48,7 +48,9 @@ struct FulfillmentHeartbeatApp: App {
                     store.flush()
                 } else if phase == .active {
                     store.pullLatestWorkbookIfNeeded()
-                    NewDataPush.registerIfAuthorized()
+                    if NewDataPreferences.pushAlertsEnabled(in: .standard) {
+                        NewDataPush.registerIfAuthorized()
+                    }
                 }
             }
             .onAppear {
@@ -103,13 +105,35 @@ enum NewDataPush {
         }
     }
 
-    static func storeAndPost(deviceToken: Data) {
-        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
-        UserDefaults.standard.set(hex, forKey: tokenKey)
-        post(token: hex)
+    static func refreshAuthorizationDenied(_ update: @escaping (Bool) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let denied = settings.authorizationStatus == .denied
+            DispatchQueue.main.async {
+                update(denied)
+            }
+        }
     }
 
-    static func post(token: String, bundle: Bundle = .main) {
+    /// ON keeps or registers the token. OFF posts the same token with optedOut so the cook skips it.
+    static func applyPreference(_ on: Bool, defaults: UserDefaults = .standard) {
+        let token = defaults.string(forKey: tokenKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !token.isEmpty {
+            post(token: token, optedOut: !on)
+        }
+        if on {
+            requestSystemPermission()
+        }
+    }
+
+    static func storeAndPost(deviceToken: Data, defaults: UserDefaults = .standard) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        defaults.set(hex, forKey: tokenKey)
+        let optedOut = !NewDataPreferences.pushAlertsEnabled(in: defaults)
+        post(token: hex, optedOut: optedOut)
+    }
+
+    static func post(token: String, optedOut: Bool = false, bundle: Bundle = .main) {
         let raw = (bundle.object(forInfoDictionaryKey: "HBPushWorkerURL") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard let base = URL(string: raw), !raw.isEmpty else { return }
@@ -117,10 +141,11 @@ enum NewDataPush {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = [
+        let body: [String: Any] = [
             "token": token,
             "env": environment,
             "appVersion": BuildStamp.id,
+            "optedOut": optedOut,
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         URLSession.shared.dataTask(with: request).resume()

@@ -11016,6 +11016,7 @@ struct HubBrandBar: View {
     }
 
     private func phoneBannerHealth(allowRowWalk: Bool) -> Health {
+        if compactBannerDestination == .settings { return .none }
         if let section = compactBannerDestination.section {
             return CommandCenterLayout.displayedHealth(
                 store.phonePageChromeCard(for: section, allowRowWalk: allowRowWalk)
@@ -11030,6 +11031,11 @@ struct HubBrandBar: View {
 
     private func scheduleBannerHealth() {
         guard compact, PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() else { return }
+        if compactBannerDestination == .settings {
+            settledBannerDest = .settings
+            settledBannerHealth = .none
+            return
+        }
         let dest = compactBannerDestination
         settledBannerDest = dest
         settledBannerHealth = phoneBannerHealth(allowRowWalk: false)
@@ -11043,6 +11049,7 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerDestination: HubDestination {
+        if router.current == .settings { return .settings }
         if let section = PulseLaunch.activeScorecardSection(
             visible: router.current,
             pushed: router.pushedSection
@@ -11053,6 +11060,7 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerWindow: String? {
+        if compactBannerDestination == .settings { return nil }
         if compactBannerDestination.section == .sales, let coverage = store.salesCoverageLabel() {
             return coverage
         }

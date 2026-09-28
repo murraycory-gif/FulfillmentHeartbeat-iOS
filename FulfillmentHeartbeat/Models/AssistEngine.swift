@@ -143,6 +143,8 @@ enum HeartbeatAssist {
                 "Who should we coach today?",
                 "Which stores have the weakest shopper mix?",
             ]
+        case .settings:
+            return []
         }
     }
 

@@ -148,6 +148,9 @@ final class HeartbeatStore: ObservableObject {
     @Published var newDataBanner: String?
     /// One-time lock-screen alert question. Stays false until a pack is on screen.
     @Published var offerPushPrePrompt = false
+    /// Settings → Notifications. Echo of UserDefaults so the toggles repaint.
+    @Published var newDataAlertsEnabled = NewDataPreferences.pushAlertsEnabled(in: .standard)
+    @Published var inAppNewDataBannerEnabled = NewDataPreferences.bannerEnabled(in: .standard)
     private var newDataBannerTask: Task<Void, Never>?
     /// Scope key → cooked top 10. Filled one card at a time. Never the item plane.
     private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
@@ -2868,19 +2871,38 @@ final class HeartbeatStore: ObservableObject {
     func considerPushPrePrompt() {
         let dataOnScreen = isReady && !needsRolePick && packPublishedAt != nil
         let answered = UserDefaults.standard.bool(forKey: NewDataPushPrompt.answeredKey)
-        guard NewDataPushPrompt.shouldOffer(dataOnScreen: dataOnScreen, alreadyAnswered: answered) else { return }
+        let chosen = NewDataPreferences.pushPreferenceChosen(in: .standard)
+        guard NewDataPushPrompt.shouldOffer(
+            dataOnScreen: dataOnScreen,
+            alreadyAnswered: answered,
+            preferenceChosen: chosen
+        ) else { return }
         offerPushPrePrompt = true
     }
 
     func declinePushPrePrompt() {
         UserDefaults.standard.set(true, forKey: NewDataPushPrompt.answeredKey)
         offerPushPrePrompt = false
+        setNewDataAlertsEnabled(false)
     }
 
     func acceptPushPrePrompt() {
         UserDefaults.standard.set(true, forKey: NewDataPushPrompt.answeredKey)
         offerPushPrePrompt = false
-        NewDataPush.requestSystemPermission()
+        setNewDataAlertsEnabled(true)
+    }
+
+    func setNewDataAlertsEnabled(_ on: Bool) {
+        NewDataPreferences.setPushAlertsEnabled(on, in: .standard)
+        newDataAlertsEnabled = on
+        if !on { offerPushPrePrompt = false }
+        NewDataPush.applyPreference(on)
+    }
+
+    func setInAppNewDataBannerEnabled(_ on: Bool) {
+        NewDataPreferences.setBannerEnabled(on, in: .standard)
+        inAppNewDataBannerEnabled = on
+        if !on { newDataBanner = nil }
     }
 
     private func startCloudHydrateIfNeeded() {
@@ -6272,7 +6294,11 @@ final class HeartbeatStore: ObservableObject {
             : nil
         let previousPublish = packPublishedAt
         packPublishedAt = HeartbeatMath.packPublishDate(chrome: chrome, writtenAt: fileTime)
-        if let text = NewDataAlert.bannerText(onScreen: previousPublish, incoming: packPublishedAt) {
+        if let text = NewDataAlert.bannerText(
+            onScreen: previousPublish,
+            incoming: packPublishedAt,
+            bannerEnabled: NewDataPreferences.bannerEnabled(in: .standard)
+        ) {
             showNewDataBanner(text)
         }
         if !chrome.summaries.isEmpty {

@@ -166,7 +166,8 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(checks.filter { $0.type == .floor }.count, 112)
         XCTAssertEqual(checks.filter { $0.type == .auto }.count, 3)
         let allowed = Set(HubDestination.allCases.map(\.rawValue))
-        XCTAssertEqual(allowed.count, 13)
+        XCTAssertEqual(allowed.count, 14)
+        XCTAssertTrue(allowed.contains("settings"))
         XCTAssertFalse(allowed.contains("checklist"))
         XCTAssertFalse(allowed.contains("upload"))
         for metric in book.metrics {

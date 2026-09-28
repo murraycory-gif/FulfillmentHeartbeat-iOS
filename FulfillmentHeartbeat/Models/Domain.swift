@@ -236,6 +236,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case lostRevenue
     case missingItems
     case preSubOOS
+    case settings
 
     var id: String { rawValue }
 
@@ -254,6 +255,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return "Loss Revenue ScoreCard"
         case .missingItems: return MetricSection.missingItems.bannerTitle
         case .preSubOOS: return MetricSection.preSubOOS.bannerTitle
+        case .settings: return "Settings"
         }
     }
 
@@ -272,6 +274,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return MetricSection.lostRevenue.symbol
         case .missingItems: return MetricSection.missingItems.symbol
         case .preSubOOS: return MetricSection.preSubOOS.symbol
+        case .settings: return "gearshape.fill"
         }
     }
 
@@ -289,7 +292,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return .lostRevenue
         case .missingItems: return .missingItems
         case .preSubOOS: return .preSubOOS
-        case .dashboard: return nil
+        case .dashboard, .settings: return nil
         }
     }
 
@@ -313,7 +316,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     }
 
     static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
-    static var settingsItems: [HubDestination] { [] }
+    static var settingsItems: [HubDestination] { [.settings] }
     static var primaryTabs: [HubDestination] { [.dashboard] }
     static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
 }
@@ -5975,9 +5978,48 @@ enum NewDataAlert {
 
     /// Nil unless a published pack is strictly newer than the one already on screen.
     /// A first launch with no on-screen time does not count as new data.
-    static func bannerText(onScreen: Date?, incoming: Date?) -> String? {
+    /// The in-app banner toggle turns the line off without touching the pack.
+    static func bannerText(onScreen: Date?, incoming: Date?, bannerEnabled: Bool = true) -> String? {
+        guard bannerEnabled else { return nil }
         guard let incoming, let onScreen, incoming > onScreen else { return nil }
         return "New data uploaded \(HeartbeatFormat.publishClock(incoming))"
+    }
+}
+
+/// Settings toggles. UserDefaults only — no pack, chrome, or row reads.
+enum NewDataPreferences {
+    static let pushAlertsKey = "hb.newDataAlerts"
+    static let bannerKey = "hb.inAppNewDataBanner"
+    static let registeredTokenKey = "hb.apnsToken"
+
+    /// Missing key stays off, except a token saved before this toggle existed.
+    static func pushAlertsEnabled(in defaults: UserDefaults) -> Bool {
+        if defaults.object(forKey: pushAlertsKey) != nil {
+            return defaults.bool(forKey: pushAlertsKey)
+        }
+        let token = defaults.string(forKey: registeredTokenKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !token.isEmpty
+    }
+
+    static func setPushAlertsEnabled(_ on: Bool, in defaults: UserDefaults) {
+        defaults.set(on, forKey: pushAlertsKey)
+    }
+
+    static func pushPreferenceChosen(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: pushAlertsKey) != nil
+    }
+
+    /// Missing key stays on.
+    static func bannerEnabled(in defaults: UserDefaults) -> Bool {
+        if defaults.object(forKey: bannerKey) != nil {
+            return defaults.bool(forKey: bannerKey)
+        }
+        return true
+    }
+
+    static func setBannerEnabled(_ on: Bool, in defaults: UserDefaults) {
+        defaults.set(on, forKey: bannerKey)
     }
 }
 
@@ -5985,8 +6027,12 @@ enum NewDataAlert {
 enum NewDataPushPrompt {
     static let answeredKey = "hb.pushPromptAnswered"
 
-    static func shouldOffer(dataOnScreen: Bool, alreadyAnswered: Bool) -> Bool {
-        dataOnScreen && !alreadyAnswered
+    static func shouldOffer(
+        dataOnScreen: Bool,
+        alreadyAnswered: Bool,
+        preferenceChosen: Bool = false
+    ) -> Bool {
+        dataOnScreen && !alreadyAnswered && !preferenceChosen
     }
 }
 

@@ -218,6 +218,14 @@ enum CoachTour: Equatable {
                     body: "Markets then stores. Pair this with Schedule Quality when punch vs target is off."
                 ),
             ]
+        case .settings:
+            return [
+                CoachStep(
+                    icon: "gearshape.fill",
+                    heading: "Notifications",
+                    body: "New data alerts send one lock-screen notice when a pack is uploaded. The in-app banner is the same notice at the top of Heartbeat."
+                ),
+            ]
         }
     }
 }

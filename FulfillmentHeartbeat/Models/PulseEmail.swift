@@ -156,6 +156,7 @@ enum PulseMail {
             case .pickerScorecard: return .pickerScorecard
             case .pph: return .pph
             case .labor: return .labor
+            case .settings: return .dashboard
             }
         }
     }

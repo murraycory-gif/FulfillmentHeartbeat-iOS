@@ -19,6 +19,7 @@ type Device = {
   env: "sandbox" | "prod";
   appVersion: string;
   updatedAt: string;
+  optedOut: boolean;
 };
 
 const tokenPattern = /^[0-9a-f]{64,200}$/;
@@ -48,7 +49,7 @@ export default {
 async function register(request: Request, env: Env): Promise<Response> {
   const raw = await request.text();
   if (raw.length > 4096) return json({ error: "body too large" }, 413);
-  let body: { token?: unknown; env?: unknown; appVersion?: unknown };
+  let body: { token?: unknown; env?: unknown; appVersion?: unknown; optedOut?: unknown };
   try {
     body = JSON.parse(raw) as typeof body;
   } catch {
@@ -65,6 +66,7 @@ async function register(request: Request, env: Env): Promise<Response> {
     env: scope,
     appVersion,
     updatedAt: new Date().toISOString(),
+    optedOut: body.optedOut === true,
   };
   await env.TOKENS.put(deviceKey(scope, token), JSON.stringify(device));
   return json({ ok: true });
