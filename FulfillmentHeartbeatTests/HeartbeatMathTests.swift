@@ -930,7 +930,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPathPicker))
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPath))
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream())
-        XCTAssertTrue(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.pickPathPicker))
+        XCTAssertFalse(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.pickPathPicker))
         XCTAssertFalse(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.sales))
         XCTAssertFalse(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.sales))
         XCTAssertEqual(
@@ -2647,7 +2647,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldLoadSeatPickerOnPageOpen(filtersActive: true))
         XCTAssertFalse(PulseLaunch.shouldLoadSeatPickerOnPageOpen(filtersActive: false))
         XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: true), .seatReadStores)
-        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: false), .companyStream)
+        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: false), .chromeRollup)
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPrefetchExpandOnFilterStamp())
         XCTAssertFalse(PulseLaunch.shouldShowPickerLoadingOnSeatFill(dest: .dashboard))
@@ -4229,6 +4229,106 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(PulseSQLite.distinctStoreCount(from: dest), 1)
     }
 
+    /// Company dashboard, company pages, Share's rollup, and a division filter
+    /// must not `PulseSQLite.read` the company file or stream a whole section.
+    @MainActor
+    func testCompanyScreensAndFiltersDoNotDecodeTheCompanyFactSet() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.489")
+        XCTAssertEqual(PulseLaunch.residentMemoryBudgetBytes, 400 * 1024 * 1024)
+        XCTAssertEqual(ResidentMemory.budgetBytes, UInt64(PulseLaunch.residentMemoryBudgetBytes))
+        for section in MetricSection.allCases {
+            XCTAssertEqual(
+                PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: false),
+                .chromeRollup
+            )
+        }
+
+        func fact(_ section: MetricSection, _ store: String, _ division: String) -> MetricRow {
+            MetricRow(
+                section: section,
+                division: division,
+                operationsOM: "OM",
+                storeNumber: store,
+                storeName: store,
+                payload: ["sales_dollars": 100, "orders": 4],
+                textPayload: [
+                    "district": division == "United" ? "U5" : "39",
+                    "shopper_id": section == .pickerScorecard ? "S\(store)" : "",
+                ]
+            )
+        }
+        let rows = [
+            fact(.sales, "22", "United"),
+            fact(.sales, "23", "United"),
+            fact(.sales, "3493", "Haggen"),
+            fact(.pickerScorecard, "22", "United"),
+            fact(.pickerScorecard, "23", "United"),
+            fact(.pickerScorecard, "3493", "Haggen"),
+        ]
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 3,
+                    headline: 300,
+                    headlineLabel: "Sales",
+                    secondary: "company rollup",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 12
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: chrome, to: seat)
+
+        let reads = PulseSQLite.companyFactReadCount
+        let sectionReads = PulseSQLite.sectionFactReadCount
+        PulseSQLite.decodedFactRowCount = 0
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        XCTAssertEqual(store.summaries.first { $0.section == .sales }?.headline ?? 0, 300, accuracy: 1)
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0)
+
+        let companyAssist = AssistSnapshot.source(from: store, focus: nil)
+        XCTAssertTrue(companyAssist.latest.isEmpty)
+        XCTAssertTrue(AssistExchange.packReady(companyAssist))
+        let share = store.pulseMailSnapshot([.dashboard])
+        XCTAssertTrue(share.rows.values.allSatisfy(\.isEmpty))
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0)
+
+        var united = DashboardFilters()
+        united.division = "United"
+        XCTAssertTrue(store.applyFilterScope(united))
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads, "a filter must not read the company file")
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads, "a filter must not stream a whole section")
+        XCTAssertEqual(
+            PulseSQLite.decodedFactRowCount,
+            2,
+            "United sales rows only — Haggen and picker tape stay in sqlite"
+        )
+        let filteredAssist = AssistSnapshot.source(from: store, focus: nil)
+        XCTAssertNil(filteredAssist.latest[.pickerScorecard])
+        XCTAssertEqual(filteredAssist.latest[.sales]?.count, 2)
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+    }
+
     func testSeatPackIndexedSchemaAtomicSwapAndCacheCeiling() throws {
         let risk = MetricRow(
             section: .fiveStar,
@@ -4550,12 +4650,12 @@ final class HeartbeatMathTests: XCTestCase {
             )
             XCTAssertEqual(
                 PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: false),
-                .companyStream,
-                "\(section.rawValue) unfiltered may use the company pack"
+                .chromeRollup,
+                "\(section.rawValue) at company stays on the painted rollup"
             )
         }
         XCTAssertFalse(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: true))
-        XCTAssertTrue(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false))
         XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.pph))
         XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.dynacap))
         XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.pickPath))

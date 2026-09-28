@@ -445,6 +445,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func finishLocalLaunch() {
+        noteResidentMemory("launch")
         presentSeatUI()
         if PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch() {
             warehouseHydrating = true
@@ -491,6 +492,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func setVisibleDestination(_ dest: HubDestination) {
+        noteResidentMemory(dest.rawValue)
         visibleDestination = dest
         if PulseLaunch.shouldDeferDestinationWorkOnNav() {
             Task { @MainActor in
@@ -2588,6 +2590,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func commitFilters(_ next: DashboardFilters) {
+        noteResidentMemory("filter")
         var cleaned = next
         cleaned.sanitize()
         if filters != cleaned {
@@ -3155,7 +3158,9 @@ final class HeartbeatStore: ObservableObject {
     ) {
         var mapsReady = PulseLaunch.shouldRewriteSeatRowPlaneWithChrome()
             && applyCachedSeatRowPlane(for: key)
-        if !mapsReady,
+        // Company box maps are the fact plane. Chrome is enough.
+        if key != .company,
+           !mapsReady,
            rewriteMissingMaps,
            PulseLaunch.shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing() {
             if PulseLaunch.shouldDropStaleSeatRowsWhenPlaneMissing() {
@@ -3223,6 +3228,7 @@ final class HeartbeatStore: ObservableObject {
     /// Thin same-turn rewrite. Rows + roster only — no PulseCaches / expand / grain.
     @discardableResult
     private func rewriteSeatBoxMapsFromLocalPack(_ key: PulseSeatPack.Key) -> Bool {
+        if key == .company { return false }
         let dest = PulseSeatPack.localURL(root: rootURL, key: key)
         if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
             return false
@@ -3249,6 +3255,12 @@ final class HeartbeatStore: ObservableObject {
         activePackURL = dest
         if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
             return false
+        }
+        if key == .company {
+            if filters.isActive {
+                return installActiveFilterWithoutCompanyFacts()
+            }
+            return installCompanyRollup(at: dest)
         }
         guard let pack = await Self.readSeatPack(at: dest, skipping: seatReadSkip(for: key)) else { return false }
         guard !Task.isCancelled else { return false }
@@ -3643,6 +3655,58 @@ final class HeartbeatStore: ObservableObject {
             try? fileManager.removeItem(at: dest)
         }
         return false
+    }
+
+    /// Company dashboard. Chrome and the store index only. Fact payloads stay in sqlite.
+    @discardableResult
+    func installCompanyRollup(at dest: URL) -> Bool {
+        guard PulseSQLite.exists(at: dest) else { return false }
+        guard let chrome = PulseSQLite.readChrome(from: dest) else { return false }
+        let index = PulseSQLite.readStoreIndex(from: dest)
+        latestBySection = [:]
+        filteredLatest = [:]
+        rows = []
+        companyFactsAreScoped = false
+        if !index.isEmpty {
+            roster = index
+            cachedCompanyStoreIndex = index
+        }
+        applyDashChrome(chrome)
+        companySeatChrome = chrome
+        seatChromeByKey[.company] = chrome
+        activeSeatKey = .company
+        activePackURL = dest
+        usingPackChrome = true
+        seeded = !cachedSummaries.isEmpty
+        lastPaintedSeatKey = .company
+        refreshFilterOptions()
+        lockPickerDashboard()
+        rearmAfterSeatPromote(clearExpand: true)
+        publishSeatPaint(force: true)
+        noteResidentMemory("dashboard")
+        return seeded
+    }
+
+    /// Synchronous scope read used by the filter swap. Does not open the company file.
+    @discardableResult
+    func applyFilterScope(_ next: DashboardFilters) -> Bool {
+        noteResidentMemory("filter")
+        hydrating = true
+        filters = next
+        hydrating = false
+        guard filters.isActive else { return false }
+        let ok = installActiveFilterWithoutCompanyFacts()
+        if ok { publishSeatPaint(force: true) }
+        return ok
+    }
+
+    /// Decoded fact rows held on the active plane. Company rollup leaves this at 0.
+    var residentFactRowCount: Int {
+        rows.count + latestBySection.values.reduce(0) { $0 + $1.count }
+    }
+
+    func noteResidentMemory(_ screen: String) {
+        ResidentMemory.note(screen)
     }
 
     /// Company seat first, then the market sqlite. A store typed into the filter
@@ -5860,10 +5924,6 @@ final class HeartbeatStore: ObservableObject {
         .pickerScorecard, .pickPathPicker
     ]
 
-    private static var launchSkip: Set<MetricSection> {
-        deferredSections
-    }
-
     private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {
         rows.filter { !Self.deferredSections.contains($0.section) }
     }
@@ -6017,51 +6077,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadWarehouseWave(_ sections: [MetricSection]) async {
-        let url = sqliteURL
-        guard PulseSQLite.exists(at: url), !sections.isEmpty else { return }
-        let only = Set(sections)
-        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
-        let pack = await Task.detached(priority: priority) {
-            try? PulseSQLite.read(from: url, only: only)
-        }.value
-        guard let pack, !pack.rows.isEmpty else { return }
-        let packRows = pack.rows
-        let packUploads = pack.uploads
-        let caches = await Task.detached(priority: priority) {
-            PulseCaches.build(
-                rows: packRows,
-                filters: DashboardFilters(),
-                uploads: packUploads,
-                heavy: false,
-                grain: nil
-            )
-        }.value
-        mergeWarehouse(caches, pack: pack)
-    }
-
-    private func mergeWarehouse(_ caches: PulseCaches, pack: PulseSQLite.Pack) {
-        let incoming = Set(pack.rows.map(\.section))
-        if PulseLaunch.shouldPublishWarehouseRowsDuringHydrate() || !warehouseHydrating {
-            rows.removeAll { incoming.contains($0.section) }
-            rows.append(contentsOf: pack.rows)
-        }
-        if !pack.uploads.isEmpty {
-            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-        }
-        for (section, sectionRows) in caches.latestBySection where !sectionRows.isEmpty {
-            latestBySection[section] = sectionRows
-        }
-        for (store, identity) in caches.roster {
-            if let have = roster[store], !have.district.isEmpty, identity.district.isEmpty {
-                continue
-            }
-            roster[store] = identity
-        }
-        if !seeded { seeded = true }
-        if !usingDatabasePack { usingDatabasePack = true }
-        notePackLanded()
-        if incoming.contains(.lostRevenue), latestBySection[.lostRevenue] != nil {
-            rebuildLostIndex()
+        _ = sections
+        if filters.isActive {
+            _ = installActiveFilterWithoutCompanyFacts()
+            noteResidentMemory("filter")
         }
     }
 
@@ -6084,62 +6103,16 @@ final class HeartbeatStore: ObservableObject {
 
     private func loadWarehousePack(chromeFirst: PulseDashChrome?) async {
         let url = sqliteURL
-        guard PulseSQLite.exists(at: url) else {
-            if seeded, !cachedSummaries.isEmpty { return }
-            rebuildIndex()
-            return
-        }
-        setBootPhase(.readingPack)
-        var skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
-        if isCompanyExpandScope, PulseLaunch.shouldSkipShoppersOnCompanyPadRead(), isPadDevice {
-            skipHeavy.formUnion(PulseLaunch.companyPadSkippedSections())
-        }
-        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
-        let pack = await Task.detached(priority: priority) {
-            try? PulseSQLite.read(from: url, skipping: skipHeavy)
-        }.value
-        if let pack, !pack.rows.isEmpty {
-            setBootPhase(.buildingTables)
-            let packRows = pack.rows
-            let packUploads = pack.uploads
-            let chrome = pack.chrome ?? chromeFirst
-            let caches = await Task.detached(priority: priority) {
-                PulseCaches.build(
-                    rows: packRows,
-                    filters: DashboardFilters(),
-                    uploads: packUploads,
-                    heavy: false,
-                    grain: chrome == nil ? .region : nil
-                )
-            }.value
-            hydrating = true
-            rows = pack.rows
-            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-            seeded = true
-            usingDatabasePack = true
-            if !isReady {
-                filters = DashboardFilters()
-                sessionRole = nil
-                setNeedsRolePick(false)
-            }
-            packPickerFactCount = max(
-                packPickerFactCount,
-                pack.counts[MetricSection.pickerScorecard.rawValue] ?? 0
-            )
-            install(caches)
-            if let chrome {
+        if !filters.isActive {
+            if let chrome = chromeFirst ?? PulseSQLite.readChrome(from: url) {
                 applyDashChrome(chrome)
+                seeded = !cachedSummaries.isEmpty
             }
-            notePackLanded()
-            lockPickerDashboard()
-            hydrating = false
-            applyLocalCards()
-            importProgress.loaded = MetricSection.uploadOrder.count
-            pendingHeavyExtras = chrome == nil || !(chrome?.isComplete ?? false)
+            noteResidentMemory("dashboard")
             return
         }
-        if seeded, !cachedSummaries.isEmpty { return }
-        rebuildIndex()
+        _ = installActiveFilterWithoutCompanyFacts()
+        noteResidentMemory("filter")
     }
 
     private func applyDashChrome(_ chrome: PulseDashChrome) {
@@ -6400,11 +6373,14 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         lockPickerDashboard()
+        if let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
+        }
         if HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []),
            (cachedSummaries.first(where: { $0.section == .pickerScorecard })?.headline ?? 0) > 0 {
             return
         }
-        guard PulseSQLite.exists(at: sqliteURL) else { return }
+        guard filters.isActive, PulseSQLite.exists(at: sqliteURL) else { return }
         let url = sqliteURL
         let count = PulseSQLite.sectionCount(from: url, section: .pickerScorecard)
         if count > packPickerFactCount { packPickerFactCount = count }
@@ -6428,6 +6404,10 @@ final class HeartbeatStore: ObservableObject {
         }
         lockPickerDashboard()
         let allowed = pickerStoreSet() ?? []
+        if allowed.count > 1 {
+            lockPickerDashboard()
+            return
+        }
         if seatPickerLoadKey == filterKey, !(filteredLatest[.pickerScorecard] ?? []).isEmpty {
             publishIndividualShoppersIfOpen()
             return
@@ -6568,6 +6548,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func streamPicker(preferSnappy: Bool) async {
+        // The company picker tape is the multi-gigabyte decode. One store loads its own shoppers.
+        if !filters.isActive || !PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: filters.isActive) {
+            pickerLoading = false
+            if !filters.isActive { pickerStreamDone = true }
+            return
+        }
         if pickerStreamDone, (latestBySection[.pickerScorecard] ?? []).count >= 2 {
             let join = PulseLaunch.needsShopperJoin(visibleDestination)
             if join {
@@ -6871,6 +6857,10 @@ final class HeartbeatStore: ObservableObject {
 
     private func ensureSectionWarehouse(_ section: MetricSection) async {
         if Task.isCancelled { return }
+        if PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: filters.isActive) == .chromeRollup {
+            noteResidentMemory(section.rawValue)
+            return
+        }
         let seatFirst = PulseLaunch.sectionPageFirstPaint(
             section: section,
             filtersActive: filters.isActive
@@ -6941,20 +6931,7 @@ final class HeartbeatStore: ObservableObject {
                 return
             }
         }
-        guard PulseSQLite.exists(at: sqliteURL) else { return }
-        if Task.isCancelled { return }
-        let url = sqliteURL
-        let rosterCopy = roster
-        let readPriority: TaskPriority = isReady ? .utility : .userInitiated
-        let incoming = await Task.detached(priority: readPriority) { () -> [MetricRow] in
-            guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
-            return PulseLaunch.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
-        }.value
-        if Task.isCancelled { return }
-        adoptSectionWarehouse(section, incoming)
-        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
-            rebuildPickPathIndexFromWarehouse()
-        }
+        noteResidentMemory(section.rawValue)
     }
 
     /// Seat page-open: `readStores(allowed)` when the warehouse is empty. Never company LIMIT/OFFSET.
@@ -6985,20 +6962,7 @@ final class HeartbeatStore: ObservableObject {
             return PulseLaunch.materializeSectionRows(raw, section: section, roster: rosterCopy)
         }.value
         if incoming.isEmpty {
-            if PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(section) {
-                let full = await Task.detached(priority: .utility) { () -> [MetricRow] in
-                    guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
-                    return PulseLaunch.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
-                }.value
-                if !full.isEmpty {
-                    adoptSectionWarehouse(section, full)
-                    if section == .pickPathPicker {
-                        publishIndividualShoppersIfOpen()
-                    }
-                } else {
-                    rebuildPickPathIndexFromWarehouse()
-                }
-            }
+            rebuildPickPathIndexFromWarehouse()
             return
         }
         adoptSectionWarehouse(section, incoming)
@@ -7125,26 +7089,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func hydrateDeferredPack(from url: URL, uploads: [UploadRecord]) async {
-        let pack = await Task.detached(priority: .utility) {
-            try? PulseSQLite.read(from: url)
-        }.value
-        guard let pack, !pack.rows.isEmpty else { return }
-        let caches = await Task.detached(priority: .utility) {
-            PulseCaches.build(
-                rows: pack.rows,
-                filters: DashboardFilters(),
-                uploads: pack.uploads,
-                heavy: false,
-                grain: .region
-            )
-        }.value
-        rows = pack.rows
-        self.uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-        hydrating = true
-        install(caches)
-        hydrating = false
-        Task { await paintFromWarehouse(light: true) }
-        scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+        _ = uploads
+        if let chrome = PulseSQLite.readChrome(from: url) {
+            applyDashChrome(chrome)
+            seeded = !cachedSummaries.isEmpty
+        }
+        noteResidentMemory("dashboard")
     }
 
     private func load() {
@@ -7388,10 +7338,17 @@ final class HeartbeatStore: ObservableObject {
         if pages.contains(.dashboard) {
             needed.formUnion(MetricSection.dashboardCards)
         }
+        noteResidentMemory("share")
         var pickerCounts: [String: Int] = [:]
         var rows: [MetricSection: [MetricRow]] = [:]
         var rowTotals: [MetricSection: Int] = [:]
+        let singleStore = filters.stores.count == 1
         for section in needed {
+            if !singleStore {
+                rowTotals[section] = summaries.first { $0.section == section }?.storeCount ?? 0
+                rows[section] = []
+                continue
+            }
             let all = PulseLaunch.shareScopeRows(displayRows(for: section), filters: filters)
             rowTotals[section] = all.count
             rows[section] = PulseMail.pageRows(all, section: section)

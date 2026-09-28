@@ -40,6 +40,7 @@ struct HeartbeatAssistSheet: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .onAppear {
+            store.noteResidentMemory(store.filters.isActive ? "assist-filter" : "assist")
             reloadChips()
             askOpeningQuestionIfNeeded()
         }
@@ -705,6 +706,7 @@ struct HeartbeatAssistSheet: View {
     }
 
     private func scheduleCompose(id: UUID, question: String) {
+        store.noteResidentMemory(store.filters.isActive ? "assist-filter" : "assist")
         guard flight.ids.insert(id).inserted else { return }
         let focus = router.current.section
         let flight = flight

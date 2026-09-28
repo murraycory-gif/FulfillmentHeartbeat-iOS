@@ -16,6 +16,7 @@
 		AA0100000000000000000A94 /* LoadingQuipsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B9D /* LoadingQuipsTests.swift */; };
 		AA0100000000000000000A06 /* Domain.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B06 /* Domain.swift */; };
 		AA0100000000000000000A07 /* HeartbeatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B07 /* HeartbeatStore.swift */; };
+		AA0100000000000000000AA1 /* ResidentMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000BA1 /* ResidentMemory.swift */; };
 		AA0100000000000000000A08 /* WorkbookParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B08 /* WorkbookParser.swift */; };
 		AA0100000000000000000A24 /* PulseSQLite.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B24 /* PulseSQLite.swift */; };
 		AA0100000000000000000A25 /* PulseCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B25 /* PulseCloud.swift */; };
@@ -73,6 +74,7 @@
 		AA0100000000000000000B2F /* LoadingQuips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingQuips.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B06 /* Domain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Domain.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B07 /* HeartbeatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatStore.swift; sourceTree = "<group>"; };
+		AA0100000000000000000BA1 /* ResidentMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResidentMemory.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B08 /* WorkbookParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParser.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B24 /* PulseSQLite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseSQLite.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B25 /* PulseCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseCloud.swift; sourceTree = "<group>"; };
@@ -213,6 +215,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0100000000000000000B07 /* HeartbeatStore.swift */,
+				AA0100000000000000000BA1 /* ResidentMemory.swift */,
 				AA0100000000000000000B08 /* WorkbookParser.swift */,
 				AA0100000000000000000B24 /* PulseSQLite.swift */,
 				AA0100000000000000000B25 /* PulseCloud.swift */,
@@ -397,6 +400,7 @@
 				AA0100000000000000000A2F /* LoadingQuips.swift in Sources */,
 				AA0100000000000000000A06 /* Domain.swift in Sources */,
 				AA0100000000000000000A07 /* HeartbeatStore.swift in Sources */,
+				AA0100000000000000000AA1 /* ResidentMemory.swift in Sources */,
 				AA0100000000000000000A08 /* WorkbookParser.swift in Sources */,
 				AA0100000000000000000A24 /* PulseSQLite.swift in Sources */,
 				AA0100000000000000000A25 /* PulseCloud.swift in Sources */,

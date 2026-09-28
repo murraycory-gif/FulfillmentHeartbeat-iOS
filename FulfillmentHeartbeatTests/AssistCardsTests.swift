@@ -1391,6 +1391,7 @@ final class AssistCardsTests: XCTestCase {
 
         let reads = PulseSQLite.companyFactReadCount
         let decoded = PulseSQLite.decodedFactRowCount
+        let sectionReads = PulseSQLite.sectionFactReadCount
         let touches = HeartbeatStore.residentFactTouchCount
 
         let source = AssistSnapshot.source(from: store, focus: nil)
@@ -1422,6 +1423,11 @@ final class AssistCardsTests: XCTestCase {
             PulseSQLite.decodedFactRowCount,
             decoded,
             "company Assist must not decode fact rows"
+        )
+        XCTAssertEqual(
+            PulseSQLite.sectionFactReadCount,
+            sectionReads,
+            "company Assist must not stream a fact section"
         )
         XCTAssertEqual(
             HeartbeatStore.residentFactTouchCount,

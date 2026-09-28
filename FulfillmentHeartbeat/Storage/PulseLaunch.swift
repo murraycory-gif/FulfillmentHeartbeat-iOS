@@ -4,6 +4,8 @@ import Foundation
 /// Keep this off the network and off SwiftUI so the boot path can be tested.
 enum PulseLaunch {
     static let minimumPackBytes = 50_000
+    /// iPhone 13 class (4 GB RAM). Jetsam is about 2 GB. Every screen stays under this.
+    static let residentMemoryBudgetBytes = 400 * 1024 * 1024
     static let stagingFileName = "heartbeat-cloud.sqlite"
     static let bootDownloadTimeout: TimeInterval = 60
     /// Let the hub settle before expanding grains. Cards already painted.
@@ -558,9 +560,10 @@ enum PulseLaunch {
         shoppers.isEmpty
     }
 
-    /// EMPLOYEE_ALTERNATE_ID path picker has no STORE. `readStores` misses it.
+    /// A miss on one store must not decode the company path tape.
     static func shouldReadFullPickPathPickerWhenStoreReadEmpty(_ section: MetricSection) -> Bool {
-        section == .pickPathPicker
+        _ = section
+        return false
     }
 
     /// Path-grain-only first paint. Shopper tape stays parked until expand.
@@ -1462,7 +1465,8 @@ enum PulseLaunch {
 
     enum PickerPageFirstPaint: Equatable {
         case seatReadStores
-        case companyStream
+        /// Company pages use the painted chrome. They do not stream fact rows.
+        case chromeRollup
     }
 
     static var pageOpenSections: [MetricSection] {
@@ -1477,7 +1481,7 @@ enum PulseLaunch {
            !shouldStreamCompanyPickerForSeatFirstPaint() {
             return .seatReadStores
         }
-        return .companyStream
+        return .chromeRollup
     }
 
     static func pickerPageFirstPaint(filtersActive: Bool) -> PickerPageFirstPaint {
@@ -1488,9 +1492,10 @@ enum PulseLaunch {
         section == .pph || section == .dynacap || section == .pickPath
     }
 
-    /// Join pages may stream company shoppers only when no seat filter is on.
+    /// Company join pages stay on chrome. Shopper rows load for one store only.
     static func shouldStartCompanyPickerStreamOnJoinPage(filtersActive: Bool) -> Bool {
-        !filtersActive && !shouldStreamCompanyPickerForSeatFirstPaint()
+        _ = filtersActive
+        return false
     }
 
     /// Hub-wide EnvironmentObject ping when seat shoppers land. Off — that

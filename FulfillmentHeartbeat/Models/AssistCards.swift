@@ -2381,7 +2381,9 @@ extension AssistSnapshot {
             uploads.append(record.uploadedAt)
         }
         var latest: [MetricSection: [MetricRow]] = [:]
+        let oneStore = store.filters.stores.count == 1
         for section in answerSections {
+            if PulseSeatPack.shopperSections().contains(section), !oneStore { continue }
             latest[section] = store.allLatest(for: section)
         }
         // Trend history reads `latest`. `store.rows` is the warehouse tape.

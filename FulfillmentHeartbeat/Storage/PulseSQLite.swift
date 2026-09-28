@@ -102,6 +102,8 @@ enum PulseSQLite {
 
     /// Full-file fact decodes. A filter change must leave this at 0.
     static var companyFactReadCount = 0
+    /// `readSection` walks a section with no store filter. Company pages must leave this at 0.
+    static var sectionFactReadCount = 0
     /// Rows decoded into `MetricRow`, payloads included. Filter tests use this
     /// to prove a store query did not materialize the rest of the company.
     static var decodedFactRowCount = 0
@@ -174,6 +176,7 @@ enum PulseSQLite {
         limit: Int,
         offset: Int = 0
     ) -> [MetricRow] {
+        sectionFactReadCount += 1
         guard exists(at: url), limit > 0, offset >= 0 else { return [] }
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
