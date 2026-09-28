@@ -791,6 +791,9 @@ enum AssistScoreLine {
     /// Same 5 Star goal the Scorecard prints. Pass stays 4.0; it is not goal minus 0.5.
     static let fiveStarGoal = 5.0
     static let fiveStarPass = 4.0
+    /// Store row and Rating cell. 4.7 is good, 4.2 is watch, below 4.0 is risk.
+    /// The printed goal stays 5.00.
+    static let fiveStarStoreGood = 4.5
     static let salesWatch = -3.0
     static let laborGoal = 0.0
     static let scheduleWatch = 85.0
@@ -2819,11 +2822,18 @@ enum HeartbeatMath {
                     && !$0.storeNumber.isEmpty
                     && $0.number("lost_revenue") != nil
             }
+            // Roster ignores stay out of the store count. Their dollars stay in
+            // the workbook sum when the seat has no market Total row.
+            let dollarRows = latest.filter {
+                $0.textPayload["lost_grain"] != "market"
+                    && !$0.storeNumber.isEmpty
+                    && $0.number("lost_revenue") != nil
+            }
             let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
             // Excel "Total Lost Revenue (Total Opportunity)":
             // unfiltered → Total / grand-total row; filtered → that column on stores in seat.
             let marketDollars = totalOpportunityDollars(market)
-            let storeTotals = lostRevenueTotals(stores)
+            let storeTotals = lostRevenueTotals(dollarRows)
             let dollars: Double?
             let pct: Double?
             // Power BI Total Opportunity (HB-0828.369–372): the unfiltered company
@@ -2831,7 +2841,7 @@ enum HeartbeatMath {
             if marketDollars > 0 {
                 dollars = marketDollars
                 pct = market?.number("lost_revenue_pct")
-            } else if !stores.isEmpty {
+            } else if !dollarRows.isEmpty {
                 dollars = storeTotals.dollars
                 pct = storeTotals.pct
             } else {
@@ -3029,7 +3039,7 @@ enum HeartbeatMath {
     }
 
     static func fiveStarHealth(_ row: MetricRow) -> Health {
-        band(row.number("star_rating"), good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
+        band(row.number("star_rating"), good: AssistScoreLine.fiveStarStoreGood, watch: AssistScoreLine.fiveStarPass)
     }
 
     static func starMark(value: Double?, full: Double, half: Double, invert: Bool = false) -> StarMark {
@@ -3825,7 +3835,7 @@ enum HeartbeatMath {
 
     private static func fiveStarExpandCellHealth(key: String, number: Double?) -> Health {
         if key.contains("rating") || key.contains("star") {
-            return band(number, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
+            return band(number, good: AssistScoreLine.fiveStarStoreGood, watch: AssistScoreLine.fiveStarPass)
         }
         if key.contains("flash") {
             return starMark(value: number, full: 75, half: 55).health

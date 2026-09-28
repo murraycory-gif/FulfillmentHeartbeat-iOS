@@ -1132,7 +1132,11 @@ enum AssistPlan {
                 return HeartbeatFormat.storeOrder(lhs.pick.store, rhs.pick.store)
             }
             guard !located.isEmpty else {
+                // A blank fact row is still a row. The company card is the plan
+                // only when this section's fact plane is released.
+                let released = (snapshot.rows[section] ?? []).isEmpty
                 if AssistScope.level(snapshot.filters) == .company,
+                   released,
                    let step = rollupStep(section: section, snapshot: snapshot, slot: built.count) {
                     built.append(step)
                 }
@@ -2447,9 +2451,14 @@ extension AssistSnapshot {
             warehouse[section] = scoped
         }
         var summaries: [MetricSection: SectionSummary] = [:]
+        // Painted cards are the company plan only when every dashboard section
+        // has released its rows. One section with rows means the fixture (or a
+        // seat) is live, and an empty sibling must not keep the company card.
+        let factsReleased = MetricSection.dashboardCards.allSatisfy { (rows[$0] ?? []).isEmpty }
         for section in MetricSection.dashboardCards {
             let scoped = rows[section] ?? []
-            if let kept = dashboardRollup(
+            if factsReleased,
+               let kept = dashboardRollup(
                 filters: filters,
                 rows: scoped,
                 prior: source.summaries[section]
@@ -2492,8 +2501,9 @@ extension AssistSnapshot {
         }.value
     }
 
-    /// Company with the fact plane released keeps the dashboard card. An empty
-    /// `summarize` would mark every scorecard No data and drop the plan.
+    /// Company with every dashboard section's fact plane released keeps the
+    /// dashboard card. An empty `summarize` would mark every scorecard No data
+    /// and drop the plan. Callers must not use this when any section still has rows.
     static func dashboardRollup(
         filters: DashboardFilters,
         rows: [MetricRow],

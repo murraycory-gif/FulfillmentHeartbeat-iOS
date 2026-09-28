@@ -1082,7 +1082,7 @@ final class AssistCardsTests: XCTestCase {
             now: Date()
         ))
         let answer = AssistComposer.answer(question: "What should we fix first?", snapshot: snapshot, book: book)
-        // Goal is 5.00, so a 4.8 is watch and Labor outranks 5 Star. The risk count stays 25.
+        // Printed goal stays 5.00. A store at 4.8 is good (line 4.5); the 25 stores at 3.0 stay the risk count, and Labor still outranks 5 Star.
         XCTAssertEqual(answer.headerLines.map(\.text), [
             "1. Missing Items: 69 of 70 stores",
             "2. Labor: 30 of 62 stores",
