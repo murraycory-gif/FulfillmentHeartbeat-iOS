@@ -274,6 +274,12 @@ enum HubLayout {
     static var isPhoneDevice: Bool { profile.kind == .phone || livePhoneIdiom }
     static var isPadDevice: Bool { profile.kind == .pad && !livePhoneIdiom }
     static var isMac: Bool { profile.kind == .mac }
+    /// Mac Catalyst, or this iPad app running on a Mac (Designed for iPad).
+    /// Layout and push registration only. Workbook ingest stays on `isMac`.
+    static var runsOnMac: Bool {
+        if isMac { return true }
+        return ProcessInfo.processInfo.isiOSAppOnMac
+    }
     static var lowMemory: Bool { profile.ramGB < 6 }
     static var lightLaunch: Bool { profile.lightLaunch }
     /// Skip Excel. Name kept for HeartbeatStore call sites.

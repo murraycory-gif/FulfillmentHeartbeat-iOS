@@ -149,16 +149,6 @@ struct SectionDetailView: View {
 
     private var padSectionPage: some View {
         VStack(spacing: 0) {
-            if !HubLayout.isPhone(sizeClass) {
-                HubStickyPageBanner(
-                    icon: section.symbol,
-                    title: section.bannerTitle,
-                    accessory: store.filters.summary,
-                    trailing: section == .sales
-                        ? (store.salesCoverageLabel() ?? store.dataWindow(for: section))
-                        : store.dataWindow(for: section)
-                )
-            }
             List {
             Section {
                 pageIntro
@@ -185,6 +175,24 @@ struct SectionDetailView: View {
                 }
             }
             if section == .pickerScorecard {
+                ForEach(rollupGrains, id: \.self) { grain in
+                    let rows = store.pickerGrainTable(grain: grain)
+                    if !rows.isEmpty {
+                        Section {
+                            OverviewMetricAlignedTable(
+                                title: grain.title,
+                                section: .pickerScorecard,
+                                headers: HeartbeatMath.dashboardTableHeaders(.pickerScorecard),
+                                rows: rows,
+                                showCount: grain != .store,
+                                district: grain == .district
+                            )
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                        }
+                    }
+                }
                 if PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
                     Section {
                         PickerHighlightsPanel(

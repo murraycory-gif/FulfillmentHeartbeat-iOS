@@ -17,6 +17,7 @@ export interface Env {
 type Device = {
   token: string;
   env: "sandbox" | "prod";
+  platform: "ios" | "macos";
   appVersion: string;
   updatedAt: string;
   optedOut: boolean;
@@ -49,7 +50,7 @@ export default {
 async function register(request: Request, env: Env): Promise<Response> {
   const raw = await request.text();
   if (raw.length > 4096) return json({ error: "body too large" }, 413);
-  let body: { token?: unknown; env?: unknown; appVersion?: unknown; optedOut?: unknown };
+  let body: { token?: unknown; env?: unknown; platform?: unknown; appVersion?: unknown; optedOut?: unknown };
   try {
     body = JSON.parse(raw) as typeof body;
   } catch {
@@ -57,13 +58,15 @@ async function register(request: Request, env: Env): Promise<Response> {
   }
   const token = typeof body.token === "string" ? body.token.trim().toLowerCase() : "";
   const scope = body.env === "sandbox" || body.env === "prod" ? body.env : null;
+  const platform = body.platform === "ios" || body.platform === "macos" ? body.platform : null;
   const appVersion = typeof body.appVersion === "string" ? body.appVersion.trim().slice(0, 80) : "";
-  if (!tokenPattern.test(token) || !scope || !appVersion) {
-    return json({ error: "token, env, and appVersion are required" }, 400);
+  if (!tokenPattern.test(token) || !scope || !platform || !appVersion) {
+    return json({ error: "token, env, platform, and appVersion are required" }, 400);
   }
   const device: Device = {
     token,
     env: scope,
+    platform,
     appVersion,
     updatedAt: new Date().toISOString(),
     optedOut: body.optedOut === true,

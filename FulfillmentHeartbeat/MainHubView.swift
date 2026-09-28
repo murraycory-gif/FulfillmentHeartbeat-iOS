@@ -644,13 +644,14 @@ struct MainHubView: View {
 struct SettingsNotificationsPage: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var permissionDenied = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Notifications")
-                    .font(.title2.weight(.bold))
+                    .font(HubLayout.runsOnMac ? .title.weight(.bold) : .title2.weight(.bold))
                     .foregroundStyle(AppTheme.text)
                 VStack(spacing: 0) {
                     toggleRow(
@@ -678,15 +679,15 @@ struct SettingsNotificationsPage: View {
                 )
                 if store.newDataAlertsEnabled, permissionDenied {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("iOS is blocking alerts for Heartbeat. Turn Notifications on in iOS Settings.")
-                            .font(.subheadline)
+                        Text(permissionDeniedNote)
+                            .font(HubLayout.runsOnMac ? .body : .subheadline)
                             .foregroundStyle(AppTheme.text)
                             .fixedSize(horizontal: false, vertical: true)
                         Button {
                             guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                             UIApplication.shared.open(url)
                         } label: {
-                            Text("Open iOS Settings")
+                            Text(HubLayout.runsOnMac ? "Open System Settings" : "Open iOS Settings")
                                 .font(.body.weight(.semibold))
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }
@@ -703,7 +704,9 @@ struct SettingsNotificationsPage: View {
                     )
                 }
             }
-            .padding(20)
+            .padding(HubLayout.runsOnMac ? 28 : 20)
+            .frame(maxWidth: settingsContentWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(AppTheme.bg)
         .accessibilityIdentifier("settings-notifications")
@@ -714,10 +717,21 @@ struct SettingsNotificationsPage: View {
         }
     }
 
+    private var settingsContentWidth: CGFloat {
+        HubLayout.isPhone(sizeClass) ? .infinity : 680
+    }
+
+    private var permissionDeniedNote: String {
+        if HubLayout.runsOnMac {
+            return "macOS is blocking alerts for Heartbeat. Turn Notifications on in System Settings."
+        }
+        return "iOS is blocking alerts for Heartbeat. Turn Notifications on in iOS Settings."
+    }
+
     private func toggleRow(title: String, identifier: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             Text(title)
-                .font(.body)
+                .font(HubLayout.runsOnMac ? .title3 : .body)
                 .foregroundStyle(AppTheme.text)
         }
         .tint(AppTheme.blue)

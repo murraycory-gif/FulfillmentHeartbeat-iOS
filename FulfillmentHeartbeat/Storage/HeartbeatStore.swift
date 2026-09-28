@@ -1004,6 +1004,10 @@ final class HeartbeatStore: ObservableObject {
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
         let grain = effectiveDashboardGrain
+        if section == .pickerScorecard {
+            let cooked = pickerGrainTable(grain: grain)
+            if HeartbeatMath.grainRowsAreLive(cooked) { return cooked }
+        }
         if section == .pickerScorecard, filters.isActive {
             if let cached = cachedGrainTables[.pickerScorecard],
                PulseLaunch.pickerExpandHasStatusBuckets(cached),
@@ -1487,12 +1491,25 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerCount(for focus: PickerFocus) -> Int {
+        if let cooked = cookedPickerCount(for: focus) { return cooked }
         let pickers = visiblePickers()
         if focus == .all { return pickers.count }
         if pickerIndexMatches(pickers), let indexed = pickerIndex[focus]?.count {
             return indexed
         }
         return pickers.filter { HeartbeatMath.pickerMatches($0, focus: focus) }.count
+    }
+
+    /// Cooked shopper totals. iPad and Mac tiles use this so they do not count the first streamed rows.
+    private func cookedPickerCount(for focus: PickerFocus) -> Int? {
+        guard let roll = pickerScopeRollup(PreSubTopItems.seatScope(filters)), roll.shoppers > 0 else { return nil }
+        switch focus {
+        case .all: return roll.shoppers
+        case .healthy: return roll.healthy
+        case .watchList: return roll.watch
+        case .riskList: return roll.risk
+        default: return nil
+        }
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {

@@ -15,14 +15,6 @@ struct DashboardView: View {
 
     private var dashboardBody: some View {
         VStack(spacing: 0) {
-            if !HubLayout.isPhone(sizeClass) {
-                HubStickyPageBanner(
-                    icon: "waveform.path.ecg",
-                    title: "Operational Heartbeat",
-                    accessory: store.filters.summary,
-                    trailing: store.sharedDataWindow()
-                )
-            }
             if PulseLaunch.shouldUseCommandCenterHome() {
                 commandCenterBody
             } else {
@@ -761,47 +753,74 @@ struct PhoneMetricChip: Identifiable, Hashable {
 /// Line 1 is the page name. Line 2 is `{Filter seat} | {week}` and wraps.
 /// Line 3 is when this pack was published.
 struct PhoneCompactPageBanner: View {
+    enum Metrics { case phone, pad, mac }
+
     let title: String
     var subtitle: String = ""
     var updated: String = ""
     var health: Health = .none
+    var metrics: Metrics = .phone
 
     var body: some View {
-        let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
-        let corner: CGFloat = compact ? 10 : 14
-        HStack(alignment: .center, spacing: compact ? 8 : 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        let compact = metrics == .phone && PulseLaunch.shouldUseCompactPhoneCommandChrome()
+        let corner: CGFloat = metrics == .mac ? 16 : (compact ? 10 : 14)
+        HStack(alignment: .center, spacing: metrics == .phone ? (compact ? 8 : 10) : 12) {
+            VStack(alignment: .leading, spacing: metrics == .mac ? 4 : 2) {
                 Text(title)
-                    .font(HubLayout.phoneBannerTitleFont())
+                    .font(titleFont)
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .fixedSize(horizontal: false, vertical: true)
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(HubLayout.phoneBannerSubtitleFont())
+                        .font(subtitleFont)
                         .foregroundStyle(Color.white)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !updated.isEmpty {
                     Text(updated)
-                        .font(HubLayout.phoneBannerUpdatedFont())
+                        .font(updatedFont)
                         .foregroundStyle(Color.white)
                         .lineLimit(1)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            HealthBadge(health: health, prominent: true, compact: compact)
+            HealthBadge(health: health, prominent: true, compact: metrics != .mac)
                 .layoutPriority(1)
         }
-        .padding(.horizontal, compact ? 10 : 14)
-        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
+        .padding(.horizontal, metrics == .mac ? 18 : (compact ? 10 : 14))
+        .padding(.vertical, metrics == .mac ? 14 : (compact ? HubLayout.phoneBannerVerticalPadding() : 10))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityLabel(bannerAccessibilityLabel)
+    }
+
+    private var titleFont: Font {
+        switch metrics {
+        case .phone: return HubLayout.phoneBannerTitleFont()
+        case .pad: return AppTheme.rounded(.title3, weight: .bold)
+        case .mac: return AppTheme.rounded(.title2, weight: .bold)
+        }
+    }
+
+    private var subtitleFont: Font {
+        switch metrics {
+        case .phone: return HubLayout.phoneBannerSubtitleFont()
+        case .pad: return Font.body.weight(.semibold)
+        case .mac: return Font.title3.weight(.semibold)
+        }
+    }
+
+    private var updatedFont: Font {
+        switch metrics {
+        case .phone: return HubLayout.phoneBannerUpdatedFont()
+        case .pad: return Font.footnote.weight(.semibold)
+        case .mac: return Font.subheadline.weight(.semibold)
+        }
     }
 
     private var bannerAccessibilityLabel: String {
@@ -978,15 +997,15 @@ struct PreSubTopListBlock: View {
     var card: PreSubTopItems.Card
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: HubLayout.runsOnMac ? 6 : 4) {
             if let note = card.missingNote, !note.isEmpty {
                 Text(note)
-                    .font(.footnote.weight(.semibold))
+                    .font(itemFont)
                     .foregroundStyle(AppTheme.text)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text(PreSubTopItems.heading)
-                    .font(.footnote.weight(.heavy))
+                    .font(headingFont)
                     .foregroundStyle(AppTheme.text)
                 if !card.items.isEmpty {
                     HStack(spacing: 8) {
@@ -996,14 +1015,14 @@ struct PreSubTopListBlock: View {
                         Text("Count")
                             .frame(width: 52, alignment: .trailing)
                     }
-                    .font(.caption2.weight(.heavy))
+                    .font(HubLayout.runsOnMac ? .caption.weight(.heavy) : (HubLayout.isPadDevice ? .caption.weight(.heavy) : .caption2.weight(.heavy)))
                     .foregroundStyle(AppTheme.textTertiary)
                 }
                 ForEach(Array(card.items.prefix(PreSubTopItems.limit).enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 0) {
                             Text(item.name)
-                                .font(.footnote.weight(.semibold))
+                                .font(itemFont)
                                 .foregroundStyle(AppTheme.text)
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1016,13 +1035,13 @@ struct PreSubTopListBlock: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         Text(HeartbeatFormat.pct(item.percent))
-                            .font(.footnote.weight(.bold).monospacedDigit())
+                            .font(valueFont)
                             .foregroundStyle(AppTheme.text)
-                            .frame(width: 64, alignment: .trailing)
+                            .frame(width: HubLayout.runsOnMac ? 72 : 64, alignment: .trailing)
                         Text(PreSubTopItems.countText(item.count))
-                            .font(.footnote.weight(.bold).monospacedDigit())
+                            .font(valueFont)
                             .foregroundStyle(AppTheme.text)
-                            .frame(width: 52, alignment: .trailing)
+                            .frame(width: HubLayout.runsOnMac ? 60 : 52, alignment: .trailing)
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(
@@ -1033,6 +1052,24 @@ struct PreSubTopListBlock: View {
         }
         .padding(.top, 2)
         .accessibilityIdentifier("presub-top-items")
+    }
+
+    private var headingFont: Font {
+        if HubLayout.runsOnMac { return .body.weight(.heavy) }
+        if HubLayout.isPadDevice { return .subheadline.weight(.heavy) }
+        return .footnote.weight(.heavy)
+    }
+
+    private var itemFont: Font {
+        if HubLayout.runsOnMac { return .body.weight(.semibold) }
+        if HubLayout.isPadDevice { return .subheadline.weight(.semibold) }
+        return .footnote.weight(.semibold)
+    }
+
+    private var valueFont: Font {
+        if HubLayout.runsOnMac { return .body.weight(.bold).monospacedDigit() }
+        if HubLayout.isPadDevice { return .subheadline.weight(.bold).monospacedDigit() }
+        return .footnote.weight(.bold).monospacedDigit()
     }
 }
 

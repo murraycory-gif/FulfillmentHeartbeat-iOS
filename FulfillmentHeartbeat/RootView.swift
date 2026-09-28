@@ -59,8 +59,10 @@ struct RootView: View {
         .overlay(alignment: .top) {
             if store.isReady, !store.needsRolePick, let text = store.newDataBanner {
                 NewDataUploadBanner(text: text)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 12)
+                    .padding(.top, HubLayout.runsOnMac ? 18 : 8)
+                    .padding(.horizontal, HubLayout.runsOnMac ? 28 : 12)
+                    .frame(maxWidth: HubLayout.runsOnMac ? 920 : .infinity)
+                    .frame(maxWidth: .infinity)
                     .zIndex(40)
             }
         }
@@ -73,18 +75,24 @@ private struct NewDataUploadBanner: View {
 
     var body: some View {
         Text(text)
-            .font(.subheadline.weight(.semibold))
+            .font(bannerFont)
             .foregroundStyle(Color.white)
             .multilineTextAlignment(.center)
             .lineLimit(2)
             .minimumScaleFactor(0.85)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, HubLayout.runsOnMac ? 20 : 16)
+            .padding(.vertical, HubLayout.runsOnMac ? 14 : (HubLayout.isPadDevice ? 12 : 10))
             .frame(maxWidth: .infinity)
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityIdentifier("new-data-banner")
             .onAppear { store.armNewDataBannerDismiss() }
             .onChange(of: text) { _, _ in store.armNewDataBannerDismiss() }
+    }
+
+    private var bannerFont: Font {
+        if HubLayout.runsOnMac { return .title3.weight(.semibold) }
+        if HubLayout.isPadDevice { return .body.weight(.semibold) }
+        return .subheadline.weight(.semibold)
     }
 }
 

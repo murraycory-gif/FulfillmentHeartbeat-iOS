@@ -10975,6 +10975,7 @@ struct HubBrandBar: View {
                         regularFilterChrome
                     }
                 }
+                regularPageBanner
             }
         }
         .padding(.horizontal, compact ? 12 : (HubLayout.MacReadable.enabled ? 24 : 20))
@@ -10994,6 +10995,14 @@ struct HubBrandBar: View {
     }
 
     private var compactPageBanner: some View {
+        pageBanner(metrics: .phone)
+    }
+
+    private var regularPageBanner: some View {
+        pageBanner(metrics: HubLayout.runsOnMac ? .mac : .pad)
+    }
+
+    private func pageBanner(metrics: PhoneCompactPageBanner.Metrics) -> some View {
         PhoneCompactPageBanner(
             title: CommandCenterLayout.overviewPageTitle(compactBannerDestination),
             subtitle: CommandCenterLayout.overviewBannerCopy(
@@ -11001,11 +11010,13 @@ struct HubBrandBar: View {
                 weekWindow: compactBannerWindow
             ),
             updated: CommandCenterLayout.updatedBannerLine(store.packPublishedAt),
-            health: compactBannerHealth
+            health: compactBannerHealth,
+            metrics: metrics
         )
     }
 
     private var compactBannerHealth: Health {
+        if !compact { return phoneBannerHealth(allowRowWalk: false) }
         if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() {
             if settledBannerDest == compactBannerDestination, let settledBannerHealth {
                 return settledBannerHealth

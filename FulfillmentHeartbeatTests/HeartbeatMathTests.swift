@@ -11177,6 +11177,8 @@ final class HeartbeatMathTests: XCTestCase {
         let bannerEnd = try XCTUnwrap(brand.range(of: "private var compactBannerHealth"))
         let mounted = String(brand[bannerStart.lowerBound..<bannerEnd.lowerBound])
         XCTAssertTrue(mounted.contains("updated: CommandCenterLayout.updatedBannerLine(store.packPublishedAt)"), mounted)
+        XCTAssertTrue(mounted.contains("regularPageBanner"), "iPad and Mac use the same Updated header")
+        XCTAssertTrue(mounted.contains("HubLayout.runsOnMac ? .mac : .pad"), mounted)
 
         let theme = try String(
             contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/AppTheme.swift"),
@@ -11298,6 +11300,74 @@ final class HeartbeatMathTests: XCTestCase {
             alreadyAsked: false,
             pushEnabled: NewDataPreferences.pushAlertsEnabled(in: defaults)
         ))
+    }
+
+    /// iPhone, iPad, and Mac (Catalyst and Designed for iPad) share the .491 chrome.
+    /// Mac builds keep the same aps-environment entitlement and register platform macos.
+    func testMacIPadAndPhoneShare491Chrome() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491")
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let layout = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/AppTheme.swift"), encoding: .utf8)
+        XCTAssertTrue(layout.contains("static var runsOnMac"))
+        XCTAssertTrue(layout.contains("isiOSAppOnMac"))
+
+        let pages = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"), encoding: .utf8)
+        XCTAssertTrue(pages.contains("pickerGrainTable(grain: grain)"))
+        XCTAssertTrue(pages.contains("OverviewMetricAlignedTable"))
+
+        let missing = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/MissingItemsViews.swift"), encoding: .utf8)
+        XCTAssertTrue(missing.contains("presubRollupRows(metrics:"))
+        XCTAssertTrue(missing.contains("PreSubTopListBlock"))
+
+        let store = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"), encoding: .utf8)
+        XCTAssertTrue(store.contains("cookedPickerCount"))
+        XCTAssertTrue(store.contains("pickerGrainTable(grain: grain)"))
+
+        let rootView = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/RootView.swift"), encoding: .utf8)
+        XCTAssertTrue(rootView.contains("if HubLayout.runsOnMac { return .title3.weight(.semibold) }"))
+        let bannerStart = try XCTUnwrap(rootView.range(of: "NewDataUploadBanner(text: text)"))
+        let bannerEnd = try XCTUnwrap(rootView.range(of: "private struct NewDataUploadBanner"))
+        let bannerOverlay = String(rootView[bannerStart.lowerBound..<bannerEnd.lowerBound])
+        XCTAssertFalse(bannerOverlay.contains("ignoresSafeArea"), "the new-data banner stays under the safe area")
+
+        let settings = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/MainHubView.swift"), encoding: .utf8)
+        XCTAssertTrue(settings.contains("settingsContentWidth"))
+        XCTAssertTrue(settings.contains("Open iOS Settings"))
+        XCTAssertTrue(settings.contains("Open System Settings"))
+        XCTAssertTrue(settings.contains("New data alerts"))
+        XCTAssertTrue(settings.contains("In-app new data banner"))
+
+        let app = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/FulfillmentHeartbeatApp.swift"), encoding: .utf8)
+        XCTAssertTrue(app.contains("\"platform\": platform"))
+        XCTAssertTrue(app.contains("return \"macos\""))
+        XCTAssertTrue(app.contains("return \"ios\""))
+        XCTAssertTrue(app.contains("isiOSAppOnMac"))
+
+        let worker = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/worker/src/index.ts"), encoding: .utf8)
+        XCTAssertTrue(worker.contains("platform: \"ios\" | \"macos\""))
+        XCTAssertTrue(worker.contains("token, env, platform, and appVersion are required"))
+
+        let entitlements = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements"), encoding: .utf8)
+        XCTAssertTrue(entitlements.contains("aps-environment"))
+        XCTAssertTrue(entitlements.contains("$(APS_ENVIRONMENT)"))
+
+        let project = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat.xcodeproj/project.pbxproj"), encoding: .utf8)
+        XCTAssertEqual(project.components(separatedBy: "SUPPORTS_MACCATALYST = YES").count - 1, 2)
+        XCTAssertEqual(project.components(separatedBy: "SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES").count - 1, 2)
+        XCTAssertEqual(project.components(separatedBy: "CODE_SIGN_ENTITLEMENTS = FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements;").count - 1, 2)
+        let debug = try XCTUnwrap(project.range(of: "AA0100000000000000001103 /* Debug */"))
+        let release = try XCTUnwrap(project.range(of: "AA0100000000000000001104 /* Release */"))
+        let debugBlock = String(project[debug.lowerBound..<release.lowerBound])
+        XCTAssertTrue(debugBlock.contains("APS_ENVIRONMENT = development"))
+        XCTAssertTrue(debugBlock.contains("SUPPORTS_MACCATALYST = YES"))
+        XCTAssertTrue(debugBlock.contains("SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES"))
+        let releaseBlock = String(project[release.lowerBound...])
+        XCTAssertTrue(releaseBlock.contains("APS_ENVIRONMENT = production"))
+        XCTAssertTrue(releaseBlock.contains("SUPPORTS_MACCATALYST = YES"))
+        XCTAssertTrue(releaseBlock.contains("SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES"))
     }
 
     /// Settings toggles live in UserDefaults. The cook skips a token marked opted out.

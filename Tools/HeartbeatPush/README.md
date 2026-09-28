@@ -4,7 +4,9 @@ The app asks once, after a pack is on screen, then registers its APNs device tok
 
 The alert text is `Heartbeat: new data uploaded Mon 9/28 3:10 PM`. The clock uses `APNS_DISPLAY_TZ` (default `America/Chicago`) and the same pack timestamp as the in-app Updated line (`chrome.publishedAt`, otherwise `written_at`).
 
-Pages → Settings → Notifications has two switches, stored in UserDefaults. Both default to ON. The first time a pack is on screen, Heartbeat asks for the iOS notification permission so the push toggle can register. New data alerts ON posts the device token with `optedOut: false`. OFF posts the same token with `optedOut: true`. The sender skips those tokens. If iOS permission is denied, the page shows Open iOS Settings.
+Pages → Settings → Notifications has two switches, stored in UserDefaults. Both default to ON. The first time a pack is on screen, Heartbeat asks for the system notification permission so the push toggle can register. New data alerts ON posts the device token with `optedOut: false`. OFF posts the same token with `optedOut: true`. The sender skips those tokens. If permission is denied, the page shows Open iOS Settings on iPhone and iPad, and Open System Settings on Mac.
+
+Mac Catalyst and Designed for iPad use the same `aps-environment` entitlement as the iPhone build (`FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements`, wired by `CODE_SIGN_ENTITLEMENTS` on the app target). Those Mac builds register the token with `env` plus `platform: macos`. iPhone and iPad register `platform: ios`.
 
 ## What you set up
 

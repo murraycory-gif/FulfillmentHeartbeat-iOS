@@ -514,6 +514,15 @@ private enum MissingItemsGrain {
         }
     }
 
+    var scopeGrain: DashScopeGrain {
+        switch self {
+        case .region: return .region
+        case .division: return .division
+        case .district: return .district
+        case .store: return .store
+        }
+    }
+
     static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
         PulseLaunch.sectionRollupGrains(filters: filters).first.map(MissingItemsGrain.init)
     }
@@ -996,17 +1005,29 @@ struct MissingItemsRollupTable: View {
                     if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                         VStack(spacing: 6) {
                             ForEach(summary.prefix(40)) { row in
-                                PhoneGrainRow(
-                                    label: row.label,
-                                    value: HeartbeatFormat.pct(row.total),
-                                    count: grain == .store ? nil : row.storeCount,
-                                    health: row.health,
-                                    metricLabel: "Missing %"
-                                )
+                                if section == .preSubOOS {
+                                    PhoneScorecardRow(
+                                        title: row.label,
+                                        subtitle: grain == .store ? nil : (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores"),
+                                        chips: [PhoneMetricChip(label: "Missing %", value: HeartbeatFormat.pct(row.total), health: row.health)],
+                                        health: row.health,
+                                        preSubTop: store.preSubTopCard(scope: PreSubTopItems.grainScope(grain.scopeGrain, label: row.label))
+                                    )
+                                } else {
+                                    PhoneGrainRow(
+                                        label: row.label,
+                                        value: HeartbeatFormat.pct(row.total),
+                                        count: grain == .store ? nil : row.storeCount,
+                                        health: row.health,
+                                        metricLabel: "Missing %"
+                                    )
+                                }
                             }
                         }
                         .padding(.horizontal, 10)
                         .padding(.bottom, 10)
+                    } else if section == .preSubOOS, summary.count <= 40 {
+                        presubRollupRows(metrics: metrics, grain: grain)
                     } else {
                     HubAdaptiveHScroll(
                         minWidth: metrics.tableWidth,
@@ -1056,6 +1077,54 @@ struct MissingItemsRollupTable: View {
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: depts.count) { _, _ in rebuild() }
         .onChange(of: section) { _, _ in rebuild() }
+    }
+
+    /// iPad and Mac Pre-Sub grains stay small (region, division, district). Each row
+    /// keeps the metric line and the cooked top 10. Store grains over 40 rows stay
+    /// on the wide table so a 2,000-store list does not read 2,000 JSON blobs.
+    private func presubRollupRows(metrics: MILayout.Metrics, grain: MissingItemsGrain) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HubAdaptiveHScroll(minWidth: metrics.tableWidth, minHeight: 44) {
+                MissingItemsMetricHeader(
+                    label: grain.columnTitle,
+                    showCount: grain != .store,
+                    depts: depts,
+                    cellW: metrics.cellW,
+                    storeW: grain.labelWidth,
+                    active: sortKey,
+                    ascending: sortAscending,
+                    onSelect: applySort
+                )
+                .frame(width: metrics.tableWidth, alignment: .leading)
+            }
+            ForEach(summary) { row in
+                VStack(alignment: .leading, spacing: 6) {
+                    HubAdaptiveHScroll(minWidth: metrics.tableWidth, minHeight: 48) {
+                        MissingItemsMetricLine(
+                            label: row.label,
+                            count: grain == .store ? nil : row.storeCount,
+                            total: row.total,
+                            values: row.values,
+                            depts: depts,
+                            cellW: metrics.cellW,
+                            storeW: grain.labelWidth
+                        )
+                        .frame(width: metrics.tableWidth, alignment: .leading)
+                    }
+                    PreSubTopListBlock(
+                        card: store.preSubTopCard(
+                            scope: PreSubTopItems.grainScope(grain.scopeGrain, label: row.label)
+                        )
+                    )
+                    .padding(.horizontal, 4)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     private func rebuild() {

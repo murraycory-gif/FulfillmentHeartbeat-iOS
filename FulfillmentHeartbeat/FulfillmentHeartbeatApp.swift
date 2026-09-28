@@ -87,6 +87,16 @@ enum NewDataPush {
         #endif
     }
 
+    /// iPhone and iPad register `ios`. Mac Catalyst and Designed for iPad register `macos`.
+    static var platform: String {
+        #if targetEnvironment(macCatalyst)
+        return "macos"
+        #else
+        if ProcessInfo.processInfo.isiOSAppOnMac { return "macos" }
+        return "ios"
+        #endif
+    }
+
     static func requestSystemPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             guard granted else { return }
@@ -144,6 +154,7 @@ enum NewDataPush {
         let body: [String: Any] = [
             "token": token,
             "env": environment,
+            "platform": platform,
             "appVersion": BuildStamp.id,
             "optedOut": optedOut,
         ]
