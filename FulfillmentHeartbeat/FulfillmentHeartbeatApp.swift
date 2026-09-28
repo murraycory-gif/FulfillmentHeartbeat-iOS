@@ -75,7 +75,7 @@ struct FulfillmentHeartbeatApp: App {
     }
 }
 
-/// APNs registration. The pre-prompt lives on the hub; this only runs after Allow.
+/// APNs registration. The iOS permission dialog runs after a pack is on screen.
 enum NewDataPush {
     static let tokenKey = "hb.apnsToken"
 

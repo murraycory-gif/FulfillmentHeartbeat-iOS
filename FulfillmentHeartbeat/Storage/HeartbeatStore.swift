@@ -146,8 +146,6 @@ final class HeartbeatStore: ObservableObject {
     private(set) var packPublishedAt: Date?
     /// Top banner while a newer published pack replaces the one on screen.
     @Published var newDataBanner: String?
-    /// One-time lock-screen alert question. Stays false until a pack is on screen.
-    @Published var offerPushPrePrompt = false
     /// Settings → Notifications. Echo of UserDefaults so the toggles repaint.
     @Published var newDataAlertsEnabled = NewDataPreferences.pushAlertsEnabled(in: .standard)
     @Published var inAppNewDataBannerEnabled = NewDataPreferences.bannerEnabled(in: .standard)
@@ -2868,34 +2866,22 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    /// After a pack is on screen, ask iOS once so the default-on push toggle can register.
     func considerPushPrePrompt() {
         let dataOnScreen = isReady && !needsRolePick && packPublishedAt != nil
-        let answered = UserDefaults.standard.bool(forKey: NewDataPushPrompt.answeredKey)
-        let chosen = NewDataPreferences.pushPreferenceChosen(in: .standard)
-        guard NewDataPushPrompt.shouldOffer(
+        let asked = UserDefaults.standard.bool(forKey: NewDataPushPrompt.answeredKey)
+        guard NewDataPushPrompt.shouldRequestSystemPermission(
             dataOnScreen: dataOnScreen,
-            alreadyAnswered: answered,
-            preferenceChosen: chosen
+            alreadyAsked: asked,
+            pushEnabled: NewDataPreferences.pushAlertsEnabled(in: .standard)
         ) else { return }
-        offerPushPrePrompt = true
-    }
-
-    func declinePushPrePrompt() {
         UserDefaults.standard.set(true, forKey: NewDataPushPrompt.answeredKey)
-        offerPushPrePrompt = false
-        setNewDataAlertsEnabled(false)
-    }
-
-    func acceptPushPrePrompt() {
-        UserDefaults.standard.set(true, forKey: NewDataPushPrompt.answeredKey)
-        offerPushPrePrompt = false
-        setNewDataAlertsEnabled(true)
+        NewDataPush.requestSystemPermission()
     }
 
     func setNewDataAlertsEnabled(_ on: Bool) {
         NewDataPreferences.setPushAlertsEnabled(on, in: .standard)
         newDataAlertsEnabled = on
-        if !on { offerPushPrePrompt = false }
         NewDataPush.applyPreference(on)
     }
 

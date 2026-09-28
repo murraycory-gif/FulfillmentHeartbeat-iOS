@@ -5990,16 +5990,13 @@ enum NewDataAlert {
 enum NewDataPreferences {
     static let pushAlertsKey = "hb.newDataAlerts"
     static let bannerKey = "hb.inAppNewDataBanner"
-    static let registeredTokenKey = "hb.apnsToken"
 
-    /// Missing key stays off, except a token saved before this toggle existed.
+    /// Missing key stays on. An explicit OFF is the only opt-out.
     static func pushAlertsEnabled(in defaults: UserDefaults) -> Bool {
         if defaults.object(forKey: pushAlertsKey) != nil {
             return defaults.bool(forKey: pushAlertsKey)
         }
-        let token = defaults.string(forKey: registeredTokenKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !token.isEmpty
+        return true
     }
 
     static func setPushAlertsEnabled(_ on: Bool, in defaults: UserDefaults) {
@@ -6027,12 +6024,13 @@ enum NewDataPreferences {
 enum NewDataPushPrompt {
     static let answeredKey = "hb.pushPromptAnswered"
 
-    static func shouldOffer(
+    /// iOS permission dialog. Once, after a pack is on screen, and only while push is still on.
+    static func shouldRequestSystemPermission(
         dataOnScreen: Bool,
-        alreadyAnswered: Bool,
-        preferenceChosen: Bool = false
+        alreadyAsked: Bool,
+        pushEnabled: Bool
     ) -> Bool {
-        dataOnScreen && !alreadyAnswered && !preferenceChosen
+        dataOnScreen && !alreadyAsked && pushEnabled
     }
 }
 

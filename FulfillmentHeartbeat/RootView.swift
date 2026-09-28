@@ -64,11 +64,6 @@ struct RootView: View {
                     .zIndex(40)
             }
         }
-        .sheet(isPresented: $store.offerPushPrePrompt) {
-            PushPrePromptSheet()
-                .environmentObject(store)
-                .presentationDetents([.medium])
-        }
     }
 }
 
@@ -90,42 +85,6 @@ private struct NewDataUploadBanner: View {
             .accessibilityIdentifier("new-data-banner")
             .onAppear { store.armNewDataBannerDismiss() }
             .onChange(of: text) { _, _ in store.armNewDataBannerDismiss() }
-    }
-}
-
-private struct PushPrePromptSheet: View {
-    @EnvironmentObject private var store: HeartbeatStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Lock-screen alerts")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(AppTheme.text)
-            Text("Heartbeat can send one alert when a new pack is uploaded. The time matches the Updated line on each page. This question is asked once.")
-                .font(.body)
-                .foregroundStyle(AppTheme.text)
-                .fixedSize(horizontal: false, vertical: true)
-            Button {
-                store.acceptPushPrePrompt()
-            } label: {
-                Text("Allow alerts")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 48)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(AppTheme.blue)
-            Button {
-                store.declinePushPrePrompt()
-            } label: {
-                Text("Not now")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AppTheme.bg)
     }
 }
 

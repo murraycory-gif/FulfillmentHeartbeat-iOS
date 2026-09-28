@@ -11241,17 +11241,32 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(banner, "New data uploaded \(clock)")
         XCTAssertEqual(banner, "New data uploaded \(CommandCenterLayout.updatedBannerLine(incoming).replacingOccurrences(of: "Updated ", with: ""))")
         XCTAssertGreaterThan(NewDataAlert.dismissAfterSeconds, 0)
-        XCTAssertFalse(NewDataPushPrompt.shouldOffer(dataOnScreen: false, alreadyAnswered: false))
-        XCTAssertFalse(NewDataPushPrompt.shouldOffer(dataOnScreen: true, alreadyAnswered: true))
-        XCTAssertTrue(NewDataPushPrompt.shouldOffer(dataOnScreen: true, alreadyAnswered: false))
+        XCTAssertFalse(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: false,
+            alreadyAsked: false,
+            pushEnabled: true
+        ))
+        XCTAssertFalse(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: true,
+            pushEnabled: true
+        ))
+        XCTAssertFalse(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: false,
+            pushEnabled: false
+        ))
+        XCTAssertTrue(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: false,
+            pushEnabled: true
+        ))
 
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let app = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/RootView.swift"), encoding: .utf8)
         XCTAssertTrue(app.contains("NewDataUploadBanner"))
-        XCTAssertTrue(app.contains("Allow alerts"))
-        XCTAssertTrue(app.contains("Not now"))
         let store = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"), encoding: .utf8)
         XCTAssertTrue(store.contains("NewDataAlert.bannerText"))
         XCTAssertTrue(store.contains("pullLatestWorkbookIfNeeded") || store.contains("showNewDataBanner"))
@@ -11263,10 +11278,25 @@ final class HeartbeatMathTests: XCTestCase {
         let workflow = try String(contentsOf: root.appendingPathComponent(".github/workflows/cook-heartbeat-pack.yml"), encoding: .utf8)
         XCTAssertTrue(workflow.contains("send_push.py"))
         XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: incoming, bannerEnabled: false))
-        XCTAssertFalse(NewDataPushPrompt.shouldOffer(
+        XCTAssertTrue(store.contains("requestSystemPermission()"))
+    }
+
+    /// A fresh install has no toggle keys. Both New data alerts and the in-app banner read as on.
+    func testFreshInstallDefaultsBothNewDataTogglesOn() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491")
+        let suite = "hb-fresh-newdata-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertNil(defaults.object(forKey: NewDataPreferences.pushAlertsKey))
+        XCTAssertNil(defaults.object(forKey: NewDataPreferences.bannerKey))
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: defaults))
+        XCTAssertTrue(NewDataPreferences.bannerEnabled(in: defaults))
+        XCTAssertTrue(NewDataPushPrompt.shouldRequestSystemPermission(
             dataOnScreen: true,
-            alreadyAnswered: false,
-            preferenceChosen: true
+            alreadyAsked: false,
+            pushEnabled: NewDataPreferences.pushAlertsEnabled(in: defaults)
         ))
     }
 
@@ -11278,12 +11308,9 @@ final class HeartbeatMathTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        XCTAssertFalse(NewDataPreferences.pushAlertsEnabled(in: defaults))
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: defaults))
         XCTAssertFalse(NewDataPreferences.pushPreferenceChosen(in: defaults))
         XCTAssertTrue(NewDataPreferences.bannerEnabled(in: defaults))
-
-        defaults.set("abc123", forKey: NewDataPreferences.registeredTokenKey)
-        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: defaults))
 
         NewDataPreferences.setPushAlertsEnabled(false, in: defaults)
         NewDataPreferences.setBannerEnabled(false, in: defaults)
