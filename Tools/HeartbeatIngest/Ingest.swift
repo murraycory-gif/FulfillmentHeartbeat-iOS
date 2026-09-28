@@ -42,8 +42,22 @@ enum HeartbeatIngest {
             heavy: true,
             grain: .region
         )
-        let chrome = PulseDashChrome.from(caches, grain: .region)
-        try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, chrome: chrome, to: sqlite)
+        let roster = PulseCaches.storeRoster(from: rows)
+        let tops = PreSubTopItems.catalog(
+            items: rows.filter { $0.section == .preSubOOSItem },
+            roster: roster,
+            includeCompany: true
+        )
+        var chrome = PulseDashChrome.from(caches, grain: .region)
+        chrome.preSubItemTabPresent = tops.tabPresent
+        try PulseSQLite.write(
+            rows: rows,
+            uploads: uploads,
+            seeded: true,
+            chrome: chrome,
+            preSubTops: tops.lists,
+            to: sqlite
+        )
         let size = (try FileManager.default.attributesOfItem(atPath: sqlite.path)[.size] as? NSNumber)?.intValue ?? 0
         print("Wrote \(rows.count) rows + \(chrome.summaries.count) dashboard cards → \(sqlite.lastPathComponent) (\(size) bytes)")
         for summary in chrome.summaries {
@@ -51,6 +65,7 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        print("  pre-sub item tab=\(tops.tabPresent) top scopes=\(tops.lists.count)")
         let tiled = chrome.companyTiles.keys.sorted().joined(separator: ", ")
         print("  company card tiles: \(chrome.companyTiles.count) [\(tiled)]")
         let pickerTable = chrome.tables[MetricSection.pickerScorecard.rawValue] ?? []

@@ -144,6 +144,9 @@ final class HeartbeatStore: ObservableObject {
     private var packChrome: PulseDashChrome?
     /// Cook / publish time for the chrome on screen. Nil shows "Updated —".
     private(set) var packPublishedAt: Date?
+    /// Scope key → cooked top 10. Filled one card at a time. Never the item plane.
+    private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
+    private var preSubTopCacheURL: String = ""
     private var companySeatChrome: PulseDashChrome?
     private var seatChromeByKey: [PulseSeatPack.Key: PulseDashChrome] = [:]
     private var seatRowPlanes: [PulseSeatPack.Key: SeatRowPlane] = [:]
@@ -628,6 +631,30 @@ final class HeartbeatStore: ObservableObject {
             HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
                 && HeartbeatMath.salesHeadlineDollars($0) >= 5_000_000
         }
+    }
+
+    /// Top 10 for one Pre-Sub card. Missing tab is a sentence, never an empty list.
+    /// Reads one `presub_top` row. Does not load the item fact plane.
+    func preSubTopCard(scope: String) -> PreSubTopItems.Card {
+        guard packChrome?.preSubItemTabPresent == true else {
+            return PreSubTopItems.Card(missingNote: PreSubTopItems.missingTabNote, items: [])
+        }
+        let url = activePackURL
+        if preSubTopCacheURL != url.path {
+            preSubTopCacheURL = url.path
+            preSubTopCache = [:]
+        }
+        guard !scope.isEmpty else {
+            return PreSubTopItems.Card(missingNote: nil, items: [])
+        }
+        if let hit = preSubTopCache[scope] {
+            return PreSubTopItems.Card(missingNote: nil, items: hit)
+        }
+        guard let items = PulseSQLite.readPreSubTop(from: url, scope: scope) else {
+            return PreSubTopItems.Card(missingNote: PreSubTopItems.missingTabNote, items: [])
+        }
+        preSubTopCache[scope] = items
+        return PreSubTopItems.Card(missingNote: nil, items: items)
     }
 
     /// Company card tiles from chrome. Nil when a filter is on or the workbook value was never cooked.
@@ -6177,6 +6204,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func applyDashChrome(_ chrome: PulseDashChrome, packURL: URL? = nil) {
+        preSubTopCache = [:]
+        preSubTopCacheURL = ""
         packChrome = chrome
         usingPackChrome = true
         let fileTime: Date? = chrome.publishedAt == nil
@@ -7353,14 +7382,17 @@ final class HeartbeatStore: ObservableObject {
                 pickerStrong: cachedPickerBoard.strongCount,
                 companyTiles: packChrome?.companyTiles ?? [:],
                 companyRollupRows: packChrome?.companyRollupRows ?? [:],
-                publishedAt: packChrome?.publishedAt ?? packPublishedAt
+                publishedAt: packChrome?.publishedAt ?? packPublishedAt,
+                preSubItemTabPresent: packChrome?.preSubItemTabPresent
             )
+            let keptTops = PulseSQLite.readPreSubTops(from: packURL)
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(
                     rows: packRows,
                     uploads: packUploads,
                     seeded: packSeeded,
                     chrome: chrome,
+                    preSubTops: keptTops,
                     to: packURL
                 )
             }.value

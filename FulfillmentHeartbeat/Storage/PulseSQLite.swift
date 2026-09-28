@@ -21,6 +21,7 @@ enum PulseSQLite {
         seeded: Bool,
         chrome: PulseDashChrome? = nil,
         writtenAt: Date? = nil,
+        preSubTops: [String: [PreSubTopItems.Item]]? = nil,
         to url: URL
     ) throws {
         let folder = url.deletingLastPathComponent()
@@ -92,6 +93,9 @@ enum PulseSQLite {
         if let chrome {
             writeChrome(chrome, db: db)
             writeSummaryCards(chrome, db: db)
+        }
+        if let preSubTops {
+            writePreSubTops(preSubTops, db: db)
         }
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
         if FileManager.default.fileExists(atPath: url.path) {
@@ -843,6 +847,89 @@ enum PulseSQLite {
             }
         }
         return out
+    }
+
+    /// One cooked top-10 list. Does not decode fact rows and does not bump fact counters.
+    /// Nil when the `presub_top` table was never cooked. Empty when this scope has no items.
+    static func readPreSubTop(from url: URL, scope: String) -> [PreSubTopItems.Item]? {
+        guard !scope.isEmpty, exists(at: url) else { return nil }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        guard preSubTopTableExists(db) else { return nil }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT json FROM presub_top WHERE scope = ? LIMIT 1;", -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        bind(stmt, 1, scope)
+        guard sqlite3_step(stmt) == SQLITE_ROW, let raw = sqlite3_column_text(stmt, 0) else { return [] }
+        return decodePreSubItems(String(cString: raw))
+    }
+
+    /// Every cooked list. Nil when the table is absent so a rewrite can leave it alone.
+    static func readPreSubTops(from url: URL) -> [String: [PreSubTopItems.Item]]? {
+        guard exists(at: url) else { return nil }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        guard preSubTopTableExists(db) else { return nil }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT scope, json FROM presub_top;", -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        var out: [String: [PreSubTopItems.Item]] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let scope = string(stmt, 0)
+            guard !scope.isEmpty, let raw = sqlite3_column_text(stmt, 1) else { continue }
+            out[scope] = decodePreSubItems(String(cString: raw))
+        }
+        return out
+    }
+
+    private static func preSubTopTableExists(_ db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'presub_top' LIMIT 1;",
+            -1, &stmt, nil
+        ) == SQLITE_OK else { return false }
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    private static func writePreSubTops(_ lists: [String: [PreSubTopItems.Item]], db: OpaquePointer) {
+        sqlite3_exec(
+            db,
+            "CREATE TABLE IF NOT EXISTS presub_top (scope TEXT PRIMARY KEY, json TEXT NOT NULL);",
+            nil, nil, nil
+        )
+        let encoder = JSONEncoder()
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "INSERT OR REPLACE INTO presub_top(scope, json) VALUES (?, ?);",
+            -1, &stmt, nil
+        ) == SQLITE_OK else { return }
+        for (scope, items) in lists where !scope.isEmpty {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            let json = (try? encoder.encode(items)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            bind(stmt, 1, scope)
+            bind(stmt, 2, json)
+            _ = sqlite3_step(stmt)
+        }
+    }
+
+    private static func decodePreSubItems(_ json: String) -> [PreSubTopItems.Item] {
+        guard let data = json.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([PreSubTopItems.Item].self, from: data)) ?? []
     }
 
     static func readChrome(from url: URL) -> PulseDashChrome? {

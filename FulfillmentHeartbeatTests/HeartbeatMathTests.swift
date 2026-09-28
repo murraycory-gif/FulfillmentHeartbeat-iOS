@@ -446,6 +446,189 @@ final class HeartbeatMathTests: XCTestCase {
         )
     }
 
+    /// Top 10 is sum(Pre-Sub OOS) / sum(ORD_QTY), ranked by count then %. Cooked
+    /// per scope so a company card does not decode the item plane.
+    func testPreSubTopRollupAndScopes() throws {
+        XCTAssertEqual(PreSubTopItems.missingTabNote, "Item detail not in this upload")
+        XCTAssertEqual(PreSubTopItems.displayParts("184350009 - Sweet Corn").name, "Sweet Corn")
+        XCTAssertEqual(PreSubTopItems.displayParts("184350009 - Sweet Corn").code, "184350009")
+        XCTAssertEqual(PreSubTopItems.displayParts("MILK").name, "MILK")
+        XCTAssertEqual(PreSubTopItems.displayParts("MILK").code, "")
+        XCTAssertFalse(PulseLaunch.shouldLoadPreSubItemFacts(filtersActive: false))
+        XCTAssertTrue(PulseLaunch.shouldLoadPreSubItemFacts(filtersActive: true))
+        XCTAssertEqual(PreSubTopItems.seatScope(DashboardFilters()), PreSubTopItems.companyScope)
+        var storeFilter = DashboardFilters()
+        storeFilter.store = "10"
+        XCTAssertEqual(PreSubTopItems.seatScope(storeFilter), "store:10")
+        var omFilter = DashboardFilters()
+        omFilter.om = "Pat Ruiz"
+        XCTAssertEqual(PreSubTopItems.seatScope(omFilter), "om:Pat Ruiz")
+
+        let parsed = WorkbookParser.parseCSV("""
+        STORE_ID,DIVISION,DISTRICT,BPN DESC,ORD_QTY,Subs,Pre-Sub OOS%,Pre-Sub OOS,$Pre-Sub OOS,OOS,OOS%,$OOS
+        10,United,J3,184350009 - Sweet Corn,100,1,0.5,10,1,9,0.09,1
+        """)
+        XCTAssertEqual(parsed.first?.payload["ord_qty"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(parsed.first?.payload["presub_count"] ?? 0, 10, accuracy: 0.01)
+
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "10": .init(division: "United", district: "J3", om: "Pat Ruiz", name: "Alpha"),
+            "11": .init(division: "United", district: "J3", om: "Pat Ruiz", name: "Beta"),
+            "20": .init(division: "Haggen", district: "39", om: "Luke Lomas", name: "Gamma"),
+        ]
+        func item(
+            _ store: String,
+            _ bpn: String,
+            count: Double,
+            orders: Double,
+            pct: Double,
+            division: String = "Southwest",
+            district: String = "ZZ"
+        ) -> MetricRow {
+            MetricRow(
+                section: .preSubOOSItem,
+                division: division,
+                operationsOM: "",
+                storeNumber: store,
+                payload: ["presub_count": count, "ord_qty": orders, "presub_pct": pct],
+                textPayload: ["bpn": bpn, "presub_item": "1", "district": district]
+            )
+        }
+        var rows: [MetricRow] = [
+            item("10", "11111 - Milk", count: 1, orders: 10, pct: 90),
+            item("11", "11111 - Milk", count: 1, orders: 10, pct: 10),
+            item("10", "44444 - Soda", count: 4, orders: 10, pct: 1),
+            item("10", "55555 - Chips", count: 4, orders: 40, pct: 99),
+            item("10", "77777 - Air", count: 3, orders: 0, pct: 100),
+            item("20", "22222 - Bread", count: 9, orders: 100, pct: 1),
+            item("20", "33333 - Eggs", count: 5, orders: 10, pct: 99),
+            item("239", "66666 - Ghost", count: 500, orders: 500, pct: 100, division: "Southwest", district: "N0"),
+        ]
+        XCTAssertEqual(PreSubTopItems.catalog(items: [], roster: roster, includeCompany: true).tabPresent, false)
+
+        let cooked = PreSubTopItems.catalog(items: rows, roster: roster, includeCompany: true)
+        XCTAssertTrue(cooked.tabPresent)
+        let company = cooked.lists[PreSubTopItems.companyScope] ?? []
+        let milk = company.first { $0.name == "Milk" }
+        XCTAssertEqual(milk?.count ?? 0, 2, accuracy: 0.001)
+        XCTAssertEqual(milk?.percent ?? -1, 10, accuracy: 0.001, "percent is the ratio, not the average of 90 and 10")
+        XCTAssertEqual(milk?.code, "11111")
+        XCTAssertNil(company.first { $0.name == "Ghost" })
+
+        let store10 = cooked.lists["store:10"] ?? []
+        XCTAssertEqual(store10.map(\.name), ["Soda", "Chips", "Air", "Milk"])
+        XCTAssertEqual(store10.first { $0.name == "Soda" }?.percent ?? 0, 40, accuracy: 0.001)
+        XCTAssertEqual(store10.first { $0.name == "Chips" }?.percent ?? 0, 10, accuracy: 0.001)
+        XCTAssertNil(store10.first { $0.name == "Air" }?.percent)
+        XCTAssertNil(store10.first { $0.name == "Bread" })
+
+        let store11 = cooked.lists["store:11"] ?? []
+        XCTAssertEqual(store11.map(\.name), ["Milk"])
+        let store20 = cooked.lists["store:20"] ?? []
+        XCTAssertEqual(store20.map(\.name), ["Bread", "Eggs"])
+        var cappedRows: [MetricRow] = []
+        for rank in 1...12 {
+            cappedRows.append(item("20", "\(80000 + rank) - Extra \(rank)", count: Double(rank), orders: 10, pct: 50))
+        }
+        let capped = PreSubTopItems.catalog(items: cappedRows, roster: roster, includeCompany: true)
+            .lists["store:20"] ?? []
+        XCTAssertEqual(capped.count, 10)
+        XCTAssertEqual(capped.first?.name, "Extra 12")
+        XCTAssertEqual(capped.last?.name, "Extra 3")
+        XCTAssertFalse(capped.contains { $0.name == "Extra 1" || $0.name == "Extra 2" })
+
+        let south = cooked.lists[PreSubTopItems.regionScope("South Region")] ?? []
+        XCTAssertTrue(south.contains { $0.name == "Milk" })
+        XCTAssertFalse(south.contains { $0.name == "Bread" })
+        let west = cooked.lists[PreSubTopItems.regionScope("West Region")] ?? []
+        XCTAssertTrue(west.contains { $0.name == "Bread" })
+        XCTAssertFalse(west.contains { $0.name == "Milk" })
+        XCTAssertTrue((cooked.lists[PreSubTopItems.omScope("Pat Ruiz")] ?? []).contains { $0.name == "Milk" })
+        XCTAssertFalse((cooked.lists[PreSubTopItems.omScope("Pat Ruiz")] ?? []).contains { $0.name == "Bread" })
+        XCTAssertFalse(cooked.lists.keys.contains(PreSubTopItems.omScope("")))
+        XCTAssertTrue((cooked.lists[PreSubTopItems.divisionScope("United")] ?? []).contains { $0.name == "Milk" })
+        XCTAssertFalse(cooked.lists.keys.contains(PreSubTopItems.divisionScope("Southwest")))
+        XCTAssertTrue((cooked.lists[PreSubTopItems.districtScope("J3")] ?? []).contains { $0.name == "Milk" })
+        XCTAssertFalse(cooked.lists.keys.contains(PreSubTopItems.districtScope("ZZ")))
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("presub-top-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let pack = tmp.appendingPathComponent("company.sqlite")
+        var chrome = PulseDashChrome(summaries: [], flags: [:], packs: [:], pickerShoppers: 0)
+        chrome.preSubItemTabPresent = true
+        try PulseSQLite.write(
+            rows: [],
+            uploads: [],
+            seeded: true,
+            chrome: chrome,
+            preSubTops: cooked.lists,
+            to: pack
+        )
+        let facts = PulseSQLite.companyFactReadCount
+        let sections = PulseSQLite.sectionFactReadCount
+        let decoded = PulseSQLite.decodedFactRowCount
+        let fromDisk = PulseSQLite.readPreSubTop(from: pack, scope: PreSubTopItems.companyScope)
+        let storeFromDisk = PulseSQLite.readPreSubTop(from: pack, scope: "store:10")
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, facts)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sections)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, decoded)
+        XCTAssertEqual(fromDisk?.first { $0.name == "Milk" }?.percent ?? -1, 10, accuracy: 0.001)
+        XCTAssertEqual(storeFromDisk?.map(\.name), ["Soda", "Chips", "Air", "Milk"])
+        XCTAssertEqual(PulseSQLite.readChrome(from: pack)?.preSubItemTabPresent, true)
+
+        let bare = tmp.appendingPathComponent("bare.sqlite")
+        try PulseSQLite.write(rows: [], uploads: [], seeded: true, chrome: nil, to: bare)
+        XCTAssertNil(PulseSQLite.readPreSubTop(from: bare, scope: PreSubTopItems.companyScope))
+
+        let seat = tmp.appendingPathComponent("store10.sqlite")
+        _ = try PulseSeatPack.writeCooked(
+            rows: rows,
+            uploads: [],
+            key: PulseSeatPack.Key(grain: .store, id: "10"),
+            roster: roster,
+            to: seat
+        )
+        XCTAssertEqual(PulseSQLite.readChrome(from: seat)?.preSubItemTabPresent, true)
+        XCTAssertEqual(
+            PulseSQLite.readPreSubTop(from: seat, scope: "store:10")?.map(\.name),
+            ["Soda", "Chips", "Air", "Milk"]
+        )
+        XCTAssertNil(PulseSQLite.readPreSubTop(from: seat, scope: PreSubTopItems.companyScope)?.first { $0.name == "Bread" })
+        XCTAssertTrue((PulseSQLite.readPreSubTop(from: seat, scope: PreSubTopItems.companyScope) ?? []).isEmpty)
+
+        let cook = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/PulseSeatPack.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cook.contains("key.grain == .company ? rows : scoped"))
+        let page = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(page.contains("PreSubTopItems.grainScope"))
+        XCTAssertTrue(page.contains("PreSubTopItems.storeScope"))
+        XCTAssertTrue(page.contains("PreSubTopItems.seatScope"))
+        XCTAssertTrue(page.contains("shouldLoadPreSubItemFacts"))
+        let cards = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cards.contains("PreSubTopListBlock(card: preSubTop)"))
+        XCTAssertTrue(cards.contains("PreSubTopItems.heading"))
+        XCTAssertTrue(cards.contains("PreSubTopItems.missingTabNote"))
+    }
+
     func testPPHDashboardHasTotalCalloutAndDynacapFallsBackToBookPPH() {
         let stores = [
             MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pph": 81]),

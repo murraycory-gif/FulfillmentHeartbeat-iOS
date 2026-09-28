@@ -297,8 +297,17 @@ enum PulseSeatPack {
         roster: [String: HeartbeatMath.StoreIdentity],
         to dest: URL
     ) throws -> Entry {
+        let directory = roster.isEmpty ? PulseCaches.storeRoster(from: rows) : roster
         let scoped = PulseLaunch.bakeAisleMapperOntoPickPath(
-            scopeRows(rows, roster: roster, key: key)
+            scopeRows(rows, roster: directory, key: key)
+        )
+        // Company facts drop the item plane. Roll the top 10 from the full rows
+        // first so the phone can paint every card without those 16.8k lines.
+        let itemSource = key.grain == .company ? rows : scoped
+        let tops = PreSubTopItems.catalog(
+            items: itemSource.filter { $0.section == .preSubOOSItem },
+            roster: directory,
+            includeCompany: key.grain == .company
         )
         let grain = key.dashboardGrain
         let caches = PulseCaches.build(
@@ -309,6 +318,7 @@ enum PulseSeatPack {
             grain: grain
         )
         var chrome = PulseDashChrome.from(caches, grain: grain)
+        chrome.preSubItemTabPresent = tops.tabPresent
         let seatN = (PulseCaches.allowedStores(
             roster: caches.roster.isEmpty ? roster : caches.roster,
             filters: key.filters
@@ -323,7 +333,14 @@ enum PulseSeatPack {
         if seatN > 0 {
             chrome.summaries = PulseLaunch.pinCompanyRosterStoreCounts(chrome.summaries, rosterStores: seatN)
         }
-        try PulseSQLite.write(rows: scoped, uploads: uploads, seeded: true, chrome: chrome, to: dest)
+        try PulseSQLite.write(
+            rows: scoped,
+            uploads: uploads,
+            seeded: true,
+            chrome: chrome,
+            preSubTops: tops.lists,
+            to: dest
+        )
         PulseSQLite.compact(at: dest)
         let bytes = PulseSQLite.fileBytes(at: dest)
         if key == .company, !shouldPromoteIncomingAsCompanySeat(bytes: bytes) {

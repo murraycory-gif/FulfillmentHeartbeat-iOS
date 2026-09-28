@@ -124,7 +124,8 @@ struct SectionDetailView: View {
             guard !Task.isCancelled else { return }
             await store.ensureSectionLoaded(section)
             if Task.isCancelled { return }
-            if section == .preSubOOS {
+            if section == .preSubOOS,
+               PulseLaunch.shouldLoadPreSubItemFacts(filtersActive: store.filters.isActive) {
                 await store.ensureSectionLoaded(.preSubOOSItem)
             }
             if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen(filters: store.filters) {
@@ -1337,7 +1338,8 @@ struct PhoneSectionPage: View {
                             ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
                             : nil,
                         chips: metricChips(values: row.values, health: row.health),
-                        health: row.health == .none && row.storeCount > 0 ? .good : row.health
+                        health: row.health == .none && row.storeCount > 0 ? .good : row.health,
+                        preSubTop: preSubTop(scope: PreSubTopItems.grainScope(grain, label: row.label))
                     )
                 }
             }
@@ -1423,7 +1425,8 @@ struct PhoneSectionPage: View {
                 ? HeartbeatMath.lostRevenueMissingStoreNote
                 : (row.district.isEmpty ? nil : HeartbeatMath.canonicalDistrict(row.district)),
             chips: metricChips(values: scored.values, health: scored.health),
-            health: health == .none ? (scored.health == .none && scored.values.contains(where: { $0 != "—" }) ? .good : scored.health) : health
+            health: health == .none ? (scored.health == .none && scored.values.contains(where: { $0 != "—" }) ? .good : scored.health) : health,
+            preSubTop: preSubTop(scope: PreSubTopItems.storeScope(storeKey))
         )
     }
 
@@ -1503,6 +1506,11 @@ struct PhoneSectionPage: View {
         if !row.division.isEmpty { return row.division }
         let division = store.identity(forStore: row.storeNumber).division
         return division.isEmpty ? "Store" : division
+    }
+
+    private func preSubTop(scope: String) -> PreSubTopItems.Card? {
+        guard section == .preSubOOS else { return nil }
+        return store.preSubTopCard(scope: scope)
     }
 
     private func metricChips(values: [String], health: Health) -> [PhoneMetricChip] {
@@ -1615,7 +1623,8 @@ struct PhoneCompanyThisWeekBlock: View {
                             ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
                             : nil),
                     chips: PhoneThisWeekChrome.chips(section: section, store: store),
-                    health: health
+                    health: health,
+                    preSubTop: preSubSeatTop
                 )
             }
         }
@@ -1633,8 +1642,14 @@ struct PhoneCompanyThisWeekBlock: View {
             eyebrow: CommandCenterLayout.glanceTitle(section),
             subtitle: coverage ?? stores,
             chips: PhoneThisWeekChrome.chips(section: section, store: store),
-            health: health
+            health: health,
+            preSubTop: preSubSeatTop
         )
+    }
+
+    private var preSubSeatTop: PreSubTopItems.Card? {
+        guard section == .preSubOOS else { return nil }
+        return store.preSubTopCard(scope: PreSubTopItems.seatScope(store.filters))
     }
 }
 

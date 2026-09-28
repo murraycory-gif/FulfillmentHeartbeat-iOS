@@ -14,10 +14,13 @@ struct PulseDashChrome: Codable {
     var companyRollupRows: [String: MetricRow]
     /// When this pack was cooked. Missing on older chrome. Never invent a clock time.
     var publishedAt: Date?
+    /// Workbook had a Pre-Sub OOS Item tab. Nil on older chrome — treat as missing.
+    /// The top-10 lists themselves live in `presub_top`, not in this JSON.
+    var preSubItemTabPresent: Bool?
 
     enum CodingKeys: String, CodingKey {
         case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
-        case companyTiles, companyRollupRows, publishedAt
+        case companyTiles, companyRollupRows, publishedAt, preSubItemTabPresent
     }
 
     init(
@@ -30,7 +33,8 @@ struct PulseDashChrome: Codable {
         pickerStrong: Int = 0,
         companyTiles: [String: CompanyCardTiles] = [:],
         companyRollupRows: [String: MetricRow] = [:],
-        publishedAt: Date? = nil
+        publishedAt: Date? = nil,
+        preSubItemTabPresent: Bool? = nil
     ) {
         self.summaries = summaries
         self.flags = flags
@@ -42,6 +46,7 @@ struct PulseDashChrome: Codable {
         self.companyTiles = companyTiles
         self.companyRollupRows = companyRollupRows
         self.publishedAt = publishedAt
+        self.preSubItemTabPresent = preSubItemTabPresent
     }
 
     init(from decoder: Decoder) throws {
@@ -56,6 +61,7 @@ struct PulseDashChrome: Codable {
         companyTiles = try container.decodeIfPresent([String: CompanyCardTiles].self, forKey: .companyTiles) ?? [:]
         companyRollupRows = try container.decodeIfPresent([String: MetricRow].self, forKey: .companyRollupRows) ?? [:]
         publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
+        preSubItemTabPresent = try container.decodeIfPresent(Bool.self, forKey: .preSubItemTabPresent)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -70,6 +76,7 @@ struct PulseDashChrome: Codable {
         try container.encode(companyTiles, forKey: .companyTiles)
         try container.encode(companyRollupRows, forKey: .companyRollupRows)
         try container.encodeIfPresent(publishedAt, forKey: .publishedAt)
+        try container.encodeIfPresent(preSubItemTabPresent, forKey: .preSubItemTabPresent)
     }
 
     static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {

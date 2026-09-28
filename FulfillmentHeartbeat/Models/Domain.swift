@@ -5411,6 +5411,179 @@ struct HeartbeatSnapshot: Codable {
     }
 }
 
+/// Cook-time top 10 Pre-Sub OOS items for one scope. The phone reads one key
+/// at a time from `presub_top`. It never sums the 16.8k item rows.
+enum PreSubTopItems {
+    static let missingTabNote = "Item detail not in this upload"
+    static let heading = "Top 10 Pre-Sub OOS items"
+    static let limit = 10
+    static let companyScope = "company"
+
+    struct Item: Codable, Equatable, Sendable {
+        var name: String
+        var code: String
+        var percent: Double?
+        var count: Double
+    }
+
+    struct Catalog: Equatable {
+        var tabPresent: Bool
+        var lists: [String: [Item]]
+    }
+
+    /// What the card shows. `missingNote` is set only when the item tab was not cooked.
+    struct Card: Equatable {
+        var missingNote: String?
+        var items: [Item]
+    }
+
+    static func regionScope(_ label: String) -> String { "region:\(label)" }
+    static func divisionScope(_ label: String) -> String { "division:\(label)" }
+    static func districtScope(_ label: String) -> String { "district:\(label)" }
+    static func omScope(_ label: String) -> String { "om:\(label)" }
+    static func storeScope(_ number: String) -> String {
+        "store:\(HeartbeatMath.canonicalStore(number))"
+    }
+
+    /// Finest active filter. Company when nothing is selected. Empty when several
+    /// values share a grain — there is no single cooked key for that combination.
+    static func seatScope(_ filters: DashboardFilters) -> String {
+        if filters.stores.count == 1 { return storeScope(filters.stores[0]) }
+        if filters.oms.count == 1 { return omScope(HeartbeatMath.canonicalOM(filters.oms[0])) }
+        if filters.districts.count == 1 {
+            return districtScope(RollupMarketFill.districtKey(filters.districts[0]))
+        }
+        if filters.divisions.count == 1 {
+            return divisionScope(RollupMarketFill.divisionKey(filters.divisions[0]))
+        }
+        if filters.regions.count == 1 {
+            let raw = filters.regions[0]
+            return regionScope(MarketRegion(rawValue: raw)?.rawValue ?? raw)
+        }
+        if !filters.isActive { return companyScope }
+        return ""
+    }
+
+    static func grainScope(_ grain: DashScopeGrain, label: String) -> String {
+        switch grain {
+        case .region: return regionScope(label)
+        case .division: return divisionScope(label)
+        case .district: return districtScope(label)
+        case .store: return storeScope(label)
+        }
+    }
+
+    /// Leading BPN number comes off the name. The code stays available to show small.
+    static func displayParts(_ raw: String) -> (name: String, code: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let patterns = [#"^(\d{4,})\s*[-–:]\s*"#, #"^(\d{4,})\s+"#]
+        for pattern in patterns {
+            guard let match = trimmed.range(of: pattern, options: .regularExpression) else { continue }
+            let code = String(trimmed[match]).filter(\.isNumber)
+            let name = String(trimmed[match.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, !code.isEmpty { return (name, code) }
+        }
+        return (trimmed, "")
+    }
+
+    static func countText(_ count: Double) -> String {
+        if abs(count.rounded() - count) < 0.05 {
+            return HeartbeatFormat.num(count, digits: 0)
+        }
+        return HeartbeatFormat.num(count, digits: 1)
+    }
+
+    /// Group by BPN DESC. count = sum(Pre-Sub OOS). % = sum(count) / sum(ORD_QTY).
+    /// Never the average of the row percents. Rank by count, then by %.
+    /// Region and OM come from the store directory, not the item row.
+    static func catalog(
+        items: [MetricRow],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        includeCompany: Bool
+    ) -> Catalog {
+        guard !items.isEmpty else { return Catalog(tabPresent: false, lists: [:]) }
+        let scopes = ScopeBag()
+        for row in items {
+            let bpn = (row.textPayload["bpn"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !bpn.isEmpty else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
+            let known = roster[store]
+            let division = RollupMarketFill.divisionKey(
+                (known?.division.isEmpty == false ? known?.division : nil) ?? row.division
+            )
+            let districtRaw: String = {
+                if let district = known?.district, !district.isEmpty { return district }
+                return row.textPayload["district"] ?? ""
+            }()
+            let district = RollupMarketFill.districtKey(districtRaw)
+            let om = HeartbeatMath.canonicalOM(
+                (known?.om.isEmpty == false ? known?.om : nil) ?? row.operationsOM
+            )
+            let region = MarketRegion.resolved(division: division, district: district)?.rawValue ?? ""
+            let count = row.payload["presub_count"] ?? 0
+            let orders = row.payload["ord_qty"] ?? 0
+            if includeCompany { scopes.add(companyScope, bpn, count: count, orders: orders) }
+            if !region.isEmpty { scopes.add(regionScope(region), bpn, count: count, orders: orders) }
+            if !division.isEmpty { scopes.add(divisionScope(division), bpn, count: count, orders: orders) }
+            if !district.isEmpty { scopes.add(districtScope(district), bpn, count: count, orders: orders) }
+            if !om.isEmpty { scopes.add(omScope(om), bpn, count: count, orders: orders) }
+            scopes.add(storeScope(store), bpn, count: count, orders: orders)
+        }
+        return Catalog(tabPresent: true, lists: scopes.finish())
+    }
+
+    private final class Acc {
+        var count: Double = 0
+        var orders: Double = 0
+    }
+
+    private final class ItemMap {
+        var items: [String: Acc] = [:]
+    }
+
+    private final class ScopeBag {
+        var scopes: [String: ItemMap] = [:]
+
+        func add(_ scope: String, _ bpn: String, count: Double, orders: Double) {
+            if scopes[scope] == nil { scopes[scope] = ItemMap() }
+            guard let map = scopes[scope] else { return }
+            let acc = map.items[bpn] ?? Acc()
+            acc.count += count
+            acc.orders += orders
+            map.items[bpn] = acc
+        }
+
+        func finish() -> [String: [Item]] {
+            var out: [String: [Item]] = [:]
+            out.reserveCapacity(scopes.count)
+            for (scope, map) in scopes {
+                let ranked = map.items.map { bpn, acc -> Item in
+                    let parts = displayParts(bpn)
+                    let percent: Double? = acc.orders > 0 ? (acc.count / acc.orders) * 100 : nil
+                    return Item(
+                        name: parts.name.isEmpty ? bpn : parts.name,
+                        code: parts.code,
+                        percent: percent,
+                        count: acc.count
+                    )
+                }
+                .sorted { lhs, rhs in
+                    if lhs.count != rhs.count { return lhs.count > rhs.count }
+                    let left = lhs.percent ?? -1
+                    let right = rhs.percent ?? -1
+                    if left != right { return left > right }
+                    let name = lhs.name.localizedStandardCompare(rhs.name)
+                    if name != .orderedSame { return name == .orderedAscending }
+                    return lhs.code.localizedStandardCompare(rhs.code) == .orderedAscending
+                }
+                out[scope] = Array(ranked.prefix(limit))
+            }
+            return out
+        }
+    }
+}
+
 enum HeartbeatFormat {
     static func divisionLabel(_ value: String) -> String {
         value

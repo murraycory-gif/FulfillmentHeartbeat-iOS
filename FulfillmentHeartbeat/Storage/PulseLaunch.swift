@@ -2356,6 +2356,13 @@ enum PulseLaunch {
         return false
     }
 
+    /// Company Pre-Sub paints cooked top-10 rows. Opening the page must not
+    /// decode the item plane (about 16.8k rows). A seat filter may still load
+    /// the few item rows that pack already holds.
+    static func shouldLoadPreSubItemFacts(filtersActive: Bool) -> Bool {
+        filtersActive
+    }
+
     /// Picker filterStamp / board rebuild is join-page work. Dashboard already has cards.
     static func shouldRefreshPickersAfterFilter(dest: HubDestination) -> Bool {
         needsShopperJoin(dest)

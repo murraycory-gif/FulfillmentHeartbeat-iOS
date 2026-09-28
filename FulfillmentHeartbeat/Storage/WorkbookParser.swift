@@ -1702,6 +1702,7 @@ enum WorkbookParser {
         var divIdx: Int?
         var distIdx: Int?
         var bpnIdx: Int?
+        var ordIdx: Int?
         var pctIdx: Int?
         var unitsIdx: Int?
         var dollarsIdx: Int?
@@ -1719,6 +1720,7 @@ enum WorkbookParser {
                 divIdx = names.firstIndex { $0 == "division" }
                 distIdx = names.firstIndex { $0 == "district" }
                 bpnIdx = names.firstIndex { $0.contains("bpn") || $0.contains("item") || $0.contains("upc") }
+                ordIdx = names.firstIndex { $0 == "ordqty" || $0 == "orderqty" || $0 == "ordqnty" }
                 pctIdx = line.indices.first { idx in
                     let lower = line[idx].lowercased()
                     return (lower.contains("pre-sub") || lower.contains("presub") || lower.contains("pre sub")
@@ -1758,6 +1760,7 @@ enum WorkbookParser {
                 guard let raw = index.map(cell), let number = cellNumber(raw) else { return }
                 payload[key] = percent && abs(number) <= 1.5 ? number * 100 : number
             }
+            put(ordIdx, "ord_qty")
             put(pctIdx, "presub_pct", percent: true)
             put(unitsIdx, "presub_count")
             put(dollarsIdx, "presub_dollars")

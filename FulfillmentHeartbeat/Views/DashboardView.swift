@@ -847,6 +847,8 @@ struct PhoneScorecardRow: View {
     var subtitle: String? = nil
     var chips: [PhoneMetricChip] = []
     var health: Health = .none
+    /// Pre-Sub OOS only. Sits under the Rate / Healthy / Watch / At Risk tiles.
+    var preSubTop: PreSubTopItems.Card? = nil
     var chevronExpanded: Bool? = nil
     var rowAccessibilityIdentifier: String = ""
     var onTap: (() -> Void)? = nil
@@ -927,6 +929,9 @@ struct PhoneScorecardRow: View {
                         }
                     }
                 }
+                if let preSubTop {
+                    PreSubTopListBlock(card: preSubTop)
+                }
             }
             .padding(CommandCenterLayout.phoneScorecardPadding())
         }
@@ -965,6 +970,69 @@ struct PhoneScorecardRow: View {
         case .risk: return AppTheme.badSoft
         case .none: return AppTheme.blueSoft.opacity(0.55)
         }
+    }
+}
+
+/// Compact top 10 inside a Pre-Sub scorecard, under the health tiles.
+struct PreSubTopListBlock: View {
+    var card: PreSubTopItems.Card
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let note = card.missingNote, !note.isEmpty {
+                Text(note)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(PreSubTopItems.heading)
+                    .font(.footnote.weight(.heavy))
+                    .foregroundStyle(AppTheme.text)
+                if !card.items.isEmpty {
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        Text("OOS %")
+                            .frame(width: 64, alignment: .trailing)
+                        Text("Count")
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                    .font(.caption2.weight(.heavy))
+                    .foregroundStyle(AppTheme.textTertiary)
+                }
+                ForEach(Array(card.items.prefix(PreSubTopItems.limit).enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(item.name)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !item.code.isEmpty {
+                                Text(item.code)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(AppTheme.textTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(HeartbeatFormat.pct(item.percent))
+                            .font(.footnote.weight(.bold).monospacedDigit())
+                            .foregroundStyle(AppTheme.text)
+                            .frame(width: 64, alignment: .trailing)
+                        Text(PreSubTopItems.countText(item.count))
+                            .font(.footnote.weight(.bold).monospacedDigit())
+                            .foregroundStyle(AppTheme.text)
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        "\(item.name), \(HeartbeatFormat.pct(item.percent)), \(PreSubTopItems.countText(item.count)) times out of stock"
+                    )
+                }
+            }
+        }
+        .padding(.top, 2)
+        .accessibilityIdentifier("presub-top-items")
     }
 }
 
