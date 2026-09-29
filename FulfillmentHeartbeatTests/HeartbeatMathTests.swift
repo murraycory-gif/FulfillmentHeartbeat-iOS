@@ -1774,6 +1774,173 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(stillEmpty.health, .none)
     }
 
+    /// Company pack: every prep fact has a rate, and the roster is larger.
+    /// The dashboard tile is the rollup of those rates. A dash or No data fails.
+    @MainActor
+    func testCompanyPrepTileRollsUpRatedFactsInsteadOfNoData() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let rate10 = 1.8036477701044753
+        let rate11 = 3.2529244991485323
+        let rollup = (rate10 + rate11) / 2
+        let facts = HeartbeatMath.PrepCoverage(reported: 2, inScope: 2)
+        XCTAssertTrue(HeartbeatMath.companyPrepKeepsFactRollup(facts))
+        XCTAssertFalse(facts.thin)
+        XCTAssertTrue(HeartbeatMath.PrepCoverage(reported: 2, inScope: 6).thin)
+
+        let store = try installRatedPrepCompanyPack(
+            rates: ["10": rate10, "11": rate11],
+            rosterStores: ["10", "11", "20", "21", "22", "23"]
+        )
+        let painted = store.summary(for: .prepNotReady)
+        let value = CommandCenterLayout.compactValue(painted)
+        XCTAssertEqual(painted.headline ?? 0, rollup, accuracy: 0.000_000_1)
+        XCTAssertEqual(value, String(format: "%.1f%%", rollup))
+        XCTAssertNotEqual(value, "—")
+        XCTAssertNotEqual(value, "0%")
+        XCTAssertNotEqual(painted.health, .none)
+        XCTAssertNotEqual(painted.health.label, "No data")
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(painted), .none)
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(painted).label, "No data")
+        XCTAssertFalse(HeartbeatMath.isPrepThinNote(painted.secondary))
+        XCTAssertNotEqual(painted.secondary, "No Prep rows this week")
+        XCTAssertFalse(PulseLaunch.shouldInventPrepRateOnEmptyStore())
+    }
+
+    /// A roster store with no prep fact does not receive a made-up rate.
+    @MainActor
+    func testStoreOutsidePrepFactsDoesNotGetAMadeUpRate() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let rate10 = 1.8036477701044753
+        let store = try installRatedPrepCompanyPack(
+            rates: ["10": rate10],
+            rosterStores: ["10", "999"]
+        )
+        let grain = store.grainMetricRows(for: .prepNotReady)
+        let rated = try XCTUnwrap(grain.first { $0.storeNumber == "10" })
+        XCTAssertEqual(rated.number("pnr_rate_pct") ?? 0, rate10, accuracy: 0.000_000_1)
+        XCTAssertNil(grain.first { $0.storeNumber == "999" })
+        XCTAssertFalse(grain.contains { $0.storeNumber == "999" && $0.payload["pnr_rate_pct"] != nil })
+        XCTAssertFalse(grain.contains { $0.storeNumber != "10" && $0.number("pnr_rate_pct") != nil })
+        let outside = MetricRow(
+            section: .prepNotReady,
+            division: "United",
+            operationsOM: "Pat Ruiz",
+            storeNumber: "999"
+        )
+        XCTAssertNil(outside.number("pnr_rate_pct"))
+        XCTAssertEqual(HeartbeatFormat.pct(outside.number("pnr_rate_pct")), "—")
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: outside), .none)
+        let filled = HeartbeatMath.rowsFillingRoster(
+            grain,
+            roster: [
+                "10": HeartbeatMath.StoreIdentity(division: "United", district: "97", om: "Pat Ruiz", name: "Ten"),
+                "999": HeartbeatMath.StoreIdentity(division: "United", district: "97", om: "Pat Ruiz", name: "Outside"),
+            ]
+        )
+        XCTAssertNil(filled.first { $0.storeNumber == "999" }?.number("pnr_rate_pct"))
+        XCTAssertFalse(filled.contains { $0.storeNumber == "999" })
+    }
+
+    /// Blank rows inside the upload stay NO DATA. That is not the 365-rate pack.
+    @MainActor
+    func testThinPrepFactsInsideTheUploadStayNoData() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let coverage = HeartbeatMath.PrepCoverage(reported: 2, inScope: 10)
+        XCTAssertTrue(coverage.thin)
+        XCTAssertFalse(HeartbeatMath.companyPrepKeepsFactRollup(coverage))
+        let store = try installRatedPrepCompanyPack(
+            rates: ["10": 0.01, "11": 0.01],
+            blankStores: (12...19).map { "\($0)" },
+            rosterStores: (10...19).map { "\($0)" }
+        )
+        let painted = store.summary(for: .prepNotReady)
+        XCTAssertEqual(painted.health, .none)
+        XCTAssertEqual(painted.health.label, "No data")
+        XCTAssertNil(painted.headline)
+        XCTAssertEqual(CommandCenterLayout.compactValue(painted), "—")
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(painted), .none)
+        XCTAssertTrue(HeartbeatMath.isPrepThinNote(painted.secondary))
+    }
+
+    @MainActor
+    private func installRatedPrepCompanyPack(
+        rates: [String: Double],
+        blankStores: [String] = [],
+        rosterStores: [String]
+    ) throws -> HeartbeatStore {
+        let values = Array(rates.values)
+        let rollup = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        var rows: [MetricRow] = []
+        for (store, rate) in rates {
+            rows.append(
+                MetricRow(
+                    section: .prepNotReady,
+                    division: "United",
+                    operationsOM: "Pat Ruiz",
+                    storeNumber: store,
+                    payload: ["pnr_rate_pct": rate]
+                )
+            )
+        }
+        for store in blankStores {
+            rows.append(
+                MetricRow(
+                    section: .prepNotReady,
+                    division: "United",
+                    operationsOM: "Pat Ruiz",
+                    storeNumber: store
+                )
+            )
+        }
+        for store in rosterStores {
+            rows.append(
+                MetricRow(
+                    section: .storeRoster,
+                    division: "United",
+                    operationsOM: "Pat Ruiz",
+                    storeNumber: store,
+                    storeName: "Store \(store)",
+                    textPayload: ["district": "97"]
+                )
+            )
+        }
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .prepNotReady,
+                    storeCount: values.count,
+                    headline: rollup,
+                    headlineLabel: "Avg PNR hours",
+                    secondary: values.isEmpty
+                        ? "No Prep rows this week"
+                        : "rated prep facts",
+                    health: rollup == nil ? .none : HeartbeatMath.band(
+                        rollup,
+                        good: HeartbeatMath.pnrGoal,
+                        watch: HeartbeatMath.pnrWatch,
+                        invert: true
+                    ),
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: "daily.xlsx · Prep Not Ready",
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prep-rollup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: chrome, to: seat)
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        return store
+    }
+
     /// Live chrome has summaries, packs, and region tables. companyTiles / preSub tops / picker rollups are absent.
     /// Section pages must still paint the company card and the region/division cards from that chrome.
     func testLegacyChromePaintsCompanyAndRegionCards() throws {

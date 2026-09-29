@@ -6700,8 +6700,12 @@ final class HeartbeatStore: ObservableObject {
         applyPrepCoverageGate()
     }
 
-    /// Header, Result, and the Prep card share one answer. Thin coverage is NO DATA.
+    /// Header, Result, and the Prep card share one answer.
+    /// Blank rows inside the upload stay NO DATA. A pack whose prep facts all
+    /// have a rate keeps that rollup. Roster stores with no fact stay blank.
     private func applyPrepCoverageGate() {
+        let facts = prepUploadedCoverage
+        if HeartbeatMath.companyPrepKeepsFactRollup(facts) { return }
         widenPrepCoverageToRoster()
         guard let coverage = prepUploadedCoverage, coverage.thin,
               let index = cachedSummaries.firstIndex(where: { $0.section == .prepNotReady })
@@ -6714,7 +6718,8 @@ final class HeartbeatStore: ObservableObject {
         cachedSummaries[index].riskCount = 0
     }
 
-    /// Prep rows that exist are not the store universe. Grade coverage against the roster.
+    /// Blank prep rows are not the store universe. Grade those against the roster.
+    /// A complete rated fact set does not take this path.
     private func widenPrepCoverageToRoster() {
         guard let current = prepUploadedCoverage else { return }
         let universe = roster.count

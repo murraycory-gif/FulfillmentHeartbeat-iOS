@@ -144,6 +144,47 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertEqual(facts, 0)
     }
 
+    /// The page reads schedule_pack from the open sqlite. A pack without that
+    /// table is the NO DATA page. Writing the table must not replace prep facts.
+    func testSchedulePackInCurrentSqliteLeavesPrepFacts() throws {
+        let prep = MetricRow(
+            section: .prepNotReady,
+            division: "United",
+            operationsOM: "Pat Ruiz",
+            storeNumber: "10",
+            payload: ["pnr_rate_pct": 1.8036477701044753]
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("schedule-keep-prep-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PulseSQLite.write(rows: [prep], uploads: [], seeded: true, to: url)
+        XCTAssertNil(PulseSQLite.readSchedule(from: url))
+        let view = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/ScheduleCheckView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(view.contains("Schedule Review Week file is not on this device."))
+        XCTAssertTrue(view.contains("store.scheduleCheck == nil"))
+        let pack = ScheduleCheckPack(
+            publishedAt: "2026-09-29T20:29:58Z",
+            week: 40,
+            filename: "Schedule Review Week 40.xlsx",
+            summaryTitle: "Schedule Review Summary",
+            workbookActionBanner: nil,
+            markets: [ScheduleMarket(label: "Total", under: 41.07, over: 4.03, eff: 64.97)],
+            stores: [ScheduleStore(store: "10", division: "United", sales: 30_000, under: 12, over: 1, eff: 80)]
+        )
+        try PulseSQLite.writeSchedule(pack, to: url)
+        XCTAssertEqual(try XCTUnwrap(PulseSQLite.readSchedule(from: url)), pack)
+        let kept = try PulseSQLite.read(from: url)
+        let rated = try XCTUnwrap(kept.rows.first { $0.section == .prepNotReady && $0.storeNumber == "10" })
+        XCTAssertEqual(rated.number("pnr_rate_pct") ?? 0, 1.8036477701044753, accuracy: 0.000_000_1)
+        XCTAssertEqual(PulseSQLite.sectionCount(from: url, section: .prepNotReady), 1)
+    }
+
     func testScheduleCheckShipsInsideSqliteNotAsASidecarPack() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

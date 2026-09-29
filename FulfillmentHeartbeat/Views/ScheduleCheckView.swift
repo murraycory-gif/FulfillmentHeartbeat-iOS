@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Upcoming Weeks Schedule Check. Action Needed, Summary, then Store Detail.
-/// The hub Filters drive every grain. The pack is the schedule JSON, not Heartbeat rows.
+/// The hub Filters drive every grain. Rows come from `schedule_pack` in the open sqlite.
 struct ScheduleCheckView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass

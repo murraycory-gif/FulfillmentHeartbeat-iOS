@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -232,5 +233,16 @@ const open = await authorize(new Request("http://localhost/api/home"), { HEARTBE
 assert.equal(open.ok, true);
 const locked = await authorize(new Request("https://heartbeat.pages.dev/api/home"), { HEARTBEAT_WEB_DEV: "1" }, "reader@example.com\n");
 assert.equal(locked.ok, false);
+
+const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
+assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
+assert.match(wrangler, /pages_build_output_dir = "dist"/);
+assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
+const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
+assert.equal(built.status, 0, built.stderr.toString());
+const distIndex = readFileSync(join(root, "dist/index.html"), "utf8");
+assert.match(distIndex, /HB-0828\.494/);
+assert.equal(distIndex.includes("pages.dev"), false);
+assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
 
 console.log("web ok");

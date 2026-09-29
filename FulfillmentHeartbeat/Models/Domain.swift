@@ -2955,6 +2955,14 @@ enum HeartbeatMath {
         return PrepCoverage(reported: reported, inScope: reportedByStore.count)
     }
 
+    /// Company Prep tile. Every uploaded prep fact already has a rate, so the
+    /// tile is that rollup. Roster stores with no fact stay blank. They do not
+    /// turn the tile into a dash or a No data badge.
+    static func companyPrepKeepsFactRollup(_ facts: PrepCoverage?) -> Bool {
+        guard let facts, facts.reported > 0 else { return false }
+        return !facts.thin
+    }
+
     static func summarize(_ section: MetricSection, rows: [MetricRow], upload: UploadRecord?) -> SectionSummary {
         let latest: [MetricRow]
         if section == .pickerScorecard {

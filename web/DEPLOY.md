@@ -6,6 +6,17 @@ Read-only Cloudflare Pages site. It mirrors the Heartbeat pages (Dashboard throu
 
 Nothing in this folder has been deployed. Do not connect this git branch to Pages auto-deploy.
 
+`https://heartbeat-web.pages.dev/` is an unrelated site. Do not deploy this shell there. Do not pass `--project-name heartbeat-web`. The Pages project for this shell is `fulfillment-heartbeat-web`, and only after you create that project yourself.
+
+Build the shell locally. This does not upload anything:
+
+```bash
+cd web
+npm run build
+```
+
+That writes `web/dist/` (`pages_build_output_dir`). Functions stay in `web/functions`.
+
 ## What Cory sets up
 
 Do these in order. Free tier only: Pages, Pages Functions (Workers free), one existing R2 bucket, and Cloudflare Access email one-time PIN for 50 people or fewer. No D1, no paid add-on, no custom domain, no DNS change.
@@ -19,7 +30,7 @@ The same addresses go in the Access policy in step 3. This file is the origin ch
 ### 2. Pages project (direct upload)
 
 1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Upload assets** (direct upload). Do not connect GitHub. A Git connection would publish this feature branch on every push.
-2. Project name: `heartbeat-web`.
+2. Project name: `fulfillment-heartbeat-web`. Do not reuse `heartbeat-web`. That name is the unrelated `heartbeat-web.pages.dev` site.
 3. After the first empty upload, open the project → **Settings** → **Bindings** → **Add** → **R2 bucket**.
    - Variable name: `HEARTBEAT_PACKS`
    - Bucket: the existing bucket `heartbeat-packs`
@@ -33,7 +44,7 @@ The same addresses go in the Access policy in step 3. This file is the origin ch
 ### 3. Cloudflare Access (email PIN)
 
 1. **Zero Trust** → **Access** → **Applications** → **Add an application** → **Self-hosted**.
-2. Application domain: the Pages hostname, including `*.pages.dev` (for example `heartbeat-web.pages.dev`). Add both the apex name and a wildcard if Access asks for a path. Leave a custom domain off.
+2. Application domain: the new project's Pages hostname, including `*.pages.dev` (for example `fulfillment-heartbeat-web.pages.dev`). Add both the apex name and a wildcard if Access asks for a path. Leave a custom domain off. Do not attach Access to `heartbeat-web.pages.dev`.
 3. Identity provider: **One-time PIN**.
 4. Policy: Action **Allow**. Include rule **Emails**. Paste the same addresses as `allowlist.txt`.
 5. Copy the application **AUD** tag into `CF_ACCESS_AUD` (step 2) and save the Pages variable.
@@ -69,13 +80,14 @@ This extract is not wired into `.github/workflows/cook-heartbeat-pack.yml`. The 
 
 ### 5. Deploy the site (manual)
 
-From `web/`, after steps 2 and 3:
+From `web/`, after steps 2 and 3, and only when you mean to publish. This change does not run the upload:
 
 ```bash
-npx wrangler pages deploy public --project-name heartbeat-web
+npm run build
+npx wrangler pages deploy dist --project-name fulfillment-heartbeat-web
 ```
 
-Wrangler will ask you to log in. That upload is the site. Re-run it when this folder changes. Re-run step 4 when the packs change. They are separate.
+Wrangler will ask you to log in. That upload is the site. Re-run it when this folder changes. Re-run step 4 when the packs change. They are separate. Do not deploy to `heartbeat-web.pages.dev`.
 
 ### 6. Public bucket URL — read this before you click
 
