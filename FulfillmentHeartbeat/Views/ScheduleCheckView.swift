@@ -60,60 +60,74 @@ struct ScheduleCheckView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, pagePadding)
-            switch tab {
-            case .action:
-                actionPage(pack, summary: summary)
-            case .summary:
-                summaryPage(pack, summary: summary)
-            case .detail:
-                detailPage(pack)
+            Group {
+                switch tab {
+                case .action:
+                    actionPage(pack, summary: summary)
+                case .summary:
+                    summaryPage(pack, summary: summary)
+                case .detail:
+                    detailPage(pack)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .refreshable { await store.reloadScheduleCheck() }
     }
 
+    /// Vertical scroll fills the space under the tabs. A two-axis scroll around
+    /// a lazy stack lays out at height 0, so the scope line and rows never paint.
     private func actionPage(_ pack: ScheduleCheckPack, summary: ScheduleScopeSummary) -> some View {
         let groups = ScheduleCheckMath.actionGroups(pack: pack, filters: store.filters)
-        return ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+        return ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let note = ScheduleCheckMath.bannerMismatch(pack: pack, summary: summary, filters: store.filters) {
                     Text(note)
                         .font(.footnote)
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(.horizontal, 8)
                         .padding(.bottom, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Text("\(summary.actionCount) stores · sales ≥ $30,000 and (under ≥ 10% or 4-wk under > 9% or over ≥ 15%)")
                     .font(.footnote)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
-                header(actionColumns)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if groups.isEmpty {
                     Text("No stores qualify in this scope.")
                         .font(.body)
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(12)
-                }
-                ForEach(groups) { group in
-                    Text("\(group.division) · \(group.region) · \(group.stores.count)")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppTheme.blueSoft)
-                    ForEach(group.stores) { store in
-                        actionRow(store)
-                        Divider().overlay(AppTheme.cardBorder)
+                }
+                ScrollView(.horizontal) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(actionColumns)
+                        ForEach(groups) { group in
+                            Text("\(group.division) · \(group.region) · \(group.stores.count)")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(AppTheme.blueSoft)
+                            ForEach(group.stores) { store in
+                                actionRow(store)
+                                Divider().overlay(AppTheme.cardBorder)
+                            }
+                        }
                     }
+                    .frame(minWidth: actionWidth, alignment: .leading)
                 }
             }
-            .frame(minWidth: actionWidth, alignment: .leading)
             .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func summaryPage(_ pack: ScheduleCheckPack, summary: ScheduleScopeSummary) -> some View {
@@ -136,6 +150,7 @@ struct ScheduleCheckView: View {
                 Text("Eff goal ≥ 90% is green. Ranked worst efficiency first.")
                     .font(.footnote)
                     .foregroundStyle(AppTheme.textSecondary)
+                marketBlock(pack.markets)
                 rankBlock(
                     title: "Region",
                     rows: ScheduleCheckMath.rankedRegions(pack: pack, filters: store.filters),
@@ -149,28 +164,64 @@ struct ScheduleCheckView: View {
             }
             .padding(.horizontal, pagePadding)
             .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func detailPage(_ pack: ScheduleCheckPack) -> some View {
         let rows = sorted(ScheduleCheckMath.scoped(pack, filters: store.filters))
-        return ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                header(detailColumns, tappable: true)
-                ForEach(rows) { store in
-                    detailRow(store)
-                    Divider().overlay(AppTheme.cardBorder)
-                }
+        return ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 0) {
                 if rows.isEmpty {
                     Text("No stores in this scope.")
                         .font(.body)
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ScrollView(.horizontal) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(detailColumns, tappable: true)
+                        ForEach(rows) { store in
+                            detailRow(store)
+                            Divider().overlay(AppTheme.cardBorder)
+                        }
+                    }
+                    .frame(minWidth: detailWidth, alignment: .leading)
                 }
             }
-            .frame(minWidth: detailWidth, alignment: .leading)
             .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Market Look rows from the pack, including United and Total.
+    private func marketBlock(_ markets: [ScheduleMarket]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Market Look")
+                .font(.headline)
+                .foregroundStyle(AppTheme.text)
+                .padding(.bottom, 8)
+            ForEach(markets) { market in
+                HStack(spacing: 12) {
+                    Text(market.label)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(HeartbeatFormat.pct(market.under))
+                        .frame(width: 72, alignment: .trailing)
+                    Text(HeartbeatFormat.pct(market.over))
+                        .frame(width: 72, alignment: .trailing)
+                    Text(HeartbeatFormat.pct(market.eff))
+                        .frame(width: 72, alignment: .trailing)
+                }
+                .font(cellFont)
+                .foregroundStyle(AppTheme.text)
+                .padding(.vertical, 6)
+                Divider().overlay(AppTheme.cardBorder)
+            }
+        }
+        .padding(.bottom, 16)
     }
 
     private func kpi(_ title: String, _ value: String, _ health: Health?) -> some View {
