@@ -1379,7 +1379,8 @@ enum HeartbeatMath {
         switch summary.section {
         case .missingItems, .preSubOOS:
             guard summary.storeCount > 0 || summary.headline != nil else { return nil }
-            let healthy = max(0, summary.storeCount - summary.watchCount - summary.riskCount)
+            let healthy = namedHealthyCount(summary.secondary)
+                ?? max(0, summary.storeCount - summary.watchCount - summary.riskCount)
             return CompanyCardTiles(
                 labels: dashboardTableHeaders(summary.section),
                 values: [
@@ -1428,17 +1429,30 @@ enum HeartbeatMath {
     }
 
     static func lossGrainHealth(_ row: DashboardGrainTableRow) -> Health {
-        if row.health != .none { return row.health }
-        guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Lost %"),
-              index < row.values.count else {
-            return row.storeCount > 0 ? .good : .none
+        if let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Lost %"),
+           index < row.values.count,
+           let pct = parsedTileNumber(row.values[index]) {
+            return lostRevenueHealth(pct: pct)
         }
-        let cleaned = row.values[index]
-            .replacingOccurrences(of: "%", with: "")
-            .replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let pct = Double(cleaned) else { return row.storeCount > 0 ? .good : .none }
-        return lostRevenueHealth(pct: pct)
+        if row.health != .none { return row.health }
+        return row.storeCount > 0 ? .good : .none
+    }
+
+    /// "961 healthy · 537 watch · …" is the scored band. Roster-pinned storeCount is not.
+    static func namedHealthyCount(_ secondary: String) -> Int? {
+        let trimmed = secondary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let range = trimmed.range(
+            of: #"^(\d{1,3}(?:,\d{3})*|\d+)\s+healthy\b"#,
+            options: .regularExpression
+        ) else { return nil }
+        let token = trimmed[range].split(separator: " ").first.map(String.init) ?? ""
+        return Int(token.replacingOccurrences(of: ",", with: ""))
+    }
+
+    /// Region picker cards count shoppers. The company card keeps its store count.
+    static func pickerGrainSubtitle(_ count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return "\(groupedCount(count)) \(count == 1 ? "shopper" : "shoppers")"
     }
 
     /// Expand has dollars/other columns but Goal % is still a dash.
@@ -1486,7 +1500,8 @@ enum HeartbeatMath {
         section: MetricSection,
         metricRows: [MetricRow],
         grain: DashScopeGrain,
-        goalFallback: Double? = nil
+        goalFallback: Double? = nil,
+        fillDashesOnly: Bool = false
     ) -> [DashboardGrainTableRow] {
         let headers = dashboardTableHeaders(section)
         guard !rows.isEmpty, headers.count > 1, !metricRows.isEmpty else {
@@ -1520,7 +1535,8 @@ enum HeartbeatMath {
                 values: mergedGrainValues(
                     current: row.values,
                     incoming: incoming?.values ?? [],
-                    headerCount: headers.count
+                    headerCount: headers.count,
+                    fillDashesOnly: fillDashesOnly
                 ),
                 health: row.health == .none ? (incoming?.health ?? row.health) : row.health
             )
@@ -1543,12 +1559,22 @@ enum HeartbeatMath {
         }
     }
 
-    static func mergedGrainValues(current: [String], incoming: [String], headerCount: Int) -> [String] {
+    static func mergedGrainValues(
+        current: [String],
+        incoming: [String],
+        headerCount: Int,
+        fillDashesOnly: Bool = false
+    ) -> [String] {
         var out: [String] = []
         out.reserveCapacity(headerCount)
         for index in 0..<headerCount {
             let have = index < current.count ? current[index] : ""
             let next = index < incoming.count ? incoming[index] : ""
+            let haveValue = have != "—" && !have.isEmpty
+            if fillDashesOnly, haveValue {
+                out.append(have)
+                continue
+            }
             if next != "—" && !next.isEmpty {
                 out.append(next)
             } else if have != "—" && !have.isEmpty {
@@ -4128,6 +4154,17 @@ enum HeartbeatMath {
 
     /// Store/region goal first; FY2026 market goal fills grains when the pack only shipped a company target.
     static func lostRevenueInheritedGoalPct(rows: [MetricRow], fallback: Double? = nil) -> Double? {
+        // 247.06 is lost $ / FY goal $, already stored as a percent. Do not replace it with goal $ / eComm.
+        if let market = lostRevenueMarketRow(in: rows),
+           let pct = market.number(
+            "lost_revenue_goal_pct",
+            "goal_pct",
+            "fy2026_goal_pct",
+            "fy_goal_pct",
+            "lost_revenue_fy_goal_pct"
+           ), pct > 20 {
+            return pct
+        }
         let dollars = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
         let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
         if sales > 0, dollars > 0 { return dollars / sales * 100 }
@@ -4154,11 +4191,52 @@ enum HeartbeatMath {
         row?.number("lost_revenue") ?? 0
     }
 
-    static func lostRevenueMarketRow(in rows: [MetricRow]) -> MetricRow? {
-        rows.first {
-            $0.textPayload["lost_grain"] == "market"
-                && canonicalStore($0.storeNumber).isEmpty
+    /// A market row is the company Total only when Lost $ , eComm $ , and Lost % describe the same book.
+    /// $149,208 / 4.84% / eComm $30,854 is a fragment (implied ~484%). A row with no eComm can still be the Total.
+    static func lostRevenueRowIsCompanyTotal(_ row: MetricRow) -> Bool {
+        guard row.textPayload["lost_grain"] == "market",
+              canonicalStore(row.storeNumber).isEmpty,
+              let lost = row.number("lost_revenue"), lost > 0
+        else { return false }
+        let sales = row.number("ecomm_sales")
+        if let sales, sales > 0, let pct = row.number("lost_revenue_pct") {
+            let implied = lost / sales * 100
+            if abs(implied - pct) > 1 { return false }
         }
+        if let sales, sales > 0, sales < 1_000_000, lost >= 50_000 {
+            return false
+        }
+        return true
+    }
+
+    static func parsedTileNumber(_ value: String) -> Double? {
+        let cleaned = value
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty, cleaned != "—", cleaned != "-", cleaned != "–" else { return nil }
+        return Double(cleaned)
+    }
+
+    static func tileNumber(_ tiles: CompanyCardTiles, label: String) -> Double? {
+        guard let index = tiles.labels.firstIndex(of: label), index < tiles.values.count else { return nil }
+        return parsedTileNumber(tiles.values[index])
+    }
+
+    /// Cooked Loss tiles that disagree with themselves are not the Excel company Total.
+    static func lossTilesMatchCompanyTotal(_ tiles: CompanyCardTiles) -> Bool {
+        guard let lost = tileNumber(tiles, label: "Lost $"), lost > 0 else { return true }
+        let sales = tileNumber(tiles, label: "eComm $")
+        let pct = tileNumber(tiles, label: "Lost %")
+        if let sales, sales > 0, let pct, abs(lost / sales * 100 - pct) > 1 { return false }
+        if let sales, sales > 0, sales < 1_000_000, lost >= 50_000 { return false }
+        return true
+    }
+
+    static func lostRevenueMarketRow(in rows: [MetricRow]) -> MetricRow? {
+        rows.filter { lostRevenueRowIsCompanyTotal($0) }
+            .max { ($0.number("lost_revenue") ?? 0) < ($1.number("lost_revenue") ?? 0) }
     }
 
     static func lostRevenueStoreRows(_ rows: [MetricRow]) -> [MetricRow] {
@@ -4181,13 +4259,21 @@ enum HeartbeatMath {
 
     /// Market Total key when that row is in the book. Otherwise the sum of store keys that exist.
     /// Missing keys stay nil so the tile is an em dash. An explicit 0 stays 0.
+    /// Store dollars for a company tile when the Total row is missing.
+    /// Ignored stores stay out of the store count. Their dollars stay in this sum (store 239).
+    static func lostRevenueDollarRows(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !$0.storeNumber.isEmpty
+                && hasMetricFact(.lostRevenue, $0)
+        }
+    }
+
     static func lostRevenueReportedValue(_ rows: [MetricRow], key: String) -> Double? {
         if let market = lostRevenueMarketRow(in: rows), let value = market.number(key) {
             return value
         }
-        let values = lostRevenueStoreRows(rows)
-            .filter { hasMetricFact(.lostRevenue, $0) }
-            .compactMap { $0.number(key) }
+        let values = lostRevenueDollarRows(rows).compactMap { $0.number(key) }
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +)
     }
@@ -4200,7 +4286,7 @@ enum HeartbeatMath {
             }
             return nil
         }
-        let facts = lostRevenueStoreRows(rows).filter { hasMetricFact(.lostRevenue, $0) }
+        let facts = lostRevenueDollarRows(rows)
         let salesValues = facts.compactMap { $0.number("ecomm_sales") }
         let lostValues = facts.compactMap { $0.number("lost_revenue") }
         let sales = salesValues.reduce(0, +)

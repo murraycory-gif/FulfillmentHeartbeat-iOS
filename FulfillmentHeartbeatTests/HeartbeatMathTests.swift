@@ -1835,6 +1835,220 @@ final class HeartbeatMathTests: XCTestCase {
             XCTAssertNotNil(object?[key], key)
         }
         XCTAssertNotNil(object?["companyTiles"])
+
+        let pinned = SectionSummary(
+            section: .preSubOOS,
+            storeCount: 2_177,
+            headline: 5.69,
+            headlineLabel: "Rate",
+            secondary: "961 healthy · 537 watch · 658 over 6.50%",
+            health: .watch,
+            watchCount: 537,
+            riskCount: 658,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(HeartbeatMath.legacyCompanyTiles(summary: pinned)?.values[1], HeartbeatFormat.num(961))
+        XCTAssertEqual(HeartbeatMath.pickerGrainSubtitle(5_398), "5,398 shoppers")
+        XCTAssertEqual(HeartbeatMath.pickerGrainSubtitle(1), "1 shopper")
+        XCTAssertTrue(HeartbeatMath.PrepCoverage(reported: 36, inScope: 2_177).thin)
+        XCTAssertFalse(HeartbeatMath.PrepCoverage(reported: 36, inScope: 36).thin)
+        XCTAssertEqual(
+            HeartbeatMath.PrepCoverage(reported: 36, inScope: 2_177).note,
+            "Only 36 of 2,177 stores reported Prep Not Ready this upload."
+        )
+    }
+
+    func testLossCompanyTotalSkipsAnIncoherentMarketFragment() {
+        let fragment = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 149_208.02,
+                "lost_revenue_pct": 4.84,
+                "ecomm_sales": 30_854.40,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        let total = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total",
+            payload: [
+                "lost_revenue": 3_456_041.35,
+                "lost_revenue_pct": 1.80,
+                "lost_revenue_goal_pct": 247.06,
+                "ecomm_sales": 192_329_558.25,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        XCTAssertFalse(HeartbeatMath.lostRevenueRowIsCompanyTotal(fragment))
+        XCTAssertTrue(HeartbeatMath.lostRevenueRowIsCompanyTotal(total))
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueMarketRow(in: [fragment, total])?.number("lost_revenue") ?? 0,
+            3_456_041.35,
+            accuracy: 0.01
+        )
+        let ignored = MetricRow(
+            section: .lostRevenue,
+            division: "Southwest",
+            operationsOM: "",
+            storeNumber: "239",
+            payload: ["lost_revenue": 218.31, "ecomm_sales": 10_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let east = MetricRow(
+            section: .lostRevenue,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: ["lost_revenue": 3_455_823.04, "ecomm_sales": 192_319_558.25],
+            textPayload: ["lost_grain": "store"]
+        )
+        let summed = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [fragment, ignored, east])
+        XCTAssertEqual(summed.values[0], HeartbeatFormat.money(3_456_041.35))
+        XCTAssertEqual(summed.values[1], HeartbeatFormat.pct(1.80))
+        XCTAssertEqual(summed.health, .good)
+        let badTiles = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+            values: [
+                HeartbeatFormat.money(149_208.02),
+                HeartbeatFormat.pct(4.84),
+                "—",
+                HeartbeatFormat.money(30_854.40),
+                "—", "—", "—", "—", "—",
+            ]
+        )
+        let goodTiles = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+            values: [
+                HeartbeatFormat.money(3_456_041.35),
+                HeartbeatFormat.pct(1.80),
+                HeartbeatFormat.pct(247.06),
+                HeartbeatFormat.money(192_329_558.25),
+                "—", "—", "—", "—", "—",
+            ]
+        )
+        XCTAssertFalse(HeartbeatMath.lossTilesMatchCompanyTotal(badTiles))
+        XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(goodTiles))
+        let fixture = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+            values: [
+                HeartbeatFormat.money(164_335),
+                HeartbeatFormat.pct(2.15),
+                HeartbeatFormat.pct(3.71),
+                HeartbeatFormat.money(7_600_000),
+                HeartbeatFormat.money(12_000),
+                HeartbeatFormat.money(8_000),
+                HeartbeatFormat.money(4_000),
+                HeartbeatFormat.money(2_000),
+                HeartbeatFormat.money(900),
+            ]
+        )
+        XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(fixture))
+
+        let eastChrome = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 609,
+            values: ["7.16%", "—", "—", "—"],
+            health: .risk
+        )
+        let shaw = MetricRow(
+            section: .preSubOOS,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: [MissingItemDept.totalKey: 4.0],
+            textPayload: [:]
+        )
+        let filled = HeartbeatMath.fillingGrainTable(
+            [eastChrome],
+            section: .preSubOOS,
+            metricRows: [shaw],
+            grain: .region,
+            fillDashesOnly: true
+        )
+        XCTAssertEqual(filled.first?.values.first, "7.16%")
+        XCTAssertEqual(filled.first?.values[1], HeartbeatFormat.num(1))
+        XCTAssertEqual(filled.first?.values[2], HeartbeatFormat.num(0))
+        XCTAssertEqual(filled.first?.values[3], HeartbeatFormat.num(0))
+    }
+
+    @MainActor
+    func testIncoherentLossMarketRowDoesNotReplaceTheCompanyTotal() throws {
+        let fragment = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 149_208.02,
+                "lost_revenue_pct": 4.84,
+                "ecomm_sales": 30_854.40,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        let east = MetricRow(
+            section: .lostRevenue,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: ["lost_revenue": 3_455_823.04, "ecomm_sales": 192_319_558.25],
+            textPayload: ["lost_grain": "store", "district": "A1"]
+        )
+        let ignored = MetricRow(
+            section: .lostRevenue,
+            division: "Southwest",
+            operationsOM: "",
+            storeNumber: "239",
+            payload: ["lost_revenue": 218.31, "ecomm_sales": 10_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .lostRevenue,
+                    storeCount: 2_177,
+                    headline: 3_456_041.35,
+                    headlineLabel: "Total lost revenue",
+                    secondary: "Total Lost Revenue % (Total Opportunity)",
+                    health: .none,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil,
+                    lostRevenuePct: 1.80
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("loss-fragment-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: [fragment, east, ignored], uploads: [], seeded: true, chrome: chrome, to: seat)
+        PulseSQLite.decodedFactRowCount = 0
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        let painted = store.cheapPhonePageChrome(.lostRevenue)
+        XCTAssertEqual(painted.headline ?? 0, 3_456_041.35, accuracy: 0.01)
+        XCTAssertEqual(painted.health, .good)
+        let chips = PhoneThisWeekChrome.chips(section: .lostRevenue, store: store)
+        XCTAssertEqual(chips.first?.value, HeartbeatFormat.money(3_456_041.35))
+        XCTAssertEqual(chips.first { $0.label == "Lost %" }?.value, "1.80%")
+        XCTAssertEqual(chips.first { $0.label == "eComm $" }?.value, HeartbeatFormat.money(192_329_558.25))
+        XCTAssertFalse(chips.contains { $0.value == HeartbeatFormat.money(149_208.02) })
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 1)
     }
 
     @MainActor

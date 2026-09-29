@@ -159,6 +159,9 @@ final class HeartbeatStore: ObservableObject {
     /// Scope key → cooked top 10. Filled one card at a time. Never the item plane.
     /// Prep reported vs in-scope from the open pack. Nil until chrome is applied.
     private(set) var prepUploadedCoverage: HeartbeatMath.PrepCoverage?
+    /// Section payloads for region columns. Not `latestBySection`. Cleared with chrome.
+    private var grainFactCache: [MetricSection: [PulseSQLite.GrainFact]] = [:]
+    private var grainFactPackPath: String = ""
     private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
     private var preSubTopCacheURL: String = ""
     private var companySeatChrome: PulseDashChrome?
@@ -718,11 +721,146 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Company card tiles from chrome. Nil when a filter is on or the workbook value was never cooked.
+    /// An incoherent Loss tile set (Lost $ / Lost % / eComm $ disagree) is not the Excel Total.
     func companyCardTiles(for section: MetricSection) -> CompanyCardTiles? {
         guard !filters.isActive else { return nil }
-        guard let tiles = packChrome?.companyTiles[section.rawValue],
-              HeartbeatMath.companyTilesHaveWorkbookValue(tiles) else { return nil }
+        if let tiles = packChrome?.companyTiles[section.rawValue],
+           HeartbeatMath.companyTilesHaveWorkbookValue(tiles),
+           section != .lostRevenue || HeartbeatMath.lossTilesMatchCompanyTotal(tiles) {
+            return tiles
+        }
+        return livePackCompanyTiles(for: section)
+    }
+
+    /// Pre-Sub bands and Loss dollars from this section's store rows when chrome has no cooked tiles.
+    /// Does not enter `latestBySection`.
+    private func livePackCompanyTiles(for section: MetricSection) -> CompanyCardTiles? {
+        switch section {
+        case .preSubOOS, .missingItems, .lostRevenue:
+            break
+        default:
+            return nil
+        }
+        guard !hasSectionFacts(section) else { return nil }
+        let facts = grainMetricRows(for: section)
+        guard !facts.isEmpty else { return nil }
+        guard var tiles = HeartbeatMath.companyCardTiles(section: section, rows: facts) else { return nil }
+        let summary = cheapPhonePageChrome(section)
+        if section == .preSubOOS || section == .missingItems {
+            if let headline = summary.headline, headline > 0, !tiles.values.isEmpty {
+                tiles.values[0] = HeartbeatFormat.pct(headline)
+            }
+            if tiles.values.count >= 4 {
+                if let healthy = HeartbeatMath.namedHealthyCount(summary.secondary) {
+                    tiles.values[1] = HeartbeatFormat.num(Double(healthy))
+                }
+                if summary.watchCount > 0 || summary.riskCount > 0 {
+                    tiles.values[2] = HeartbeatFormat.num(Double(summary.watchCount))
+                    tiles.values[3] = HeartbeatFormat.num(Double(summary.riskCount))
+                }
+            }
+        }
+        if section == .lostRevenue {
+            guard HeartbeatMath.lossTilesMatchCompanyTotal(tiles) else { return nil }
+            if let lost = HeartbeatMath.tileNumber(tiles, label: "Lost $"),
+               let chrome = summary.headline, chrome > 1, lost < chrome * 0.5 {
+                return nil
+            }
+            adoptLossCompanyCard(tiles)
+        }
         return tiles
+    }
+
+    private func adoptLossCompanyCard(_ tiles: CompanyCardTiles) {
+        guard let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) else { return }
+        var card = cachedSummaries[index]
+        if let lost = HeartbeatMath.tileNumber(tiles, label: "Lost $"), lost > 0 {
+            let chrome = card.headline ?? 0
+            if chrome <= 1 || lost + 1 >= chrome * 0.5, abs(chrome - lost) > 1 {
+                card.headline = lost
+            }
+        }
+        if let pct = HeartbeatMath.tileNumber(tiles, label: "Lost %") {
+            card.lostRevenuePct = pct
+            card.health = HeartbeatMath.lostRevenueHealth(pct: pct)
+        }
+        cachedSummaries[index] = card
+    }
+
+    func grainMetricRows(for section: MetricSection) -> [MetricRow] {
+        let rows = grainFacts(for: section).map { fact in
+            MetricRow(
+                section: section,
+                division: fact.division,
+                operationsOM: "",
+                storeNumber: fact.store,
+                payload: fact.numbers,
+                textPayload: fact.text
+            )
+        }
+        return HeartbeatMath.rowsFillingRoster(rows, roster: roster)
+    }
+
+    private func grainFacts(for section: MetricSection) -> [PulseSQLite.GrainFact] {
+        let path = activePackURL.path
+        if grainFactPackPath != path {
+            grainFactPackPath = path
+            grainFactCache = [:]
+        }
+        if let hit = grainFactCache[section] { return hit }
+        let rows = PulseSQLite.readGrainFacts(from: activePackURL, section: section)
+        grainFactCache[section] = rows
+        return rows
+    }
+
+    /// Reported Prep stores in this grain versus roster stores in the same grain.
+    func prepCoverage(grain: DashScopeGrain, label: String) -> HeartbeatMath.PrepCoverage? {
+        let scope = prepRosterScope(grain: grain, label: label)
+        if scope > 0 {
+            return HeartbeatMath.PrepCoverage(
+                reported: prepReportedCount(grain: grain, label: label),
+                inScope: scope
+            )
+        }
+        if let uploaded = prepUploadedCoverage, uploaded.thin { return uploaded }
+        return nil
+    }
+
+    private func prepRosterScope(grain: DashScopeGrain, label: String) -> Int {
+        let wanted = Set(HeartbeatMath.grainAliasKeys(label, grain: grain))
+        guard !wanted.isEmpty else { return 0 }
+        var count = 0
+        for (number, identity) in roster {
+            if HeartbeatMath.isIgnoredStore(number) { continue }
+            let key: String?
+            switch grain {
+            case .region:
+                key = MarketRegion.resolved(division: identity.division, district: identity.district)?.rawValue
+            case .division:
+                key = identity.division
+            default:
+                key = nil
+            }
+            guard let key else { continue }
+            let aliases = HeartbeatMath.grainAliasKeys(key, grain: grain)
+            if aliases.contains(where: { wanted.contains($0) }) { count += 1 }
+        }
+        return count
+    }
+
+    private func prepReportedCount(grain: DashScopeGrain, label: String) -> Int {
+        let wanted = Set(HeartbeatMath.grainAliasKeys(label, grain: grain))
+        var stores: Set<String> = []
+        for row in grainMetricRows(for: .prepNotReady) {
+            if HeartbeatMath.isIgnoredStore(row.storeNumber) { continue }
+            guard row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil else { continue }
+            guard let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) else { continue }
+            let aliases = HeartbeatMath.grainAliasKeys(key, grain: grain)
+            guard aliases.contains(where: { wanted.contains($0) }) else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty { stores.insert(store) }
+        }
+        return stores.count
     }
 
     func pickerScopeRollup(_ scope: String) -> PickerScopeRollup? {
@@ -2181,14 +2319,14 @@ final class HeartbeatStore: ObservableObject {
 
     func lostRevenueMarketRow() -> MetricRow? {
         if let pinned = companyRollupFact(.lostRevenue),
-           pinned.number("lost_revenue") != nil || pinned.textPayload["lost_grain"] == "market" {
+           HeartbeatMath.lostRevenueRowIsCompanyTotal(pinned) {
             return pinned
         }
         touchResidentFacts()
-        let isMarket: (MetricRow) -> Bool = { $0.textPayload["lost_grain"] == "market" }
-        if let row = latestBySection[.lostRevenue]?.first(where: isMarket) { return row }
-        if let row = filteredLatest[.lostRevenue]?.first(where: isMarket) { return row }
-        return rows.first(where: isMarket)
+        var pool = latestBySection[.lostRevenue] ?? []
+        pool.append(contentsOf: filteredLatest[.lostRevenue] ?? [])
+        pool.append(contentsOf: rows.filter { $0.section == .lostRevenue })
+        return HeartbeatMath.lostRevenueMarketRow(in: pool)
     }
 
     func hasSectionFacts(_ section: MetricSection) -> Bool {
@@ -2206,23 +2344,29 @@ final class HeartbeatStore: ObservableObject {
 
     private func pinUnfilteredLostRevenueHeadline() {
         guard !filters.isActive,
-              let market = lostRevenueMarketRow(),
-              let target = market.number("lost_revenue"),
-              target > 0,
               let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue })
         else { return }
         var card = cachedSummaries[index]
-        let drifted = abs((card.headline ?? 0) - target) > 1
-        let pct = market.number("lost_revenue_pct") ?? card.lostRevenuePct
-        if !drifted, card.health != .none { return }
-        if drifted { card.headline = target }
-        if let pct {
-            card.lostRevenuePct = pct
-            if card.health == .none || drifted {
-                card.health = HeartbeatMath.lostRevenueHealth(pct: pct)
+        if let market = lostRevenueMarketRow(),
+           let target = market.number("lost_revenue"), target > 0 {
+            let chrome = card.headline ?? 0
+            let trust = chrome <= 1 || target + 1 >= chrome * 0.5
+            let drifted = abs(chrome - target) > 1
+            if trust, drifted { card.headline = target }
+            let pct = (trust ? market.number("lost_revenue_pct") : nil) ?? card.lostRevenuePct
+            if let pct {
+                card.lostRevenuePct = pct
+                if card.health == .none || (trust && drifted) {
+                    card.health = HeartbeatMath.lostRevenueHealth(pct: pct)
+                }
             }
+            cachedSummaries[index] = card
+            return
         }
-        cachedSummaries[index] = card
+        if card.health == .none, let pct = card.lostRevenuePct {
+            card.health = HeartbeatMath.lostRevenueHealth(pct: pct)
+            cachedSummaries[index] = card
+        }
     }
 
     func dynacapCoverageNote() -> String? {
@@ -6353,6 +6497,8 @@ final class HeartbeatStore: ObservableObject {
     private func applyDashChrome(_ chrome: PulseDashChrome, packURL: URL? = nil) {
         preSubTopCache = [:]
         preSubTopCacheURL = ""
+        grainFactCache = [:]
+        grainFactPackPath = ""
         let coverageURL = packURL ?? activePackURL
         prepUploadedCoverage = PulseSQLite.prepCoverage(from: coverageURL)
         packChrome = chrome
@@ -6439,6 +6585,7 @@ final class HeartbeatStore: ObservableObject {
 
     /// Header, Result, and the Prep card share one answer. Thin coverage is NO DATA.
     private func applyPrepCoverageGate() {
+        widenPrepCoverageToRoster()
         guard let coverage = prepUploadedCoverage, coverage.thin,
               let index = cachedSummaries.firstIndex(where: { $0.section == .prepNotReady })
         else { return }
@@ -6448,6 +6595,14 @@ final class HeartbeatStore: ObservableObject {
         cachedSummaries[index].storeCount = coverage.inScope
         cachedSummaries[index].watchCount = 0
         cachedSummaries[index].riskCount = 0
+    }
+
+    /// Prep rows that exist are not the store universe. Grade coverage against the roster.
+    private func widenPrepCoverageToRoster() {
+        guard let current = prepUploadedCoverage else { return }
+        let universe = roster.count
+        guard universe > current.inScope else { return }
+        prepUploadedCoverage = HeartbeatMath.PrepCoverage(reported: current.reported, inScope: universe)
     }
 
     /// Pack chrome already has live expand numbers. Seed them on the first

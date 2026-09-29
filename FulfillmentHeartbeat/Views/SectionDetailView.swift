@@ -1363,9 +1363,7 @@ struct PhoneSectionPage: View {
                 ForEach(rows) { row in
                     PhoneScorecardRow(
                         title: HeartbeatMath.displayGrainLabel(row.label),
-                        subtitle: row.storeCount > 0
-                            ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
-                            : nil,
+                        subtitle: HeartbeatMath.pickerGrainSubtitle(row.storeCount),
                         chips: metricChips(values: row.values, health: row.health),
                         health: row.health == .none && row.storeCount > 0 ? .good : row.health,
                         preSubTop: preSubTop(scope: PreSubTopItems.grainScope(grain, label: row.label))
@@ -1402,7 +1400,9 @@ struct PhoneSectionPage: View {
 
     private func prepGrainNote(grain: DashScopeGrain, label: String) -> String? {
         guard section == .prepNotReady else { return nil }
-        if let uploaded = store.prepUploadedCoverage, uploaded.thin { return uploaded.note }
+        if let coverage = store.prepCoverage(grain: grain, label: label), coverage.thin {
+            return coverage.note
+        }
         let labor = LaborRollupGrain(grain)
         let matching = store.seatRows(for: .prepNotReady).filter { row in
             guard let key = RollupMarketFill.acceptedGrainKey(row, grain: labor) else { return false }
@@ -1439,6 +1439,7 @@ struct PhoneSectionPage: View {
                 tables: store.dashboardGrainRows(for: section),
                 packs: store.dashboardGrains(for: section)
             )
+            if let filled = filledLiveGrainRows(chrome, grain: grain) { return filled }
             if !chrome.isEmpty { return chrome }
         }
         let labor = LaborRollupGrain(grain)
@@ -1466,6 +1467,39 @@ struct PhoneSectionPage: View {
                 health: scored.health
             )
         }
+    }
+
+    /// Chrome region rows keep the cooked rate. Blank Healthy / Watch / At Risk and Loss columns fill from this section's stores.
+    private func filledLiveGrainRows(
+        _ chrome: [HeartbeatMath.DashboardGrainTableRow],
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow]? {
+        switch section {
+        case .preSubOOS, .missingItems, .lostRevenue:
+            break
+        default:
+            return nil
+        }
+        let needs = chrome.isEmpty || HeartbeatMath.grainTableNeedsColumnFill(chrome, section: section)
+        guard needs else { return nil }
+        let facts = store.grainMetricRows(for: section)
+        guard !facts.isEmpty else { return nil }
+        if chrome.isEmpty {
+            let built = HeartbeatMath.dashboardGrainTable(
+                section: section,
+                rows: facts,
+                grain: grain,
+                order: []
+            )
+            return built.isEmpty ? nil : built
+        }
+        return HeartbeatMath.fillingGrainTable(
+            chrome,
+            section: section,
+            metricRows: facts,
+            grain: grain,
+            fillDashesOnly: section != .lostRevenue
+        )
     }
 
     @ViewBuilder

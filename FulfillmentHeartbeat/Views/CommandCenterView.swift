@@ -303,7 +303,8 @@ enum CommandCenterLayout {
             return Array(named.prefix(6))
         }
         if !named.isEmpty { return Array(named.prefix(6)) }
-        let healthy = max(0, card.storeCount - card.watchCount - card.riskCount)
+        let healthy = HeartbeatMath.namedHealthyCount(card.secondary)
+            ?? max(0, card.storeCount - card.watchCount - card.riskCount)
         return [
             HeartbeatMath.FiveStarFlag(name: "Healthy", value: HeartbeatFormat.num(Double(healthy)), health: .good, stores: healthy),
             HeartbeatMath.FiveStarFlag(name: "Watch", value: HeartbeatFormat.num(Double(card.watchCount)), health: card.watchCount == 0 ? .good : .watch, stores: card.watchCount),

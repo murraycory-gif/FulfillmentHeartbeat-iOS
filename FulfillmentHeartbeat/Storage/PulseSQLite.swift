@@ -561,6 +561,43 @@ enum PulseSQLite {
         return HeartbeatMath.PrepCoverage(reported: reported, inScope: inScope)
     }
 
+    /// One section's store payloads for region cards. Does not call `metricRow`
+    /// and does not bump fact counters, so company install stays off the fact plane.
+    struct GrainFact: Equatable {
+        var store: String
+        var division: String
+        var numbers: [String: Double]
+        var text: [String: String]
+    }
+
+    static func readGrainFacts(from url: URL, section: MetricSection) -> [GrainFact] {
+        guard exists(at: url) else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = """
+        SELECT store_number, division, payload_json, text_json
+        FROM facts
+        WHERE section = ?;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        bind(stmt, 1, section.rawValue)
+        var out: [GrainFact] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append(GrainFact(
+                store: string(stmt, 0),
+                division: string(stmt, 1),
+                numbers: decodeMap(optional(stmt, 2) ?? "{}"),
+                text: decodeText(optional(stmt, 3) ?? "{}")
+            ))
+        }
+        return out
+    }
+
     /// One row per store. Not a `LIMIT` walk of `facts_section_div` (that prefix
     /// is Haggen, then Jewel, then a slice of Mid-Atlantic — everyone else is 0).
     static func pickerHeadcounts(from url: URL) -> [String: Int] {
