@@ -3223,6 +3223,11 @@ private struct PathShopperTable: View {
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(.vertical, 6)
+                        .accessibilityIdentifier(
+                            emptyDetail == PulseLaunch.noPathPickerRowsTitle
+                                ? PulseLaunch.noPathPickerRowsTitle
+                                : ""
+                        )
                 } else if usePhoneCards {
                     ForEach(pickers.prefix(limit)) { picker in
                         pickerPhoneCard(picker)
@@ -3274,6 +3279,7 @@ private struct PathShopperTable: View {
             .onChange(of: storeNumber) { _, _ in reloadShoppers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
             .onChange(of: shopperReloadToken) { _, _ in reloadShoppers() }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier(pickPathShopperAccessibilityID)
         }
     }
@@ -3379,7 +3385,7 @@ private struct PathShopperTable: View {
             scorecardRows: store.pphPickers(forStore: storeNumber),
             storePath: storePath
         )
-        if PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines) {
+        if lines.isEmpty || PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines) {
             pickers = []
             pathOnlyEmpty = true
             return
@@ -3413,9 +3419,24 @@ private struct PathShopperTable: View {
     }
 
     private var emptyDetail: String {
-        if pickPathAwaitingPack { return PulseLaunch.shopperEmptyDetail(loading: true) }
-        if pathOnlyEmpty { return PulseLaunch.noPathPickerRowsTitle }
-        return PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
+        PulseLaunch.pickPathShopperEmptyDetail(
+            pathOnlyEmpty: liveZeroPathNotice,
+            awaitingPack: pickPathAwaitingPack,
+            pickerLoading: store.pickerLoading
+        )
+    }
+
+    /// In-memory path-picker rows, not the store `pick_path` dashboard cell.
+    /// Empty stays the notice while a pack load or a dashboard fill is still running.
+    private var liveZeroPathNotice: Bool {
+        guard pickers.isEmpty else { return false }
+        guard section == .pickPath || section == .pickPathPicker else { return false }
+        let lines = PulseLaunch.pickPathShopperLines(
+            pathRows: store.pickPathPickers(forStore: storeNumber),
+            scorecardRows: store.pphPickers(forStore: storeNumber),
+            storePath: nil
+        )
+        return PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines)
     }
 
     private func pickerPhoneCard(_ picker: PathShopperSnap) -> some View {

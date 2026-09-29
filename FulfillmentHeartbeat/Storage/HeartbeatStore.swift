@@ -2222,11 +2222,13 @@ final class HeartbeatStore: ObservableObject {
         let key = HeartbeatMath.canonicalStore(store)
         guard !key.isEmpty else { return }
         if pickPathPickers(forStore: store).isEmpty {
-            let path = latestBySection[.pickPathPicker] ?? []
-            guard !path.isEmpty else { return }
-            let needsJoin = path.contains { HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+            let path = (latestBySection[.pickPathPicker] ?? []) + (filteredLatest[.pickPathPicker] ?? [])
             let scorecardReady = !(latestBySection[.pickerScorecard] ?? []).isEmpty
-            if needsJoin, !scorecardReady { return }
+                || !(filteredLatest[.pickerScorecard] ?? []).isEmpty
+            guard PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: path,
+                scorecardReady: scorecardReady
+            ) else { return }
         }
         resolvedPickPathShopperRevision[key] = packRevision
     }

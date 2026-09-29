@@ -478,17 +478,7 @@ enum PulseLaunch {
         let paths = pathRows.filter { $0.section == .pickPathPicker }
         if paths.isEmpty {
             _ = scorecardRows
-            return [
-                PickPathShopperLine(
-                    id: noPathPickerRowsID,
-                    name: noPathPickerRowsTitle,
-                    path: nil,
-                    pph: nil,
-                    orders: nil,
-                    mapper: nil,
-                    sequence: nil
-                )
-            ]
+            return [emptyPathPickerNoticeLine()]
         }
         var byKey: [String: PickPathShopperLine] = [:]
         var order: [String] = []
@@ -532,11 +522,49 @@ enum PulseLaunch {
             if a != b { return a < b }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
+        if lines.isEmpty {
+            return [emptyPathPickerNoticeLine()]
+        }
         return lines
+    }
+
+    private static func emptyPathPickerNoticeLine() -> PickPathShopperLine {
+        PickPathShopperLine(
+            id: noPathPickerRowsID,
+            name: noPathPickerRowsTitle,
+            path: nil,
+            pph: nil,
+            orders: nil,
+            mapper: nil,
+            sequence: nil
+        )
     }
 
     static func pickPathShopperLinesAreEmptyNotice(_ lines: [PickPathShopperLine]) -> Bool {
         lines.count == 1 && lines[0].id == noPathPickerRowsID
+    }
+
+    /// A settled zero-path store keeps this sentence on screen.
+    /// Pack loading and a filled store `pick_path` dashboard cell do not replace it.
+    static func pickPathShopperEmptyDetail(
+        pathOnlyEmpty: Bool,
+        awaitingPack: Bool,
+        pickerLoading: Bool
+    ) -> String {
+        if pathOnlyEmpty { return noPathPickerRowsTitle }
+        return shopperEmptyDetail(loading: awaitingPack || pickerLoading)
+    }
+
+    /// Store-scoped miss is final once any storeless path rows have a scorecard join.
+    /// An empty path section is that miss. A store `pick_path` row is not a path-picker row.
+    static func shouldRememberEmptyPickPathShopperLookup(
+        pathPickerRows: [MetricRow],
+        scorecardReady: Bool
+    ) -> Bool {
+        let pickerRows = pathPickerRows.filter { $0.section == .pickPathPicker }
+        let needsJoin = pickerRows.contains { HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+        if needsJoin, !scorecardReady { return false }
+        return true
     }
 
     private static func pickPathStoreDate(

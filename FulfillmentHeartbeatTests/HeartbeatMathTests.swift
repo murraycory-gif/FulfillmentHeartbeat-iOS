@@ -1100,6 +1100,70 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.pickPathShopperLinesAreEmptyNotice(empty))
     }
 
+    /// Store 2224 has a store path row and no path-picker rows.
+    /// The shopper notice stays. The dashboard cell still uses the store row.
+    func testZeroPathStoreKeepsEmptyNoticeWhenStorePathFillsDashboardCell() {
+        let storePath = MetricRow(
+            section: .pickPath,
+            division: "United",
+            operationsOM: "A",
+            storeNumber: "2224",
+            payload: ["compliance_pct": 79.6, "pph": 81.4]
+        )
+        let lines = PulseLaunch.pickPathShopperLines(
+            pathRows: [],
+            scorecardRows: [],
+            storePath: storePath
+        )
+        XCTAssertTrue(PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines))
+        XCTAssertEqual(lines.first?.name, PulseLaunch.noPathPickerRowsTitle)
+        XCTAssertEqual(
+            PulseLaunch.pickPathShopperEmptyDetail(
+                pathOnlyEmpty: true,
+                awaitingPack: true,
+                pickerLoading: true
+            ),
+            PulseLaunch.noPathPickerRowsTitle
+        )
+        XCTAssertEqual(
+            PulseLaunch.pickPathShopperEmptyDetail(
+                pathOnlyEmpty: false,
+                awaitingPack: true,
+                pickerLoading: false
+            ),
+            "Loading shoppers…"
+        )
+        let tiles = HeartbeatMath.companyCardTiles(section: .pickPath, rows: [storePath])
+        XCTAssertEqual(tiles?.values.first, HeartbeatFormat.pct(79.6))
+        XCTAssertEqual(tiles?.values.dropFirst().first, HeartbeatFormat.num(81.4, digits: 1))
+        XCTAssertTrue(
+            PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: [storePath],
+                scorecardReady: false
+            )
+        )
+        let storeless = MetricRow(
+            section: .pickPathPicker,
+            division: "United",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["compliance_pct": 70],
+            textPayload: ["shopper_id": "PATH1"]
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: [storeless],
+                scorecardReady: false
+            )
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: [],
+                scorecardReady: false
+            )
+        )
+    }
+
     func testPickPathMissingPPHUsesSameStoreScorecardOnly() {
         let missing = MetricRow(
             section: .pickPathPicker,
