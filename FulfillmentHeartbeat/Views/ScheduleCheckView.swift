@@ -386,7 +386,7 @@ struct ScheduleCheckView: View {
     private func sorted(_ rows: [ScheduleStore]) -> [ScheduleStore] {
         rows.sorted { lhs, rhs in
             let cmp = compare(lhs, rhs)
-            if cmp == 0 { return HeartbeatMath.storeOrder(lhs.store, rhs.store) }
+            if cmp == 0 { return HeartbeatFormat.storeOrder(lhs.store, rhs.store) }
             return ascending ? cmp < 0 : cmp > 0
         }
     }
@@ -394,7 +394,7 @@ struct ScheduleCheckView: View {
     private func compare(_ lhs: ScheduleStore, _ rhs: ScheduleStore) -> Int {
         switch sort {
         case .store:
-            return HeartbeatMath.storeOrder(lhs.store, rhs.store) ? -1 : (lhs.store == rhs.store ? 0 : 1)
+            return HeartbeatFormat.storeOrder(lhs.store, rhs.store) ? -1 : (lhs.store == rhs.store ? 0 : 1)
         case .division:
             let order = lhs.division.localizedStandardCompare(rhs.division)
             if order == .orderedSame { return 0 }
@@ -438,7 +438,7 @@ struct ScheduleCheckView: View {
         case .good: return AppTheme.ok
         case .watch: return AppTheme.warn
         case .risk: return AppTheme.bad
-        case .none: return AppTheme.textTertiary
+        case .some(.none): return AppTheme.textTertiary
         case nil: return AppTheme.text
         }
     }
@@ -448,7 +448,7 @@ struct ScheduleCheckView: View {
         case .good: return AppTheme.okSoft
         case .watch: return AppTheme.warnSoft
         case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.tableFill
+        case .some(.none): return AppTheme.tableFill
         case nil: return Color.clear
         }
     }

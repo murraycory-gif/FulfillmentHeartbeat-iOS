@@ -27,11 +27,18 @@ struct ScheduleCheckPack: Codable, Equatable {
         return try? JSONDecoder().decode(ScheduleCheckPack.self, from: data)
     }
 
-    /// Mac cook writes here. iPhone reads the R2 copy cached in the app container.
+    /// Mac cook writes under the user home. iPhone reads the R2 copy cached in
+    /// the app container; this URL is only a local fallback that usually misses.
     static var macCookedFileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        #if os(macOS) || targetEnvironment(macCatalyst)
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Heartbeat", isDirectory: true)
             .appendingPathComponent(fileName)
+        #else
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("Heartbeat", isDirectory: true).appendingPathComponent(fileName)
+        #endif
     }
 }
 
@@ -253,7 +260,7 @@ enum ScheduleCheckMath {
                 let left = lhs.under ?? -1
                 let right = rhs.under ?? -1
                 if left != right { return left > right }
-                return HeartbeatMath.storeOrder(lhs.store, rhs.store)
+                return HeartbeatFormat.storeOrder(lhs.store, rhs.store)
             }
             return ScheduleActionGroup(division: name, region: stores.first?.region ?? "", stores: stores)
         }
