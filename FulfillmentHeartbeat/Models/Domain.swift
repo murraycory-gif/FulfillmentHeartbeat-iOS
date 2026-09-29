@@ -1164,6 +1164,18 @@ enum HeartbeatMath {
         CompanyCardTiles(labels: salesPhoneTileLabels, values: salesPhoneTileValues(pack))
     }
 
+    /// No Sales sheet and no Total row. Dashes, not a summed $0.
+    static func salesPhoneTiles(company: MetricRow?, stores: [MetricRow]) -> CompanyCardTiles {
+        let hasCompany = company.map { salesHeadlineDollars($0) > 0 } ?? false
+        if !hasCompany && stores.isEmpty {
+            return CompanyCardTiles(
+                labels: salesPhoneTileLabels,
+                values: Array(repeating: "—", count: salesPhoneTileLabels.count)
+            )
+        }
+        return salesPhoneTiles(SalesPack(company: company, stores: stores))
+    }
+
     static func salesPhoneTileValues(_ pack: SalesPack) -> [String] {
         [
             HeartbeatFormat.money(pack.sales),

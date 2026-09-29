@@ -776,6 +776,18 @@ final class HeartbeatStore: ObservableObject {
             let merged = HeartbeatMath.filledCompanyTiles(cooked: cooked, pack: pack)
             if HeartbeatMath.companyTilesHaveWorkbookValue(merged) { return merged }
         }
+        // Older packs store the split on chrome counts, which is what the section page paints.
+        // Shopper rows stay out of the company seat.
+        let summary = cheapPhonePageChrome(.pickerScorecard)
+        if let pack = HeartbeatMath.legacyCompanyTiles(
+            summary: summary,
+            pickerShoppers: packChrome?.pickerShoppers ?? 0,
+            pickerOpportunity: packChrome?.pickerOpportunity ?? 0,
+            pickerStrong: packChrome?.pickerStrong ?? 0
+        ) {
+            let merged = HeartbeatMath.filledCompanyTiles(cooked: cooked, pack: pack)
+            if HeartbeatMath.companyTilesHaveWorkbookValue(merged) { return merged }
+        }
         if let cooked, HeartbeatMath.companyTilesHaveWorkbookValue(cooked) { return cooked }
         return nil
     }

@@ -5541,6 +5541,126 @@ final class HeartbeatMathTests: XCTestCase {
         assertDashboardCell(chips, "AVG PPH", HeartbeatFormat.num(81.4, digits: 1))
     }
 
+    /// The section page split lives on chrome counts when the pack has no picker rollup.
+    func testCompanyPickerDashboardUsesChromeSplitWhenRollupIsAbsent() throws {
+        let chips = try companyDashboardChips(
+            section: .pickerScorecard,
+            rows: [companyMetricRow(.fiveStar, store: "22", payload: ["star_rating": 3.29])],
+            headline: 16_693,
+            pickerShoppers: 16_693,
+            pickerStrong: 1_759,
+            pickerOpportunity: 14_898,
+            riskCount: 14_898
+        )
+        assertDashboardCell(chips, "Shoppers", HeartbeatFormat.num(16_693))
+        assertDashboardCell(chips, "Healthy", HeartbeatFormat.num(1_759))
+        assertDashboardCell(chips, "Watch", HeartbeatFormat.num(36))
+        assertDashboardCell(chips, "At Risk", HeartbeatFormat.num(14_898))
+    }
+
+    /// Sales and Pre-Sub are not in this upload. A dash is the right paint. It does not block the cook.
+    func testAbsentSalesAndPreSubStayBlankAndDoNotBlockTheCook() throws {
+        let labor = SectionSummary(
+            section: .labor,
+            storeCount: 1_714,
+            headline: 0.25,
+            headlineLabel: "Target vs Actual",
+            secondary: "company rollup",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let loss = SectionSummary(
+            section: .lostRevenue,
+            storeCount: 203,
+            headline: 149_208.02,
+            headlineLabel: "Total lost revenue",
+            secondary: "203 of 2,177 stores reported",
+            health: .risk,
+            watchCount: 0,
+            riskCount: 1,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let picker = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 2_158,
+            headline: 16_693,
+            headlineLabel: "Shoppers",
+            secondary: "14898 opportunity · 1759 doing well",
+            health: .risk,
+            watchCount: 0,
+            riskCount: 14_898,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        var chrome = PulseDashChrome(
+            summaries: [labor, loss, picker],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 16_693,
+            pickerOpportunity: 14_898,
+            pickerStrong: 1_759
+        )
+        chrome.preSubItemTabPresent = false
+        XCTAssertEqual(chrome.missingTitles, ["Sales"])
+        XCTAssertTrue(chrome.cookBlockingTitles.isEmpty)
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("absent-sheets-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(
+            rows: [companyMetricRow(.fiveStar, store: "22", payload: ["star_rating": 3.29])],
+            uploads: [],
+            seeded: true,
+            chrome: chrome,
+            to: seat
+        )
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+
+        let emptySales = SectionSummary(
+            section: .sales,
+            storeCount: 0,
+            headline: nil,
+            headlineLabel: "eComm sales",
+            secondary: "No Sales rows in this filter",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let emptyPreSub = SectionSummary(
+            section: .preSubOOS,
+            storeCount: 0,
+            headline: nil,
+            headlineLabel: "Avg Pre-Sub OOS",
+            secondary: "No Pre-Sub OOS rows in this filter",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        for (section, painted) in [(MetricSection.sales, emptySales), (.preSubOOS, emptyPreSub)] {
+            let chips = store.cachedPhoneDashboardChips(section: section, painted: painted)
+            XCTAssertFalse(chips.isEmpty, section.rawValue)
+            XCTAssertTrue(
+                chips.allSatisfy { HeartbeatMath.companyTileIsBlank($0.value) },
+                "\(section.rawValue) \(chips.map { "\($0.label)=\($0.value)" })"
+            )
+        }
+        let items = store.preSubTopCard(scope: PreSubTopItems.companyScope)
+        XCTAssertEqual(items.missingNote, PreSubTopItems.missingTabNote)
+        XCTAssertTrue(items.items.isEmpty)
+    }
+
     private func companyMetricRow(
         _ section: MetricSection,
         store: String,
@@ -5563,7 +5683,11 @@ final class HeartbeatMathTests: XCTestCase {
         section: MetricSection,
         rows: [MetricRow],
         headline: Double,
-        pickerRollup: PickerScopeRollup? = nil
+        pickerRollup: PickerScopeRollup? = nil,
+        pickerShoppers: Int = 0,
+        pickerStrong: Int = 0,
+        pickerOpportunity: Int = 0,
+        riskCount: Int = 0
     ) throws -> [PhoneMetricChip] {
         let labels = HeartbeatMath.dashboardTableHeaders(section)
         var chrome = PulseDashChrome(
@@ -5576,14 +5700,16 @@ final class HeartbeatMathTests: XCTestCase {
                     secondary: "company rollup",
                     health: .watch,
                     watchCount: 0,
-                    riskCount: 0,
+                    riskCount: riskCount,
                     lastFilename: nil,
                     lastUploadedAt: nil
                 )
             ],
             flags: [:],
             packs: [:],
-            pickerShoppers: pickerRollup?.shoppers ?? 0,
+            pickerShoppers: pickerRollup?.shoppers ?? pickerShoppers,
+            pickerOpportunity: pickerRollup?.risk ?? pickerOpportunity,
+            pickerStrong: pickerRollup?.healthy ?? pickerStrong,
             companyTiles: [
                 section.rawValue: CompanyCardTiles(
                     labels: labels,

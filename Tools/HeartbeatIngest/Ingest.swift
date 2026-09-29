@@ -98,8 +98,12 @@ enum HeartbeatIngest {
         if !missingSheets.isEmpty {
             print("Missing sheets: \(missingSheets.map(\.title).joined(separator: ", "))")
         }
-        if !chrome.isComplete {
-            let missing = chrome.missingTitles.joined(separator: ", ")
+        if chrome.missingTitles.contains("Sales") {
+            print("Sales is not in this upload. The company Sales card stays NO DATA.")
+        }
+        let blocking = chrome.cookBlockingTitles
+        if !blocking.isEmpty {
+            let missing = blocking.joined(separator: ", ")
             fputs("Kitchen refused to publish: dashboard tiles missing \(missing).\n", stderr)
             exit(1)
         }

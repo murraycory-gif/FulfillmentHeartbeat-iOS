@@ -1744,10 +1744,13 @@ enum PhoneThisWeekChrome {
             }
         }
         if section == .sales {
-            return OverviewSalesPhoneCard.chips(pack: SalesPack(
+            let tiles = HeartbeatMath.salesPhoneTiles(
                 company: store.filters.isActive ? nil : store.salesCompanyFact(),
                 stores: store.cachedPhoneDashboardRows(for: .sales)
-            ))
+            )
+            return zip(tiles.labels, tiles.values).map { label, value in
+                PhoneMetricChip(label: label, value: value, health: .none)
+            }
         }
         let rows = companyRows(section: section, store: store)
         let pphRows = section == .dynacap ? factRows(section: .pph, store: store) : []
@@ -1820,15 +1823,27 @@ struct PhoneCompanyThisWeekBlock: View {
                     section,
                     rows: PhoneThisWeekChrome.factRows(section: section, store: store)
                 )
-                OverviewSalesPhoneCard(
-                    label: seat,
-                    count: storeCount,
-                    detail: store.salesCoverageLabel(),
-                    pack: SalesPack(
-                        company: store.filters.isActive ? nil : store.salesCompanyFact(),
-                        stores: store.salesStores()
+                let company = store.filters.isActive ? nil : store.salesCompanyFact()
+                let stores = store.salesStores()
+                let tiles = HeartbeatMath.salesPhoneTiles(company: company, stores: stores)
+                if HeartbeatMath.companyTilesHaveWorkbookValue(tiles) {
+                    OverviewSalesPhoneCard(
+                        label: seat,
+                        count: storeCount,
+                        detail: store.salesCoverageLabel(),
+                        pack: SalesPack(company: company, stores: stores)
                     )
-                )
+                } else {
+                    PhoneScorecardRow(
+                        title: seat,
+                        eyebrow: CommandCenterLayout.glanceTitle(section),
+                        subtitle: "No Sales rows in this filter",
+                        chips: zip(tiles.labels, tiles.values).map { label, value in
+                            PhoneMetricChip(label: label, value: value, health: .none)
+                        },
+                        health: .none
+                    )
+                }
             } else {
                 let storeCount = HeartbeatMath.metricStoreCount(
                     section,

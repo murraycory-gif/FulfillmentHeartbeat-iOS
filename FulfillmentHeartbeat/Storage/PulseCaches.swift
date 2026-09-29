@@ -161,6 +161,11 @@ struct PulseDashChrome: Codable {
         if !pickerOK { missing.append("Picker ScoreCard") }
         return missing
     }
+
+    /// Sales may be absent from this upload. That card stays NO DATA. It does not block the cook.
+    var cookBlockingTitles: [String] {
+        missingTitles.filter { $0 != "Sales" }
+    }
 }
 
 enum PulseLayoutCap {
