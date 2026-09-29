@@ -3581,7 +3581,7 @@ enum AssistComposer {
         case .lostRevenue:
             let money = summary?.headlineText ?? shown
             if let pct = summary?.lostRevenuePct {
-                return "Your store lost \(money), \(AssistCopy.onePct(pct)) of eComm sales (goal \(AssistCopy.goalFact(.lostRevenue)))"
+                return "Your store lost \(money), \(HeartbeatFormat.pct(pct)) of eComm sales"
             }
             return money.isEmpty ? "Your store is above the lost-sales goal" : "Your store lost \(money)"
         case .sales:
@@ -3663,7 +3663,7 @@ enum AssistComposer {
             return AssistFact(label: "Weakest part", value: "\(weakest.name): \(AssistCopy.stores(weakest.stores))")
         case .lostRevenue:
             guard let pct = summary.lostRevenuePct else { return nil }
-            return AssistFact(label: "Lost %", value: AssistCopy.onePct(pct))
+            return AssistFact(label: "Lost %", value: HeartbeatFormat.pct(pct))
         default:
             return AssistFact(label: "On watch", value: AssistCopy.grouped(scored.watch))
         }

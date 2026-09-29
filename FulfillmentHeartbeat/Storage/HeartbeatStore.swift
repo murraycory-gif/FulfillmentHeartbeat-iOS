@@ -721,9 +721,26 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Company card tiles from chrome. Nil when a filter is on or the workbook value was never cooked.
-    /// An incoherent Loss tile set (Lost $ / Lost % / eComm $ disagree) is not the Excel Total.
+    /// The Excel Total row wins when its Lost % is lost $ / eComm and chrome shows a different Lost $.
     func companyCardTiles(for section: MetricSection) -> CompanyCardTiles? {
         guard !filters.isActive else { return nil }
+        if section == .lostRevenue,
+           let market = lostRevenueMarketRow(),
+           HeartbeatMath.lostRevenueSheetRatioMatches(market),
+           let marketLost = market.number("lost_revenue"), marketLost > 0 {
+            let chromeLost = packChrome?.companyTiles[section.rawValue].flatMap {
+                HeartbeatMath.tileNumber($0, label: "Lost $")
+            }
+            if chromeLost == nil || abs((chromeLost ?? 0) - marketLost) > 1 {
+                let facts = grainMetricRows(for: .lostRevenue)
+                let source = facts.isEmpty ? [market] : facts
+                if let tiles = HeartbeatMath.companyCardTiles(section: .lostRevenue, rows: source),
+                   HeartbeatMath.lossTilesMatchCompanyTotal(tiles) {
+                    adoptLossCompanyCard(tiles)
+                    return tiles
+                }
+            }
+        }
         if let tiles = packChrome?.companyTiles[section.rawValue],
            HeartbeatMath.companyTilesHaveWorkbookValue(tiles),
            section != .lostRevenue || HeartbeatMath.lossTilesMatchCompanyTotal(tiles) {
@@ -762,10 +779,6 @@ final class HeartbeatStore: ObservableObject {
         }
         if section == .lostRevenue {
             guard HeartbeatMath.lossTilesMatchCompanyTotal(tiles) else { return nil }
-            if let lost = HeartbeatMath.tileNumber(tiles, label: "Lost $"),
-               let chrome = summary.headline, chrome > 1, lost < chrome * 0.5 {
-                return nil
-            }
             adoptLossCompanyCard(tiles)
         }
         return tiles
@@ -775,14 +788,16 @@ final class HeartbeatStore: ObservableObject {
         guard let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) else { return }
         var card = cachedSummaries[index]
         if let lost = HeartbeatMath.tileNumber(tiles, label: "Lost $"), lost > 0 {
-            let chrome = card.headline ?? 0
-            if chrome <= 1 || lost + 1 >= chrome * 0.5, abs(chrome - lost) > 1 {
-                card.headline = lost
-            }
+            card.headline = lost
         }
-        if let pct = HeartbeatMath.tileNumber(tiles, label: "Lost %") {
+        let pct = HeartbeatMath.tileNumber(tiles, label: "Lost %")
+        let goal = HeartbeatMath.tileNumber(tiles, label: "Goal %")
+        if let pct {
             card.lostRevenuePct = pct
-            card.health = HeartbeatMath.lostRevenueHealth(pct: pct)
+            card.health = HeartbeatMath.lostRevenueStatus(pct: pct, goal: goal)
+        }
+        if let note = HeartbeatMath.lostRevenueScopeNote(grainMetricRows(for: .lostRevenue)) {
+            card.secondary = note
         }
         cachedSummaries[index] = card
     }
@@ -1112,10 +1127,12 @@ final class HeartbeatStore: ObservableObject {
         let painted = cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: [], upload: upload(for: section))
         guard !filters.isActive else { return painted }
-        return PulseLaunch.companyCommandCenterCard(
-            painted,
-            chrome: packChrome,
-            rosterStores: roster.count
+        return applyingLossSheetTotal(
+            PulseLaunch.companyCommandCenterCard(
+                painted,
+                chrome: packChrome,
+                rosterStores: roster.count
+            )
         )
     }
 
@@ -1144,10 +1161,12 @@ final class HeartbeatStore: ObservableObject {
             let rows = section == .sales ? salesStores() : seatRows(for: section)
             return PulseLaunch.dashboardSeatCard(painted, rows: rows, filters: filters)
         }
-        var next = PulseLaunch.companyCommandCenterCard(
-            painted,
-            chrome: packChrome,
-            rosterStores: roster.count
+        var next = applyingLossSheetTotal(
+            PulseLaunch.companyCommandCenterCard(
+                painted,
+                chrome: packChrome,
+                rosterStores: roster.count
+            )
         )
         if section == .sales, let company = salesCompanyFact() {
             let dollars = HeartbeatMath.salesHeadlineDollars(company)
@@ -1156,12 +1175,36 @@ final class HeartbeatStore: ObservableObject {
                 next.salesYoyPct = company.number("sales_yoy_pct") ?? next.salesYoyPct
             }
         }
-        if section == .lostRevenue, let market = lostRevenueMarketRow(),
-           let dollars = market.number("lost_revenue"), dollars > 0 {
-            next.headline = dollars
-            if let pct = market.number("lost_revenue_pct") {
-                next.lostRevenuePct = pct
-            }
+        return next
+    }
+
+    /// Excel Total on every Loss surface. Grain read only — not the fact plane.
+    private func applyingLossSheetTotal(_ card: SectionSummary) -> SectionSummary {
+        guard !filters.isActive, card.section == .lostRevenue else { return card }
+        guard let market = lostRevenueMarketRow(),
+              let dollars = market.number("lost_revenue"), dollars > 0
+        else { return card }
+        var next = card
+        next.headline = dollars
+        let pct = market.number("lost_revenue_pct")
+        let goal = HeartbeatMath.lostRevenueGoalPct(market)
+        if let pct {
+            next.lostRevenuePct = pct
+            next.health = HeartbeatMath.lostRevenueStatus(pct: pct, goal: goal)
+        }
+        let scopeRows = grainMetricRows(for: .lostRevenue)
+        if let note = HeartbeatMath.lostRevenueScopeNote(scopeRows) {
+            next.secondary = note
+            let count = Set(scopeRows.compactMap { row -> String? in
+                if row.textPayload["lost_grain"] == "market" { return nil }
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { return nil }
+                return store
+            }).count
+            if count > 0 { next.storeCount = count }
+        }
+        if let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) {
+            cachedSummaries[index] = next
         }
         return next
     }
@@ -2318,9 +2361,20 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func lostRevenueMarketRow() -> MetricRow? {
-        if let pinned = companyRollupFact(.lostRevenue),
-           HeartbeatMath.lostRevenueRowIsCompanyTotal(pinned) {
-            return pinned
+        // Grain holds the Excel Total. A cooked rollup can be the store-row sum.
+        if !filters.isActive {
+            let grain = grainMetricRows(for: .lostRevenue)
+            if let sheet = HeartbeatMath.lostRevenueMarketRow(in: grain),
+               HeartbeatMath.lostRevenueSheetRatioMatches(sheet) {
+                return sheet
+            }
+            if let pinned = companyRollupFact(.lostRevenue),
+               HeartbeatMath.lostRevenueRowIsCompanyTotal(pinned) {
+                return pinned
+            }
+            if let sheet = HeartbeatMath.lostRevenueMarketRow(in: grain) {
+                return sheet
+            }
         }
         touchResidentFacts()
         var pool = latestBySection[.lostRevenue] ?? []
@@ -4026,6 +4080,9 @@ final class HeartbeatStore: ObservableObject {
         seatChromeByKey[.company] = chrome
         activeSeatKey = .company
         activePackURL = dest
+        if let loss = cachedSummaries.first(where: { $0.section == .lostRevenue }) {
+            _ = applyingLossSheetTotal(loss)
+        }
         usingPackChrome = true
         seeded = !cachedSummaries.isEmpty
         lastPaintedSeatKey = .company
@@ -6521,6 +6578,10 @@ final class HeartbeatStore: ObservableObject {
             cachedSummaries = chrome.summaries
         }
         pinUnfilteredLostRevenueHeadline()
+        if packURL == nil || packURL?.path == activePackURL.path,
+           let loss = cachedSummaries.first(where: { $0.section == .lostRevenue }) {
+            _ = applyingLossSheetTotal(loss)
+        }
         if !chrome.flags.isEmpty {
             var next: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
             for (key, value) in chrome.flags {

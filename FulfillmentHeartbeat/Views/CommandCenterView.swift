@@ -283,7 +283,10 @@ enum CommandCenterLayout {
     }
 
     static func compactValue(_ card: SectionSummary) -> String {
-        if card.section == .sales || card.section == .lostRevenue {
+        if card.section == .lostRevenue {
+            return HeartbeatFormat.money(card.headline)
+        }
+        if card.section == .sales {
             return HeartbeatFormat.moneyShort(card.headline)
         }
         if PulseLaunch.isPrepEmptyChrome(card) {
@@ -325,6 +328,9 @@ enum CommandCenterLayout {
     /// Gray store-count subtitle — same Labor / Picker line, no gold bullet.
     static func phoneScorecardSubtitle(_ card: SectionSummary) -> String? {
         if HeartbeatMath.isPrepThinNote(card.secondary) { return card.secondary }
+        if card.section == .lostRevenue, HeartbeatMath.isLossScopeNote(card.secondary) {
+            return card.secondary
+        }
         return card.storeCount > 0 ? "\(card.storeCount) stores" : nil
     }
 

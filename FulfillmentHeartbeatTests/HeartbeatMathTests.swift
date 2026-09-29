@@ -1805,8 +1805,8 @@ final class HeartbeatMathTests: XCTestCase {
             health: .none
         )
         XCTAssertEqual(HeartbeatMath.lossGrainHealth(lossRow), .good)
-        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Goal %", value: "247.06%"), "vs FY goal")
-        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Goal %", value: "2.49%"), "Goal %")
+        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Goal %", value: "247.06%"), "Goal %")
+        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Goal %", value: "2.47%"), "Goal %")
         XCTAssertEqual(HeartbeatMath.phoneTileLabel("Lost %", value: "1.80%"), "Lost %")
 
         let market = MetricRow(
@@ -1867,12 +1867,14 @@ final class HeartbeatMathTests: XCTestCase {
             storeNumber: "",
             payload: [
                 "lost_revenue": 149_208.02,
-                "lost_revenue_pct": 4.84,
+                "lost_revenue_pct": 4.835874927555147,
+                "lost_revenue_goal": 76_229.69,
+                "lost_revenue_goal_pct": 2.4706262768101013,
                 "ecomm_sales": 30_854.40,
             ],
-            textPayload: ["lost_grain": "market"]
+            textPayload: ["lost_grain": "market", "loss_day": "9/27"]
         )
-        let total = MetricRow(
+        let scaled = MetricRow(
             section: .lostRevenue,
             division: "",
             operationsOM: "",
@@ -1886,11 +1888,11 @@ final class HeartbeatMathTests: XCTestCase {
             ],
             textPayload: ["lost_grain": "market"]
         )
-        XCTAssertFalse(HeartbeatMath.lostRevenueRowIsCompanyTotal(fragment))
-        XCTAssertTrue(HeartbeatMath.lostRevenueRowIsCompanyTotal(total))
+        XCTAssertTrue(HeartbeatMath.lostRevenueRowIsCompanyTotal(fragment))
+        XCTAssertTrue(HeartbeatMath.lostRevenueRowIsCompanyTotal(scaled))
         XCTAssertEqual(
-            HeartbeatMath.lostRevenueMarketRow(in: [fragment, total])?.number("lost_revenue") ?? 0,
-            3_456_041.35,
+            HeartbeatMath.lostRevenueMarketRow(in: [fragment, scaled])?.number("lost_revenue") ?? 0,
+            149_208.02,
             accuracy: 0.01
         )
         let ignored = MetricRow(
@@ -1910,9 +1912,9 @@ final class HeartbeatMathTests: XCTestCase {
             textPayload: ["lost_grain": "store"]
         )
         let summed = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [fragment, ignored, east])
-        XCTAssertEqual(summed.values[0], HeartbeatFormat.money(3_456_041.35))
-        XCTAssertEqual(summed.values[1], HeartbeatFormat.pct(1.80))
-        XCTAssertEqual(summed.health, .good)
+        XCTAssertEqual(summed.values[0], HeartbeatFormat.money(149_208.02))
+        XCTAssertEqual(summed.values[1], HeartbeatFormat.pct(4.835874927555147))
+        XCTAssertEqual(summed.health, .risk)
         let badTiles = CompanyCardTiles(
             labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
             values: [
@@ -1933,7 +1935,7 @@ final class HeartbeatMathTests: XCTestCase {
                 "—", "—", "—", "—", "—",
             ]
         )
-        XCTAssertFalse(HeartbeatMath.lossTilesMatchCompanyTotal(badTiles))
+        XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(badTiles))
         XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(goodTiles))
         let fixture = CompanyCardTiles(
             labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
@@ -1987,10 +1989,29 @@ final class HeartbeatMathTests: XCTestCase {
             storeNumber: "",
             payload: [
                 "lost_revenue": 149_208.02,
-                "lost_revenue_pct": 4.84,
+                "lost_revenue_pct": 4.835874927555147,
+                "lost_revenue_goal": 76_229.69,
+                "lost_revenue_goal_pct": 2.4706262768101013,
                 "ecomm_sales": 30_854.40,
+                "post_sub_oos_foregone": 1,
+                "refund_lost": 2,
+                "missed_sales": 3,
+                "cancelled_lost": 4,
+                "kill_switch_lost": 5,
             ],
-            textPayload: ["lost_grain": "market"]
+            textPayload: ["lost_grain": "market", "loss_day": "9/27"]
+        )
+        let haggen = MetricRow(
+            section: .lostRevenue,
+            division: "Haggen",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: [
+                "lost_revenue": 839,
+                "lost_revenue_pct": 839 / 83.25,
+                "ecomm_sales": 83.25,
+            ],
+            textPayload: ["lost_grain": "store", "loss_day": "9/27"]
         )
         let east = MetricRow(
             section: .lostRevenue,
@@ -2026,7 +2047,8 @@ final class HeartbeatMathTests: XCTestCase {
             ],
             flags: [:],
             packs: [:],
-            pickerShoppers: 0
+            pickerShoppers: 0,
+            companyRollupRows: [MetricSection.lostRevenue.rawValue: fragment]
         )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("loss-fragment-\(UUID().uuidString)", isDirectory: true)
@@ -2034,19 +2056,25 @@ final class HeartbeatMathTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let seat = PulseSeatPack.localURL(root: root, key: .company)
         try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try PulseSQLite.write(rows: [fragment, east, ignored], uploads: [], seeded: true, chrome: chrome, to: seat)
+        try PulseSQLite.write(rows: [fragment, haggen, east, ignored], uploads: [], seeded: true, chrome: chrome, to: seat)
         PulseSQLite.decodedFactRowCount = 0
         let store = HeartbeatStore(rootURL: root)
         XCTAssertTrue(store.installCompanyRollup(at: seat))
         XCTAssertEqual(store.residentFactRowCount, 0)
-        let painted = store.cheapPhonePageChrome(.lostRevenue)
-        XCTAssertEqual(painted.headline ?? 0, 3_456_041.35, accuracy: 0.01)
-        XCTAssertEqual(painted.health, .good)
+        let painted = store.summary(for: .lostRevenue)
+        XCTAssertEqual(painted.headline ?? 0, 149_208.02, accuracy: 0.01)
+        XCTAssertEqual(painted.lostRevenuePct ?? 0, 4.835874927555147, accuracy: 0.0001)
+        XCTAssertEqual(painted.health, .risk)
+        XCTAssertEqual(CommandCenterLayout.compactValue(painted), HeartbeatFormat.money(149_208.02))
+        XCTAssertFalse(CommandCenterLayout.compactValue(painted).contains("164,335"))
         let chips = PhoneThisWeekChrome.chips(section: .lostRevenue, store: store)
-        XCTAssertEqual(chips.first?.value, HeartbeatFormat.money(3_456_041.35))
-        XCTAssertEqual(chips.first { $0.label == "Lost %" }?.value, "1.80%")
-        XCTAssertEqual(chips.first { $0.label == "eComm $" }?.value, HeartbeatFormat.money(192_329_558.25))
-        XCTAssertFalse(chips.contains { $0.value == HeartbeatFormat.money(149_208.02) })
+        XCTAssertEqual(chips.first?.value, HeartbeatFormat.money(149_208.02))
+        XCTAssertEqual(chips.first { $0.label == "Lost %" }?.value, "4.84%")
+        XCTAssertEqual(chips.first { $0.label == "Goal %" }?.label, "Goal %")
+        XCTAssertEqual(chips.first { $0.label == "Goal %" }?.value, "2.47%")
+        XCTAssertEqual(chips.first { $0.label == "eComm $" }?.value, HeartbeatFormat.money(30_854.40))
+        XCTAssertFalse(chips.contains { $0.value.contains("164,335") })
+        XCTAssertFalse(chips.contains { $0.label == "vs FY goal" })
         XCTAssertEqual(store.residentFactRowCount, 0)
         XCTAssertEqual(PulseSQLite.decodedFactRowCount, 1)
     }
@@ -9939,7 +9967,7 @@ final class HeartbeatMathTests: XCTestCase {
             payload: ["ecomm_sales": 10_000, "lost_revenue": 400, "lost_revenue_goal": 250],
             textPayload: ["lost_grain": "store"]
         )
-        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(row) ?? 0, 2.5, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(row) ?? 0, 0.025, accuracy: 0.0001)
         let withPct = MetricRow(
             section: .lostRevenue,
             division: "NorCal",

@@ -773,9 +773,10 @@ struct SectionDetailView: View {
         let pct = market?.number("lost_revenue_pct") ?? summary.lostRevenuePct
         let sales = HeartbeatMath.lostRevenueReportedValue(pool, key: "ecomm_sales")
         let goalPct = HeartbeatMath.lostRevenueGoalPct(rows: rows, market: store.filters.isActive ? nil : store.lostRevenueMarketRow())
+        let status = HeartbeatMath.lostRevenueStatus(pct: pct, goal: goalPct)
         let post = HeartbeatMath.lostRevenueReportedValue(pool, key: "post_sub_oos_foregone")
         HubCalloutGrid(width: pageWidth, count: 8) {
-            callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct), selected: lostRevenueFocus == .all) {
+            callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", status, selected: lostRevenueFocus == .all) {
                 lostRevenueFocus = .all
             }
             callout("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good, unit: "stores", selected: lostRevenueFocus == .healthy) {
@@ -787,9 +788,9 @@ struct SectionDetailView: View {
             callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 5%", risk == 0 ? .good : .risk, unit: "stores", selected: lostRevenueFocus == .risk) {
                 lostRevenueFocus = .risk
             }
-            callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", HeartbeatMath.lostRevenueHealth(pct: pct))
+            callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", status)
             callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
-            callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
+            callout("Goal %", HeartbeatFormat.pct(goalPct), "FY2026 goal loss rate", .none, brand: true)
             callout("Post Sub OOS", HeartbeatFormat.money(post), "Foregone revenue", .none)
         }
     }
@@ -1251,7 +1252,7 @@ struct PhoneSectionPage: View {
         PhoneScorecardRow(
             title: CommandCenterLayout.glanceTitle(section),
             eyebrow: "This seat",
-            subtitle: store.filters.isActive ? store.filters.summary : "Total Company",
+            subtitle: lossSeatSubtitle,
             chips: seatChips,
             health: CommandCenterLayout.displayedHealth(store.summary(for: section))
         )
@@ -1331,6 +1332,14 @@ struct PhoneSectionPage: View {
         }
     }
 
+    private var lossSeatSubtitle: String {
+        if store.filters.isActive { return store.filters.summary }
+        if section == .lostRevenue, HeartbeatMath.isLossScopeNote(store.summary(for: section).secondary) {
+            return store.summary(for: section).secondary
+        }
+        return "Total Company"
+    }
+
     private var salesScopeTitle: String {
         let filters = store.filters
         if !filters.store.isEmpty { return "Store \(filters.store)" }
@@ -1376,19 +1385,24 @@ struct PhoneSectionPage: View {
                 PhoneSectionHeading(title: grain.title)
                 ForEach(rows) { row in
                     let prepNote = prepGrainNote(grain: grain, label: row.label)
-                    let health = prepNote == nil
-                        ? (section == .lostRevenue
+                    let lossMissing = section == .lostRevenue && row.storeCount == 0
+                    let health = prepNote != nil || lossMissing
+                        ? Health.none
+                        : (section == .lostRevenue
                             ? HeartbeatMath.lossGrainHealth(row)
                             : (row.health == .none && row.storeCount > 0 ? .good : row.health))
-                        : Health.none
                     PhoneScorecardRow(
                         title: HeartbeatMath.displayGrainLabel(row.label),
                         subtitle: prepNote
-                            ?? (row.storeCount > 0
-                                ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
-                                : nil),
+                            ?? (lossMissing
+                                ? HeartbeatMath.lostRevenueNotInUploadNote
+                                : (row.storeCount > 0
+                                    ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
+                                    : nil)),
                         chips: prepNote == nil
-                            ? metricChips(values: row.values, health: health)
+                            ? (lossMissing
+                                ? metricChips(values: Array(repeating: "—", count: max(row.values.count, 1)), health: .none)
+                                : metricChips(values: row.values, health: health))
                             : prepThinChips(note: prepNote ?? ""),
                         health: health,
                         preSubTop: preSubTop(scope: PreSubTopItems.grainScope(grain, label: row.label))
@@ -1480,10 +1494,22 @@ struct PhoneSectionPage: View {
         default:
             return nil
         }
-        let needs = chrome.isEmpty || HeartbeatMath.grainTableNeedsColumnFill(chrome, section: section)
-        guard needs else { return nil }
         let facts = store.grainMetricRows(for: section)
         guard !facts.isEmpty else { return nil }
+        if section == .lostRevenue {
+            let order = grain == .region
+                ? MarketRegion.allCases.map(\.rawValue)
+                : MarketRegion.officialDivisions
+            let built = HeartbeatMath.dashboardGrainTable(
+                section: section,
+                rows: facts,
+                grain: grain,
+                order: order
+            )
+            return built.isEmpty ? nil : built
+        }
+        let needs = chrome.isEmpty || HeartbeatMath.grainTableNeedsColumnFill(chrome, section: section)
+        guard needs else { return nil }
         if chrome.isEmpty {
             let built = HeartbeatMath.dashboardGrainTable(
                 section: section,
@@ -1841,16 +1867,17 @@ struct PhoneCompanyThisWeekBlock: View {
 
     @ViewBuilder
     private func companyRollupCard(seat: String) -> some View {
-        let card = store.cheapPhonePageChrome(section)
+        let card = section == .lostRevenue ? store.summary(for: section) : store.cheapPhonePageChrome(section)
         let health = CommandCenterLayout.displayedHealth(card)
         let count = card.storeCount
         let coverage = section == .sales ? store.salesCoverageLabel() : nil
         let stores = count > 0 ? (count == 1 ? "1 store" : "\(count) stores") : nil
         let thinPrep = HeartbeatMath.isPrepThinNote(card.secondary)
+        let lossScope = section == .lostRevenue && HeartbeatMath.isLossScopeNote(card.secondary) ? card.secondary : nil
         PhoneScorecardRow(
             title: seat,
             eyebrow: CommandCenterLayout.glanceTitle(section),
-            subtitle: thinPrep ? card.secondary : (coverage ?? stores),
+            subtitle: thinPrep ? card.secondary : (lossScope ?? coverage ?? stores),
             chips: PhoneThisWeekChrome.chips(section: section, store: store),
             health: health,
             preSubTop: preSubSeatTop

@@ -1960,6 +1960,9 @@ enum PulseLaunch {
                 next.salesYoyPct = chromeCard.salesYoyPct
             }
         }
+        if card.section == .lostRevenue {
+            return next
+        }
         return pinSeatStoreCount(next, seatStores: rosterStores)
     }
 

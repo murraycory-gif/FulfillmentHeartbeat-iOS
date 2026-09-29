@@ -7719,7 +7719,7 @@ private struct LostRevenueRollupRow: Identifiable {
     let refund: Double?
     let missed: Double?
 
-    var health: Health { HeartbeatMath.lostRevenueHealth(pct: pct) }
+    var health: Health { HeartbeatMath.lostRevenueStatus(pct: pct, goal: goal) }
 }
 
 private enum LostRevenueMath {
@@ -7730,7 +7730,7 @@ private enum LostRevenueMath {
 
     static func ratio(_ dollars: Double?, _ sales: Double?) -> Double? {
         guard let dollars, let sales, sales > 0 else { return nil }
-        return dollars / sales * 100
+        return dollars / sales
     }
 
     static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {

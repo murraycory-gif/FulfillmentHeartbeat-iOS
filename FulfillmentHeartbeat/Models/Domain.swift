@@ -879,12 +879,17 @@ enum HeartbeatMath {
         guard let identity else { return row }
         var next = row
         let rosterCanon = MarketRegion.canonicalName(identity.division)
-        if !rosterCanon.isEmpty {
+        let sheetDivision = MarketRegion.canonicalName(row.division)
+        if row.section == .lostRevenue, !sheetDivision.isEmpty {
+            // The Loss tab's division is the upload scope. Roster must not
+            // move a Haggen-only day onto East.
+            next.division = sheetDivision
+        } else if !rosterCanon.isEmpty {
             // Excel roster is the market source of truth. Do not keep a leftover
             // scorecard carry-forward (Southern on a United store → hollow United 70).
             next.division = rosterCanon
         } else {
-            next.division = MarketRegion.canonicalName(next.division)
+            next.division = sheetDivision
         }
         if !identity.district.isEmpty {
             next.textPayload["district"] = identity.district
@@ -1032,7 +1037,7 @@ enum HeartbeatMath {
                     HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "cancelled_lost")),
                     HeartbeatFormat.money(lostRevenueReportedValue(rows, key: "kill_switch_lost")),
                 ],
-                lostRevenueHealth(pct: pct)
+                lostRevenueStatus(pct: pct, goal: goal)
             )
         case .fiveStar:
             return (
@@ -1417,25 +1422,28 @@ enum HeartbeatMath {
         }
     }
 
-    /// A Goal % above 20 is lost dollars over the FY2026 goal dollars, not the ~3% rate target.
+    /// The tile title stays Goal %. The sheet already stores the FY loss rate.
     static func phoneTileLabel(_ label: String, value: String) -> String {
-        guard label == "Goal %" else { return label }
-        let cleaned = value
-            .replacingOccurrences(of: "%", with: "")
-            .replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let number = Double(cleaned), number > 20 else { return label }
-        return "vs FY goal"
+        _ = value
+        return label
     }
 
+    static let lostRevenueNotInUploadNote = "not in this upload"
+
     static func lossGrainHealth(_ row: DashboardGrainTableRow) -> Health {
-        if let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Lost %"),
-           index < row.values.count,
-           let pct = parsedTileNumber(row.values[index]) {
-            return lostRevenueHealth(pct: pct)
+        if row.storeCount == 0 { return .none }
+        let headers = dashboardTableHeaders(.lostRevenue)
+        let pct = headers.firstIndex(of: "Lost %").flatMap { index in
+            index < row.values.count ? parsedTileNumber(row.values[index]) : nil
+        }
+        let goal = headers.firstIndex(of: "Goal %").flatMap { index in
+            index < row.values.count ? parsedTileNumber(row.values[index]) : nil
+        }
+        if pct != nil {
+            return lostRevenueStatus(pct: pct, goal: goal)
         }
         if row.health != .none { return row.health }
-        return row.storeCount > 0 ? .good : .none
+        return .none
     }
 
     /// "961 healthy · 537 watch · …" is the scored band. Roster-pinned storeCount is not.
@@ -1472,6 +1480,7 @@ enum HeartbeatMath {
         return rows.map { row in
             guard index < row.values.count else { return row }
             let current = row.values[index]
+            guard row.storeCount > 0 else { return row }
             guard current == "—" || current.isEmpty else { return row }
             var values = row.values
             values[index] = text
@@ -1529,6 +1538,14 @@ enum HeartbeatMath {
         }
         return rows.map { row in
             let incoming = match(row.label)
+            if section == .lostRevenue, (incoming?.storeCount ?? 0) == 0 {
+                return DashboardGrainTableRow(
+                    label: row.label,
+                    storeCount: 0,
+                    values: Array(repeating: "—", count: headers.count),
+                    health: .none
+                )
+            }
             return DashboardGrainTableRow(
                 label: row.label,
                 storeCount: max(row.storeCount, incoming?.storeCount ?? 0),
@@ -1625,10 +1642,14 @@ enum HeartbeatMath {
             return (nil, [])
         }
         func makeRow(label: String, group: [MetricRow]) -> DashboardGrainTableRow {
-            let built = dashboardTableValues(section, rows: group, goalFallback: goalFallback)
+            let scoped = lossGrainRows(group, section: section, universe: rows)
+            let built = dashboardTableValues(section, rows: scoped, goalFallback: goalFallback)
+            let counted = scoped.filter {
+                $0.textPayload["lost_grain"] != "market" && !canonicalStore($0.storeNumber).isEmpty
+            }
             return DashboardGrainTableRow(
                 label: displayGrainLabel(label),
-                storeCount: group.count,
+                storeCount: section == .lostRevenue ? counted.count : group.count,
                 values: built.values,
                 health: built.health
             )
@@ -1652,7 +1673,8 @@ enum HeartbeatMath {
             }
             // Keep official region slots so "Regions 4" always paints East/South/California/West.
             // District order aliases (J3CHICAGO and "308 - J3 CHICAGO") collapse to one J3 row.
-            if hit.rows.isEmpty, !buckets.isEmpty, grain != .region, grain != .store { continue }
+            if hit.rows.isEmpty, !buckets.isEmpty, grain != .region, grain != .store,
+               !(section == .lostRevenue && grain == .division) { continue }
             table.append(makeRow(label: label, group: hit.rows))
         }
         if !order.isEmpty {
@@ -3114,15 +3136,18 @@ enum HeartbeatMath {
                 pct = nil
             }
             let scored = stores
+            let goal = lostRevenueGoalPct(rows: rows, market: market)
+            let scope = lostRevenueScopeNote(rows)
             return SectionSummary(
                 section: section,
                 storeCount: stores.count,
                 headline: dollars,
                 headlineLabel: "Total lost revenue",
-                secondary: scored.isEmpty
-                    ? "No Lost Revenue rows in this filter"
-                    : "Total Lost Revenue % (Total Opportunity)",
-                health: pct == nil && scored.isEmpty ? .none : lostRevenueHealth(pct: pct),
+                secondary: scope
+                    ?? (scored.isEmpty
+                        ? "No Lost Revenue rows in this filter"
+                        : "Total Lost Revenue % (Total Opportunity)"),
+                health: pct == nil && scored.isEmpty ? .none : lostRevenueStatus(pct: pct, goal: goal),
                 watchCount: scored.filter { lostRevenueHealth($0) == .watch }.count,
                 riskCount: scored.filter { lostRevenueHealth($0) == .risk }.count,
                 lastFilename: upload?.filename,
@@ -3458,7 +3483,7 @@ enum HeartbeatMath {
             guard seen || includeAll else { continue }
             if !seen, !includeAll { continue }
             let pct = lostRevenueMarketRow(in: rows)?.number(spec.pct)
-                ?? (sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first)
+                ?? (sales > 0 ? dollars / sales : stores.compactMap { $0.number(spec.pct) }.first)
             let health: Health
             switch spec.dollar {
             case "refund_lost", "cancelled_lost":
@@ -4095,7 +4120,7 @@ enum HeartbeatMath {
 
     private static func lostRevenueImpliedPct(dollars: Double, sales: Double?) -> Double? {
         guard let sales, sales > 0 else { return nil }
-        return dollars / sales * 100
+        return dollars / sales
     }
 
     private static func fiveStarExpandCellHealth(key: String, number: Double?) -> Health {
@@ -4144,7 +4169,7 @@ enum HeartbeatMath {
         )
         let sales = row.number("ecomm_sales", "sales_dollars")
         guard let dollars, let sales, sales > 0 else { return nil }
-        return dollars / sales * 100
+        return dollars / sales
     }
 
     static func lostRevenueGoalPct(rows: [MetricRow], market: MetricRow? = nil) -> Double? {
@@ -4152,22 +4177,14 @@ enum HeartbeatMath {
         return lostRevenueInheritedGoalPct(rows: rows)
     }
 
-    /// Store/region goal first; FY2026 market goal fills grains when the pack only shipped a company target.
+    /// Goal % is goal $ / eComm. The sheet already stores that ratio. Do not scale it.
     static func lostRevenueInheritedGoalPct(rows: [MetricRow], fallback: Double? = nil) -> Double? {
-        // 247.06 is lost $ / FY goal $, already stored as a percent. Do not replace it with goal $ / eComm.
-        if let market = lostRevenueMarketRow(in: rows),
-           let pct = market.number(
-            "lost_revenue_goal_pct",
-            "goal_pct",
-            "fy2026_goal_pct",
-            "fy_goal_pct",
-            "lost_revenue_fy_goal_pct"
-           ), pct > 20 {
+        if let market = lostRevenueMarketRow(in: rows), let pct = lostRevenueGoalPct(market) {
             return pct
         }
         let dollars = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
         let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-        if sales > 0, dollars > 0 { return dollars / sales * 100 }
+        if sales > 0, dollars > 0 { return dollars / sales }
         if let avg = average(rows.compactMap { lostRevenueGoalPct($0) }) { return avg }
         return fallback
     }
@@ -4191,22 +4208,30 @@ enum HeartbeatMath {
         row?.number("lost_revenue") ?? 0
     }
 
-    /// A market row is the company Total only when Lost $ , eComm $ , and Lost % describe the same book.
-    /// $149,208 / 4.84% / eComm $30,854 is a fragment (implied ~484%). A row with no eComm can still be the Total.
+    /// Excel Total row (column A = Total). Lost % is already lost $ / eComm, not a fraction to scale.
     static func lostRevenueRowIsCompanyTotal(_ row: MetricRow) -> Bool {
         guard row.textPayload["lost_grain"] == "market",
               canonicalStore(row.storeNumber).isEmpty,
               let lost = row.number("lost_revenue"), lost > 0
         else { return false }
-        let sales = row.number("ecomm_sales")
-        if let sales, sales > 0, let pct = row.number("lost_revenue_pct") {
-            let implied = lost / sales * 100
-            if abs(implied - pct) > 1 { return false }
-        }
-        if let sales, sales > 0, sales < 1_000_000, lost >= 50_000 {
-            return false
-        }
         return true
+    }
+
+    /// Lost % already equals lost $ / eComm. A ×100 copy (1.80 vs 0.018) does not match.
+    static func lostRevenueSheetRatioMatches(_ row: MetricRow) -> Bool {
+        guard let lost = row.number("lost_revenue"),
+              let sales = row.number("ecomm_sales"), sales > 0,
+              let pct = row.number("lost_revenue_pct")
+        else { return false }
+        return abs(lost / sales - pct) <= 0.05
+    }
+
+    /// Prefer the Total whose Lost % matches lost $ / eComm with no extra ×100.
+    static func lostRevenueMarketRow(in rows: [MetricRow]) -> MetricRow? {
+        let totals = rows.filter { lostRevenueRowIsCompanyTotal($0) }
+        let matched = totals.filter { lostRevenueSheetRatioMatches($0) }
+        let pool = matched.isEmpty ? totals : matched
+        return pool.max { ($0.number("lost_revenue") ?? 0) < ($1.number("lost_revenue") ?? 0) }
     }
 
     static func parsedTileNumber(_ value: String) -> Double? {
@@ -4224,19 +4249,16 @@ enum HeartbeatMath {
         return parsedTileNumber(tiles.values[index])
     }
 
-    /// Cooked Loss tiles that disagree with themselves are not the Excel company Total.
+    /// Cooked Loss tiles. A Total matches lost $ / eComm with no extra ×100.
+    /// Older packs that stored lost $ / eComm × 100 still match that form.
     static func lossTilesMatchCompanyTotal(_ tiles: CompanyCardTiles) -> Bool {
         guard let lost = tileNumber(tiles, label: "Lost $"), lost > 0 else { return true }
-        let sales = tileNumber(tiles, label: "eComm $")
-        let pct = tileNumber(tiles, label: "Lost %")
-        if let sales, sales > 0, let pct, abs(lost / sales * 100 - pct) > 1 { return false }
-        if let sales, sales > 0, sales < 1_000_000, lost >= 50_000 { return false }
-        return true
-    }
-
-    static func lostRevenueMarketRow(in rows: [MetricRow]) -> MetricRow? {
-        rows.filter { lostRevenueRowIsCompanyTotal($0) }
-            .max { ($0.number("lost_revenue") ?? 0) < ($1.number("lost_revenue") ?? 0) }
+        guard let sales = tileNumber(tiles, label: "eComm $"), sales > 0,
+              let pct = tileNumber(tiles, label: "Lost %") else { return true }
+        let ratio = lost / sales
+        if abs(ratio - pct) <= 0.05 { return true }
+        if abs(ratio * 100 - pct) <= 0.15 { return true }
+        return false
     }
 
     static func lostRevenueStoreRows(_ rows: [MetricRow]) -> [MetricRow] {
@@ -4282,7 +4304,7 @@ enum HeartbeatMath {
         if let market = lostRevenueMarketRow(in: rows) {
             if let direct = market.number("lost_revenue_pct") { return direct }
             if let sales = market.number("ecomm_sales"), sales > 0, let lost = market.number("lost_revenue") {
-                return lost / sales * 100
+                return lost / sales
             }
             return nil
         }
@@ -4291,7 +4313,7 @@ enum HeartbeatMath {
         let lostValues = facts.compactMap { $0.number("lost_revenue") }
         let sales = salesValues.reduce(0, +)
         if sales > 0, !lostValues.isEmpty {
-            return lostValues.reduce(0, +) / sales * 100
+            return lostValues.reduce(0, +) / sales
         }
         return average(facts.compactMap { $0.number("lost_revenue_pct") })
     }
@@ -4315,12 +4337,84 @@ enum HeartbeatMath {
                 sales += ecomm
             }
         }
-        let pct = sales > 0 ? dollars / sales * 100 : nil
+        let pct = sales > 0 ? dollars / sales : nil
         return (dollars, sales, pct)
     }
 
     static func lostRevenueHealth(pct: Double?) -> Health {
         band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
+    }
+
+    /// Above the sheet Goal % is at risk. A missing goal keeps the 3% / 5% bands.
+    static func lostRevenueStatus(pct: Double?, goal: Double?) -> Health {
+        guard let pct else { return .none }
+        if let goal {
+            return pct > goal ? .risk : .good
+        }
+        return lostRevenueHealth(pct: pct)
+    }
+
+    /// "Haggen only, 203 stores, 9/27" from the divisions and days on the Loss rows.
+    static func lostRevenueScopeNote(_ rows: [MetricRow]) -> String? {
+        let stores = rows.filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !canonicalStore($0.storeNumber).isEmpty
+                && !isIgnoredStore($0.storeNumber)
+                && $0.number("lost_revenue") != nil
+        }
+        let ids = Set(stores.map { canonicalStore($0.storeNumber) })
+        guard !ids.isEmpty else { return nil }
+        var divisions: [String] = []
+        var seenDivision: Set<String> = []
+        for row in stores {
+            let name = MarketRegion.canonicalName(row.division)
+            guard !name.isEmpty else { continue }
+            if seenDivision.insert(compactKey(name)).inserted {
+                divisions.append(name)
+            }
+        }
+        divisions.sort()
+        var days: [String] = []
+        var seenDay: Set<String> = []
+        for row in rows {
+            let day = (row.textPayload["loss_day"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !day.isEmpty, seenDay.insert(day).inserted else { continue }
+            days.append(day)
+        }
+        days.sort()
+        var parts: [String] = []
+        if divisions.count == 1 {
+            parts.append("\(divisions[0]) only")
+        } else if !divisions.isEmpty {
+            parts.append(divisions.joined(separator: ", "))
+        }
+        parts.append("\(ids.count) \(ids.count == 1 ? "store" : "stores")")
+        if days.count == 1 {
+            parts.append(days[0])
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    static func isLossScopeNote(_ text: String) -> Bool {
+        text.contains(" only,") || text.range(of: #"\d[\d,]* stores, \d{1,2}/\d{1,2}"#, options: .regularExpression) != nil
+    }
+
+    /// A region or division that holds every Loss store uses the Excel Total, not the store-row sum.
+    static func lossGrainRows(_ group: [MetricRow], section: MetricSection, universe: [MetricRow]) -> [MetricRow] {
+        guard section == .lostRevenue else { return group }
+        guard let market = universe.first(where: { lostRevenueRowIsCompanyTotal($0) }) else { return group }
+        func ids(_ list: [MetricRow]) -> Set<String> {
+            Set(list.compactMap { row -> String? in
+                if row.textPayload["lost_grain"] == "market" { return nil }
+                let store = canonicalStore(row.storeNumber)
+                guard !store.isEmpty, !isIgnoredStore(store), row.number("lost_revenue") != nil else { return nil }
+                return store
+            })
+        }
+        let all = ids(universe)
+        let have = ids(group)
+        guard !all.isEmpty, have == all else { return group }
+        return group + [market]
     }
 
     /// Refund / cancel / kill-switch dollars are lost sales. $0 is healthy; any loss is at least watch.
