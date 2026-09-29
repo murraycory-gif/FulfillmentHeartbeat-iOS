@@ -56,20 +56,10 @@ struct RootView: View {
                     .zIndex(30)
             }
         }
-        .overlay(alignment: .top) {
-            if store.isReady, !store.needsRolePick, let text = store.newDataBanner {
-                NewDataUploadBanner(text: text)
-                    .padding(.top, HubLayout.runsOnMac ? 18 : 8)
-                    .padding(.horizontal, HubLayout.runsOnMac ? 28 : 12)
-                    .frame(maxWidth: HubLayout.runsOnMac ? 920 : .infinity)
-                    .frame(maxWidth: .infinity)
-                    .zIndex(40)
-            }
-        }
     }
 }
 
-private struct NewDataUploadBanner: View {
+struct NewDataUploadBanner: View {
     @EnvironmentObject private var store: HeartbeatStore
     let text: String
 

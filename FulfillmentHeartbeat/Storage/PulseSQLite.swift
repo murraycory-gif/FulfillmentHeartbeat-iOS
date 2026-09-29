@@ -683,6 +683,72 @@ enum PulseSQLite {
         headline REAL,
         json TEXT NOT NULL
     );
+    CREATE TABLE schedule_pack (
+        id INTEGER PRIMARY KEY,
+        published_at TEXT NOT NULL,
+        week INTEGER NOT NULL,
+        filename TEXT NOT NULL,
+        summary_title TEXT NOT NULL,
+        workbook_action_banner INTEGER
+    );
+    CREATE TABLE schedule_market (
+        label TEXT PRIMARY KEY,
+        under REAL,
+        over REAL,
+        eff REAL
+    );
+    CREATE TABLE schedule_store (
+        store TEXT PRIMARY KEY,
+        region TEXT NOT NULL,
+        division TEXT NOT NULL,
+        district TEXT NOT NULL,
+        om TEXT NOT NULL,
+        sales REAL,
+        under REAL,
+        over REAL,
+        eff REAL,
+        pch REAL,
+        four_under REAL,
+        four_over REAL,
+        star REAL,
+        day_under_json TEXT NOT NULL,
+        day_over_json TEXT NOT NULL
+    );
+    """
+
+    /// Schedule Check rows inside an existing pack. Safe on a file that predates the tables.
+    static let scheduleDDL = """
+    CREATE TABLE IF NOT EXISTS schedule_pack (
+        id INTEGER PRIMARY KEY,
+        published_at TEXT NOT NULL,
+        week INTEGER NOT NULL,
+        filename TEXT NOT NULL,
+        summary_title TEXT NOT NULL,
+        workbook_action_banner INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS schedule_market (
+        label TEXT PRIMARY KEY,
+        under REAL,
+        over REAL,
+        eff REAL
+    );
+    CREATE TABLE IF NOT EXISTS schedule_store (
+        store TEXT PRIMARY KEY,
+        region TEXT NOT NULL,
+        division TEXT NOT NULL,
+        district TEXT NOT NULL,
+        om TEXT NOT NULL,
+        sales REAL,
+        under REAL,
+        over REAL,
+        eff REAL,
+        pch REAL,
+        four_under REAL,
+        four_over REAL,
+        star REAL,
+        day_under_json TEXT NOT NULL,
+        day_over_json TEXT NOT NULL
+    );
     """
 
     private static let insertSQL = """
@@ -1004,6 +1070,186 @@ enum PulseSQLite {
         return (try? JSONDecoder().decode([PreSubTopItems.Item].self, from: data)) ?? []
     }
 
+    /// Schedule Check rows cooked into this sqlite pack. Nil when the tables are absent or empty.
+    static func readSchedule(from url: URL) -> ScheduleCheckPack? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        var meta: OpaquePointer?
+        defer { sqlite3_finalize(meta) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT published_at, week, filename, summary_title, workbook_action_banner FROM schedule_pack WHERE id = 1;",
+            -1, &meta, nil
+        ) == SQLITE_OK, sqlite3_step(meta) == SQLITE_ROW else {
+            return nil
+        }
+        let publishedAt = string(meta, 0)
+        let week = Int(sqlite3_column_int(meta, 1))
+        let filename = string(meta, 2)
+        let summaryTitle = string(meta, 3)
+        let banner: Int? = sqlite3_column_type(meta, 4) == SQLITE_NULL ? nil : Int(sqlite3_column_int(meta, 4))
+
+        var markets: [ScheduleMarket] = []
+        var marketStmt: OpaquePointer?
+        defer { sqlite3_finalize(marketStmt) }
+        if sqlite3_prepare_v2(db, "SELECT label, under, over, eff FROM schedule_market ORDER BY label;", -1, &marketStmt, nil) == SQLITE_OK {
+            while sqlite3_step(marketStmt) == SQLITE_ROW {
+                markets.append(ScheduleMarket(
+                    label: string(marketStmt, 0),
+                    under: optionalDouble(marketStmt, 1),
+                    over: optionalDouble(marketStmt, 2),
+                    eff: optionalDouble(marketStmt, 3)
+                ))
+            }
+        }
+
+        var stores: [ScheduleStore] = []
+        var storeStmt: OpaquePointer?
+        defer { sqlite3_finalize(storeStmt) }
+        if sqlite3_prepare_v2(
+            db,
+            """
+            SELECT store, region, division, district, om, sales, under, over, eff, pch, four_under, four_over, star, day_under_json, day_over_json
+            FROM schedule_store ORDER BY CAST(store AS INTEGER), store;
+            """,
+            -1, &storeStmt, nil
+        ) == SQLITE_OK {
+            while sqlite3_step(storeStmt) == SQLITE_ROW {
+                stores.append(ScheduleStore(
+                    store: string(storeStmt, 0),
+                    region: string(storeStmt, 1),
+                    division: string(storeStmt, 2),
+                    district: string(storeStmt, 3),
+                    om: string(storeStmt, 4),
+                    sales: optionalDouble(storeStmt, 5),
+                    under: optionalDouble(storeStmt, 6),
+                    over: optionalDouble(storeStmt, 7),
+                    eff: optionalDouble(storeStmt, 8),
+                    pch: optionalDouble(storeStmt, 9),
+                    fourUnder: optionalDouble(storeStmt, 10),
+                    fourOver: optionalDouble(storeStmt, 11),
+                    star: optionalDouble(storeStmt, 12),
+                    dayUnder: dayList(string(storeStmt, 13)),
+                    dayOver: dayList(string(storeStmt, 14))
+                ))
+            }
+        }
+        return ScheduleCheckPack(
+            publishedAt: publishedAt,
+            week: week,
+            filename: filename,
+            summaryTitle: summaryTitle,
+            workbookActionBanner: banner,
+            markets: markets,
+            stores: stores
+        )
+    }
+
+    /// Replace schedule rows inside `current.sqlite` / a seat pack. Does not rewrite fact rows.
+    static func writeSchedule(_ pack: ScheduleCheckPack, to url: URL) throws {
+        let folder = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_open_v2(url.path, &db, flags, nil) == SQLITE_OK, let db else {
+            throw PulseSQLError.open
+        }
+        defer { sqlite3_close(db) }
+        guard sqlite3_exec(db, scheduleDDL, nil, nil, nil) == SQLITE_OK else {
+            throw PulseSQLError.schema
+        }
+        sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil)
+        sqlite3_exec(db, "DELETE FROM schedule_store; DELETE FROM schedule_market; DELETE FROM schedule_pack;", nil, nil, nil)
+        var meta: OpaquePointer?
+        defer { sqlite3_finalize(meta) }
+        guard sqlite3_prepare_v2(
+            db,
+            "INSERT INTO schedule_pack(id, published_at, week, filename, summary_title, workbook_action_banner) VALUES (1, ?, ?, ?, ?, ?);",
+            -1, &meta, nil
+        ) == SQLITE_OK else {
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw PulseSQLError.prepare
+        }
+        bind(meta, 1, pack.publishedAt)
+        sqlite3_bind_int(meta, 2, Int32(pack.week))
+        bind(meta, 3, pack.filename)
+        bind(meta, 4, pack.summaryTitle)
+        if let banner = pack.workbookActionBanner {
+            sqlite3_bind_int(meta, 5, Int32(banner))
+        } else {
+            sqlite3_bind_null(meta, 5)
+        }
+        guard sqlite3_step(meta) == SQLITE_DONE else {
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw PulseSQLError.insert
+        }
+
+        var marketStmt: OpaquePointer?
+        defer { sqlite3_finalize(marketStmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "INSERT INTO schedule_market(label, under, over, eff) VALUES (?, ?, ?, ?);",
+            -1, &marketStmt, nil
+        ) == SQLITE_OK else {
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw PulseSQLError.prepare
+        }
+        for market in pack.markets {
+            sqlite3_reset(marketStmt)
+            sqlite3_clear_bindings(marketStmt)
+            bind(marketStmt, 1, market.label)
+            bindDouble(marketStmt, 2, market.under)
+            bindDouble(marketStmt, 3, market.over)
+            bindDouble(marketStmt, 4, market.eff)
+            guard sqlite3_step(marketStmt) == SQLITE_DONE else {
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                throw PulseSQLError.insert
+            }
+        }
+
+        var storeStmt: OpaquePointer?
+        defer { sqlite3_finalize(storeStmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            """
+            INSERT INTO schedule_store(
+                store, region, division, district, om, sales, under, over, eff, pch, four_under, four_over, star, day_under_json, day_over_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            -1, &storeStmt, nil
+        ) == SQLITE_OK else {
+            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+            throw PulseSQLError.prepare
+        }
+        for store in pack.stores {
+            sqlite3_reset(storeStmt)
+            sqlite3_clear_bindings(storeStmt)
+            bind(storeStmt, 1, store.store)
+            bind(storeStmt, 2, store.region)
+            bind(storeStmt, 3, store.division)
+            bind(storeStmt, 4, store.district)
+            bind(storeStmt, 5, store.om)
+            bindDouble(storeStmt, 6, store.sales)
+            bindDouble(storeStmt, 7, store.under)
+            bindDouble(storeStmt, 8, store.over)
+            bindDouble(storeStmt, 9, store.eff)
+            bindDouble(storeStmt, 10, store.pch)
+            bindDouble(storeStmt, 11, store.fourUnder)
+            bindDouble(storeStmt, 12, store.fourOver)
+            bindDouble(storeStmt, 13, store.star)
+            bind(storeStmt, 14, jsonDays(store.dayUnder))
+            bind(storeStmt, 15, jsonDays(store.dayOver))
+            guard sqlite3_step(storeStmt) == SQLITE_DONE else {
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                throw PulseSQLError.insert
+            }
+        }
+        sqlite3_exec(db, "COMMIT;", nil, nil, nil)
+    }
+
     static func readChrome(from url: URL) -> PulseDashChrome? {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
@@ -1023,6 +1269,46 @@ enum PulseSQLite {
 
     private static func bind(_ stmt: OpaquePointer?, _ index: Int32, _ value: Int) {
         sqlite3_bind_int(stmt, index, Int32(value))
+    }
+
+    private static func bindDouble(_ stmt: OpaquePointer?, _ index: Int32, _ value: Double?) {
+        if let value {
+            sqlite3_bind_double(stmt, index, value)
+        } else {
+            sqlite3_bind_null(stmt, index)
+        }
+    }
+
+    private static func optionalDouble(_ stmt: OpaquePointer?, _ index: Int32) -> Double? {
+        guard sqlite3_column_type(stmt, index) != SQLITE_NULL else { return nil }
+        return sqlite3_column_double(stmt, index)
+    }
+
+    private static func jsonDays(_ days: [Double?]) -> String {
+        let values: [Any] = days.map { value in
+            if let value { return value }
+            return NSNull()
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: values, options: []),
+              let text = String(data: data, encoding: .utf8)
+        else { return "[null,null,null,null,null,null,null]" }
+        return text
+    }
+
+    private static func dayList(_ raw: String) -> [Double?] {
+        guard let data = raw.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [Any]
+        else { return Array(repeating: nil, count: 7) }
+        let days = array.map { item -> Double? in
+            if item is NSNull { return nil }
+            if let number = item as? Double { return number }
+            if let number = item as? NSNumber { return number.doubleValue }
+            return nil
+        }
+        if days.count == 7 { return days }
+        var padded = days
+        while padded.count < 7 { padded.append(nil) }
+        return Array(padded.prefix(7))
     }
 
     private static func string(_ stmt: OpaquePointer?, _ index: Int32) -> String {

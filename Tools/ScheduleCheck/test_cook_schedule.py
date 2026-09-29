@@ -115,6 +115,91 @@ class CookArgsTests(unittest.TestCase):
         self.assertFalse(cook.company_numbers_ok(report))
         self.assertFalse(cook.print_cross_check(report))
 
+    def test_sqlite_rows_land_in_current_sqlite(self):
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            dest = os.path.join(folder, "current.sqlite")
+            connection = sqlite3.connect(dest)
+            connection.execute("CREATE TABLE facts (id TEXT PRIMARY KEY)")
+            connection.execute("INSERT INTO facts(id) VALUES ('keep-me')")
+            connection.commit()
+            connection.close()
+            pack = {
+                "publishedAt": "2026-09-28T12:00:00Z",
+                "week": 32,
+                "filename": "Schedule Review Week 32.xlsx",
+                "summaryTitle": "Summary",
+                "workbookActionBanner": 468,
+                "markets": [{"label": "Total", "under": 41.07, "over": 4.03, "eff": 64.97}],
+                "stores": [{
+                    "store": "117",
+                    "region": "East Region",
+                    "division": "Shaws",
+                    "district": "B5",
+                    "om": "Pat",
+                    "sales": 33961.98,
+                    "under": 100.0,
+                    "over": 0.0,
+                    "eff": 0.0,
+                    "pch": None,
+                    "fourUnder": 9.2,
+                    "fourOver": None,
+                    "star": None,
+                    "dayUnder": [1, None, None, None, None, None, None],
+                    "dayOver": [None] * 7,
+                }],
+                "crossCheck": self.sample_report(),
+            }
+            original = cook.cook_workbook
+            cook.cook_workbook = lambda path: pack
+            try:
+                code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest])
+            finally:
+                cook.cook_workbook = original
+            self.assertEqual(code, 0)
+            connection = sqlite3.connect(dest)
+            self.assertEqual(connection.execute("SELECT id FROM facts").fetchone()[0], "keep-me")
+            row = connection.execute(
+                "SELECT week, filename, workbook_action_banner FROM schedule_pack WHERE id = 1"
+            ).fetchone()
+            self.assertEqual(row, (32, "Schedule Review Week 32.xlsx", 468))
+            market = connection.execute("SELECT label, under FROM schedule_market").fetchone()
+            self.assertEqual(market[0], "Total")
+            self.assertAlmostEqual(market[1], 41.07, places=2)
+            store = connection.execute(
+                "SELECT store, division, under, day_under_json FROM schedule_store"
+            ).fetchone()
+            self.assertEqual(store[0], "117")
+            self.assertEqual(store[1], "Shaws")
+            self.assertAlmostEqual(store[2], 100.0, places=2)
+            self.assertIn("1", store[3])
+            connection.close()
+
+    def test_company_miss_does_not_write_sqlite(self):
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            dest = os.path.join(folder, "current.sqlite")
+            sqlite3.connect(dest).close()
+            pack = {"week": 32, "stores": [], "crossCheck": self.sample_report(scope=1)}
+            original = cook.cook_workbook
+            cook.cook_workbook = lambda path: pack
+            try:
+                code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest])
+            finally:
+                cook.cook_workbook = original
+            self.assertEqual(code, 1)
+            connection = sqlite3.connect(dest)
+            tables = {
+                row[0]
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            self.assertNotIn("schedule_store", tables)
+            connection.close()
+
     def test_matching_numbers_write_json(self):
         import tempfile
 

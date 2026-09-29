@@ -105,8 +105,63 @@ final class ScheduleCheckTests: XCTestCase {
         )
     }
 
+    func testScheduleRowsRoundTripInsideCurrentSqlite() throws {
+        let pack = ScheduleCheckPack(
+            publishedAt: "2026-09-28T12:00:00Z",
+            week: 32,
+            filename: "Schedule Review Week 32.xlsx",
+            summaryTitle: "Schedule Review Summary",
+            workbookActionBanner: 468,
+            markets: [ScheduleMarket(label: "Total", under: 41.07, over: 4.03, eff: 64.97)],
+            stores: [
+                ScheduleStore(
+                    store: "117",
+                    region: "East Region",
+                    division: "Shaws",
+                    district: "B5",
+                    om: "Pat",
+                    sales: 33_961.98,
+                    under: 100,
+                    over: 0,
+                    eff: 0,
+                    pch: 70.2,
+                    fourUnder: 9.2,
+                    fourOver: nil,
+                    star: 4.2,
+                    dayUnder: [1, nil, 3, nil, nil, nil, 7],
+                    dayOver: [nil, 2, nil, nil, nil, nil, nil]
+                )
+            ]
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("schedule-pack-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PulseSQLite.write(rows: [], uploads: [], seeded: true, to: url)
+        try PulseSQLite.writeSchedule(pack, to: url)
+        let read = try XCTUnwrap(PulseSQLite.readSchedule(from: url))
+        XCTAssertEqual(read, pack)
+        let facts = PulseSQLite.sectionCount(from: url, section: .sales)
+        XCTAssertEqual(facts, 0)
+    }
+
+    func testScheduleCheckShipsInsideSqliteNotAsASidecarPack() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let model = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Models/ScheduleCheck.swift"), encoding: .utf8)
+        XCTAssertFalse(model.contains("Not part of the Heartbeat sqlite pack"))
+        XCTAssertFalse(model.contains("objectName"))
+        XCTAssertFalse(model.contains("os(macOS) || targetEnvironment(macCatalyst)"))
+        XCTAssertTrue(model.contains("#if os(macOS)"))
+        XCTAssertTrue(model.contains("homeDirectoryForCurrentUser"))
+        let store = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"), encoding: .utf8)
+        XCTAssertFalse(store.contains("schedule-check.json"))
+        XCTAssertFalse(store.contains("ScheduleCheckPack.objectName"))
+        XCTAssertTrue(store.contains("PulseSQLite.readSchedule"))
+    }
+
     func testScheduleCheckPageIsItsOwnDestination() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.491f")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertEqual(HubDestination.scheduleCheck.title, "Upcoming Weeks Schedule Check")
         XCTAssertNil(HubDestination.scheduleCheck.section)
         XCTAssertFalse(HubDestination.metricItems.contains(.scheduleCheck))

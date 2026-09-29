@@ -2702,6 +2702,21 @@ enum AssistCopy {
         return summary.headlineText
     }
 
+    /// Headline beside its goal. Loss Revenue prints the sheet percent when one is stored,
+    /// and drops the percent goal when the sheet has only dollars.
+    static func readingWithGoal(_ section: MetricSection, _ summary: SectionSummary) -> String {
+        if section == .lostRevenue {
+            if let pct = summary.lostRevenuePct {
+                return "\(onePct(pct)) (goal \(goalFact(section)))"
+            }
+            return shownHeadline(section, summary)
+        }
+        let goal = goalFact(section)
+        let headline = shownHeadline(section, summary)
+        guard !goal.isEmpty else { return headline }
+        return "\(headline) (goal \(goal))"
+    }
+
     static func goalFact(_ section: MetricSection) -> String {
         switch section {
         case .scheduleQuality, .pickPath: return "90%"
@@ -3142,14 +3157,14 @@ enum AssistComposer {
             }
             answer.healthyFacts = healthyOnes.compactMap { section in
                 guard let summary = snapshot.summaries[section], summary.headline != nil else { return nil }
-                return AssistFact(label: section.overviewLead, value: "\(AssistCopy.shownHeadline(section, summary)) (goal \(AssistCopy.goalFact(section)))")
+                return AssistFact(label: section.overviewLead, value: AssistCopy.readingWithGoal(section, summary))
             }
         } else {
             answer.noticeTitle = "Scorecards at goal"
             answer.noticeBody = "These scorecards are at goal in \(answer.scopeLabel)."
             answer.healthyFacts = healthyOnes.compactMap { section in
                 guard let summary = snapshot.summaries[section], summary.headline != nil else { return nil }
-                return AssistFact(label: section.overviewLead, value: "\(AssistCopy.shownHeadline(section, summary)) (goal \(AssistCopy.goalFact(section)))")
+                return AssistFact(label: section.overviewLead, value: AssistCopy.readingWithGoal(section, summary))
             }
         }
         answer.emptyNote = emptyNote(snapshot)
@@ -3492,7 +3507,10 @@ enum AssistComposer {
         singleHealthy: Bool
     ) -> String {
         if singleHealthy, let summary, summary.headline != nil {
-            let line = "\(section.overviewLead) is at goal: \(summary.headlineText) (goal \(AssistCopy.goalFact(section)))"
+            let reading = section == .lostRevenue
+                ? AssistCopy.readingWithGoal(section, summary)
+                : "\(summary.headlineText) (goal \(AssistCopy.goalFact(section)))"
+            let line = "\(section.overviewLead) is at goal: \(reading)"
             return clip(line, AssistCopy.headlineLimit)
         }
         if watchOnly || (scored.health == .watch && scored.risk == 0) {
@@ -4152,7 +4170,7 @@ enum AssistComposer {
         var best: (String, Double)?
         for section in sections {
             guard let summary = snapshot.summaries[section], let room = headroom(section, summary), room >= 0 else { continue }
-            let text = "\(section.overviewLead) at \(AssistCopy.shownHeadline(section, summary)) (goal \(AssistCopy.goalFact(section)))"
+            let text = "\(section.overviewLead) at \(AssistCopy.readingWithGoal(section, summary))"
             if best == nil || room < best!.1 { best = (text, room) }
         }
         return best?.0

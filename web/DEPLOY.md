@@ -57,7 +57,7 @@ for f in ../out/section/*.json; do
 done
 ```
 
-Schedule Check is the object already cooked as `schedule-check.json` (HB-0828.492). Do not rename it. If it is not in the bucket yet:
+Schedule Check rows for the iOS pack live in `current.sqlite` (`schedule_pack`, `schedule_market`, `schedule_store`). The browser still loads `schedule-check.json` for the web page only. That file is not the Heartbeat pack. Do not rename the web object. If it is not in the bucket yet:
 
 ```bash
 npx wrangler r2 object put heartbeat-packs/schedule-check.json --file=/path/to/schedule-check.json

@@ -4363,7 +4363,7 @@ enum HeartbeatMath {
         if let market = lostRevenueMarketRow(in: rows) {
             if let direct = market.number("lost_revenue_pct") { return direct }
             if let sales = market.number("ecomm_sales"), sales > 0, let lost = market.number("lost_revenue") {
-                return lost / sales
+                return lostRevenueDisplayPct(dollars: lost, sales: sales, stored: [])
             }
             return nil
         }
@@ -4389,12 +4389,13 @@ enum HeartbeatMath {
     /// Lost % stays in the sheet's percent units. 4.5 means 4.5%.
     /// A dollar ratio that is about 100× smaller than the stored percent is that same number as a fraction.
     /// A ratio that already matches the stored percent (4.84 vs 4.84) is left alone.
+    /// Dollars and sales with no stored percent are a fraction of sales. 484 / 10,000 is 4.84%, not 0.05%.
     static func lostRevenueDisplayPct(dollars: Double, sales: Double, stored: [Double]) -> Double? {
         let sample = average(stored.filter(\.isFinite))
         guard sales > 0, dollars.isFinite else { return sample }
         let ratio = dollars / sales
-        guard let sample else { return ratio }
         let scaled = ratio * 100
+        guard let sample else { return scaled }
         if abs(scaled - sample) < abs(ratio - sample) {
             return scaled
         }

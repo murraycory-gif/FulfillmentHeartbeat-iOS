@@ -1,7 +1,8 @@
 import Foundation
 
-/// Compact Upcoming Weeks Schedule Check pack. Cooked on the Mac from
-/// `Schedule Review Week *.xlsx`. Not part of the Heartbeat sqlite pack.
+/// Upcoming Weeks Schedule Check. Cooked from `Schedule Review Week *.xlsx`
+/// into `current.sqlite` (`schedule_pack`, `schedule_market`, `schedule_store`).
+/// The device reads those rows from the Heartbeat sqlite pack.
 struct ScheduleCheckPack: Codable, Equatable {
     var publishedAt: String
     var week: Int
@@ -10,9 +11,6 @@ struct ScheduleCheckPack: Codable, Equatable {
     var workbookActionBanner: Int?
     var markets: [ScheduleMarket]
     var stores: [ScheduleStore]
-
-    static let objectName = "schedule-check.json"
-    static let fileName = "schedule-check.json"
 
     var publishedDate: Date? {
         HeartbeatFormat.parsePackTimestamp(publishedAt)
@@ -27,17 +25,18 @@ struct ScheduleCheckPack: Codable, Equatable {
         return try? JSONDecoder().decode(ScheduleCheckPack.self, from: data)
     }
 
-    /// Mac cook writes under the user home. iPhone reads the R2 copy cached in
-    /// the app container; this URL is only a local fallback that usually misses.
+    /// Mac cook may still write a local json beside the pack. The shipped pack is
+    /// the sqlite rows. Catalyst uses the app container and does not call
+    /// `homeDirectoryForCurrentUser`.
     static var macCookedFileURL: URL {
-        #if os(macOS) || targetEnvironment(macCatalyst)
+        #if os(macOS)
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Heartbeat", isDirectory: true)
-            .appendingPathComponent(fileName)
+            .appendingPathComponent("schedule-check.json")
         #else
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Heartbeat", isDirectory: true).appendingPathComponent(fileName)
+        return base.appendingPathComponent("Heartbeat", isDirectory: true).appendingPathComponent("schedule-check.json")
         #endif
     }
 }

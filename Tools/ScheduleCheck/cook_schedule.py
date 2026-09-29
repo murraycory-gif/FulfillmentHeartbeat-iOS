@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Cook Schedule Review Week *.xlsx into schedule-check.json.
+"""Cook Schedule Review Week *.xlsx into current.sqlite schedule rows.
 
 The workbook is formula-driven. This reads the raw tabs and re-implements the
 Store Detail rules. ACTION NEEDED helper rows are not the source. Excel's
 cached values are only a cross-check.
 
-Percents in the pack are 0–100. A cook of this file never reads or writes the
-Heartbeat sqlite pack.
+Percents in the pack are 0–100. The shipped pack is the schedule_pack,
+schedule_market, and schedule_store tables inside current.sqlite. A json path
+is still accepted so the Mac cook can write a local file. That file is not
+the Heartbeat pack.
 """
 
 from __future__ import annotations
@@ -546,11 +548,110 @@ def write_pack(pack: dict, dest: str) -> None:
         handle.write("\n")
 
 
+SCHEDULE_DDL = """
+CREATE TABLE IF NOT EXISTS schedule_pack (
+    id INTEGER PRIMARY KEY,
+    published_at TEXT NOT NULL,
+    week INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    summary_title TEXT NOT NULL,
+    workbook_action_banner INTEGER
+);
+CREATE TABLE IF NOT EXISTS schedule_market (
+    label TEXT PRIMARY KEY,
+    under REAL,
+    over REAL,
+    eff REAL
+);
+CREATE TABLE IF NOT EXISTS schedule_store (
+    store TEXT PRIMARY KEY,
+    region TEXT NOT NULL,
+    division TEXT NOT NULL,
+    district TEXT NOT NULL,
+    om TEXT NOT NULL,
+    sales REAL,
+    under REAL,
+    over REAL,
+    eff REAL,
+    pch REAL,
+    four_under REAL,
+    four_over REAL,
+    star REAL,
+    day_under_json TEXT NOT NULL,
+    day_over_json TEXT NOT NULL
+);
+"""
+
+
+def write_sqlite(pack: dict, dest: str) -> None:
+    """Replace schedule rows inside an existing current.sqlite. Fact rows stay put."""
+    import sqlite3
+
+    if not os.path.isfile(dest):
+        raise SystemExit(f"Refusing to create {dest}. Schedule rows belong inside an existing current.sqlite.")
+    payload = {key: value for key, value in pack.items() if key != "crossCheck"}
+    connection = sqlite3.connect(dest)
+    try:
+        connection.executescript(SCHEDULE_DDL)
+        connection.execute("DELETE FROM schedule_store")
+        connection.execute("DELETE FROM schedule_market")
+        connection.execute("DELETE FROM schedule_pack")
+        connection.execute(
+            """
+            INSERT INTO schedule_pack(
+                id, published_at, week, filename, summary_title, workbook_action_banner
+            ) VALUES (1, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.get("publishedAt") or "",
+                int(payload.get("week") or 0),
+                payload.get("filename") or "",
+                payload.get("summaryTitle") or "",
+                payload.get("workbookActionBanner"),
+            ),
+        )
+        for market in payload.get("markets") or []:
+            connection.execute(
+                "INSERT INTO schedule_market(label, under, over, eff) VALUES (?, ?, ?, ?)",
+                (market.get("label") or "", market.get("under"), market.get("over"), market.get("eff")),
+            )
+        for store in payload.get("stores") or []:
+            connection.execute(
+                """
+                INSERT INTO schedule_store(
+                    store, region, division, district, om, sales, under, over, eff, pch,
+                    four_under, four_over, star, day_under_json, day_over_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    store.get("store") or "",
+                    store.get("region") or "",
+                    store.get("division") or "",
+                    store.get("district") or "",
+                    store.get("om") or "",
+                    store.get("sales"),
+                    store.get("under"),
+                    store.get("over"),
+                    store.get("eff"),
+                    store.get("pch"),
+                    store.get("fourUnder"),
+                    store.get("fourOver"),
+                    store.get("star"),
+                    json.dumps(store.get("dayUnder") or [None] * 7, separators=(",", ":")),
+                    json.dumps(store.get("dayOver") or [None] * 7, separators=(",", ":")),
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Cook a Schedule Review workbook into schedule-check.json")
+    parser = argparse.ArgumentParser(description="Cook a Schedule Review workbook into current.sqlite")
     parser.add_argument("workbook", nargs="?", help="xlsx path. Omit with --find.")
-    parser.add_argument("output", nargs="?", help="schedule-check.json path")
+    parser.add_argument("output", nargs="?", help="Optional local json path. Not the shipped pack.")
     parser.add_argument("--find", help="Folder of Schedule Review Week *.xlsx. Newest mtime wins. ~$ ignored.")
+    parser.add_argument("--sqlite", help="current.sqlite path. Schedule rows are replaced inside this pack.")
     parser.add_argument("--check", action="store_true", help="Print the cross-check and exit 1 on a company-number miss.")
     args = parser.parse_args(argv)
     # `--find FOLDER schedule-check.json` used to bind the json path to workbook,
@@ -579,10 +680,8 @@ def main(argv=None) -> int:
     if args.output:
         write_pack(pack, args.output)
         print(f"Wrote {args.output} ({os.path.getsize(args.output)} bytes, {report['scope']} stores)")
-    else:
-        print("No output path. Nothing written.")
     if not ok:
-        print("Company-number MISMATCH. schedule-check.json was not accepted.")
+        print("Company-number MISMATCH. Schedule rows were not written into current.sqlite.")
         if args.output:
             print(f"Removed {args.output}")
             try:
@@ -590,6 +689,11 @@ def main(argv=None) -> int:
             except OSError:
                 pass
         return 1
+    if args.sqlite:
+        write_sqlite(pack, args.sqlite)
+        print(f"Cooked schedule rows into {args.sqlite} ({report['scope']} stores)")
+    elif not args.output:
+        print("No output path. Nothing written.")
     return 0
 
 

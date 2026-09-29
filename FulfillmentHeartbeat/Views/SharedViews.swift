@@ -11032,6 +11032,9 @@ struct HubBrandBar: View {
                 }
                 regularPageBanner
             }
+            if store.isReady, !store.needsRolePick, let text = store.newDataBanner {
+                NewDataUploadBanner(text: text)
+            }
         }
         .padding(.horizontal, compact ? 12 : (HubLayout.MacReadable.enabled ? 24 : 20))
         .padding(.top, compact ? HubLayout.phoneBrandBarTopPadding() : (HubLayout.MacReadable.enabled ? 8 : 6))

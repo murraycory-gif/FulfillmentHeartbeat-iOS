@@ -2,9 +2,9 @@
 # com.exclusivegroup.heartbeat-autoingest
 # Watches the iCloud Heartbeat_Reports folder. Heartbeat workbooks and
 # Schedule Review workbooks cook in separate subshells. One failure never
-# stops the other. Schedule publishes schedule-check.json next to the
-# Heartbeat pack on R2 only when R2 credentials are already in the environment.
-# This script does not create Cloudflare resources.
+# stops the other. Schedule rows are cooked into current.sqlite. A local
+# json file is still written beside the pack. This script does not upload
+# that json as the pack, and it does not create Cloudflare resources.
 #
 #   ./Tools/HeartbeatIngest/cook-local.sh
 #   ./Tools/HeartbeatIngest/cook-local.sh --install
@@ -80,15 +80,12 @@ write_marker() {
 }
 
 publish_schedule() {
-  local file="$1"
-  if [[ -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" || -z "${R2_BUCKET:-}" || -z "${R2_ENDPOINT:-}" ]]; then
-    echo "schedule publish skipped: no r2 key"
+  local sqlite="$1"
+  if [[ ! -f "$sqlite" ]]; then
+    echo "schedule publish skipped: current.sqlite is not cooked yet"
     return 0
   fi
-  AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
-  AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
-    aws s3 cp "$file" "s3://${R2_BUCKET}/schedule-check.json" \
-      --endpoint-url "$R2_ENDPOINT" --only-show-errors
+  echo "schedule rows are in current.sqlite. The json file is not the pack."
 }
 
 cook_heartbeat() {
@@ -127,9 +124,14 @@ cook_schedule() {
     echo "schedule unchanged $(basename "$file")"
     return 0
   fi
-  python3 "$ROOT/Tools/ScheduleCheck/cook_schedule.py" "$file" "$OUT/schedule-check.json"
+  if [[ -f "$OUT/current.sqlite" ]]; then
+    python3 "$ROOT/Tools/ScheduleCheck/cook_schedule.py" "$file" "$OUT/schedule-check.json" --sqlite "$OUT/current.sqlite"
+  else
+    python3 "$ROOT/Tools/ScheduleCheck/cook_schedule.py" "$file" "$OUT/schedule-check.json"
+    echo "schedule rows waiting for current.sqlite"
+  fi
   write_marker "$marker" "$file"
-  publish_schedule "$OUT/schedule-check.json"
+  publish_schedule "$OUT/current.sqlite"
   echo "schedule cooked $(basename "$file")"
 }
 

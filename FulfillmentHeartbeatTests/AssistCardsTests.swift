@@ -1174,6 +1174,51 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertFalse(issue.numberValue.contains("%"))
     }
 
+    /// Healthy Loss Revenue prints the sheet percent beside the percent goal.
+    /// A dollar headline must not sit next to "(goal 3% or less)", with or without a stored percent.
+    func testHealthyLossRevenuePrintsPercentOrDropsTheGoal() throws {
+        let book = try loadPlaybook()
+        let withPercent = healthyLossSnapshot(storedPercent: 2.9)
+        let healthy = AssistComposer.answer(question: "What's healthy?", snapshot: withPercent, book: book)
+        let fact = try XCTUnwrap(healthy.healthyFacts.first { $0.label == "Loss Revenue" })
+        XCTAssertEqual(fact.value, "2.9% (goal 3% or less)")
+        assertNoDollarBesidePercentGoal(fact.value)
+        let closest = try XCTUnwrap(healthy.noticeBody)
+        XCTAssertTrue(closest.contains("Closest to its goal: Loss Revenue at 2.9% (goal 3% or less)"))
+        assertNoDollarBesidePercentGoal(closest)
+        for row in healthy.healthyFacts {
+            assertNoDollarBesidePercentGoal(row.value)
+        }
+
+        let single = AssistComposer.answer(question: "How is loss revenue?", snapshot: withPercent, book: book)
+        let issue = try XCTUnwrap(single.issues.first { $0.id == "lost_revenue" })
+        XCTAssertEqual(issue.headline, "Loss Revenue is at goal: 2.9% (goal 3% or less)")
+        assertNoDollarBesidePercentGoal(issue.headline)
+        XCTAssertFalse(issue.headline.contains("$"))
+
+        let withoutPercent = healthyLossSnapshot(storedPercent: nil)
+        let open = AssistComposer.answer(question: "What's healthy?", snapshot: withoutPercent, book: book)
+        let dollars = try XCTUnwrap(open.healthyFacts.first { $0.label == "Loss Revenue" })
+        XCTAssertEqual(dollars.value, "$539")
+        XCTAssertFalse(dollars.value.contains("(goal"))
+        XCTAssertFalse(dollars.value.contains("%"))
+        assertNoDollarBesidePercentGoal(dollars.value)
+        for row in open.healthyFacts {
+            assertNoDollarBesidePercentGoal(row.value)
+        }
+        if let notice = open.noticeBody {
+            assertNoDollarBesidePercentGoal(notice)
+            XCTAssertFalse(notice.contains("$539 (goal"))
+        }
+
+        let singleDollars = AssistComposer.answer(question: "How is loss revenue?", snapshot: withoutPercent, book: book)
+        let dollarIssue = try XCTUnwrap(singleDollars.issues.first { $0.id == "lost_revenue" })
+        XCTAssertEqual(dollarIssue.headline, "Loss Revenue is at goal: $539")
+        XCTAssertFalse(dollarIssue.headline.contains("(goal"))
+        XCTAssertFalse(dollarIssue.headline.contains("%"))
+        assertNoDollarBesidePercentGoal(dollarIssue.headline)
+    }
+
     func testTellMeMoreReturnsPlanCardsForThatMetric() throws {
         let book = try loadPlaybook()
         let snapshot = prioritySnapshot()
@@ -1214,6 +1259,28 @@ final class AssistCardsTests: XCTestCase {
         XCTAssertEqual(scoped.plan.map { shopperName($0.whereText) }, j3)
         XCTAssertEqual(scoped.plan.first?.actions.first?.filters?.store, "10")
         XCTAssertFalse(scoped.plan.contains { $0.whereText.contains("Z. Worst") })
+    }
+
+    private func assertNoDollarBesidePercentGoal(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+        if text.contains("$"), text.contains("(goal"), text.contains("%") {
+            XCTFail("dollar amount sits beside a percent goal: \(text)", file: file, line: line)
+        }
+    }
+
+    private func healthyLossSnapshot(storedPercent: Double?) -> AssistSnapshot {
+        var snapshot = fixtureSnapshot()
+        for section in MetricSection.dashboardCards {
+            snapshot.summaries[section] = summary(section, .good, risk: 0, watch: 0, stores: 10, headline: 95)
+        }
+        var loss = summary(.lostRevenue, .good, risk: 0, watch: 0, stores: 10, headline: 539)
+        loss.lostRevenuePct = storedPercent
+        snapshot.summaries[.lostRevenue] = loss
+        var payload: [String: Double] = ["lost_revenue": 539]
+        if let storedPercent {
+            payload["lost_revenue_pct"] = storedPercent
+        }
+        snapshot.rows[.lostRevenue] = [row(.lostRevenue, payload, store: "3493")]
+        return snapshot
     }
 
     private func lostIssue(_ question: String, _ snapshot: AssistSnapshot, _ book: AssistPlaybook.File) throws -> AssistIssue {
