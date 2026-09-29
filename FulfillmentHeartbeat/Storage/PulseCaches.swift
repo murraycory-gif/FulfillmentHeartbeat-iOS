@@ -120,6 +120,7 @@ struct PulseDashChrome: Codable {
             }
         }
         let companySource = caches.latestBySection
+        let laborMarket = caches.laborMarketRow
         return PulseDashChrome(
             summaries: caches.cachedSummaries,
             flags: Dictionary(uniqueKeysWithValues: caches.cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
@@ -128,8 +129,8 @@ struct PulseDashChrome: Codable {
             pickerShoppers: caches.cachedPickerBoard.shopperCount,
             pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
             pickerStrong: caches.cachedPickerBoard.strongCount,
-            companyTiles: HeartbeatMath.companyScopeTiles(latest: companySource),
-            companyRollupRows: HeartbeatMath.companyScopeRollups(latest: companySource),
+            companyTiles: HeartbeatMath.companyScopeTiles(latest: companySource, laborMarket: laborMarket),
+            companyRollupRows: HeartbeatMath.companyScopeRollups(latest: companySource, laborMarket: laborMarket),
             publishedAt: Date()
         )
     }
@@ -198,6 +199,8 @@ struct PulseCaches {
     var pphPickersByStore: [String: [MetricRow]]
     var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
     var cachedGrainPacks: [MetricSection: [DashScopePack]]
+    /// Workbook Labor Total. Summaries already append it for RESULT. Tiles need the same row.
+    var laborMarketRow: MetricRow?
 
     struct HeavyBits {
         var pickerBoard: HeartbeatMath.PickerBoard
@@ -420,7 +423,8 @@ struct PulseCaches {
                     hidePicker: hidePicker,
                     stores: stores,
                     roster: roster
-                )
+                ),
+            laborMarketRow: filters.isActive ? nil : laborMarket
         )
     }
 

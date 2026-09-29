@@ -1209,6 +1209,32 @@ enum HeartbeatMath {
         !tiles.values.isEmpty && tiles.values.contains { !companyTileIsBlank($0) }
     }
 
+    /// A cooked card still needs a cell when any value is blank or a column is missing.
+    static func companyTilesNeedFill(_ tiles: CompanyCardTiles) -> Bool {
+        if tiles.labels.isEmpty || tiles.values.count < tiles.labels.count { return true }
+        return tiles.values.contains(where: companyTileIsBlank)
+    }
+
+    /// A cooked cell that already has a number stays. A blank cell takes the pack value when the pack has one.
+    static func filledCompanyTiles(cooked: CompanyCardTiles?, pack: CompanyCardTiles) -> CompanyCardTiles {
+        guard let cooked, !cooked.labels.isEmpty else { return pack }
+        var cookedValue: [String: String] = [:]
+        for (index, label) in cooked.labels.enumerated() where index < cooked.values.count {
+            cookedValue[label] = cooked.values[index]
+        }
+        var packValue: [String: String] = [:]
+        for (index, label) in pack.labels.enumerated() where index < pack.values.count {
+            packValue[label] = pack.values[index]
+        }
+        let labels = pack.labels.count >= cooked.labels.count ? pack.labels : cooked.labels
+        let values = labels.map { label -> String in
+            if let kept = cookedValue[label], !companyTileIsBlank(kept) { return kept }
+            if let filled = packValue[label], !companyTileIsBlank(filled) { return filled }
+            return cookedValue[label] ?? packValue[label] ?? "—"
+        }
+        return CompanyCardTiles(labels: labels, values: values)
+    }
+
     /// One company card, formatted the same way the phone paints it.
     /// Sales is the workbook Total row (`sales_grain=company`), never a sum of stores.
     static func companyCardTiles(
@@ -1258,20 +1284,45 @@ enum HeartbeatMath {
         }
     }
 
-    static func companyScopeTiles(latest: [MetricSection: [MetricRow]]) -> [String: CompanyCardTiles] {
-        let pph = latest[.pph] ?? []
+    static func companyScopeTiles(
+        latest: [MetricSection: [MetricRow]],
+        laborMarket: MetricRow? = nil
+    ) -> [String: CompanyCardTiles] {
+        let source = latestIncludingLaborMarket(latest, laborMarket: laborMarket)
+        let pph = source[.pph] ?? []
         var out: [String: CompanyCardTiles] = [:]
         for section in MetricSection.dashboardCards {
-            guard let tiles = companyCardTiles(section: section, rows: latest[section] ?? [], pphRows: pph) else { continue }
+            guard let tiles = companyCardTiles(section: section, rows: source[section] ?? [], pphRows: pph) else { continue }
             out[section.rawValue] = tiles
         }
         return out
     }
 
-    static func companyScopeRollups(latest: [MetricSection: [MetricRow]]) -> [String: MetricRow] {
+    /// The Labor market row is the same row RESULT uses. Store rows stay in `latest`; this only adds that one seat total.
+    static func latestIncludingLaborMarket(
+        _ latest: [MetricSection: [MetricRow]],
+        laborMarket: MetricRow?
+    ) -> [MetricSection: [MetricRow]] {
+        guard let laborMarket, laborMarket.section == .labor, laborMarket.textPayload["labor_grain"] == "market" else {
+            return latest
+        }
+        var source = latest
+        var labor = source[.labor] ?? []
+        if !labor.contains(where: { $0.textPayload["labor_grain"] == "market" }) {
+            labor.append(laborMarket)
+        }
+        source[.labor] = labor
+        return source
+    }
+
+    static func companyScopeRollups(
+        latest: [MetricSection: [MetricRow]],
+        laborMarket: MetricRow? = nil
+    ) -> [String: MetricRow] {
+        let source = latestIncludingLaborMarket(latest, laborMarket: laborMarket)
         var out: [String: MetricRow] = [:]
         for section in [MetricSection.sales, .lostRevenue, .labor] {
-            guard let row = companyRollupRow(section: section, rows: latest[section] ?? []) else { continue }
+            guard let row = companyRollupRow(section: section, rows: source[section] ?? []) else { continue }
             out[section.rawValue] = row
         }
         return out

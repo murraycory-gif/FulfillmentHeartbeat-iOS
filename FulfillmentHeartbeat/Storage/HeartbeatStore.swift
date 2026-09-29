@@ -741,12 +741,66 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
         }
-        if let tiles = packChrome?.companyTiles[section.rawValue],
-           HeartbeatMath.companyTilesHaveWorkbookValue(tiles),
-           section != .lostRevenue || HeartbeatMath.lossTilesMatchCompanyTotal(tiles) {
-            return tiles
+        let cooked = packChrome?.companyTiles[section.rawValue]
+        switch section {
+        case .sales, .lostRevenue, .preSubOOS, .missingItems, .prepNotReady:
+            if let cooked,
+               HeartbeatMath.companyTilesHaveWorkbookValue(cooked),
+               section != .lostRevenue || HeartbeatMath.lossTilesMatchCompanyTotal(cooked) {
+                return cooked
+            }
+            return livePackCompanyTiles(for: section)
+        case .pickerScorecard:
+            return pickerCompanyCardTiles(cooked: cooked)
+        case .fiveStar, .labor, .dynacap, .pph, .scheduleQuality, .pickPath:
+            return grainCompanyCardTiles(section, cooked: cooked)
+        default:
+            if let cooked, HeartbeatMath.companyTilesHaveWorkbookValue(cooked) {
+                return cooked
+            }
+            return livePackCompanyTiles(for: section)
         }
-        return livePackCompanyTiles(for: section)
+    }
+
+    /// Picker dashboard uses the company rollup the section page already shows.
+    /// Shopper rows stay in sqlite. A complete cooked card is left as the cook wrote it.
+    private func pickerCompanyCardTiles(cooked: CompanyCardTiles?) -> CompanyCardTiles? {
+        if let cooked, !HeartbeatMath.companyTilesNeedFill(cooked) {
+            return cooked
+        }
+        if let roll = pickerScopeRollup(PreSubTopItems.companyScope), roll.shoppers > 0 {
+            let pack = CompanyCardTiles(
+                labels: HeartbeatMath.dashboardTableHeaders(.pickerScorecard),
+                values: roll.tileValues
+            )
+            let merged = HeartbeatMath.filledCompanyTiles(cooked: cooked, pack: pack)
+            if HeartbeatMath.companyTilesHaveWorkbookValue(merged) { return merged }
+        }
+        if let cooked, HeartbeatMath.companyTilesHaveWorkbookValue(cooked) { return cooked }
+        return nil
+    }
+
+    /// Blank company cells fill from this section's store rows already in the seat sqlite.
+    /// A cooked number stays. A dash stays when the upload has no value for that cell.
+    /// Does not enter `latestBySection` and does not bump fact counters.
+    private func grainCompanyCardTiles(_ section: MetricSection, cooked: CompanyCardTiles?) -> CompanyCardTiles? {
+        if let cooked, !HeartbeatMath.companyTilesNeedFill(cooked) {
+            return cooked
+        }
+        var facts = grainMetricRows(for: section)
+        if section == .labor,
+           !facts.contains(where: { $0.textPayload["labor_grain"] == "market" }),
+           let market = companyRollupFact(.labor),
+           market.textPayload["labor_grain"] == "market" {
+            facts.append(market)
+        }
+        let pphRows = section == .dynacap ? grainMetricRows(for: .pph) : []
+        if let pack = HeartbeatMath.companyCardTiles(section: section, rows: facts, pphRows: pphRows) {
+            let merged = HeartbeatMath.filledCompanyTiles(cooked: cooked, pack: pack)
+            if HeartbeatMath.companyTilesHaveWorkbookValue(merged) { return merged }
+        }
+        if let cooked, HeartbeatMath.companyTilesHaveWorkbookValue(cooked) { return cooked }
+        return nil
     }
 
     /// Pre-Sub bands and Loss dollars from this section's store rows when chrome has no cooked tiles.

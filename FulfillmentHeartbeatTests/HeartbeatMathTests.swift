@@ -5384,6 +5384,259 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatStore.residentFactTouchCount, touches)
     }
 
+    /// Total Company dashboard. RESULT is the cooked headline. The other cells
+    /// are the workbook values already in the seat, not an em dash.
+    func testCompanyFiveStarDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .fiveStar,
+            rows: [companyMetricRow(.fiveStar, store: "22", payload: [
+                "star_rating": 3.29,
+                "flash_pct": 81.2,
+                "coe_pct": 12.5,
+                "ott_pct": 40,
+                "presub_pct": 6.1,
+                "oth5_pct": 55,
+            ])],
+            headline: 3.29
+        )
+        assertDashboardCell(chips, "Rating", "3.29")
+        assertDashboardCell(chips, "Flash", HeartbeatFormat.pct(81.2))
+        assertDashboardCell(chips, "COE", HeartbeatFormat.pct(12.5))
+        assertDashboardCell(chips, "OTT", HeartbeatFormat.pct(40))
+        assertDashboardCell(chips, "Pre-Sub", HeartbeatFormat.pct(6.1))
+        assertDashboardCell(chips, "OTH", HeartbeatFormat.pct(55))
+    }
+
+    func testCompanyLaborDashboardShowsWorkbookCells() throws {
+        let storeLabor = companyMetricRow(.labor, store: "22", payload: [
+            "target_vs_actual_pct": 9.9,
+        ], text: ["labor_grain": "store"])
+        let market = MetricRow(
+            section: .labor,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "target_vs_actual_pct": 0.25,
+                "act_cost_pct": 4.1,
+                "cost_trgt_pct": 3.85,
+                "schedule_efficiency_pct": 91.2,
+                "uplh_impact_pct": 0.4,
+                "wage_impact_pct": 0.15,
+                "aiv_impact_pct": 0.08,
+            ],
+            textPayload: ["labor_grain": "market"]
+        )
+        let cooked = PulseDashChrome.from(
+            PulseCaches.build(
+                rows: [storeLabor, market],
+                filters: DashboardFilters(),
+                uploads: [],
+                heavy: false,
+                grain: .region
+            ),
+            grain: .region
+        )
+        let tiles = cooked.companyTiles[MetricSection.labor.rawValue]
+        XCTAssertEqual(tiles?.values.first, HeartbeatFormat.pct(0.25))
+        XCTAssertNotEqual(tiles?.values.first, HeartbeatFormat.pct(9.9))
+        XCTAssertEqual(tiles?.labels, HeartbeatMath.dashboardTableHeaders(.labor))
+        XCTAssertFalse(tiles?.values.contains { HeartbeatMath.companyTileIsBlank($0) } ?? true)
+
+        let chips = try companyDashboardChips(
+            section: .labor,
+            rows: [companyMetricRow(.labor, store: "22", payload: [
+                "target_vs_actual_pct": 0.25,
+                "act_cost_pct": 4.1,
+                "cost_trgt_pct": 3.85,
+                "schedule_efficiency_pct": 91.2,
+                "uplh_impact_pct": 0.4,
+                "wage_impact_pct": 0.15,
+                "aiv_impact_pct": 0.08,
+            ], text: ["labor_grain": "store"])],
+            headline: 0.25
+        )
+        assertDashboardCell(chips, "Target Vs Actual", HeartbeatFormat.pct(0.25))
+        assertDashboardCell(chips, "Act Cost", HeartbeatFormat.pct(4.1))
+        assertDashboardCell(chips, "Cost Tgt", HeartbeatFormat.pct(3.85))
+        assertDashboardCell(chips, "Sch Eff", HeartbeatFormat.pct(91.2))
+        assertDashboardCell(chips, "UPLH", HeartbeatFormat.pct(0.4))
+        assertDashboardCell(chips, "Wage", HeartbeatFormat.pct(0.15))
+        assertDashboardCell(chips, "AIV", HeartbeatFormat.pct(0.08))
+    }
+
+    func testCompanyPickerDashboardShowsRollupSplit() throws {
+        let rollup = PickerScopeRollup(shoppers: 16_693, stores: 203, healthy: 1_759, watch: 36, risk: 14_898)
+        let chips = try companyDashboardChips(
+            section: .pickerScorecard,
+            rows: [companyMetricRow(.sales, store: "22", payload: ["sales_dollars": 1])],
+            headline: 16_693,
+            pickerRollup: rollup
+        )
+        assertDashboardCell(chips, "Shoppers", HeartbeatFormat.num(Double(rollup.shoppers)))
+        assertDashboardCell(chips, "Healthy", HeartbeatFormat.num(Double(rollup.healthy)))
+        assertDashboardCell(chips, "Watch", HeartbeatFormat.num(Double(rollup.watch)))
+        assertDashboardCell(chips, "At Risk", HeartbeatFormat.num(Double(rollup.risk)))
+        XCTAssertFalse(chips.contains { $0.label != "Result" && HeartbeatMath.companyTileIsBlank($0.value) })
+    }
+
+    func testCompanyDynacapDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .dynacap,
+            rows: [
+                companyMetricRow(.dynacap, store: "22", payload: [
+                    "dynacap_rate": 67.9,
+                    "utilization_pct": 88,
+                ]),
+                companyMetricRow(.pph, store: "22", payload: ["pph": 74.2]),
+            ],
+            headline: 67.9
+        )
+        assertDashboardCell(chips, "Pcs/Hr", HeartbeatFormat.num(67.9, digits: 1))
+        assertDashboardCell(chips, "PPH", HeartbeatFormat.num(74.2, digits: 1))
+        assertDashboardCell(chips, "Util %", HeartbeatFormat.pct(88))
+    }
+
+    func testCompanyPPHDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .pph,
+            rows: [
+                companyMetricRow(.pph, store: "22", payload: ["pph": 80]),
+                companyMetricRow(.pph, store: "23", payload: ["pph": 68.4]),
+            ],
+            headline: 74.2
+        )
+        assertDashboardCell(chips, "PPH", HeartbeatFormat.num(74.2, digits: 1))
+        assertDashboardCell(chips, "At Goal", HeartbeatFormat.num(1))
+        assertDashboardCell(chips, "Below 74", HeartbeatFormat.num(1))
+    }
+
+    func testCompanyScheduleDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .scheduleQuality,
+            rows: [companyMetricRow(.scheduleQuality, store: "22", payload: [
+                "schedule_efficiency_pct": 90.3,
+                "staffing_efficiency_pct": 88.1,
+                "under_schedule_pct": 4.2,
+                "over_schedule_pct": 3.1,
+            ])],
+            headline: 90.3
+        )
+        assertDashboardCell(chips, "Sch Eff", HeartbeatFormat.pct(90.3))
+        assertDashboardCell(chips, "Staffing", HeartbeatFormat.pct(88.1))
+        assertDashboardCell(chips, "Under", HeartbeatFormat.pct(4.2))
+        assertDashboardCell(chips, "Over", HeartbeatFormat.pct(3.1))
+    }
+
+    func testCompanyPickPathDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .pickPath,
+            rows: [companyMetricRow(.pickPath, store: "22", payload: [
+                "compliance_pct": 79.6,
+                "pph": 81.4,
+            ])],
+            headline: 79.6
+        )
+        assertDashboardCell(chips, "Path %", HeartbeatFormat.pct(79.6))
+        assertDashboardCell(chips, "AVG PPH", HeartbeatFormat.num(81.4, digits: 1))
+    }
+
+    private func companyMetricRow(
+        _ section: MetricSection,
+        store: String,
+        payload: [String: Double],
+        text: [String: String] = [:]
+    ) -> MetricRow {
+        MetricRow(
+            section: section,
+            division: "United",
+            operationsOM: "OM",
+            storeNumber: store,
+            storeName: "Store \(store)",
+            payload: payload,
+            textPayload: text
+        )
+    }
+
+    /// Dashed company tiles plus the seat rows. The dashboard card must paint the known values.
+    private func companyDashboardChips(
+        section: MetricSection,
+        rows: [MetricRow],
+        headline: Double,
+        pickerRollup: PickerScopeRollup? = nil
+    ) throws -> [PhoneMetricChip] {
+        let labels = HeartbeatMath.dashboardTableHeaders(section)
+        var chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: section,
+                    storeCount: 1,
+                    headline: headline,
+                    headlineLabel: "Result",
+                    secondary: "company rollup",
+                    health: .watch,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: pickerRollup?.shoppers ?? 0,
+            companyTiles: [
+                section.rawValue: CompanyCardTiles(
+                    labels: labels,
+                    values: Array(repeating: "—", count: labels.count)
+                )
+            ]
+        )
+        if let pickerRollup {
+            chrome.pickerRollups = [PreSubTopItems.companyScope: pickerRollup]
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-dash-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: chrome, to: seat)
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        let painted = SectionSummary(
+            section: section,
+            storeCount: 1,
+            headline: headline,
+            headlineLabel: "Result",
+            secondary: "company rollup",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let chips = store.cachedPhoneDashboardChips(section: section, painted: painted)
+        XCTAssertEqual(chips.first?.label, "Result")
+        return chips
+    }
+
+    private func assertDashboardCell(
+        _ chips: [PhoneMetricChip],
+        _ label: String,
+        _ expected: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let value = chips.first { $0.label == label }?.value
+        XCTAssertEqual(value, expected, label, file: file, line: line)
+        XCTAssertFalse(
+            HeartbeatMath.companyTileIsBlank(value ?? "—"),
+            "\(label) rendered as a dash",
+            file: file,
+            line: line
+        )
+    }
+
     /// A pack cooked before company tiles still paints Sales and Loss from the Total / market rows only.
     func testCompanyTilesFillFromSeatRollupRowsWhenChromeOmitsThem() throws {
         XCTAssertEqual(BuildStamp.id, "HB-0828.491f")
