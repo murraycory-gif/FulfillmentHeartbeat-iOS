@@ -796,7 +796,7 @@ final class HeartbeatStore: ObservableObject {
             card.lostRevenuePct = pct
             card.health = HeartbeatMath.lostRevenueStatus(pct: pct, goal: goal)
         }
-        if let note = HeartbeatMath.lostRevenueScopeNote(grainMetricRows(for: .lostRevenue)) {
+        if let note = HeartbeatMath.lostRevenueScopeNote(grainMetricRows(for: .lostRevenue), rosterStores: roster.count) {
             card.secondary = note
         }
         cachedSummaries[index] = card
@@ -1193,7 +1193,7 @@ final class HeartbeatStore: ObservableObject {
             next.health = HeartbeatMath.lostRevenueStatus(pct: pct, goal: goal)
         }
         let scopeRows = grainMetricRows(for: .lostRevenue)
-        if let note = HeartbeatMath.lostRevenueScopeNote(scopeRows) {
+        if let note = HeartbeatMath.lostRevenueScopeNote(scopeRows, rosterStores: roster.count) {
             next.secondary = note
             let count = Set(scopeRows.compactMap { row -> String? in
                 if row.textPayload["lost_grain"] == "market" { return nil }

@@ -756,36 +756,39 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(tiles.health, .risk)
         XCTAssertFalse(tiles.values.contains { $0.contains("1,339") })
 
-        XCTAssertEqual(HeartbeatMath.lostRevenueScopeNote(rows), "Haggen only, 2 stores, 9/27")
-        let stamped = HeartbeatMath.stampRoster(
-            store12,
-            roster: ["12": .init(division: "Shaws", district: "01", om: "Pat", name: nil)]
+        XCTAssertEqual(HeartbeatMath.lostRevenueScopeNote(rows), "2 stores reported · 9/27")
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueScopeNote(rows, rosterStores: 2_177),
+            "2 of 2,177 stores reported · 9/27"
         )
-        XCTAssertEqual(stamped.division, "Haggen")
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "12": .init(division: "Shaws", district: "01", om: "Pat", name: nil),
+            "14": .init(division: "Portland", district: "02", om: "Pat", name: nil),
+        ]
+        let stamped = rows.map { HeartbeatMath.stampRoster($0, roster: roster) }
+        XCTAssertEqual(stamped.first { $0.storeNumber == "12" }?.division, "Shaws")
+        XCTAssertNotEqual(stamped.first { $0.storeNumber == "12" }?.division, "Haggen")
         let regions = HeartbeatMath.dashboardGrainTable(
             section: .lostRevenue,
-            rows: rows.map { row in
-                var next = row
-                if next.storeNumber == "12" || next.storeNumber == "14" { next.division = "Haggen" }
-                return next
-            },
+            rows: stamped,
             grain: .region,
             order: MarketRegion.allCases.map(\.rawValue)
         )
-        let west = try XCTUnwrap(regions.first { $0.label == "West Region" })
-        XCTAssertEqual(west.values[0], HeartbeatFormat.money(149_208.02))
-        XCTAssertEqual(west.values[1], "4.84%")
-        XCTAssertEqual(west.values[2], "2.47%")
-        XCTAssertEqual(west.health, .risk)
-        XCTAssertEqual(west.storeCount, 2)
         let east = try XCTUnwrap(regions.first { $0.label == "East Region" })
-        XCTAssertEqual(east.storeCount, 0)
-        XCTAssertTrue(east.values.allSatisfy { $0 == "—" })
-        XCTAssertEqual(east.health, .none)
+        XCTAssertEqual(east.storeCount, 1)
+        XCTAssertEqual(east.values[0], HeartbeatFormat.money(839))
+        XCTAssertEqual(east.values[1], "10.08%")
+        let west = try XCTUnwrap(regions.first { $0.label == "West Region" })
+        XCTAssertEqual(west.storeCount, 1)
+        XCTAssertEqual(west.values[0], HeartbeatFormat.money(500))
+        let south = try XCTUnwrap(regions.first { $0.label == "South Region" })
+        XCTAssertEqual(south.storeCount, 0)
+        XCTAssertTrue(south.values.allSatisfy { $0 == "—" })
+        XCTAssertEqual(south.health, .none)
         let summary = HeartbeatMath.summarize(.lostRevenue, rows: rows, upload: nil)
         XCTAssertEqual(summary.headline ?? 0, 149_208.02, accuracy: 0.01)
         XCTAssertEqual(summary.health, .risk)
-        XCTAssertEqual(summary.secondary, "Haggen only, 2 stores, 9/27")
+        XCTAssertEqual(summary.secondary, "2 stores reported · 9/27")
         XCTAssertEqual(summary.storeCount, 2)
     }
 }

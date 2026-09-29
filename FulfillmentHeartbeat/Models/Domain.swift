@@ -880,13 +880,9 @@ enum HeartbeatMath {
         var next = row
         let rosterCanon = MarketRegion.canonicalName(identity.division)
         let sheetDivision = MarketRegion.canonicalName(row.division)
-        if row.section == .lostRevenue, !sheetDivision.isEmpty {
-            // The Loss tab's division is the upload scope. Roster must not
-            // move a Haggen-only day onto East.
-            next.division = sheetDivision
-        } else if !rosterCanon.isEmpty {
-            // Excel roster is the market source of truth. Do not keep a leftover
-            // scorecard carry-forward (Southern on a United store → hollow United 70).
+        if !rosterCanon.isEmpty {
+            // Roster DIVISION wins on every section, including Loss. The Loss
+            // tab's First DIVISION column is a Power BI aggregate, not the store's market.
             next.division = rosterCanon
         } else {
             next.division = sheetDivision
@@ -4309,13 +4305,13 @@ enum HeartbeatMath {
             return nil
         }
         let facts = lostRevenueDollarRows(rows)
-        let salesValues = facts.compactMap { $0.number("ecomm_sales") }
-        let lostValues = facts.compactMap { $0.number("lost_revenue") }
-        let sales = salesValues.reduce(0, +)
-        if sales > 0, !lostValues.isEmpty {
-            return lostValues.reduce(0, +) / sales
+        let sales = facts.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+        let dollars = facts.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+        let stored = facts.compactMap { $0.number("lost_revenue_pct") }
+        if sales > 0, dollars > 0 {
+            return lostRevenueDisplayPct(dollars: dollars, sales: sales, stored: stored)
         }
-        return average(facts.compactMap { $0.number("lost_revenue_pct") })
+        return average(stored)
     }
 
     /// Unfiltered: Excel Total / market-row TO key. Filtered seat: SUM of that TO key.
@@ -4327,17 +4323,34 @@ enum HeartbeatMath {
         return lostRevenueStoreRows(rows).compactMap { $0.number(key) }.reduce(0, +)
     }
 
+    /// Lost % stays in the sheet's percent units. 4.5 means 4.5%.
+    /// A dollar ratio that is about 100× smaller than the stored percent is that same number as a fraction.
+    /// A ratio that already matches the stored percent (4.84 vs 4.84) is left alone.
+    static func lostRevenueDisplayPct(dollars: Double, sales: Double, stored: [Double]) -> Double? {
+        let sample = average(stored.filter(\.isFinite))
+        guard sales > 0, dollars.isFinite else { return sample }
+        let ratio = dollars / sales
+        guard let sample else { return ratio }
+        let scaled = ratio * 100
+        if abs(scaled - sample) < abs(ratio - sample) {
+            return scaled
+        }
+        return ratio
+    }
+
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {
         var dollars = 0.0
         var sales = 0.0
+        var stored: [Double] = []
         for row in stores {
             guard let lost = row.number("lost_revenue") else { continue }
             dollars += lost
+            if let pct = row.number("lost_revenue_pct") { stored.append(pct) }
             if let ecomm = row.number("ecomm_sales"), ecomm >= 20 {
                 sales += ecomm
             }
         }
-        let pct = sales > 0 ? dollars / sales : nil
+        let pct = lostRevenueDisplayPct(dollars: dollars, sales: sales, stored: stored)
         return (dollars, sales, pct)
     }
 
@@ -4354,8 +4367,9 @@ enum HeartbeatMath {
         return lostRevenueHealth(pct: pct)
     }
 
-    /// "Haggen only, 203 stores, 9/27" from the divisions and days on the Loss rows.
-    static func lostRevenueScopeNote(_ rows: [MetricRow]) -> String? {
+    /// "203 of 2,177 stores reported · 9/27". The day comes from the sheet footer when the cook stamped it.
+    /// The Loss tab's division column is not a scope.
+    static func lostRevenueScopeNote(_ rows: [MetricRow], rosterStores: Int = 0) -> String? {
         let stores = rows.filter {
             $0.textPayload["lost_grain"] != "market"
                 && !canonicalStore($0.storeNumber).isEmpty
@@ -4364,16 +4378,6 @@ enum HeartbeatMath {
         }
         let ids = Set(stores.map { canonicalStore($0.storeNumber) })
         guard !ids.isEmpty else { return nil }
-        var divisions: [String] = []
-        var seenDivision: Set<String> = []
-        for row in stores {
-            let name = MarketRegion.canonicalName(row.division)
-            guard !name.isEmpty else { continue }
-            if seenDivision.insert(compactKey(name)).inserted {
-                divisions.append(name)
-            }
-        }
-        divisions.sort()
         var days: [String] = []
         var seenDay: Set<String> = []
         for row in rows {
@@ -4382,21 +4386,21 @@ enum HeartbeatMath {
             days.append(day)
         }
         days.sort()
-        var parts: [String] = []
-        if divisions.count == 1 {
-            parts.append("\(divisions[0]) only")
-        } else if !divisions.isEmpty {
-            parts.append(divisions.joined(separator: ", "))
+        let reported = groupedCount(ids.count)
+        let body: String
+        if rosterStores > 0 {
+            body = "\(reported) of \(groupedCount(rosterStores)) stores reported"
+        } else {
+            body = "\(reported) \(ids.count == 1 ? "store" : "stores") reported"
         }
-        parts.append("\(ids.count) \(ids.count == 1 ? "store" : "stores")")
         if days.count == 1 {
-            parts.append(days[0])
+            return "\(body) · \(days[0])"
         }
-        return parts.joined(separator: ", ")
+        return body
     }
 
     static func isLossScopeNote(_ text: String) -> Bool {
-        text.contains(" only,") || text.range(of: #"\d[\d,]* stores, \d{1,2}/\d{1,2}"#, options: .regularExpression) != nil
+        text.contains("store reported") || text.contains("stores reported")
     }
 
     /// A region or division that holds every Loss store uses the Excel Total, not the store-row sum.
