@@ -108,6 +108,30 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertFalse(rows.contains { abs(($0.payload["pnr_rate_pct"] ?? 0) - 100) < 0.001 })
     }
 
+    func testPrepHoursPercentUsesFirstPlainColumnNotPrePostOrDelta() {
+        let csv = """
+        STORE,(P) Prep Not Ready Hours %,(P) PRE Prep Not Ready Hours %,(P) POST Prep Not Ready Hours %,(P) Delta Prep Not Ready Hours %,Store #
+        675,0.045,,0.091,,1
+        1432,0.08275,,0.55,,1
+        2472,,0.02,0.12,0.04,1
+        Total,0.04,,0.07,,1
+        Applied filters: RELATIVE_WEEK is TW,,,,,
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Prep Not Ready", rows: rows), .prepNotReady)
+        XCTAssertEqual(rows.map(\.storeNumber), ["675", "1432"])
+        XCTAssertEqual(rows[0].payload["pnr_rate_pct"] ?? 0, 4.5, accuracy: 0.001)
+        XCTAssertEqual(rows[1].payload["pnr_rate_pct"] ?? 0, 8.275, accuracy: 0.001)
+        XCTAssertFalse(rows.contains { $0.storeNumber == "1" })
+        XCTAssertFalse(rows.contains { $0.storeNumber == "2472" })
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased().hasPrefix("applied") })
+        XCTAssertFalse(rows.contains { abs(($0.payload["pnr_rate_pct"] ?? 0) - 9.1) < 0.001 })
+        XCTAssertFalse(rows.contains { abs(($0.payload["pnr_rate_pct"] ?? 0) - 55) < 0.05 })
+        XCTAssertFalse(rows.contains { abs(($0.payload["pnr_rate_pct"] ?? 0) - 12) < 0.001 })
+        XCTAssertFalse(rows.contains { abs(($0.payload["pnr_rate_pct"] ?? 0) - 100) < 0.001 })
+    }
+
     func testDynacapSkipsAppliedFiltersGarbageRow() {
         let csv = """
         STORE_ID,DPA_DYNACAP,EOT Capacity,Total Pieces/Total Hrs,% Change,Used Capacity,Utilization%

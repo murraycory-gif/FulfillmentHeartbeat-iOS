@@ -474,6 +474,18 @@ enum WorkbookParser {
         let percent = trimmed.contains("%") || name.contains("pct") || name.contains("percent")
         return hoursOrRate && percent
     }
+
+    /// PRE, POST, and Delta are sibling columns. The stored rate is the plain Hours % column.
+    /// "Prep" is not PRE: the qualifier has to be its own word.
+    private static func isPrepHoursVariantHeader(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return false }
+        return trimmed.range(of: #"\b(pre|post|delta)\b"#, options: .regularExpression) != nil
+    }
+
+    private static func isPrimaryPrepHoursPercentHeader(_ raw: String) -> Bool {
+        isPrepHoursPercentHeader(raw) && !isPrepHoursVariantHeader(raw)
+    }
     private static let nameKeys = ["storename", "unitname", "location", "storenm"]
     private static let shopperNameKeys = [
         "shopper", "shoppername", "picker", "pickername", "associate", "associatename", "teammember",
@@ -2742,9 +2754,11 @@ enum WorkbookParser {
         return formatter.string(from: date)
     }
 
-    /// DATE banner + DIVISION / District / OM / Store + Prep Not Ready Hours % + Store #.
-    /// The rate is the Hours % column only. A blank Hours % skips the row.
-    /// Store # is never the rate (it is 1, and `applyMetric` would turn that into 100).
+    /// DATE banner + STORE / DIVISION / District / OM + Prep Not Ready Hours % + Store #.
+    /// The rate is the first Hours % column that is not PRE, POST, or Delta.
+    /// A DATE-banner Total still wins when it sits on that kind of column.
+    /// A blank Hours % skips the row. Store # is never the store and never the rate
+    /// (it is 1, and `applyMetric` would turn that into 100).
     private static func parsePrepHours(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
@@ -2767,11 +2781,11 @@ enum WorkbookParser {
         let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
         var valueIdx: Int?
         for (index, cell) in weekRow.enumerated() where isTotalCell(cell) {
-            guard index < rawHeader.count, isPrepHoursPercentHeader(rawHeader[index]) else { continue }
+            guard index < rawHeader.count, isPrimaryPrepHoursPercentHeader(rawHeader[index]) else { continue }
             valueIdx = index
         }
         if valueIdx == nil {
-            valueIdx = rawHeader.indices.last(where: { isPrepHoursPercentHeader(rawHeader[$0]) })
+            valueIdx = rawHeader.indices.first(where: { isPrimaryPrepHoursPercentHeader(rawHeader[$0]) })
         }
         guard let valueIdx else { return nil }
         if isStoreHashHeader(rawHeader[valueIdx].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
