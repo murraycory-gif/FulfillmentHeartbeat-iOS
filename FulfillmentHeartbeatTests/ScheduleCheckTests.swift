@@ -106,7 +106,7 @@ final class ScheduleCheckTests: XCTestCase {
     }
 
     func testScheduleCheckPageIsItsOwnDestination() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.491b")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.491c")
         XCTAssertEqual(HubDestination.scheduleCheck.title, "Upcoming Weeks Schedule Check")
         XCTAssertNil(HubDestination.scheduleCheck.section)
         XCTAssertFalse(HubDestination.metricItems.contains(.scheduleCheck))

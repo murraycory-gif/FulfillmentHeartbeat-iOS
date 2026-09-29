@@ -97,7 +97,7 @@ struct ScheduleCheckView: View {
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(12)
                 }
-                ForEach(groups) { group in }
+                ForEach(groups) { group in
                     Text("\(group.division) · \(group.region) · \(group.stores.count)")
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(AppTheme.blue)
