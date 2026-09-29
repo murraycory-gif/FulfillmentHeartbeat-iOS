@@ -9,8 +9,9 @@ name: Cook Heartbeat pack
 # Supabase is not contacted.
 # Testers never parse Excel. Cory's Mac does not need to stay on after upload.
 # Company LIVE (current.sqlite + company seat key) publishes before seats.
-# District/store seats are optional on this tip — continue if the cook
-# did not write a seat plane.
+# The kitchen writes packs/seat/store/<id>/current.sqlite for every roster
+# store, plus district and OM seats. A missing seat directory or zero store
+# packs fails the cook. The company file stays the thinned ≤40MB pack.
 # Company seat KEEP: sales/roster/chrome, slim ScoreCard facts, Loss bind, store grains.
 # Slim pick_path_picker stays in the company seat (never dropped for size). Soft KEEP store_number from Excel/ScoreCard LDAP.
 # DROP item tape / fat shopper payloads / 56MB hub.
@@ -123,16 +124,10 @@ jobs:
         if: env.skip != '1'
         run: |
           set -euo pipefail
-          INGEST=Tools/HeartbeatIngest
-          mkdir -p "$INGEST/Sources"
-          cp FulfillmentHeartbeat/Models/Domain.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseCaches.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
-          cp Tools/HeartbeatIngest/Ingest.swift "$INGEST/Sources/"
-          cp Tools/HeartbeatIngest/RollupMarketFill.swift "$INGEST/Sources/"
-          cd "$INGEST"
+          chmod +x Tools/HeartbeatIngest/prepare-sources.sh
+          Tools/HeartbeatIngest/prepare-sources.sh
+          test -f Tools/HeartbeatIngest/Sources/PulseSeatPack.swift
+          cd Tools/HeartbeatIngest
           swift build -c release
 
       - name: Cook sqlite pack
@@ -141,6 +136,18 @@ jobs:
           set -euo pipefail
           Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
           ls -l /tmp/current.sqlite
+          if [ ! -d /tmp/packs/seat/store ]; then
+            echo "COOK FAILED: HeartbeatIngest did not write /tmp/packs/seat/store."
+            exit 1
+          fi
+          STORE_N=$(find /tmp/packs/seat/store -name current.sqlite | wc -l | tr -d ' ')
+          DISTRICT_N=$(find /tmp/packs/seat/district -name current.sqlite 2>/dev/null | wc -l | tr -d ' ') || DISTRICT_N=0
+          OM_N=$(find /tmp/packs/seat/om -name current.sqlite 2>/dev/null | wc -l | tr -d ' ') || OM_N=0
+          echo "seat stores=$STORE_N districts=$DISTRICT_N oms=$OM_N"
+          if [ "$STORE_N" -lt 1 ]; then
+            echo "COOK FAILED: zero store packs under /tmp/packs/seat/store."
+            exit 1
+          fi
           python3 Tools/HeartbeatIngest/refuse_prep_east.py /tmp/current.sqlite
 
       - name: Soft KEEP thin company (ScoreCard facts, ≤40MB)
@@ -181,6 +188,14 @@ jobs:
             exit 1
           fi
           PATH_BEFORE="${PATH_BEFORE:-0}" python3 Tools/HeartbeatIngest/thin_company.py --check /tmp/current.sqlite
+          mkdir -p /tmp/packs/seat/company/all
+          cp /tmp/current.sqlite /tmp/packs/seat/company/all/current.sqlite
+          COMPANY_SEAT_BYTES=$(wc -c < /tmp/packs/seat/company/all/current.sqlite | tr -d ' ')
+          if [ "$COMPANY_SEAT_BYTES" -gt 40000000 ]; then
+            echo "Soft FAIL: company seat is the fat market ($COMPANY_SEAT_BYTES). Thin pack did not land."
+            exit 1
+          fi
+          echo "Installed thin company seat ($COMPANY_SEAT_BYTES bytes). Store packs stay beside it."
 
       - name: Publish company LIVE to R2
         if: env.skip != '1'
@@ -224,7 +239,6 @@ jobs:
 
       - name: Publish seat packs to R2
         if: env.skip != '1'
-        continue-on-error: true
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

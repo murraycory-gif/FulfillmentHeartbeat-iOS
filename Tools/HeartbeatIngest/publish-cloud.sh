@@ -1,7 +1,8 @@
 #!/bin/bash
-# Company-first publish. Testers get current.sqlite LIVE before any seat
-# uploads. Main cook thins in place, so /tmp/current.sqlite IS the company
-# seat. A separate packs/seat tree is optional (continue if absent).
+# Company-first publish. Testers get the thin current.sqlite LIVE before
+# seat uploads. The kitchen must already have written packs/seat/store
+# for every roster store, plus district and OM seats. A missing seat
+# directory or zero store packs fails the cook.
 #
 # Object keys match what the app downloads:
 #   current.sqlite
@@ -191,7 +192,7 @@ if [ "$MODE" = "company" ]; then
   must_upload "packs/manifest.json" "$PACK_ROOT/manifest.json" application/json
   echo "LIVE current.sqlite ($LIVE_BYTES bytes, $LIVE_KIND) on R2."
   echo "Download: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
-  echo "Testers can force-close Heartbeat now. Seat packs upload next when present."
+  echo "Seat packs upload next. The cook fails if any store pack is missing."
   exit 0
 fi
 
@@ -201,14 +202,23 @@ if [ "$MODE" != "seats" ]; then
 fi
 
 if [ ! -d "$PACK_ROOT/seat" ]; then
-  echo "No packs/seat directory. Company LIVE is the pack. Skipping seat publish."
-  exit 0
+  echo "COOK FAILED: No packs/seat directory. HeartbeatIngest did not write store packs." >&2
+  exit 1
+fi
+
+STORE_N=0
+if [ -d "$PACK_ROOT/seat/store" ]; then
+  STORE_N=$(find "$PACK_ROOT/seat/store" -name current.sqlite | wc -l | tr -d ' ')
+fi
+if [ "$STORE_N" -lt 1 ]; then
+  echo "COOK FAILED: packs/seat contains zero store packs. Refusing to publish." >&2
+  exit 1
 fi
 
 LOCAL_N=$(find "$PACK_ROOT/seat" -name current.sqlite ! -path '*/company/*' | wc -l | tr -d ' ')
 if [ "$LOCAL_N" -lt 1 ]; then
-  echo "No district/store/OM seats on this cook. Company LIVE is the pack."
-  exit 0
+  echo "COOK FAILED: no district/store/OM seat files to upload." >&2
+  exit 1
 fi
 
 refresh_manifest_after_seats() {
@@ -240,12 +250,10 @@ find "$PACK_ROOT/seat" -name current.sqlite ! -path '*/company/*' \
 set -e
 OK_N=$(find "$RESULT_ROOT/ok" -type f 2>/dev/null | wc -l | tr -d ' ')
 FAIL_N=$(find "$RESULT_ROOT/fail" -type f 2>/dev/null | wc -l | tr -d ' ')
-echo "Seat uploads ok=$OK_N fail=$FAIL_N jobs=$SEAT_JOBS"
-if [ "$OK_N" -lt 1 ]; then
-  echo "No district/store/OM seats uploaded. Company is still LIVE."
-fi
-if [ "$FAIL_N" -gt 0 ]; then
-  echo "Some seats failed and can retry on the next cook. Company stays LIVE."
+echo "Seat uploads ok=$OK_N fail=$FAIL_N jobs=$SEAT_JOBS expected=$LOCAL_N"
+if [ "$FAIL_N" -gt 0 ] || [ "$OK_N" -lt "$LOCAL_N" ]; then
+  echo "COOK FAILED: seat upload incomplete ok=$OK_N fail=$FAIL_N expected=$LOCAL_N." >&2
+  exit 1
 fi
 refresh_manifest_after_seats
 exit 0

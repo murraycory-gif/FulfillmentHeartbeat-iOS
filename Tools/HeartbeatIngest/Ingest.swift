@@ -96,5 +96,19 @@ enum HeartbeatIngest {
             exit(1)
         }
         print("Dashboard tiles complete.")
+        let includeStores = PulseSeatPack.shouldCookEveryStoreSeat()
+        print("Cooking district, OM, and store seat packs…")
+        let packRoot = sqlite.deletingLastPathComponent().appendingPathComponent("packs", isDirectory: true)
+        let manifest = try PulseSeatPack.cookPublished(
+            rows: rows,
+            uploads: uploads,
+            packRoot: packRoot,
+            includeStores: includeStores
+        )
+        print("Seat packs districts=\(manifest.districts.count) oms=\(manifest.oms.count) stores=\(manifest.stores.count)")
+        if manifest.stores.isEmpty {
+            fputs("COOK FAILED: zero store seat packs. Refusing a company-only cook.\n", stderr)
+            exit(1)
+        }
     }
 }
