@@ -1,0 +1,4 @@
+# Approved readers. One email per line. Cory maintains this file.
+# Blank lines and # comments are ignored. Matching is case-insensitive.
+# The same addresses belong in the Cloudflare Access email policy.
+# An empty list denies everyone. Do not add an address you have not approved.
