@@ -402,6 +402,15 @@ enum CommandCenterLayout {
         return "Updated \(HeartbeatFormat.publishClock(date))"
     }
 
+    /// Schedule Check publishes on its own pack. Every other page uses the Heartbeat pack.
+    static func pageBannerPublishDate(
+        destination: HubDestination,
+        packPublishedAt: Date?,
+        schedulePublishedAt: Date?
+    ) -> Date? {
+        destination == .scheduleCheck ? schedulePublishedAt : packPublishedAt
+    }
+
     private static func overviewGrain(_ raw: String, suffix: String, grainFirst: Bool = false) -> String {
         let values = DashboardFilters.parts(raw).map { HeartbeatMath.displayGrainLabel($0) }.filter { !$0.isEmpty }
         guard !values.isEmpty else { return "Total Company" }

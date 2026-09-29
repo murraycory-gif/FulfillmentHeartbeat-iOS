@@ -781,8 +781,8 @@ struct PhoneCompactPageBanner: View {
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !updated.isEmpty {
-                    Text(updated)
+                if !renderedPublishLine.isEmpty {
+                    Text(renderedPublishLine)
                         .font(updatedFont)
                         .foregroundStyle(Color.white)
                         .lineLimit(1)
@@ -825,11 +825,16 @@ struct PhoneCompactPageBanner: View {
         }
     }
 
-    private var bannerAccessibilityLabel: String {
-        [title, subtitle, updated, health.label]
+    /// Line 3 as the banner paints it. Phone, iPad, and Mac all use this string.
+    var renderedPublishLine: String { updated }
+
+    var accessibilitySummary: String {
+        [title, subtitle, renderedPublishLine, health.label]
             .filter { !$0.isEmpty }
             .joined(separator: ", ")
     }
+
+    private var bannerAccessibilityLabel: String { accessibilitySummary }
 }
 
 struct RowAccessibilityIdentifier: ViewModifier {

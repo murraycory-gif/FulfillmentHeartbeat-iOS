@@ -11062,10 +11062,11 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerUpdated: Date? {
-        if compactBannerDestination == .scheduleCheck {
-            return store.scheduleCheck?.publishedDate
-        }
-        return store.packPublishedAt
+        CommandCenterLayout.pageBannerPublishDate(
+            destination: compactBannerDestination,
+            packPublishedAt: store.packPublishedAt,
+            schedulePublishedAt: store.scheduleCheck?.publishedDate
+        )
     }
 
     private func phoneBannerHealth(allowRowWalk: Bool) -> Health {
