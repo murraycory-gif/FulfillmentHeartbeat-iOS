@@ -71,5 +71,93 @@ class WorkbookCrossCheckTests(unittest.TestCase):
         self.assertAlmostEqual(store117["eff"], 0.0, places=4)
 
 
+class CookArgsTests(unittest.TestCase):
+    def sample_report(self, **overrides):
+        report = {
+            "scope": 2163,
+            "underCount": 2008,
+            "overCount": 1566,
+            "eff": 64.97,
+            "pch": 70.28,
+            "marketUnder": 41.07,
+            "marketOver": 4.03,
+            "storeUnder": 23.14,
+            "storeOver": 13.08,
+            "actionCount": 472,
+            "bannerCount": 468,
+            "notScheduled": 12,
+            "regions": {},
+            "summaryTitle": "Schedule Review Summary — Week 31",
+            "week": 32,
+        }
+        report.update(overrides)
+        return report
+
+    def test_find_positional_is_the_output_path(self):
+        args = cook.parse_args(["--find", "/tmp/Heartbeat_Reports", "/tmp/schedule-check.json"])
+        self.assertIsNone(args.workbook)
+        self.assertEqual(args.output, "/tmp/schedule-check.json")
+        self.assertEqual(args.find, "/tmp/Heartbeat_Reports")
+
+    def test_workbook_then_output_stays_positional(self):
+        args = cook.parse_args(["/tmp/book.xlsx", "/tmp/schedule-check.json", "--check"])
+        self.assertEqual(args.workbook, "/tmp/book.xlsx")
+        self.assertEqual(args.output, "/tmp/schedule-check.json")
+        self.assertTrue(args.check)
+
+    def test_informational_notes_do_not_fail_company_numbers(self):
+        report = self.sample_report()
+        self.assertTrue(cook.company_numbers_ok(report))
+        self.assertTrue(cook.print_cross_check(report))
+
+    def test_company_number_miss_fails(self):
+        report = self.sample_report(scope=1)
+        self.assertFalse(cook.company_numbers_ok(report))
+        self.assertFalse(cook.print_cross_check(report))
+
+    def test_matching_numbers_write_json(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "schedule-check.json")
+            pack = {"week": 32, "stores": [], "crossCheck": self.sample_report()}
+            original = cook.cook_workbook
+            cook.cook_workbook = lambda path: pack
+            try:
+                code = cook.main(["/tmp/unused.xlsx", out])
+            finally:
+                cook.cook_workbook = original
+            self.assertEqual(code, 0)
+            self.assertTrue(os.path.isfile(out))
+
+    def test_company_miss_removes_json_and_exits_nonzero(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "schedule-check.json")
+            pack = {"week": 32, "stores": [], "crossCheck": self.sample_report(scope=1)}
+            original = cook.cook_workbook
+            cook.cook_workbook = lambda path: pack
+            try:
+                code = cook.main(["/tmp/unused.xlsx", out])
+            finally:
+                cook.cook_workbook = original
+            self.assertEqual(code, 1)
+            self.assertFalse(os.path.isfile(out))
+
+    def test_find_with_no_workbook_exits_nonzero(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = os.path.join(folder, "schedule-check.json")
+            code = cook.main(["--find", folder, out])
+            self.assertEqual(code, 1)
+            self.assertFalse(os.path.isfile(out))
+
+    def test_missing_path_exits_nonzero(self):
+        code = cook.main([])
+        self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

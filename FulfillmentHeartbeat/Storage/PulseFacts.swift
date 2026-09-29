@@ -132,6 +132,10 @@ enum PulseFacts {
     static func loadRows() async -> [MetricRow] {
         // facts.json is not the live Sales source. Missing sqlite stays empty.
         guard PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: false) else { return [] }
+        #if HEARTBEAT_INGEST
+        // The kitchen does not link PulseCloud. This branch is unreachable: the guard above is false.
+        return []
+        #else
         let bundledFile = decode(bundledData())
         let cloudFile = decode(try? await PulseCloud.downloadFacts())
         let file = richer(cloudFile, bundledFile)
@@ -141,6 +145,7 @@ enum PulseFacts {
             rows = PulseDataPolicy.fillMissing(existing: rows, facts: metricRows(from: bundledFile))
         }
         return rows
+        #endif
     }
 
     static func bundledLostRevenue() -> [MetricRow] {

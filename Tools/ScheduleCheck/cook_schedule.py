@@ -459,7 +459,25 @@ def cross_check(pack) -> dict:
     }
 
 
-def print_cross_check(report: dict) -> None:
+def company_numbers_ok(report: dict) -> bool:
+    """The seven company figures. A miss here is a real cook failure."""
+    return (
+        report["scope"] == 2163
+        and report["underCount"] == 2008
+        and report["overCount"] == 1566
+        and round2(report["eff"]) == 64.97
+        and round2(report["pch"]) == 70.28
+        and round2(report["marketUnder"]) == 41.07
+        and round2(report["marketOver"]) == 4.03
+    )
+
+
+def print_cross_check(report: dict) -> bool:
+    """Print the cross-check. True when the seven company numbers match.
+
+    Store-average, the 472-vs-468 banner, and the Summary title week are notes.
+    They do not block the json write and they do not change the exit code.
+    """
     def line(label, actual, expected, digits=2):
         shown = round2(actual) if isinstance(actual, float) else actual
         status = "OK" if shown == expected else "MISMATCH"
@@ -473,20 +491,34 @@ def print_cross_check(report: dict) -> None:
     line("Pch vs Sch", report["pch"], 70.28)
     line("Market Look under", report["marketUnder"], 41.07)
     line("Market Look over", report["marketOver"], 4.03)
+    ok = company_numbers_ok(report)
     print(
         f"  Stores Current Week average under/over: {round2(report['storeUnder'])}% / {round2(report['storeOver'])}%"
-        "  (company card uses Market Look, not this average) MISMATCH"
+        "  informational (company card uses Market Look, not this average)"
     )
+    banner_note = report["actionCount"] != report["bannerCount"]
     print(
         f"  ACTION NEEDED live formula: {report['actionCount']}"
         f"  workbook banner: {report['bannerCount']}"
-        f"  {'MISMATCH' if report['actionCount'] != report['bannerCount'] else 'OK'}"
+        f"  {'note' if banner_note else 'OK'}"
     )
+    if banner_note:
+        print(
+            f"  informational: the app page shows {report['actionCount']} action stores."
+            f" The workbook banner said {report['bannerCount']}."
+        )
     print(f"  Not scheduled yet (under 100 / eff 0): {report['notScheduled']}")
     print(f"  Week from tabs: {report['week']}  Summary title: {report['summaryTitle']}")
-    if report["summaryTitle"] and f"Week {report['week']}" not in report["summaryTitle"]:
-        print("  Summary title week does not match the WK tabs MISMATCH")
+    title = report["summaryTitle"] or ""
+    if title and f"Week {report['week']}" not in title:
+        print(
+            f"  informational: Summary title week does not match the WK tabs."
+            f" The app uses week {report['week']} from the tabs."
+        )
     print(f"  Region scopes: {report['regions']}")
+    if not ok:
+        print("  Company numbers MISMATCH. This blocks a clean cook.")
+    return ok
 
 
 def newest_schedule_workbook(folder: str):
@@ -514,43 +546,50 @@ def write_pack(pack: dict, dest: str) -> None:
         handle.write("\n")
 
 
-def main(argv=None) -> int:
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Cook a Schedule Review workbook into schedule-check.json")
     parser.add_argument("workbook", nargs="?", help="xlsx path. Omit with --find.")
     parser.add_argument("output", nargs="?", help="schedule-check.json path")
     parser.add_argument("--find", help="Folder of Schedule Review Week *.xlsx. Newest mtime wins. ~$ ignored.")
     parser.add_argument("--check", action="store_true", help="Print the cross-check and exit 1 on a company-number miss.")
     args = parser.parse_args(argv)
+    # `--find FOLDER schedule-check.json` used to bind the json path to workbook,
+    # then --find replaced the workbook, so output stayed empty and the process
+    # exited 0 without writing. That positional is the output path.
+    if args.find and args.workbook and not args.output:
+        args.output = args.workbook
+        args.workbook = None
+    return args
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
     path = args.workbook
     if args.find:
         path = newest_schedule_workbook(args.find)
         if not path:
             print(f"No Schedule Review Week *.xlsx in {args.find}")
-            return 0
+            return 1
     if not path:
-        parser.error("workbook path or --find is required")
+        print("workbook path or --find is required", file=sys.stderr)
+        return 2
     pack = cook_workbook(path)
     report = pack["crossCheck"]
-    print_cross_check(report)
+    ok = print_cross_check(report)
     if args.output:
         write_pack(pack, args.output)
         print(f"Wrote {args.output} ({os.path.getsize(args.output)} bytes, {report['scope']} stores)")
-    if args.check:
-        expected = {
-            "scope": 2163,
-            "underCount": 2008,
-            "overCount": 1566,
-        }
-        ok = (
-            report["scope"] == expected["scope"]
-            and report["underCount"] == expected["underCount"]
-            and report["overCount"] == expected["overCount"]
-            and round2(report["eff"]) == 64.97
-            and round2(report["pch"]) == 70.28
-            and round2(report["marketUnder"]) == 41.07
-            and round2(report["marketOver"]) == 4.03
-        )
-        return 0 if ok else 1
+    else:
+        print("No output path. Nothing written.")
+    if not ok:
+        print("Company-number MISMATCH. schedule-check.json was not accepted.")
+        if args.output:
+            print(f"Removed {args.output}")
+            try:
+                os.remove(args.output)
+            except OSError:
+                pass
+        return 1
     return 0
 
 
