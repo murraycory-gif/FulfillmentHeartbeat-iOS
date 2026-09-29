@@ -1310,6 +1310,137 @@ enum HeartbeatMath {
         }
     }
 
+    /// Old packs store one grain in chrome (regions, with division children on the packs).
+    /// Section pages use that when the company seat has not decoded store facts.
+    static func chromeSectionRows(
+        section: MetricSection,
+        grain: DashScopeGrain,
+        tables: [DashboardGrainTableRow],
+        packs: [DashScopePack]
+    ) -> [DashboardGrainTableRow] {
+        let live = tables.filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
+        if grainRowsAreLive(live), grainLabelsMatch(live.map(\.label), grain: grain) {
+            return live
+        }
+        if grain == .division {
+            let rows = rowsFromScopeLines(packs.flatMap(\.children), section: section)
+            if grainRowsAreLive(rows) { return rows }
+        }
+        if grain == .region {
+            let fromPacks = dashboardGrainRowsFromPacks(packs, section: section)
+            if grainRowsAreLive(fromPacks) { return fromPacks }
+        }
+        return []
+    }
+
+    static func grainLabelsMatch(_ labels: [String], grain: DashScopeGrain) -> Bool {
+        let names = labels.map { displayGrainLabel($0) }.filter { !$0.isEmpty }
+        guard !names.isEmpty else { return false }
+        // "California" and "California Region" are the same grain. A market name is not.
+        func isRegion(_ name: String) -> Bool { MarketRegion.named(name) != nil }
+        switch grain {
+        case .region:
+            return names.contains(where: isRegion)
+        case .division:
+            return names.allSatisfy { !isRegion($0) }
+        default:
+            return true
+        }
+    }
+
+    /// Division children on an old pack are one headline, not a full tile row.
+    static func rowsFromScopeLines(
+        _ lines: [DashScopeLine],
+        section: MetricSection
+    ) -> [DashboardGrainTableRow] {
+        let width = dashboardTableHeaders(section).count
+        return lines.compactMap { line in
+            guard !line.label.isEmpty, !RollupMarketFill.hidesUnassignedMarket(line.label) else { return nil }
+            let live = line.count > 0 || (!line.value.isEmpty && line.value != "—")
+            guard live else { return nil }
+            var values = Array(repeating: "—", count: max(width, 1))
+            values[0] = line.value.isEmpty ? "—" : line.value
+            return DashboardGrainTableRow(
+                label: displayGrainLabel(line.label),
+                storeCount: line.count,
+                values: values,
+                health: line.health
+            )
+        }
+    }
+
+    /// Company card columns from a cooked summary when `companyTiles` was never written.
+    static func legacyCompanyTiles(
+        summary: SectionSummary,
+        pickerShoppers: Int = 0,
+        pickerOpportunity: Int = 0,
+        pickerStrong: Int = 0
+    ) -> CompanyCardTiles? {
+        switch summary.section {
+        case .missingItems, .preSubOOS:
+            guard summary.storeCount > 0 || summary.headline != nil else { return nil }
+            let healthy = max(0, summary.storeCount - summary.watchCount - summary.riskCount)
+            return CompanyCardTiles(
+                labels: dashboardTableHeaders(summary.section),
+                values: [
+                    HeartbeatFormat.pct(summary.headline),
+                    HeartbeatFormat.num(Double(healthy)),
+                    HeartbeatFormat.num(Double(summary.watchCount)),
+                    HeartbeatFormat.num(Double(summary.riskCount)),
+                ]
+            )
+        case .pickerScorecard:
+            let shoppers = max(Int(summary.headline ?? 0), pickerShoppers)
+            guard shoppers > 0 else { return nil }
+            let risk = max(summary.riskCount, pickerOpportunity)
+            let healthy = pickerStrong
+            let known = risk > 0 || healthy > 0
+            let watch = known ? max(0, shoppers - healthy - risk) : 0
+            return CompanyCardTiles(
+                labels: dashboardTableHeaders(.pickerScorecard),
+                values: [
+                    HeartbeatFormat.num(Double(shoppers)),
+                    known ? HeartbeatFormat.num(Double(healthy)) : "—",
+                    known ? HeartbeatFormat.num(Double(watch)) : "—",
+                    known ? HeartbeatFormat.num(Double(risk)) : "—",
+                ]
+            )
+        case .prepNotReady:
+            guard summary.health != .none, summary.headline != nil, !isPrepThinNote(summary.secondary) else { return nil }
+            return CompanyCardTiles(
+                labels: dashboardTableHeaders(.prepNotReady),
+                values: [HeartbeatFormat.pct(summary.headline), "—", "—"]
+            )
+        default:
+            return nil
+        }
+    }
+
+    /// A Goal % above 20 is lost dollars over the FY2026 goal dollars, not the ~3% rate target.
+    static func phoneTileLabel(_ label: String, value: String) -> String {
+        guard label == "Goal %" else { return label }
+        let cleaned = value
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let number = Double(cleaned), number > 20 else { return label }
+        return "vs FY goal"
+    }
+
+    static func lossGrainHealth(_ row: DashboardGrainTableRow) -> Health {
+        if row.health != .none { return row.health }
+        guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Lost %"),
+              index < row.values.count else {
+            return row.storeCount > 0 ? .good : .none
+        }
+        let cleaned = row.values[index]
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let pct = Double(cleaned) else { return row.storeCount > 0 ? .good : .none }
+        return lostRevenueHealth(pct: pct)
+    }
+
     /// Expand has dollars/other columns but Goal % is still a dash.
     static func grainTableNeedsGoalFill(_ rows: [DashboardGrainTableRow]) -> Bool {
         guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Goal %") else { return false }
@@ -2965,7 +3096,7 @@ enum HeartbeatMath {
                 secondary: scored.isEmpty
                     ? "No Lost Revenue rows in this filter"
                     : "Total Lost Revenue % (Total Opportunity)",
-                health: scored.isEmpty ? .none : lostRevenueHealth(pct: pct),
+                health: pct == nil && scored.isEmpty ? .none : lostRevenueHealth(pct: pct),
                 watchCount: scored.filter { lostRevenueHealth($0) == .watch }.count,
                 riskCount: scored.filter { lostRevenueHealth($0) == .risk }.count,
                 lastFilename: upload?.filename,

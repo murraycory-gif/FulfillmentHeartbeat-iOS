@@ -526,6 +526,41 @@ enum PulseSQLite {
         return String(cString: cString)
     }
 
+    /// Reported vs in-scope Prep stores. One grouped query. Does not decode fact rows.
+    static func prepCoverage(from url: URL) -> HeartbeatMath.PrepCoverage? {
+        guard exists(at: url) else { return nil }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = """
+        SELECT store_number,
+               MAX(CASE
+                   WHEN instr(payload_json, '"pnr_rate_pct"') > 0
+                     OR instr(payload_json, '"pnr_hours"') > 0
+                     OR instr(payload_json, '"prep_not_ready_pct"') > 0
+                   THEN 1 ELSE 0 END)
+        FROM facts
+        WHERE section = ?
+        GROUP BY store_number;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        bind(stmt, 1, MetricSection.prepNotReady.rawValue)
+        var inScope = 0
+        var reported = 0
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let store = string(stmt, 0)
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
+            inScope += 1
+            if sqlite3_column_int(stmt, 1) != 0 { reported += 1 }
+        }
+        guard inScope > 0 else { return nil }
+        return HeartbeatMath.PrepCoverage(reported: reported, inScope: inScope)
+    }
+
     /// One row per store. Not a `LIMIT` walk of `facts_section_div` (that prefix
     /// is Haggen, then Jewel, then a slice of Mid-Atlantic — everyone else is 0).
     static func pickerHeadcounts(from url: URL) -> [String: Int] {

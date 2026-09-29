@@ -176,7 +176,15 @@ struct SectionDetailView: View {
             }
             if section == .pickerScorecard {
                 ForEach(rollupGrains, id: \.self) { grain in
-                    let rows = store.pickerGrainTable(grain: grain)
+                    let cooked = store.pickerGrainTable(grain: grain)
+                    let rows = cooked.isEmpty && !store.hasSectionFacts(.pickerScorecard)
+                        ? HeartbeatMath.chromeSectionRows(
+                            section: .pickerScorecard,
+                            grain: grain,
+                            tables: store.dashboardGrainRows(for: .pickerScorecard),
+                            packs: store.dashboardGrains(for: .pickerScorecard)
+                        )
+                        : cooked
                     if !rows.isEmpty {
                         Section {
                             OverviewMetricAlignedTable(
@@ -1370,6 +1378,11 @@ struct PhoneSectionPage: View {
                 PhoneSectionHeading(title: grain.title)
                 ForEach(rows) { row in
                     let prepNote = prepGrainNote(grain: grain, label: row.label)
+                    let health = prepNote == nil
+                        ? (section == .lostRevenue
+                            ? HeartbeatMath.lossGrainHealth(row)
+                            : (row.health == .none && row.storeCount > 0 ? .good : row.health))
+                        : Health.none
                     PhoneScorecardRow(
                         title: HeartbeatMath.displayGrainLabel(row.label),
                         subtitle: prepNote
@@ -1377,11 +1390,9 @@ struct PhoneSectionPage: View {
                                 ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
                                 : nil),
                         chips: prepNote == nil
-                            ? metricChips(values: row.values, health: row.health)
+                            ? metricChips(values: row.values, health: health)
                             : prepThinChips(note: prepNote ?? ""),
-                        health: prepNote == nil
-                            ? (row.health == .none && row.storeCount > 0 ? .good : row.health)
-                            : .none,
+                        health: health,
                         preSubTop: preSubTop(scope: PreSubTopItems.grainScope(grain, label: row.label))
                     )
                 }
@@ -1391,6 +1402,7 @@ struct PhoneSectionPage: View {
 
     private func prepGrainNote(grain: DashScopeGrain, label: String) -> String? {
         guard section == .prepNotReady else { return nil }
+        if let uploaded = store.prepUploadedCoverage, uploaded.thin { return uploaded.note }
         let labor = LaborRollupGrain(grain)
         let matching = store.seatRows(for: .prepNotReady).filter { row in
             guard let key = RollupMarketFill.acceptedGrainKey(row, grain: labor) else { return false }
@@ -1420,6 +1432,15 @@ struct PhoneSectionPage: View {
     }
 
     private func metricGrainRows(for grain: DashScopeGrain) -> [HeartbeatMath.DashboardGrainTableRow] {
+        if !store.hasSectionFacts(section) {
+            let chrome = HeartbeatMath.chromeSectionRows(
+                section: section,
+                grain: grain,
+                tables: store.dashboardGrainRows(for: section),
+                packs: store.dashboardGrains(for: section)
+            )
+            if !chrome.isEmpty { return chrome }
+        }
         let labor = LaborRollupGrain(grain)
         let stores = store.seatRows(for: section)
         let pphSeat = section == .dynacap ? store.seatRows(for: .pph) : []
@@ -1574,13 +1595,21 @@ struct PhoneSectionPage: View {
 
     private func preSubTop(scope: String) -> PreSubTopItems.Card? {
         guard section == .preSubOOS else { return nil }
-        return store.preSubTopCard(scope: scope)
+        let card = store.preSubTopCard(scope: scope)
+        if card.items.isEmpty, card.missingNote == nil || card.missingNote?.isEmpty == true {
+            return nil
+        }
+        return card
     }
 
     private func metricChips(values: [String], health: Health) -> [PhoneMetricChip] {
         let headers = HeartbeatMath.dashboardTableHeaders(section)
         return zip(headers, values).map { header, value in
-            PhoneMetricChip(label: header, value: value, health: health)
+            PhoneMetricChip(
+                label: HeartbeatMath.phoneTileLabel(header, value: value),
+                value: value,
+                health: health
+            )
         }
     }
 
@@ -1628,10 +1657,22 @@ enum PhoneThisWeekChrome {
         if let tiles = store.companyCardTiles(for: section) {
             let health = CommandCenterLayout.displayedHealth(store.cheapPhonePageChrome(section))
             return zip(tiles.labels, tiles.values).map { label, value in
-                PhoneMetricChip(label: label, value: value, health: health)
+                PhoneMetricChip(
+                    label: HeartbeatMath.phoneTileLabel(label, value: value),
+                    value: value,
+                    health: health
+                )
             }
         }
         if section == .prepNotReady {
+            if let uploaded = store.prepUploadedCoverage, uploaded.thin {
+                return [
+                    PhoneMetricChip(label: "Stores", value: uploaded.coverageTile, health: .none),
+                    PhoneMetricChip(label: "PNR %", value: "—", health: .none),
+                    PhoneMetricChip(label: "Goal", value: "—", health: .none),
+                    PhoneMetricChip(label: "Watch", value: "—", health: .none),
+                ]
+            }
             let coverage = HeartbeatMath.prepCoverage(companyRows(section: section, store: store))
             if coverage.thin {
                 return [
@@ -1654,7 +1695,11 @@ enum PhoneThisWeekChrome {
         let storeCount = HeartbeatMath.metricStoreCount(section, rows: factRows(section: section, store: store))
         let health = gradedCardHealth(section: section, scored: scored.health, storeCount: storeCount)
         return zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
-            PhoneMetricChip(label: header, value: value, health: health)
+            PhoneMetricChip(
+                label: HeartbeatMath.phoneTileLabel(header, value: value),
+                value: value,
+                health: health
+            )
         }
     }
 }
@@ -1666,6 +1711,7 @@ struct PhoneCompanyThisWeekBlock: View {
 
     var body: some View {
         let seat = CommandCenterLayout.overviewSeatLabel(store.filters)
+        let pickerChrome = store.seatPickerChrome()
         VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
             PhoneSectionHeading(title: "This Week")
             if section == .pickerScorecard,
@@ -1682,6 +1728,33 @@ struct PhoneCompanyThisWeekBlock: View {
                 )
             } else if !store.filters.isActive, store.companyCardTiles(for: section) != nil {
                 companyRollupCard(seat: seat)
+            } else if !store.filters.isActive, !store.hasSectionFacts(section),
+                      let tiles = HeartbeatMath.legacyCompanyTiles(
+                        summary: store.cheapPhonePageChrome(section),
+                        pickerShoppers: pickerChrome.shoppers,
+                        pickerOpportunity: pickerChrome.opportunity,
+                        pickerStrong: pickerChrome.strong
+                      ) {
+                let card = store.cheapPhonePageChrome(section)
+                let health = CommandCenterLayout.displayedHealth(card)
+                PhoneScorecardRow(
+                    title: seat,
+                    eyebrow: CommandCenterLayout.glanceTitle(section),
+                    subtitle: HeartbeatMath.isPrepThinNote(card.secondary)
+                        ? card.secondary
+                        : (card.storeCount > 0
+                            ? (card.storeCount == 1 ? "1 store" : "\(card.storeCount) stores")
+                            : nil),
+                    chips: zip(tiles.labels, tiles.values).map { label, value in
+                        PhoneMetricChip(
+                            label: HeartbeatMath.phoneTileLabel(label, value: value),
+                            value: value,
+                            health: health
+                        )
+                    },
+                    health: health,
+                    preSubTop: preSubSeatTop
+                )
             } else if section == .sales {
                 let storeCount = HeartbeatMath.metricStoreCount(
                     section,
@@ -1706,8 +1779,9 @@ struct PhoneCompanyThisWeekBlock: View {
                     rows: PhoneThisWeekChrome.companyRows(section: section, store: store)
                 )
                 let health = gradedCardHealth(section: section, scored: scored.health, storeCount: storeCount)
-                let prepCoverage = section == .prepNotReady
-                    ? HeartbeatMath.prepCoverage(PhoneThisWeekChrome.companyRows(section: section, store: store))
+                let seatPrep = HeartbeatMath.prepCoverage(PhoneThisWeekChrome.companyRows(section: section, store: store))
+                let prepCoverage: HeartbeatMath.PrepCoverage? = section == .prepNotReady
+                    ? ((store.prepUploadedCoverage?.thin == true) ? store.prepUploadedCoverage : (seatPrep.thin ? seatPrep : nil))
                     : nil
                 PhoneScorecardRow(
                     title: seat,
@@ -1751,7 +1825,11 @@ struct PhoneCompanyThisWeekBlock: View {
 
     private var preSubSeatTop: PreSubTopItems.Card? {
         guard section == .preSubOOS else { return nil }
-        return store.preSubTopCard(scope: PreSubTopItems.seatScope(store.filters))
+        let card = store.preSubTopCard(scope: PreSubTopItems.seatScope(store.filters))
+        if card.items.isEmpty, card.missingNote == nil || card.missingNote?.isEmpty == true {
+            return nil
+        }
+        return card
     }
 }
 

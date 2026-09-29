@@ -1613,7 +1613,11 @@ struct PickerHighlightsPanel: View {
                                 title: "Top opportunity",
                                 subtitle: "Underperforming vs the metric mix",
                                 rows: board.opportunity,
-                                empty: "No opportunity shoppers in this filter.",
+                                empty: board.opportunityCount > 0
+                                    ? "\(HeartbeatFormat.num(Double(board.opportunityCount))) opportunity shoppers. Open a division to list names."
+                                    : (board.shopperCount > 0
+                                        ? "Open a division to list opportunity shoppers."
+                                        : "No opportunity shoppers in this filter."),
                                 tone: .risk,
                                 action: onSelectOpportunity
                             )
@@ -1621,7 +1625,11 @@ struct PickerHighlightsPanel: View {
                                 title: "Doing well",
                                 subtitle: "Hitting the metric mix",
                                 rows: board.strong,
-                                empty: "No strong shoppers in this filter.",
+                                empty: board.strongCount > 0
+                                    ? "\(HeartbeatFormat.num(Double(board.strongCount))) shoppers doing well. Open a division to list names."
+                                    : (board.shopperCount > 0
+                                        ? "Open a division to list shoppers doing well."
+                                        : "No strong shoppers in this filter."),
                                 tone: .good,
                                 action: onSelectStrong
                             )

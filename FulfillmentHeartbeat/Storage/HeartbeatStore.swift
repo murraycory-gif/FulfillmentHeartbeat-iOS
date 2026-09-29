@@ -157,6 +157,8 @@ final class HeartbeatStore: ObservableObject {
     @Published var inAppNewDataBannerEnabled = NewDataPreferences.bannerEnabled(in: .standard)
     private var newDataBannerTask: Task<Void, Never>?
     /// Scope key → cooked top 10. Filled one card at a time. Never the item plane.
+    /// Prep reported vs in-scope from the open pack. Nil until chrome is applied.
+    private(set) var prepUploadedCoverage: HeartbeatMath.PrepCoverage?
     private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
     private var preSubTopCacheURL: String = ""
     private var companySeatChrome: PulseDashChrome?
@@ -689,8 +691,12 @@ final class HeartbeatStore: ObservableObject {
 
     /// Top 10 for one Pre-Sub card. Missing tab is a sentence, never an empty list.
     /// Reads one `presub_top` row. Does not load the item fact plane.
+    /// Older chrome has no flag: omit the list. Only an explicit false shows the sentence.
     func preSubTopCard(scope: String) -> PreSubTopItems.Card {
-        guard packChrome?.preSubItemTabPresent == true else {
+        guard let present = packChrome?.preSubItemTabPresent else {
+            return PreSubTopItems.Card(missingNote: nil, items: [])
+        }
+        guard present else {
             return PreSubTopItems.Card(missingNote: PreSubTopItems.missingTabNote, items: [])
         }
         let url = activePackURL
@@ -2185,6 +2191,11 @@ final class HeartbeatStore: ObservableObject {
         return rows.first(where: isMarket)
     }
 
+    func hasSectionFacts(_ section: MetricSection) -> Bool {
+        if filters.isActive { return !(filteredLatest[section] ?? []).isEmpty }
+        return !(latestBySection[section] ?? []).isEmpty || !(filteredLatest[section] ?? []).isEmpty
+    }
+
     /// Unfiltered company only. Seat filters must not inherit the global Total.
     private func attachingCompanyLostTotal(_ rows: [MetricRow]) -> [MetricRow] {
         guard !filters.isActive else { return rows }
@@ -2197,15 +2208,21 @@ final class HeartbeatStore: ObservableObject {
         guard !filters.isActive,
               let market = lostRevenueMarketRow(),
               let target = market.number("lost_revenue"),
-              target > 0
+              target > 0,
+              let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue })
         else { return }
-        guard let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) else { return }
-        if abs((cachedSummaries[index].headline ?? 0) - target) <= 1 { return }
-        cachedSummaries[index] = HeartbeatMath.summarize(
-            .lostRevenue,
-            rows: attachingCompanyLostTotal(filteredLatest[.lostRevenue] ?? []),
-            upload: upload(for: .lostRevenue)
-        )
+        var card = cachedSummaries[index]
+        let drifted = abs((card.headline ?? 0) - target) > 1
+        let pct = market.number("lost_revenue_pct") ?? card.lostRevenuePct
+        if !drifted, card.health != .none { return }
+        if drifted { card.headline = target }
+        if let pct {
+            card.lostRevenuePct = pct
+            if card.health == .none || drifted {
+                card.health = HeartbeatMath.lostRevenueHealth(pct: pct)
+            }
+        }
+        cachedSummaries[index] = card
     }
 
     func dynacapCoverageNote() -> String? {
@@ -6336,6 +6353,8 @@ final class HeartbeatStore: ObservableObject {
     private func applyDashChrome(_ chrome: PulseDashChrome, packURL: URL? = nil) {
         preSubTopCache = [:]
         preSubTopCacheURL = ""
+        let coverageURL = packURL ?? activePackURL
+        prepUploadedCoverage = PulseSQLite.prepCoverage(from: coverageURL)
         packChrome = chrome
         usingPackChrome = true
         let fileTime: Date? = chrome.publishedAt == nil
@@ -6415,6 +6434,20 @@ final class HeartbeatStore: ObservableObject {
                     ?? cachedSummaries[index].salesYoyPct
             }
         }
+        applyPrepCoverageGate()
+    }
+
+    /// Header, Result, and the Prep card share one answer. Thin coverage is NO DATA.
+    private func applyPrepCoverageGate() {
+        guard let coverage = prepUploadedCoverage, coverage.thin,
+              let index = cachedSummaries.firstIndex(where: { $0.section == .prepNotReady })
+        else { return }
+        cachedSummaries[index].health = .none
+        cachedSummaries[index].headline = nil
+        cachedSummaries[index].secondary = coverage.note
+        cachedSummaries[index].storeCount = coverage.inScope
+        cachedSummaries[index].watchCount = 0
+        cachedSummaries[index].riskCount = 0
     }
 
     /// Pack chrome already has live expand numbers. Seed them on the first

@@ -76,9 +76,9 @@ assert.equal(accessCertsURL("https://evil.example/cdn-cgi/access/certs"), null);
 
 const stamp = readFileSync(join(root, "../FulfillmentHeartbeat/BuildStamp.swift"), "utf8");
 const app = readFileSync(join(root, "public/app.js"), "utf8");
-assert.match(stamp, /HB-0828\.491e/);
-assert.match(app, /HB-0828\.491e/);
-assert.equal((stamp.match(/HB-0828\.491e/g) || []).length, 1);
+assert.match(stamp, /HB-0828\.491f/);
+assert.match(app, /HB-0828\.491f/);
+assert.equal((stamp.match(/HB-0828\.491f/g) || []).length, 1);
 
 for (const path of walk(join(root, "public"))) {
   const text = readFileSync(path, "utf8");
