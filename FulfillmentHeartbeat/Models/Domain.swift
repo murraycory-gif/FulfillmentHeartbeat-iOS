@@ -1744,7 +1744,8 @@ enum HeartbeatMath {
         var map: [String: MetricRow] = [:]
         for row in rows {
             let number = canonicalStore(row.storeNumber)
-            if isIgnoredStore(number), row.section != .sales { continue }
+            // Loss keeps ignored-store dollars in the workbook sum. Other sections hide 210 / 239.
+            if isIgnoredStore(number), row.section != .sales, row.section != .lostRevenue { continue }
             if row.textPayload["sales_grain"] == "day" { continue }
             if row.textPayload["sales_grain"] == "company" {
                 if let existing = map["__sales_company__"] {
@@ -2661,8 +2662,10 @@ enum HeartbeatMath {
         var reported: Int
         var inScope: Int
 
-        /// Under half the stores in scope reported. Do not grade those rows.
-        var thin: Bool { inScope > 0 && reported * 2 < inScope }
+        /// Some stores reported a number and more than half are still blank.
+        /// A numeric 0 counts as reported. Zero reported stores is the no-rows
+        /// card ("No Prep rows this week"), not this gate.
+        var thin: Bool { reported > 0 && inScope > 0 && reported * 2 < inScope }
 
         var note: String {
             HeartbeatMath.prepThinNote(reported: reported, inScope: inScope)
@@ -2706,6 +2709,7 @@ enum HeartbeatMath {
             let store = canonicalStore(row.storeNumber)
             if store.isEmpty || store.caseInsensitiveCompare("TOTAL") == .orderedSame { continue }
             if isIgnoredStore(store) { continue }
+            // Numeric 0 is a reported rate. Only a missing key is blank.
             let hasRate = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
             reportedByStore[store] = (reportedByStore[store] ?? false) || hasRate
         }
@@ -2925,9 +2929,10 @@ enum HeartbeatMath {
                     && !$0.storeNumber.isEmpty
                     && $0.number("lost_revenue") != nil
             }
-            // Roster ignores stay out of the store count. Their dollars stay in
-            // the workbook sum when the seat has no market Total row.
-            let dollarRows = latest.filter {
+            // Roster ignores stay out of the store count (`latest`). Their dollars
+            // stay in the workbook sum when the seat has no market Total row.
+            // Store 239 is about $218 and is the gap versus the Power BI store sum.
+            let dollarRows = rows.filter {
                 $0.textPayload["lost_grain"] != "market"
                     && !$0.storeNumber.isEmpty
                     && $0.number("lost_revenue") != nil

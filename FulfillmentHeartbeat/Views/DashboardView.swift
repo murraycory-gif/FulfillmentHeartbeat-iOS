@@ -1005,7 +1005,12 @@ struct PreSubTopListBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: HubLayout.runsOnMac ? 6 : 4) {
-            if let note = card.missingNote, !note.isEmpty {
+            if card.missingNote == PreSubTopItems.missingTabNote {
+                Text(PreSubTopItems.missingTabNote)
+                    .font(itemFont)
+                    .foregroundStyle(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let note = card.missingNote, !note.isEmpty {
                 Text(note)
                     .font(itemFont)
                     .foregroundStyle(AppTheme.text)

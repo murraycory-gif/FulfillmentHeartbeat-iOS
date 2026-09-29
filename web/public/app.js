@@ -23,7 +23,7 @@ import {
   effHealth,
 } from "./schedule-math.js";
 
-const STAMP = "HB-0828.493";
+const STAMP = "HB-0828.491b";
 
 const PAGES = [
   { id: "dashboard", title: "Dashboard" },

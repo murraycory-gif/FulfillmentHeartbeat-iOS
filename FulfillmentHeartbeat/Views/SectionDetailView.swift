@@ -1623,6 +1623,14 @@ enum PhoneThisWeekChrome {
     }
 
     static func chips(section: MetricSection, store: HeartbeatStore) -> [PhoneMetricChip] {
+        // Cooked company tiles are the card. Do not walk seat facts first —
+        // that touch fails the chrome-only tile test and can replace a filled tile.
+        if let tiles = store.companyCardTiles(for: section) {
+            let health = CommandCenterLayout.displayedHealth(store.cheapPhonePageChrome(section))
+            return zip(tiles.labels, tiles.values).map { label, value in
+                PhoneMetricChip(label: label, value: value, health: health)
+            }
+        }
         if section == .prepNotReady {
             let coverage = HeartbeatMath.prepCoverage(companyRows(section: section, store: store))
             if coverage.thin {
@@ -1632,12 +1640,6 @@ enum PhoneThisWeekChrome {
                     PhoneMetricChip(label: "Goal", value: "—", health: .none),
                     PhoneMetricChip(label: "Watch", value: "—", health: .none),
                 ]
-            }
-        }
-        if let tiles = store.companyCardTiles(for: section) {
-            let health = CommandCenterLayout.displayedHealth(store.cheapPhonePageChrome(section))
-            return zip(tiles.labels, tiles.values).map { label, value in
-                PhoneMetricChip(label: label, value: value, health: health)
             }
         }
         if section == .sales {
