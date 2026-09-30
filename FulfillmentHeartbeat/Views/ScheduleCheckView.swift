@@ -171,6 +171,7 @@ struct ScheduleCheckView: View {
 
     private func detailPage(_ pack: ScheduleCheckPack) -> some View {
         let rows = sorted(ScheduleCheckMath.scoped(pack, filters: store.filters))
+        let laidOut = ScheduleCheckMath.detailBodyHeight(rowCount: rows.count)
         return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 if rows.isEmpty {
@@ -188,8 +189,9 @@ struct ScheduleCheckView: View {
                             Divider().overlay(AppTheme.cardBorder)
                         }
                     }
-                    .frame(minWidth: detailWidth, alignment: .leading)
+                    .frame(minWidth: detailWidth, minHeight: laidOut, alignment: .topLeading)
                 }
+                .frame(minHeight: laidOut)
             }
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -1291,8 +1291,11 @@ final class HeartbeatStore: ObservableObject {
         cachedGrainPacks[section] ?? []
     }
 
-    func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
-        let grain = effectiveDashboardGrain
+    func dashboardGrainRows(
+        for section: MetricSection,
+        grain explicit: DashScopeGrain? = nil
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let grain = explicit ?? effectiveDashboardGrain
         if section == .pickerScorecard {
             let cooked = pickerGrainTable(grain: grain)
             if HeartbeatMath.grainRowsAreLive(cooked) { return cooked }
@@ -1321,13 +1324,22 @@ final class HeartbeatStore: ObservableObject {
                 return table
             }
         }
-        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
-            if !filters.isActive || PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
-                if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(cached)
+        if let cached = cachedGrainTables[section] {
+            let scoped = PulseLaunch.grainRowsScopedToFilter(
+                cached,
+                filters: filters,
+                grain: grain,
+                roster: roster
+            )
+            if let shown = shownGrainRows(scoped, grain: grain) {
+                if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(shown)
                     || PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() {
-                    return cached
+                    return shown
                 }
             }
+        }
+        if let chrome = chromeGrainRows(section: section, grain: grain) {
+            return chrome
         }
         if filters.isActive, section != .pickerScorecard {
             return PulseLaunch.grainRowsFromSeatPacks(
@@ -1339,8 +1351,64 @@ final class HeartbeatStore: ObservableObject {
         return []
     }
 
+    /// Chrome breakdown for this grain. A label that is not the exact title
+    /// still counts when the row carries the section value.
+    private func chromeGrainRows(
+        section: MetricSection,
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow]? {
+        guard let chrome = packChrome else { return nil }
+        let table = chrome.tables[section.rawValue] ?? []
+        let packs = chrome.packs[section.rawValue] ?? cachedGrainPacks[section] ?? []
+        let rows = HeartbeatMath.chromeSectionRows(
+            section: section,
+            grain: grain,
+            tables: table,
+            packs: packs
+        )
+        let scoped = PulseLaunch.grainRowsScopedToFilter(
+            rows,
+            filters: filters,
+            grain: grain,
+            roster: roster
+        )
+        return shownGrainRows(scoped, grain: grain)
+    }
+
+    /// Region and division chrome stays when the rows already have the section
+    /// values, even if the labels are not the exact grain title. Store and
+    /// district seats still have to match the current grain.
+    private func shownGrainRows(
+        _ rows: [HeartbeatMath.DashboardGrainTableRow],
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow]? {
+        if grain == .region || grain == .division {
+            let fitting = HeartbeatMath.fittingGrainRows(rows, grain: grain)
+            if HeartbeatMath.grainRowsAreLive(fitting) { return fitting }
+            if HeartbeatMath.grainLabelsMatch(rows, grain: grain) { return rows }
+            return nil
+        }
+        guard HeartbeatMath.grainRowsAreLive(rows) else { return nil }
+        guard PulseLaunch.grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) else { return nil }
+        return rows
+    }
+
     func salesExpandRows() -> [SalesRollupRow] {
-        cachedSalesScopeRows
+        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
+            return cachedSalesScopeRows
+        }
+        let chrome = dashboardGrainRows(for: .sales)
+        let built = SalesRollupBuilder.dashboardRows(
+            from: SalesRollupBuilder.source(
+                from: rollupStores(for: .sales),
+                filters: filters,
+                roster: roster
+            ),
+            grain: effectiveDashboardGrain,
+            chrome: chrome
+        )
+        if PulseLaunch.salesExpandIsLive(built) { return built }
+        return cachedSalesScopeRows
     }
 
     func salesExpandIsLive() -> Bool {
@@ -1349,9 +1417,10 @@ final class HeartbeatStore: ObservableObject {
 
     /// Chevron / table gate: never open a header shell over an empty body.
     func dashboardExpandIsLive(_ section: MetricSection) -> Bool {
-        PulseLaunch.dashboardExpandIsLive(
+        let salesRows = section == .sales ? salesExpandRows() : cachedSalesScopeRows
+        return PulseLaunch.dashboardExpandIsLive(
             section: section,
-            salesRows: cachedSalesScopeRows,
+            salesRows: salesRows,
             grainRows: dashboardGrainRows(for: section),
             pickerFacts: pickerFactCount()
         )
@@ -1722,8 +1791,9 @@ final class HeartbeatStore: ObservableObject {
         // Roster / placeholder packs are not an expand count. "Regions 4" with
         // an empty table was `containing(division)` while sales cache was empty.
         _ = grain
-        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
-            return cachedSalesScopeRows.count
+        let salesRows = salesExpandRows()
+        if PulseLaunch.salesExpandIsLive(salesRows) {
+            return salesRows.count
         }
         return 0
     }
@@ -6730,20 +6800,26 @@ final class HeartbeatStore: ObservableObject {
     /// Pack chrome already has live expand numbers. Seed them on the first
     /// frame so gold / chevron do not wait for a second tap.
     private func seedExpandTablesFromChrome(_ chrome: PulseDashChrome) {
-        guard !filters.isActive else { return }
         guard !chrome.tables.isEmpty else { return }
+        let grain = filters.isActive ? effectiveDashboardGrain : PulseLaunch.unfilteredDashboardGrain()
         var incoming: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         for (key, rows) in chrome.tables {
             guard let section = MetricSection(rawValue: key) else { continue }
-            if HeartbeatMath.grainRowsAreLive(rows) {
-                incoming[section] = rows
+            let scoped = PulseLaunch.grainRowsScopedToFilter(
+                rows,
+                filters: filters,
+                grain: grain,
+                roster: roster
+            )
+            if scoped.contains(where: HeartbeatMath.grainRowHasSectionValue) {
+                incoming[section] = scoped
             }
         }
         cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
             incoming: incoming,
             live: cachedGrainTables,
-            grain: PulseLaunch.unfilteredDashboardGrain(),
-            filtersActive: false
+            grain: grain,
+            filtersActive: filters.isActive
         )
     }
 

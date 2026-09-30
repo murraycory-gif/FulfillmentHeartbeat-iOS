@@ -157,6 +157,13 @@ enum ScheduleCheckMath {
     static let overGate = 15.0
     static let effGoal = 90.0
     static let dayNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+    /// Laid-out height of the Store Detail column header plus one line per store.
+    /// The horizontal scroll inside the page uses this so the rows are not height 0.
+    static let detailHeaderHeight: CGFloat = 32
+    static let detailRowHeight: CGFloat = 32
+    static func detailBodyHeight(rowCount: Int) -> CGFloat {
+        detailHeaderHeight + CGFloat(max(rowCount, 0)) * detailRowHeight
+    }
 
     static func qualifies(sales: Double?, under: Double?, fourUnder: Double?, over: Double?) -> Bool {
         guard let sales, sales >= salesGate else { return false }

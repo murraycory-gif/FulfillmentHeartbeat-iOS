@@ -5237,6 +5237,31 @@ struct PrepRollupTable: View {
         let next = forcedGrain ?? PrepRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        let dashGrain: DashScopeGrain
+        switch next {
+        case .region: dashGrain = .region
+        case .division: dashGrain = .division
+        case .district: dashGrain = .district
+        case .store: dashGrain = .store
+        }
+        let chrome = store.dashboardGrainRows(for: .prepNotReady, grain: dashGrain)
+        if chrome.contains(where: HeartbeatMath.grainRowHasSectionValue) {
+            summary = chrome.map { row in
+                let rate = HeartbeatMath.grainRowHasSectionValue(row)
+                    ? HeartbeatMath.parsedTileNumber(row.values.first ?? "")
+                    : nil
+                return PrepRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    pnr: rate,
+                    reported: rate == nil ? 0 : max(row.storeCount, 1),
+                    inScope: max(row.storeCount, 1)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = PrepRollupBuilder.source(from: store.rollupStores(for: .prepNotReady), filters: store.filters)
         var rows = PrepRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }

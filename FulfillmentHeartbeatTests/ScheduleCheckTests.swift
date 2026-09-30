@@ -178,6 +178,29 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertTrue(detail.contains("ForEach(rows)"))
     }
 
+    func testStoreDetailRowsHaveLaidOutHeight() {
+        let height = ScheduleCheckMath.detailBodyHeight(rowCount: 2163)
+        XCTAssertGreaterThan(height, 0)
+        XCTAssertEqual(
+            height,
+            ScheduleCheckMath.detailHeaderHeight + CGFloat(2163) * ScheduleCheckMath.detailRowHeight
+        )
+        XCTAssertEqual(ScheduleCheckMath.detailBodyHeight(rowCount: 0), ScheduleCheckMath.detailHeaderHeight)
+        XCTAssertGreaterThan(ScheduleCheckMath.detailBodyHeight(rowCount: 0), 0)
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/ScheduleCheckView.swift"),
+            encoding: .utf8
+        )
+        let detail = view ?? ""
+        XCTAssertTrue(detail.contains("ScheduleCheckMath.detailBodyHeight(rowCount: rows.count)"))
+        XCTAssertTrue(detail.contains("frame(minWidth: detailWidth, minHeight: laidOut"))
+        XCTAssertTrue(detail.contains("No stores in this scope."))
+        XCTAssertTrue(detail.contains("header(detailColumns, tappable: true)"))
+    }
+
     func testScheduleRowsRoundTripInsideCurrentSqlite() throws {
         let pack = ScheduleCheckPack(
             publishedAt: "2026-09-28T12:00:00Z",

@@ -3148,8 +3148,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.dashboardExpandIsLive(section: .pickerScorecard, salesRows: [], grainRows: all))
         var jewelFilter = DashboardFilters()
         jewelFilter.division = "Jewel Osco"
-        XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: jewelFilter).isEmpty)
-        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter).isEmpty)
+        XCTAssertEqual(
+            PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: jewelFilter).map(\.label),
+            ["Jewel Osco"]
+        )
+        XCTAssertEqual(
+            PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter).map(\.label),
+            ["Jewel Osco"]
+        )
         var districtFilter = DashboardFilters()
         districtFilter.district = "03"
         XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: districtFilter).isEmpty)
@@ -3157,6 +3163,214 @@ final class HeartbeatMathTests: XCTestCase {
         storeFilter.store = "304"
         XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: storeFilter).isEmpty)
         XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: storeFilter).isEmpty)
+    }
+
+    /// A roster-counted dash table must not replace chrome that already has the
+    /// section's numbers. A filter slices those rows. Roster gold stays off non-Loss tiles.
+    func testChromeBreakdownSurvivesRosterDashAndFilter() {
+        func line(_ label: String, _ count: Int, _ value: String) -> HeartbeatMath.DashboardGrainTableRow {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: count,
+                values: [value],
+                health: value == "—" ? .none : .risk
+            )
+        }
+        let sales = [
+            line("East Region", 615, "$8,209,791.69"),
+            line("West Region", 555, "$1.00"),
+            line("California Region", 604, "$1.00"),
+            line("South Region", 397, "$1.00"),
+        ]
+        let loss = [
+            line("East Region", 610, "$393,334.12"),
+            line("South Region", 395, "$136,425"),
+            line("California Region", 599, "$168,079.57"),
+            line("West Region", 553, "$191,547.49"),
+        ]
+        let missing = [
+            line("East Region", 613, "8.61%"),
+            line("South Region", 395, "7.19%"),
+            line("California Region", 600, "8.18%"),
+            line("West Region", 554, "6.49%"),
+        ]
+        let stars = [
+            line("East Region", 611, "2.60"),
+            line("South Region", 395, "3.46"),
+            line("California Region", 599, "3.75"),
+            line("West Region", 552, "3.64"),
+        ]
+        let presub = [
+            line("East Region", 613, "6.63%"),
+            line("South Region", 395, "5.51%"),
+            line("California Region", 600, "4.91%"),
+            line("West Region", 554, "4.85%"),
+        ]
+        let path = [
+            line("East Region", 610, "78.80%"),
+            line("South Region", 385, "80.06%"),
+            line("California Region", 596, "79.17%"),
+            line("West Region", 551, "81.03%"),
+        ]
+        let prep = [
+            line("East Region", 81, "3.70%"),
+            line("West Region", 65, "2.33%"),
+            line("California Region", 113, "1.78%"),
+            line("South Region", 106, "2.55%"),
+            line("Jewel Osco", 45, "3.06%"),
+            line("Mid-Atlantic", 23, "3.53%"),
+            line("Portland", 9, "3.48%"),
+            line("NorCal", 57, "2.39%"),
+            line("Southern", 36, "2.80%"),
+            line("Shaws", 13, "6.21%"),
+            line("Southwest", 70, "2.43%"),
+            line("SoCal", 56, "1.16%"),
+            line("Mountain West", 32, "2.63%"),
+            line("Seattle", 24, "1.50%"),
+            line("United", 70, "—"),
+        ]
+        let dynacap = [
+            line("East Region", 612, "81.3"),
+            line("South Region", 324, "59.4"),
+            line("California Region", 600, "59.1"),
+            line("West Region", 552, "67.4"),
+        ]
+        let schedule = [
+            line("East Region", 610, "89.07%"),
+            line("South Region", 325, "92.16%"),
+            line("California Region", 595, "88.58%"),
+            line("West Region", 550, "92.55%"),
+        ]
+        let picker = [
+            line("East Region", 6_996, "6996"),
+            line("South Region", 4_117, "4117"),
+            line("California Region", 5_807, "5807"),
+            line("West Region", 4_862, "4862"),
+        ]
+        let pph = [
+            line("East Region", 613, "69.5"),
+            line("South Region", 395, "74.3"),
+            line("California Region", 601, "73.5"),
+            line("West Region", 554, "80.2"),
+        ]
+        let labor = [
+            line("East Region", 490, "0.75%"),
+            line("South Region", 367, "0.89%"),
+            line("California Region", 438, "1.11%"),
+            line("West Region", 418, "0.33%"),
+        ]
+        let chrome: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [
+            .sales: sales, .lostRevenue: loss, .missingItems: missing, .fiveStar: stars,
+            .preSubOOS: presub, .pickPath: path, .prepNotReady: prep, .dynacap: dynacap,
+            .scheduleQuality: schedule, .pickerScorecard: picker, .pph: pph, .labor: labor,
+        ]
+        let dashes = chrome.mapValues { rows in
+            rows.map {
+                HeartbeatMath.DashboardGrainTableRow(
+                    label: $0.label,
+                    storeCount: $0.label == "East Region" && $0.storeCount == 81 ? 615 : $0.storeCount,
+                    values: ["—"],
+                    health: .none
+                )
+            }
+        }
+        let kept = PulseLaunch.mergeLiveGrainTables(incoming: dashes, live: chrome, grain: .region)
+        XCTAssertEqual(kept[.sales]?.first { $0.label == "East Region" }?.values.first, "$8,209,791.69")
+        XCTAssertEqual(kept[.sales]?.first { $0.label == "East Region" }?.storeCount, 615)
+        XCTAssertEqual(kept[.lostRevenue]?.first { $0.label == "East Region" }?.values.first, "$393,334.12")
+        XCTAssertEqual(kept[.lostRevenue]?.first { $0.label == "East Region" }?.storeCount, 610)
+        XCTAssertEqual(kept[.missingItems]?.first { $0.label == "East Region" }?.values.first, "8.61%")
+        XCTAssertEqual(kept[.fiveStar]?.first { $0.label == "East Region" }?.values.first, "2.60")
+        XCTAssertEqual(kept[.preSubOOS]?.first { $0.label == "East Region" }?.values.first, "6.63%")
+        XCTAssertEqual(kept[.pickPath]?.first { $0.label == "East Region" }?.values.first, "78.80%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "East Region" }?.values.first, "3.70%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "East Region" }?.storeCount, 81)
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "Jewel Osco" }?.values.first, "3.06%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "Jewel Osco" }?.storeCount, 45)
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "Shaws" }?.values.first, "6.21%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "United" }?.values.first, "—")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "United" }?.storeCount, 70)
+        XCTAssertEqual(kept[.dynacap]?.first { $0.label == "East Region" }?.values.first, "81.3")
+        XCTAssertEqual(kept[.scheduleQuality]?.first { $0.label == "East Region" }?.values.first, "89.07%")
+        XCTAssertEqual(kept[.pickerScorecard]?.first { $0.label == "East Region" }?.storeCount, 6_996)
+        XCTAssertEqual(kept[.pph]?.first { $0.label == "East Region" }?.values.first, "69.5")
+        XCTAssertEqual(kept[.labor]?.first { $0.label == "East Region" }?.values.first, "0.75%")
+        XCTAssertFalse(HeartbeatMath.grainRowsAreLive(dashes[.prepNotReady] ?? []))
+
+        var east = DashboardFilters()
+        east.region = "East Region"
+        let sliced = PulseLaunch.grainRowsScopedToFilter(prep, filters: east)
+        XCTAssertFalse(sliced.isEmpty, "a region filter must slice chrome rows")
+        XCTAssertEqual(sliced.first { $0.label == "East Region" }?.storeCount, 81)
+        XCTAssertFalse(sliced.contains { $0.label == "West Region" })
+        XCTAssertTrue(sliced.contains { $0.label == "Shaws" })
+
+        let salesCard = SectionSummary(
+            section: .sales,
+            storeCount: 615,
+            headline: 27_760_000,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(PulseLaunch.pinSeatStoreCount(salesCard, seatStores: 2_163).storeCount, 615)
+
+        let unresolved = [
+            MetricRow(section: .sales, division: "not-a-market", operationsOM: "", storeNumber: "1", payload: ["sales_dollars": 5])
+        ]
+        XCTAssertTrue(SalesRollupBuilder.dashboardRows(from: unresolved, grain: .region).isEmpty)
+        let painted = SalesRollupBuilder.dashboardRows(from: unresolved, grain: .region, chrome: sales)
+        XCTAssertEqual(painted.first { $0.label == "East Region" }?.storeCount, 615)
+        XCTAssertEqual(painted.first { $0.label == "East Region" }?.pack.sales ?? 0, 8_209_791.69, accuracy: 0.01)
+        XCTAssertEqual(painted.count, 4)
+        let markets = SalesRollupBuilder.rowsFromChrome(prep, grain: .division)
+        XCTAssertEqual(markets.first { $0.label == "Jewel Osco" }?.storeCount, 45)
+        XCTAssertEqual(markets.first { $0.label == "Seattle" }?.pack.sales ?? 0, 1.50, accuracy: 0.001)
+        XCTAssertFalse(markets.contains { $0.label == "United" })
+
+        let prepDivisions = HeartbeatMath.chromeSectionRows(
+            section: .prepNotReady,
+            grain: .division,
+            tables: prep,
+            packs: []
+        )
+        XCTAssertEqual(prepDivisions.first { $0.label == "Jewel Osco" }?.values.first, "3.06%")
+        XCTAssertEqual(prepDivisions.first { $0.label == "Jewel Osco" }?.storeCount, 45)
+        XCTAssertEqual(prepDivisions.first { $0.label == "United" }?.values.first, "—")
+        XCTAssertEqual(prepDivisions.first { $0.label == "United" }?.storeCount, 70)
+        XCTAssertFalse(prepDivisions.contains { $0.label == "East Region" })
+        let prepRegions = HeartbeatMath.chromeSectionRows(
+            section: .prepNotReady,
+            grain: .region,
+            tables: prep,
+            packs: []
+        )
+        XCTAssertEqual(prepRegions.first { $0.label == "East Region" }?.values.first, "3.70%")
+        XCTAssertEqual(prepRegions.first { $0.label == "East Region" }?.storeCount, 81)
+        XCTAssertEqual(prepRegions.count, 4)
+
+        let odd = line("Book East", 615, "$8,209,791.69")
+        let oddDash = line("Book East", 615, "—")
+        let keptOdd = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.sales: [oddDash]],
+            live: [.sales: [odd]],
+            grain: .region
+        )
+        XCTAssertEqual(keptOdd[.sales]?.first?.values.first, "$8,209,791.69")
+        XCTAssertEqual(keptOdd[.sales]?.first?.storeCount, 615)
+        let oddRows = HeartbeatMath.chromeSectionRows(
+            section: .sales,
+            grain: .region,
+            tables: [odd],
+            packs: []
+        )
+        XCTAssertEqual(oddRows.first?.values.first, "$8,209,791.69")
+        XCTAssertFalse(HeartbeatMath.grainLabelsMatch([odd.label], grain: .region))
+        XCTAssertTrue(HeartbeatMath.grainLabelsMatch([odd], grain: .region))
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {
@@ -3502,23 +3716,22 @@ final class HeartbeatMathTests: XCTestCase {
             section: .scheduleQuality
         )
         XCTAssertEqual(PulseLaunch.uniqueStores(in: padded), ["304", "667"])
+        let scheduleCard = SectionSummary(
+            section: .scheduleQuality,
+            storeCount: 1,
+            headline: 90,
+            headlineLabel: "Avg",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
         XCTAssertEqual(
-            PulseLaunch.pinSeatStoreCount(
-                SectionSummary(
-                    section: .scheduleQuality,
-                    storeCount: 1,
-                    headline: 90,
-                    headlineLabel: "Avg",
-                    secondary: "",
-                    health: .good,
-                    watchCount: 0,
-                    riskCount: 0,
-                    lastFilename: nil,
-                    lastUploadedAt: nil
-                ),
-                seatStores: 2
-            ).storeCount,
-            2
+            PulseLaunch.pinSeatStoreCount(scheduleCard, seatStores: 2).storeCount,
+            1,
+            "roster count must not stamp a non-Loss tile"
         )
     }
 
@@ -3590,25 +3803,26 @@ final class HeartbeatMathTests: XCTestCase {
                     "\(section.rawValue) HubStoreCard N must equal Heartbeat \(heartbeatN)"
                 )
             }
-            XCTAssertEqual(
-                PulseLaunch.pinSeatStoreCount(
-                    SectionSummary(
-                        section: section,
-                        storeCount: facts.count,
-                        headline: 1,
-                        headlineLabel: "Avg",
-                        secondary: "",
-                        health: .good,
-                        watchCount: 0,
-                        riskCount: 0,
-                        lastFilename: nil,
-                        lastUploadedAt: nil
-                    ),
-                    seatStores: heartbeatN
-                ).storeCount,
-                heartbeatN,
-                "\(section.rawValue) card storeCount must pin to Heartbeat N"
-            )
+            let pinnedCount = PulseLaunch.pinSeatStoreCount(
+                SectionSummary(
+                    section: section,
+                    storeCount: facts.count,
+                    headline: 1,
+                    headlineLabel: "Avg",
+                    secondary: "",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                ),
+                seatStores: heartbeatN
+            ).storeCount
+            if section == .lostRevenue {
+                XCTAssertEqual(pinnedCount, heartbeatN, "Loss may take the seat store count")
+            } else {
+                XCTAssertEqual(pinnedCount, facts.count, "\(section.rawValue) must keep its own count")
+            }
         }
     }
 
@@ -4176,7 +4390,9 @@ final class HeartbeatMathTests: XCTestCase {
             [sales2160, loss2159, five2189],
             rosterStores: 2189
         )
-        XCTAssertTrue(pinned.allSatisfy { $0.storeCount == 2189 })
+        XCTAssertEqual(pinned.first { $0.section == .sales }?.storeCount, 2160)
+        XCTAssertEqual(pinned.first { $0.section == .fiveStar }?.storeCount, 2189)
+        XCTAssertEqual(pinned.first { $0.section == .lostRevenue }?.storeCount, 2189)
 
         var roster: [String: HeartbeatMath.StoreIdentity] = [:]
         for n in 1...5 {
@@ -6285,7 +6501,7 @@ final class HeartbeatMathTests: XCTestCase {
         let card = HeartbeatMath.summarize(.pickerScorecard, rows: fromSeatStores, upload: nil)
         XCTAssertGreaterThan(card.headline ?? 0, 0, "District 03 Picker headline must not stay 0")
         let pinned = PulseLaunch.pinSeatStoreCount(card, seatStores: 20)
-        XCTAssertEqual(pinned.storeCount, 20)
+        XCTAssertEqual(pinned.storeCount, card.storeCount, "Picker must not take roster.count")
         let table = PulseLaunch.pickerExpandTable(
             seatRows: fromSeatStores,
             chrome: nil,

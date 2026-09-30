@@ -1950,10 +1950,11 @@ enum PulseLaunch {
         return next
     }
 
-    /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.
-    /// Company heroes use the same pin against the published roster gold.
+    /// Loss Revenue may take the seat store count. Other sections keep the
+    /// count already on the tile. Roster gold must not overwrite Prep, Sales,
+    /// or any other section.
     static func pinSeatStoreCount(_ summary: SectionSummary, seatStores: Int) -> SectionSummary {
-        guard seatStores > 0 else { return summary }
+        guard summary.section == .lostRevenue, seatStores > 0 else { return summary }
         var next = summary
         next.storeCount = seatStores
         return next
@@ -2206,15 +2207,93 @@ enum PulseLaunch {
         grainMatchesSeat(rows, filters: filters, grain: grain)
     }
 
-    /// Seat filters cannot be applied by matching grain labels
-    /// (`East Region` vs District 3). Rebuild from `PulseQuery.slice`.
+    /// Narrow chrome breakdown rows to the active seat. An active filter must
+    /// not throw the table away. District, OM, and Store use the roster to
+    /// keep the parent region and division. With no roster, a label that does
+    /// not name the filter stays out.
     static func grainRowsScopedToFilter(
         _ rows: [HeartbeatMath.DashboardGrainTableRow],
         filters: DashboardFilters,
-        grain _: DashScopeGrain = .region
+        grain _: DashScopeGrain = .region,
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
         guard filters.isActive else { return rows }
-        return []
+        let keys = chromeScopeKeys(filters: filters, roster: roster)
+        if keys.isEmpty {
+            return rows.filter { chromeLabelMatches($0.label, filters: filters) }
+        }
+        return rows.filter { row in
+            let label = HeartbeatMath.displayGrainLabel(row.label)
+            let compact = HeartbeatMath.compactKey(label)
+            if keys.contains(compact) || keys.contains(HeartbeatMath.compactKey(row.label)) {
+                return true
+            }
+            if let region = MarketRegion.named(label) ?? MarketRegion.containing(label) {
+                return keys.contains(HeartbeatMath.compactKey(region.rawValue))
+            }
+            return false
+        }
+    }
+
+    private static func chromeScopeKeys(
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> Set<String> {
+        var keys: Set<String> = []
+        func add(_ raw: String) {
+            let display = HeartbeatMath.displayGrainLabel(raw)
+            if !display.isEmpty { keys.insert(HeartbeatMath.compactKey(display)) }
+        }
+        for part in DashboardFilters.parts(filters.region) {
+            add(part)
+            if let region = MarketRegion.named(part) ?? MarketRegion.containing(part) {
+                add(region.rawValue)
+                for division in region.divisions { add(division) }
+            }
+        }
+        for part in DashboardFilters.parts(filters.division) {
+            add(part)
+            if let region = MarketRegion.containing(part) { add(region.rawValue) }
+        }
+        let seatCut = !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty
+        if seatCut, !roster.isEmpty {
+            for (number, identity) in roster {
+                if !filters.includesDivision(identity.division) { continue }
+                if !filters.includesDistrict(identity.district) { continue }
+                if !filters.includesOM(identity.om) { continue }
+                if !filters.includesStore(number) { continue }
+                add(identity.division)
+            }
+        }
+        return keys
+    }
+
+    private static func chromeLabelMatches(_ label: String, filters: DashboardFilters) -> Bool {
+        let name = HeartbeatMath.displayGrainLabel(label)
+        if !filters.region.isEmpty {
+            return DashboardFilters.parts(filters.region).contains {
+                MarketRegion.matchesDivision(name, $0) || HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.division.isEmpty {
+            return DashboardFilters.parts(filters.division).contains {
+                MarketRegion.matchesDivision(name, $0) || HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.district.isEmpty {
+            return DashboardFilters.parts(filters.district).contains {
+                HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.om.isEmpty {
+            return DashboardFilters.parts(filters.om).contains {
+                HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.store.isEmpty {
+            return filters.includesStore(name)
+        }
+        return false
     }
 
     /// Incoming paint must not drop a live picker (or any) expand table.
@@ -2225,15 +2304,22 @@ enum PulseLaunch {
         grain: DashScopeGrain = .region,
         filtersActive: Bool = false
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
-        _ = filtersActive
         var next = incoming
         for (section, rows) in live {
-            let incomingLive = HeartbeatMath.grainRowsAreLive(next[section] ?? [])
-            if incomingLive { continue }
+            let incomingRows = next[section] ?? []
+            if HeartbeatMath.grainRowsAreLive(incomingRows) { continue }
             guard HeartbeatMath.grainRowsAreLive(rows) else { continue }
             let labels = rows.map(\.label)
             let companyChrome = !filtersActive && labels.allSatisfy { $0 == "Company" }
             if !companyChrome && !grainTableMatchesCurrent(labels: labels, grain: grain) {
+                // Keep chrome that already has the section values. A short or
+                // mixed label is not a reason to drop it. A store seat
+                // (`304 | NorCal`) must not ride along under a region grain,
+                // and a region book must not ride along under a store grain.
+                if (grain == .region || grain == .division),
+                   HeartbeatMath.grainLabelsMatch(rows, grain: grain) {
+                    next[section] = rows
+                }
                 continue
             }
             next[section] = rows

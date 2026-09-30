@@ -1368,10 +1368,29 @@ enum HeartbeatMath {
         return keys.filter { seen.insert($0).inserted }
     }
 
+    /// A roster count with dash values is not a live breakdown. The first column
+    /// is the section metric. A lone Goal % behind dashes is not live either.
+    static func grainRowHasSectionValue(_ row: DashboardGrainTableRow) -> Bool {
+        guard let first = row.values.first else { return false }
+        let text = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !text.isEmpty && text != "—" && text != "-" && text != "–"
+    }
+
     static func grainRowsAreLive(_ rows: [DashboardGrainTableRow]) -> Bool {
-        rows.contains { row in
-            row.storeCount > 0 || row.values.filter { $0 != "—" && !$0.isEmpty }.count >= 2
-        }
+        rows.contains(where: grainRowHasSectionValue)
+    }
+
+    /// Rows whose labels already match this grain and that carry a section value.
+    /// A mixed region-and-division book keeps only the matching labels.
+    static func fittingGrainRows(
+        _ rows: [DashboardGrainTableRow],
+        grain: DashScopeGrain
+    ) -> [DashboardGrainTableRow] {
+        guard grain == .region || grain == .division else { return [] }
+        let live = rows.filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
+        let fitting = live.filter { grainLabelsMatch([$0.label], grain: grain) }
+        guard fitting.contains(where: grainRowHasSectionValue) else { return [] }
+        return fitting
     }
 
     /// Old packs store one grain in chrome (regions, with division children on the packs).
@@ -1383,9 +1402,8 @@ enum HeartbeatMath {
         packs: [DashScopePack]
     ) -> [DashboardGrainTableRow] {
         let live = tables.filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
-        if grainRowsAreLive(live), grainLabelsMatch(live.map(\.label), grain: grain) {
-            return live
-        }
+        let fitting = fittingGrainRows(live, grain: grain)
+        if grainRowsAreLive(fitting) { return fitting }
         if grain == .division {
             let rows = rowsFromScopeLines(packs.flatMap(\.children), section: section)
             if grainRowsAreLive(rows) { return rows }
@@ -1393,6 +1411,11 @@ enum HeartbeatMath {
         if grain == .region {
             let fromPacks = dashboardGrainRowsFromPacks(packs, section: section)
             if grainRowsAreLive(fromPacks) { return fromPacks }
+        }
+        // The chrome rows already have this section's numbers. A label that is
+        // not the grain title must not drop the table. Store seats stay out.
+        if (grain == .region || grain == .division), grainLabelsMatch(live, grain: grain) {
+            return live
         }
         return []
     }
@@ -1410,6 +1433,23 @@ enum HeartbeatMath {
         default:
             return true
         }
+    }
+
+    /// Chrome that already has this section's numbers stays. A label that is
+    /// not the exact grain title does not drop those rows. A store seat
+    /// (`304` or `304 | NorCal`) is not a company region or division table.
+    static func grainLabelsMatch(_ rows: [DashboardGrainTableRow], grain: DashScopeGrain) -> Bool {
+        if grainLabelsMatch(rows.map(\.label), grain: grain) { return true }
+        let valued = rows.filter(grainRowHasSectionValue)
+        guard !valued.isEmpty else { return false }
+        if valued.contains(where: isStoreSeatLabel) { return false }
+        return true
+    }
+
+    private static func isStoreSeatLabel(_ row: DashboardGrainTableRow) -> Bool {
+        if row.label.contains("|") { return true }
+        let compact = compactKey(displayGrainLabel(row.label))
+        return !compact.isEmpty && compact.allSatisfy(\.isNumber)
     }
 
     /// Division children on an old pack are one headline, not a full tile row.

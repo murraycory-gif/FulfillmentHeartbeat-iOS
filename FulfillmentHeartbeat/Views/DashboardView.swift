@@ -541,8 +541,12 @@ struct DashScopeStrip: View {
     }
 
     /// Live expand caches only. Never roster / placeholder pack counts.
+    /// Sales uses the chrome grain table when the store rebuild did not resolve.
     private var bannerCount: Int {
-        PulseLaunch.dashboardBannerCount(
+        if section == .sales, salesRows.isEmpty, HeartbeatMath.grainRowsAreLive(grainRows) {
+            return grainRows.count
+        }
+        return PulseLaunch.dashboardBannerCount(
             section: section,
             salesRows: salesRows,
             grainRows: grainRows
@@ -557,6 +561,15 @@ struct DashScopeStrip: View {
                     OverviewSalesAlignedTable(
                         title: grain.title,
                         rows: grain == .store ? Array(salesRows.prefix(40)) : salesRows,
+                        showCount: grain != .store,
+                        district: grain == .district
+                    )
+                } else if HeartbeatMath.grainRowsAreLive(grainRows) {
+                    OverviewMetricAlignedTable(
+                        title: grain.title,
+                        section: section,
+                        headers: HeartbeatMath.dashboardTableHeaders(section),
+                        rows: grain == .store ? Array(grainRows.prefix(40)) : grainRows,
                         showCount: grain != .store,
                         district: grain == .district
                     )
