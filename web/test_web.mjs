@@ -13,14 +13,17 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { bannerText, considerPublished, publishClock, updatedLine } from "./public/clock.js";
+import { bannerText, considerPublished, formatHeadline, publishClock, updatedLine } from "./public/clock.js";
 import {
   canonicalDivision,
   canonicalStore,
   includesScope,
   matchesDistrict,
   matchesDivision,
+  regionLineInScope,
+  scopeStoreCount,
 } from "./public/filters.js";
+import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -80,6 +83,46 @@ const app = readFileSync(join(root, "public/app.js"), "utf8");
 assert.match(stamp, /HB-0828\.494/);
 assert.match(app, /HB-0828\.494/);
 assert.equal((stamp.match(/HB-0828\.494/g) || []).length, 1);
+assert.equal(app.includes("Sign in with the email PIN"), false);
+assert.equal(app.includes("/api/"), false);
+assert.match(app, /packURL/);
+
+assert.equal(packURL("home"), "/data/home.json");
+assert.equal(packURL("section/sales"), "/data/section/sales.json");
+assert.equal(packURL("presub"), "/data/presub.json");
+assert.equal(packURL("schedule"), "/data/schedule.json");
+assert.equal(packURL("packs/seat/company/all/current.sqlite"), null);
+assert.equal(packURL("https://example.r2.dev/current.sqlite"), null);
+assert.equal(FIGURE_SECTIONS.has("lost_revenue"), true);
+assert.equal(FIGURE_SECTIONS.has("five_star"), true);
+assert.equal(FIGURE_SECTIONS.has("pick_path"), true);
+assert.equal(FIGURE_SECTIONS.has("dynacap"), true);
+assert.equal(FIGURE_SECTIONS.has("schedule_quality"), true);
+assert.equal(FIGURE_SECTIONS.has("picker_scorecard"), true);
+assert.equal(FIGURE_SECTIONS.has("labor"), true);
+assert.equal(FIGURE_SECTIONS.has("sales"), false);
+assert.equal(FIGURE_SECTIONS.has("missing_items"), false);
+assert.equal(FIGURE_SECTIONS.has("pre_sub_oos"), false);
+assert.equal(FIGURE_SECTIONS.has("prep_not_ready"), false);
+assert.equal(FIGURE_SECTIONS.has("pph"), false);
+assert.equal(formatHeadline("lost_revenue", 393334.12), "$393,334.12");
+assert.equal(formatHeadline("five_star", 3.400277), "3.40");
+assert.equal(formatHeadline("labor", 0.24972986261229743), "0.25%");
+assert.equal(formatHeadline("pick_path", 79.8251044108846), "79.8%");
+assert.equal(formatHeadline("dynacap", 67.85707617841031), "67.9");
+assert.equal(formatHeadline("picker_scorecard", 24548), "24,548");
+assert.equal(formatHeadline("schedule_quality", 90.33328114614572), "90.3%");
+
+const seatLines = [
+  { section: "sales", region: "East", title: "Sales", value: "$8,209,791.69", count: 615 },
+  { section: "sales", region: "South", title: "Sales", value: "$4,994,836.32", count: 397 },
+  { section: "picker_scorecard", region: "East", title: "Pickers", value: "6996 shoppers", count: 6996 },
+];
+assert.equal(regionLineInScope(seatLines[0], filters({ region: "East Region" }), []), true);
+assert.equal(regionLineInScope(seatLines[1], filters({ region: "East Region" }), []), false);
+assert.equal(scopeStoreCount([], filters({ region: "East Region" }), seatLines), 615);
+const eastRoster = [{ store: "117", division: "Shaws", district: "03", om: "Ada" }];
+assert.equal(scopeStoreCount(eastRoster, filters({ region: "East Region" }), seatLines), 1);
 
 for (const path of walk(join(root, "public"))) {
   const text = readFileSync(path, "utf8");

@@ -9,6 +9,7 @@ Writes:
   <out>/home.json
   <out>/section/<section>.json
   <out>/presub.json
+  <out>/schedule.json   only when the sqlite (or a sibling schedule-check.json) has rows
 """
 
 from __future__ import annotations
@@ -86,6 +87,50 @@ KEEP = {
 }
 
 
+OFFICIAL_DIVISIONS = (
+    "Shaws",
+    "Mid-Atlantic",
+    "Jewel Osco",
+    "Southern",
+    "United",
+    "Southwest",
+    "NorCal",
+    "SoCal",
+    "Mountain West",
+    "Seattle",
+    "Haggen",
+    "Portland",
+)
+
+_DIVISION_ALIAS = {
+    "midatlantic": "Mid-Atlantic",
+    "jewelosco": "Jewel Osco",
+    "nocal": "NorCal",
+    "northerncalifornia": "NorCal",
+    "norcalifornia": "NorCal",
+    "southerncalifornia": "SoCal",
+    "socalifornia": "SoCal",
+    "southerncal": "SoCal",
+    "mountainwest": "Mountain West",
+    "unitedtexas": "United",
+    "unitedsupermarkets": "United",
+}
+for _name in OFFICIAL_DIVISIONS:
+    _DIVISION_ALIAS["".join(ch for ch in _name.lower() if ch.isalnum())] = _name
+
+
+def canonical_division(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    if text in OFFICIAL_DIVISIONS:
+        return text
+    key = "".join(ch for ch in text.lower() if ch.isalnum())
+    if key.startswith("united"):
+        return "United"
+    return _DIVISION_ALIAS.get(key, text)
+
+
 def canonical_store(raw: str) -> str:
     text = (raw or "").strip()
     if "|" in text:
@@ -110,6 +155,167 @@ def loads(raw: str | None, fallback):
         return json.loads(raw)
     except json.JSONDecodeError:
         return fallback
+
+
+LINE_ORDER = (
+    "pre_sub_oos",
+    "missing_items",
+    "lost_revenue",
+    "pph",
+    "prep_not_ready",
+    "sales",
+    "picker_scorecard",
+    "five_star",
+    "pick_path",
+    "dynacap",
+    "schedule_quality",
+    "labor",
+)
+
+LINE_TITLE = {
+    "pre_sub_oos": "Pre-Sub",
+    "missing_items": "Missing",
+    "lost_revenue": "Loss",
+    "pph": "PPH",
+    "prep_not_ready": "Prep",
+    "sales": "Sales",
+    "picker_scorecard": "Pickers",
+    "five_star": "5 Star",
+    "pick_path": "Pick Path",
+    "dynacap": "Dynacap",
+    "schedule_quality": "Schedule Quality",
+    "labor": "Labor",
+}
+
+REGION_RANK = {"East": 0, "South": 1, "California": 2, "West": 3}
+
+
+def short_region(label: str) -> str:
+    text = (label or "").strip()
+    if text.lower().endswith(" region"):
+        text = text[: -len(" region")].strip()
+    return text
+
+
+def region_lines(packs) -> list:
+    """Region scope lines only. Division children stay off this table."""
+    if not isinstance(packs, dict):
+        return []
+    lines = []
+    for section in LINE_ORDER:
+        items = packs.get(section) or []
+        if not isinstance(items, list):
+            continue
+        found = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            line = item.get("line") or {}
+            if not isinstance(line, dict):
+                continue
+            region = short_region(str(line.get("label") or ""))
+            if region not in REGION_RANK:
+                continue
+            value = line.get("value")
+            if value is None or str(value).strip() in {"", "—", "-", "–"}:
+                continue
+            try:
+                count = int(line.get("count") or 0)
+            except (TypeError, ValueError):
+                count = 0
+            found.append(
+                {
+                    "section": section,
+                    "region": region,
+                    "title": LINE_TITLE[section],
+                    "value": str(value),
+                    "count": count,
+                    "health": line.get("health") or "none",
+                }
+            )
+        found.sort(key=lambda item: REGION_RANK[item["region"]])
+        lines.extend(found)
+    return lines
+
+
+def read_schedule(db: sqlite3.Connection) -> dict | None:
+    if not _table(db, "schedule_pack"):
+        return None
+    row = db.execute(
+        """
+        SELECT published_at, week, filename, summary_title, workbook_action_banner
+        FROM schedule_pack WHERE id = 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    markets = []
+    if _table(db, "schedule_market"):
+        for market in db.execute("SELECT label, under, over, eff FROM schedule_market ORDER BY label"):
+            markets.append(
+                {
+                    "label": market["label"] or "",
+                    "under": market["under"],
+                    "over": market["over"],
+                    "eff": market["eff"],
+                }
+            )
+    stores = []
+    if _table(db, "schedule_store"):
+        query = """
+            SELECT store, region, division, district, om, sales, under, over, eff, pch,
+                   four_under, four_over, star, day_under_json, day_over_json
+            FROM schedule_store
+            ORDER BY CAST(store AS INTEGER), store
+        """
+        for store in db.execute(query):
+            stores.append(
+                {
+                    "store": store["store"] or "",
+                    "region": store["region"] or "",
+                    "division": store["division"] or "",
+                    "district": store["district"] or "",
+                    "om": store["om"] or "",
+                    "sales": store["sales"],
+                    "under": store["under"],
+                    "over": store["over"],
+                    "eff": store["eff"],
+                    "pch": store["pch"],
+                    "fourUnder": store["four_under"],
+                    "fourOver": store["four_over"],
+                    "star": store["star"],
+                    "dayUnder": loads(store["day_under_json"], []),
+                    "dayOver": loads(store["day_over_json"], []),
+                }
+            )
+    if not markets and not stores:
+        return None
+    return {
+        "publishedAt": row["published_at"] or "",
+        "week": row["week"] or 0,
+        "filename": row["filename"] or "",
+        "summaryTitle": row["summary_title"] or "",
+        "workbookActionBanner": row["workbook_action_banner"],
+        "markets": markets,
+        "stores": stores,
+    }
+
+
+def read_schedule_file(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    parsed = loads(path.read_text(encoding="utf-8"), None)
+    if not isinstance(parsed, dict):
+        return None
+    stores = parsed.get("stores")
+    markets = parsed.get("markets")
+    if not isinstance(stores, list):
+        stores = []
+    if not isinstance(markets, list):
+        markets = []
+    if not stores and not markets:
+        return None
+    return parsed
 
 
 def slim_payload(raw: str | None) -> dict:
@@ -171,7 +377,7 @@ def extract(sqlite_path: str, out_dir: str) -> None:
             record = {
                 "store": store,
                 "name": fact["store_name"] or "",
-                "division": fact["division"] or "",
+                "division": canonical_division(fact["division"] or ""),
                 "district": district,
                 "om": fact["operations_om"] or "",
                 "recorded": fact["recorded_on"] or "",
@@ -220,8 +426,12 @@ def extract(sqlite_path: str, out_dir: str) -> None:
         "filters": {
             "stores": sorted(roster.values(), key=lambda item: (len(item["store"]), item["store"])),
         },
+        "regionLines": region_lines(chrome.get("packs") or {}),
     }
     _write(out / "home.json", home)
+    schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
+    if schedule:
+        _write(out / "schedule.json", schedule)
     grouped: dict[str, list] = {section: [] for section in SECTIONS}
     for record in latest.values():
         grouped[record["section"]].append(

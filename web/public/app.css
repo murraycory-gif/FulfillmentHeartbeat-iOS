@@ -191,6 +191,12 @@ td.good { color: var(--good); font-weight: 700; }
 td.risk { color: var(--risk); font-weight: 700; }
 td.none, .unscheduled { color: var(--none); }
 
+.figure {
+  margin: 8px 0 0;
+  font-size: 1.35rem;
+  font-weight: 750;
+}
+
 .nodata {
   margin: 24px 0;
   font-size: 1.4rem;

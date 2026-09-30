@@ -66,3 +66,15 @@ export function num(value, digits = 0) {
     minimumFractionDigits: digits,
   }).format(Number(value));
 }
+
+// Company-card figure. Same precision as SectionSummary.headlineText.
+export function formatHeadline(section, value) {
+  if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
+  const number = Number(value);
+  if (section === "five_star") return number.toFixed(2);
+  if (section === "pph" || section === "dynacap") return number.toFixed(1);
+  if (section === "picker_scorecard") return num(number, 0);
+  if (section === "lost_revenue" || section === "sales") return money(number);
+  if (section === "labor") return pct(number);
+  return `${number.toFixed(1)}%`;
+}

@@ -1,4 +1,4 @@
-import { updatedLine, considerPublished, pct, money, num } from "./clock.js";
+import { updatedLine, considerPublished, pct, money, num, formatHeadline } from "./clock.js";
 import {
   emptyFilters,
   filtersActive,
@@ -8,9 +8,11 @@ import {
   optionValues,
   scopeLabel,
   finestScope,
-  countStores,
+  scopeStoreCount,
+  regionLineInScope,
   canonicalStore,
 } from "./filters.js";
+import { FIGURE_SECTIONS, packURL } from "./packs.js";
 import {
   summary as scheduleSummary,
   companyMarketNote,
@@ -62,7 +64,7 @@ const COLUMNS = {
     ["Pre-Sub", ["presub_pct"], pct],
     ["OTH", ["oth5_pct"], pct],
   ],
-  pre_sub_oos: [["Rate", ["oos_pct"], pct]],
+  pre_sub_oos: [["Rate", ["oos_pct", "mi_pct"], pct]],
   pick_path: [
     ["Path %", ["compliance_pct"], pct],
     ["PPH", ["pph"], (value) => num(value, 1)],
@@ -152,10 +154,18 @@ function raiseBanner(text) {
 
 async function load(path) {
   if (state.packs.has(path)) return state.packs.get(path);
-  const response = await fetch(`/api/${path}`, { cache: "no-store", credentials: "same-origin" });
-  if (response.status === 401) throw new Error("AUTH");
+  const url = packURL(path);
+  if (!url) throw new Error("NO DATA");
+  const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
   if (!response.ok) throw new Error("NO DATA");
-  const data = await response.json();
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("NO DATA");
+  }
+  if (!data || typeof data !== "object") throw new Error("NO DATA");
   state.packs.set(path, data);
   return data;
 }
@@ -201,6 +211,10 @@ function companyBlock(section) {
   const tiles = tilesFor(section);
   if (!summary && !tiles) return `<p class="nodata">NO DATA</p>`;
   const health = summary ? summary.health : "none";
+  const figure =
+    summary && FIGURE_SECTIONS.has(section)
+      ? `<p class="figure">${esc(formatHeadline(section, summary.headline))}</p>`
+      : "";
   const secondary = summary && summary.secondary ? `<p class="note">${esc(summary.secondary)}</p>` : "";
   const tileHtml = tiles
     ? `<div class="tiles">${tiles.labels
@@ -211,9 +225,9 @@ function companyBlock(section) {
         .join("")}</div>`
     : "";
   const scope = filtersActive(state.filters)
-    ? `<p class="scope">In this scope: ${num(countStores(roster(), state.filters), 0)} stores. Company figures stay the cooked upload.</p>`
+    ? `<p class="scope">In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores. Company figures stay the cooked upload.</p>`
     : "";
-  return `${badge(health)}${secondary}${tileHtml}${scope}`;
+  return `${badge(health)}${figure}${secondary}${tileHtml}${scope}`;
 }
 
 function cell(row, keys) {
@@ -244,6 +258,24 @@ function table(section, rows) {
   return `${more}<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
+function visibleRegionLines() {
+  const lines = (state.home && state.home.regionLines) || [];
+  return lines.filter((line) => regionLineInScope(line, state.filters, roster()));
+}
+
+function regionProof() {
+  const lines = visibleRegionLines();
+  const note = filtersActive(state.filters) && !lines.length ? `<p class="note">No rows in this scope.</p>` : "";
+  if (!lines.length && !filtersActive(state.filters)) return "";
+  const rows = lines
+    .map((line) => `<tr><td>${esc(line.region)}</td><td>${esc(line.title)}</td><td>${esc(line.value)}</td><td>${esc(line.count)}</td></tr>`)
+    .join("");
+  const table = lines.length
+    ? `<div class="scroll"><table><thead><tr><th>Region</th><th>Metric</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : "";
+  return `<section id="pack-lines"><h2>Seat pack regions</h2><p class="note">From packs/seat/company/all/current.sqlite</p>${note}${table}</section>`;
+}
+
 function renderDashboard() {
   const cards = PAGES.filter((page) => page.section)
     .map((page) => {
@@ -251,15 +283,18 @@ function renderDashboard() {
     })
     .join("");
   const schedule = `<article class="card"><button class="link" type="button" data-page="schedule"><h2>Upcoming Weeks Schedule Check</h2><p class="note">Separate pack. Open the page for Action Needed, Summary, and Store Detail.</p></button></article>`;
-  main.innerHTML = `<div class="cards">${cards}${schedule}</div>`;
+  main.innerHTML = `${regionProof()}<div class="cards">${cards}${schedule}</div>`;
 }
 
 function renderPicker() {
   const roll = pickerRoll(state.home, state.filters);
   const summary = summaryFor("picker_scorecard");
-  const note = summary && summary.secondary ? `<p class="note">${esc(summary.secondary)}</p>` : "";
   if (!roll) {
-    main.innerHTML = `${note}<p class="nodata">NO DATA</p>`;
+    if (!summary && !tilesFor("picker_scorecard")) {
+      main.innerHTML = `<p class="nodata">NO DATA</p>`;
+      return;
+    }
+    main.innerHTML = `${companyBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
     return;
   }
   const health = roll.risk > 0 ? "risk" : roll.watch > 0 ? "watch" : roll.healthy > 0 ? "good" : "none";
@@ -271,7 +306,7 @@ function renderPicker() {
   ]
     .map(([label, value]) => `<div class="tile"><span>${label}</span><strong>${esc(value)}</strong></div>`)
     .join("");
-  const scope = `<p class="scope">${esc(scopeLabel(state.filters))}${filtersActive(state.filters) ? ` · In this scope: ${num(countStores(roster(), state.filters), 0)} stores` : ""}</p>`;
+  const scope = `<p class="scope">${esc(scopeLabel(state.filters))}${filtersActive(state.filters) ? ` · In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores` : ""}</p>`;
   main.innerHTML = `${badge(health)}${note}${scope}<div class="tiles">${tiles}</div><p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
 }
 
@@ -328,24 +363,34 @@ function toneClass(health) {
   return health === "good" || health === "risk" || health === "none" ? health : "";
 }
 
-function renderSchedule(pack) {
-  if (!pack) {
-    main.innerHTML = `<p class="nodata">NO DATA</p><p class="note">The Schedule Review workbook is not on this site.</p>`;
-    return;
-  }
-  const card = scheduleSummary(pack, state.filters);
-  const tabs = ["action", "summary", "detail"]
+function scheduleTabs() {
+  return ["action", "summary", "detail"]
     .map((id) => {
       const label = id === "action" ? "Action Needed" : id === "summary" ? "Summary" : "Store Detail";
       return `<button type="button" data-tab="${id}" aria-pressed="${state.scheduleTab === id ? "true" : "false"}">${label}</button>`;
     })
     .join("");
+}
+
+function renderSchedule(pack) {
+  const tabs = `<div class="seg">${scheduleTabs()}</div>`;
+  if (!pack) {
+    const empty =
+      state.scheduleTab === "summary"
+        ? "No market rows in this upload."
+        : state.scheduleTab === "detail"
+          ? "No stores in this scope."
+          : "No stores qualify in this scope.";
+    main.innerHTML = `${tabs}<p class="note">${empty}</p>`;
+    return;
+  }
+  const card = scheduleSummary(pack, state.filters);
   const week = pack.week ? `Week ${esc(pack.week)}` : "NO DATA";
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
   else if (state.scheduleTab === "detail") body = scheduleDetailHtml(pack);
   else body = scheduleActionHtml(pack, card);
-  main.innerHTML = `<p class="note">${week}${pack.summaryTitle ? ` · ${esc(pack.summaryTitle)}` : ""}</p><div class="seg">${tabs}</div>${body}`;
+  main.innerHTML = `<p class="note">${week}${pack.summaryTitle ? ` · ${esc(pack.summaryTitle)}` : ""}</p>${tabs}${body}`;
 }
 
 function scheduleActionHtml(pack, card) {
@@ -426,31 +471,23 @@ async function render() {
   title.textContent = page.title;
   renderNav();
   renderFilters();
-  if (state.homeError === "AUTH") {
-    setUpdated(null);
-    main.innerHTML = `<p class="nodata">NO DATA</p><p class="note">Sign in with the email PIN to open Heartbeat.</p>`;
-    return;
-  }
   if (!state.home) {
     setUpdated(null);
     main.innerHTML = `<p class="nodata">NO DATA</p>`;
     return;
   }
   if (page.id === "schedule") {
-    setUpdated(null);
+    setUpdated(state.home.publishedAt);
     main.innerHTML = `<p class="note">Loading…</p>`;
     try {
       const pack = await load("schedule");
       if (token !== renderToken) return;
-      setUpdated(pack.publishedAt);
+      setUpdated(pack.publishedAt || state.home.publishedAt);
       raiseBanner(considerPublished(sessionStorage, "hb.web.seenScheduleAt", pack.publishedAt));
       renderSchedule(pack);
-    } catch (error) {
-      if (error.message === "AUTH") {
-        state.homeError = "AUTH";
-        return render();
-      }
-      setUpdated(null);
+    } catch {
+      if (token !== renderToken) return;
+      setUpdated(state.home.publishedAt);
       renderSchedule(null);
     }
     return;
@@ -471,11 +508,7 @@ async function render() {
     const pack = await load(`section/${page.section}`);
     if (token !== renderToken) return;
     rows = pack.rows || [];
-  } catch (error) {
-    if (error.message === "AUTH") {
-      state.homeError = "AUTH";
-      return render();
-    }
+  } catch {
     missing = true;
   }
   let extra = "";
@@ -484,11 +517,7 @@ async function render() {
       const presub = await load("presub");
       if (token !== renderToken) return;
       extra = renderPresub(presub);
-    } catch (error) {
-      if (error.message === "AUTH") {
-        state.homeError = "AUTH";
-        return render();
-      }
+    } catch {
       extra = state.home.preSubItemTabPresent === false
         ? `<p class="note">Item detail not in this upload</p>`
         : `<p class="note">NO DATA</p>`;
@@ -559,7 +588,7 @@ load("home")
     state.home = home;
     raiseBanner(considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt));
   })
-  .catch((error) => {
-    state.homeError = error.message === "AUTH" ? "AUTH" : "NO DATA";
+  .catch(() => {
+    state.homeError = "NO DATA";
   })
   .finally(render);

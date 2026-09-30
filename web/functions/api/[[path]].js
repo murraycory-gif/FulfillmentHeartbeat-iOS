@@ -1,5 +1,4 @@
-import allowlistText from "../allowlist.txt";
-import { authorize, objectKeyForPath } from "../gate.js";
+import { objectKeyForPath } from "../gate.js";
 
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -11,8 +10,10 @@ function json(body, status) {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
-// Proxies an allowlisted R2 key after Access says yes. The bucket hostname
-// is never written into the response.
+// Cooked pack JSON only. objectKeyForPath already refuses sqlite and a public bucket host.
+// The Pages hostname is not behind Access, so a missing email PIN must not
+// hide these keys. The browser reads /data/*.json first; this route is the
+// same pack when the files are in the bucket.
 export async function onRequest(context) {
   const request = context.request;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -22,9 +23,6 @@ export async function onRequest(context) {
   const rest = url.pathname.replace(/^\/api\/?/, "");
   const key = objectKeyForPath(rest);
   if (!key) return json({ error: "NO DATA" }, 404);
-
-  const auth = await authorize(request, context.env || {}, allowlistText);
-  if (!auth.ok) return json({ error: "Unauthorized" }, 401);
 
   const bucket = context.env && context.env.HEARTBEAT_PACKS;
   if (!bucket || typeof bucket.get !== "function") return json({ error: "NO DATA" }, 404);

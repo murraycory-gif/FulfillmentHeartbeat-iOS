@@ -273,3 +273,43 @@ export function countStores(roster, filters) {
   }
   return seen.size;
 }
+
+export function regionName(raw) {
+  return regionForDivision(raw) || regionForDivision(`${raw} Region`);
+}
+
+// Seat lines are region scope rows (label "East"), not store rows.
+export function regionLineInScope(line, filters, roster) {
+  if (!filtersActive(filters)) return true;
+  const lineRegion = regionName(line && line.region);
+  if (!lineRegion) return false;
+  if (filters.region && lineRegion !== filters.region) return false;
+  if (filters.division && regionForDivision(filters.division) !== lineRegion) return false;
+  if (filters.district || filters.om || filters.store) {
+    const regions = new Set();
+    for (const row of roster || []) {
+      if (!includesScope(row, filters)) continue;
+      const region = regionForDivision(row.division);
+      if (region) regions.add(region);
+    }
+    if (!regions.has(lineRegion)) return false;
+  }
+  return true;
+}
+
+const SCOPE_COUNT_SKIP = new Set(["picker_scorecard"]);
+
+// Roster count when the cook has stores. Otherwise the largest store count
+// on a visible seat line. Picker lines are shoppers, not stores.
+export function scopeStoreCount(roster, filters, lines) {
+  const stores = countStores(roster, filters);
+  if (stores > 0) return stores;
+  let max = 0;
+  for (const line of lines || []) {
+    if (!regionLineInScope(line, filters, roster)) continue;
+    if (SCOPE_COUNT_SKIP.has(line.section)) continue;
+    const count = Number(line.count);
+    if (Number.isFinite(count) && count > max) max = count;
+  }
+  return max;
+}
