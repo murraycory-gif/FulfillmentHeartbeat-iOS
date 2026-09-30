@@ -27,7 +27,8 @@ bundle install
 | `bundle exec fastlane qa` | Build + tests + list open High items |
 | `bundle exec fastlane open_items` | Print High+Open rows from `OPEN_ITEMS.md` |
 | `bundle exec fastlane device_build` | Build for physical iPad/iPhone (signing required) |
-| `bundle exec fastlane beta` | Archive + upload to TestFlight |
+| `bundle exec fastlane beta` | Archive + upload Heartbeat to TestFlight |
+| `bundle exec fastlane hub_beta` | Archive + upload HUB Prediction to TestFlight |
 
 Prefer an iPad simulator:
 
