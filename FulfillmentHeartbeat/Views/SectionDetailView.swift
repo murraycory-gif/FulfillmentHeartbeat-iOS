@@ -177,14 +177,10 @@ struct SectionDetailView: View {
             if section == .pickerScorecard {
                 ForEach(rollupGrains, id: \.self) { grain in
                     let cooked = store.pickerGrainTable(grain: grain)
-                    let rows = cooked.isEmpty && !store.hasSectionFacts(.pickerScorecard)
-                        ? HeartbeatMath.chromeSectionRows(
-                            section: .pickerScorecard,
-                            grain: grain,
-                            tables: store.dashboardGrainRows(for: .pickerScorecard),
-                            packs: store.dashboardGrains(for: .pickerScorecard)
-                        )
-                        : cooked
+                    let chrome = store.dashboardGrainRows(for: .pickerScorecard, grain: grain)
+                    let rows = HeartbeatMath.grainRowsAreLive(cooked)
+                        ? HeartbeatMath.pickerRowsKeepingShoppers(cooked, filling: chrome)
+                        : chrome
                     if !rows.isEmpty {
                         Section {
                             OverviewMetricAlignedTable(

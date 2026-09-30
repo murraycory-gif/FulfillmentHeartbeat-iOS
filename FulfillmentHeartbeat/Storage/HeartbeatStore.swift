@@ -871,6 +871,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func grainFacts(for section: MetricSection) -> [PulseSQLite.GrainFact] {
+        if companyChromeAlreadyHasSection(section) {
+            grainFactCache[section] = nil
+            return []
+        }
         let path = activePackURL.path
         if grainFactPackPath != path {
             grainFactPackPath = path
@@ -880,6 +884,14 @@ final class HeartbeatStore: ObservableObject {
         let rows = PulseSQLite.readGrainFacts(from: activePackURL, section: section)
         grainFactCache[section] = rows
         return rows
+    }
+
+    /// Company pages already have the section number in chrome. Do not decode
+    /// that section's fact payloads into a second resident plane.
+    private func companyChromeAlreadyHasSection(_ section: MetricSection) -> Bool {
+        guard usingPackChrome, !filters.isActive, let chrome = packChrome else { return false }
+        let table = chrome.tables[section.rawValue] ?? []
+        return HeartbeatMath.grainRowsAreLive(table)
     }
 
     /// Reported Prep stores in this grain versus roster stores in the same grain.
@@ -1033,6 +1045,9 @@ final class HeartbeatStore: ObservableObject {
             let key = store
             if byStore[key] == nil { byStore[key] = row }
         }
+        // No facts means there is no section body. A blank row per roster store
+        // is the East 615 dash table, and it is also a full MetricRow plane.
+        if byStore.isEmpty { return [] }
         var out: [MetricRow] = []
         out.reserveCapacity(allowed.count)
         for store in allowed.sorted(by: { ($0 as NSString).localizedStandardCompare($1) == .orderedAscending }) {
@@ -1298,7 +1313,13 @@ final class HeartbeatStore: ObservableObject {
         let grain = explicit ?? effectiveDashboardGrain
         if section == .pickerScorecard {
             let cooked = pickerGrainTable(grain: grain)
-            if HeartbeatMath.grainRowsAreLive(cooked) { return cooked }
+            if HeartbeatMath.grainRowsAreLive(cooked) {
+                if PulseLaunch.pickerExpandHasStatusBuckets(cooked) { return cooked }
+                if let chrome = chromeGrainRows(section: section, grain: grain) {
+                    return HeartbeatMath.pickerRowsKeepingShoppers(cooked, filling: chrome)
+                }
+                return cooked
+            }
         }
         if section == .pickerScorecard, filters.isActive {
             if let cached = cachedGrainTables[.pickerScorecard],
@@ -1332,6 +1353,12 @@ final class HeartbeatStore: ObservableObject {
                 roster: roster
             )
             if let shown = shownGrainRows(scoped, grain: grain) {
+                if section == .pickerScorecard, !PulseLaunch.pickerExpandHasStatusBuckets(shown) {
+                    if let chrome = chromeGrainRows(section: section, grain: grain) {
+                        return HeartbeatMath.pickerRowsKeepingShoppers(shown, filling: chrome)
+                    }
+                    return shown
+                }
                 if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(shown)
                     || PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() {
                     return shown
@@ -1375,9 +1402,21 @@ final class HeartbeatStore: ObservableObject {
         return shownGrainRows(scoped, grain: grain)
     }
 
+    /// Region and division pages paint this when chrome already has the section
+    /// value. A roster dash (store count, first cell "—") is not a table.
+    func chromeRollupRows(
+        for section: MetricSection,
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow]? {
+        let rows = dashboardGrainRows(for: section, grain: grain)
+        guard rows.contains(where: HeartbeatMath.grainRowHasSectionValue) else { return nil }
+        return rows
+    }
+
     /// Region and division chrome stays when the rows already have the section
-    /// values, even if the labels are not the exact grain title. Store and
-    /// district seats still have to match the current grain.
+    /// values, even if the labels are not the exact grain title. A region label
+    /// with no section value is not shown, so the chrome row can paint. Store
+    /// and district seats still have to match the current grain.
     private func shownGrainRows(
         _ rows: [HeartbeatMath.DashboardGrainTableRow],
         grain: DashScopeGrain
@@ -1385,7 +1424,10 @@ final class HeartbeatStore: ObservableObject {
         if grain == .region || grain == .division {
             let fitting = HeartbeatMath.fittingGrainRows(rows, grain: grain)
             if HeartbeatMath.grainRowsAreLive(fitting) { return fitting }
-            if HeartbeatMath.grainLabelsMatch(rows, grain: grain) { return rows }
+            if HeartbeatMath.grainRowsAreLive(rows),
+               HeartbeatMath.grainLabelsMatch(rows, grain: grain) {
+                return rows
+            }
             return nil
         }
         guard HeartbeatMath.grainRowsAreLive(rows) else { return nil }

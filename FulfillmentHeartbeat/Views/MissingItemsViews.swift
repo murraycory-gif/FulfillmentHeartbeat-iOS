@@ -1131,6 +1131,21 @@ struct MissingItemsRollupTable: View {
         let next = forcedGrain.map(MissingItemsGrain.init) ?? MissingItemsGrain.current(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: section, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                let total = HeartbeatMath.grainNumber(row, 0)
+                return MissingItemsRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    total: total,
+                    values: [:],
+                    health: MissingItemsMath.health(total)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }

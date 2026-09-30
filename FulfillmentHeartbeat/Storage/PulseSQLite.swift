@@ -112,6 +112,13 @@ enum PulseSQLite {
     /// to prove a store query did not materialize the rest of the company.
     static var decodedFactRowCount = 0
 
+    /// Never map the fact file. A 32 MB or 256 MB map stays in the resident
+    /// set next to chrome. The page cache stays at half a megabyte.
+    private static func residentCap(_ db: OpaquePointer?) {
+        sqlite3_exec(db, "PRAGMA mmap_size=0;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size=-500;", nil, nil, nil)
+    }
+
     static func read(from url: URL, skipping skip: Set<MetricSection> = [], only: Set<MetricSection> = []) throws -> Pack {
         companyFactReadCount += 1
         var db: OpaquePointer?
@@ -120,13 +127,7 @@ enum PulseSQLite {
         }
         defer { sqlite3_close(db) }
 
-        #if canImport(UIKit) && !HEARTBEAT_INGEST
-        let lowMemory = HubLayout.lightLaunch
-        #else
-        let lowMemory = false
-        #endif
-        sqlite3_exec(db, lowMemory ? "PRAGMA mmap_size=33554432;" : "PRAGMA mmap_size=268435456;", nil, nil, nil)
-        sqlite3_exec(db, lowMemory ? "PRAGMA cache_size=-2000;" : "PRAGMA cache_size=-8000;", nil, nil, nil)
+        residentCap(db)
 
         var metaStmt: OpaquePointer?
         defer { sqlite3_finalize(metaStmt) }
@@ -187,8 +188,7 @@ enum PulseSQLite {
             return []
         }
         defer { sqlite3_close(db) }
-        sqlite3_exec(db, "PRAGMA mmap_size=33554432;", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size=-2000;", nil, nil, nil)
+        residentCap(db)
         let sql = """
         SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
         FROM facts WHERE section = ? ORDER BY rowid LIMIT ? OFFSET ?;
@@ -221,8 +221,7 @@ enum PulseSQLite {
             return []
         }
         defer { sqlite3_close(db) }
-        sqlite3_exec(db, "PRAGMA mmap_size=33554432;", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size=-4000;", nil, nil, nil)
+        residentCap(db)
 
         var keys: [String] = []
         var seen: Set<String> = []
@@ -577,6 +576,7 @@ enum PulseSQLite {
             return []
         }
         defer { sqlite3_close(db) }
+        residentCap(db)
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         let sql = """
@@ -607,7 +607,7 @@ enum PulseSQLite {
             return [:]
         }
         defer { sqlite3_close(db) }
-        sqlite3_exec(db, "PRAGMA mmap_size=33554432;", nil, nil, nil)
+        residentCap(db)
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         let sql = """
@@ -1256,6 +1256,7 @@ enum PulseSQLite {
             return nil
         }
         defer { sqlite3_close(db) }
+        residentCap(db)
         return readChrome(db: db)
     }
 

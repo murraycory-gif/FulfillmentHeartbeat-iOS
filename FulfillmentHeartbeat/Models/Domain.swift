@@ -1438,12 +1438,14 @@ enum HeartbeatMath {
     /// Chrome that already has this section's numbers stays. A label that is
     /// not the exact grain title does not drop those rows. A store seat
     /// (`304` or `304 | NorCal`) is not a company region or division table.
+    /// "East Region" with a dash is not a match: the first value has to be a
+    /// real section number before the row can replace chrome.
     static func grainLabelsMatch(_ rows: [DashboardGrainTableRow], grain: DashScopeGrain) -> Bool {
-        if grainLabelsMatch(rows.map(\.label), grain: grain) { return true }
         let valued = rows.filter(grainRowHasSectionValue)
         guard !valued.isEmpty else { return false }
         if valued.contains(where: isStoreSeatLabel) { return false }
-        return true
+        if grain == .region || grain == .division { return true }
+        return grainLabelsMatch(rows.map(\.label), grain: grain)
     }
 
     private static func isStoreSeatLabel(_ row: DashboardGrainTableRow) -> Bool {
@@ -4339,6 +4341,52 @@ enum HeartbeatMath {
         let matched = totals.filter { lostRevenueSheetRatioMatches($0) }
         let pool = matched.isEmpty ? totals : matched
         return pool.max { ($0.number("lost_revenue") ?? 0) < ($1.number("lost_revenue") ?? 0) }
+    }
+
+    /// First-column and later cells. A dash stays nil so a chrome row can keep it.
+    static func grainNumber(_ row: DashboardGrainTableRow, _ index: Int) -> Double? {
+        guard index < row.values.count else { return nil }
+        return parsedTileNumber(row.values[index])
+    }
+
+    /// Shopper counts already on the row stay. Healthy / Watch / At Risk fill
+    /// only where the current cell is a dash.
+    static func pickerRowsKeepingShoppers(
+        _ current: [DashboardGrainTableRow],
+        filling incoming: [DashboardGrainTableRow]
+    ) -> [DashboardGrainTableRow] {
+        let headers = dashboardTableHeaders(.pickerScorecard)
+        guard !current.isEmpty else { return incoming }
+        var byAlias: [String: DashboardGrainTableRow] = [:]
+        byAlias.reserveCapacity(incoming.count * 3)
+        for row in incoming {
+            for alias in grainAliasKeys(row.label, grain: .region) where byAlias[alias] == nil {
+                byAlias[alias] = row
+            }
+        }
+        return current.map { row in
+            var match: DashboardGrainTableRow?
+            for alias in grainAliasKeys(row.label, grain: .region) {
+                if let hit = byAlias[alias] {
+                    match = hit
+                    break
+                }
+            }
+            let values = mergedGrainValues(
+                current: row.values,
+                incoming: match?.values ?? [],
+                headerCount: headers.count,
+                fillDashesOnly: true
+            )
+            let count = row.storeCount > 0 ? row.storeCount : (match?.storeCount ?? 0)
+            let health = row.health == .none ? (match?.health ?? row.health) : row.health
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: count,
+                values: values,
+                health: health
+            )
+        }
     }
 
     static func parsedTileNumber(_ value: String) -> Double? {

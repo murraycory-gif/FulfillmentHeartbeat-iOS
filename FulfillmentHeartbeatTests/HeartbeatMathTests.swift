@@ -3371,6 +3371,151 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(oddRows.first?.values.first, "$8,209,791.69")
         XCTAssertFalse(HeartbeatMath.grainLabelsMatch([odd.label], grain: .region))
         XCTAssertTrue(HeartbeatMath.grainLabelsMatch([odd], grain: .region))
+
+        let rosterDash = [
+            line("East Region", 615, "—"),
+            line("West Region", 555, "—"),
+            line("South Region", 397, "—"),
+            line("California Region", 604, "—"),
+        ]
+        XCTAssertFalse(HeartbeatMath.grainLabelsMatch(rosterDash, grain: .region))
+        XCTAssertTrue(HeartbeatMath.fittingGrainRows(rosterDash, grain: .region).isEmpty)
+        XCTAssertTrue(
+            HeartbeatMath.chromeSectionRows(
+                section: .scheduleQuality,
+                grain: .region,
+                tables: rosterDash,
+                packs: []
+            ).isEmpty
+        )
+        let scheduleChrome = HeartbeatMath.chromeSectionRows(
+            section: .scheduleQuality,
+            grain: .region,
+            tables: schedule,
+            packs: []
+        )
+        XCTAssertEqual(scheduleChrome.first { $0.label == "East Region" }?.values.first, "89.07%")
+        XCTAssertEqual(scheduleChrome.first { $0.label == "East Region" }?.storeCount, 610)
+        XCTAssertEqual(scheduleChrome.first { $0.label == "South Region" }?.values.first, "92.16%")
+        XCTAssertEqual(scheduleChrome.first { $0.label == "South Region" }?.storeCount, 325)
+        let pathChrome = HeartbeatMath.chromeSectionRows(
+            section: .pickPath,
+            grain: .region,
+            tables: path,
+            packs: []
+        )
+        XCTAssertEqual(pathChrome.first { $0.label == "East Region" }?.values.first, "78.80%")
+        XCTAssertEqual(pathChrome.first { $0.label == "East Region" }?.storeCount, 610)
+        let lossChrome = HeartbeatMath.chromeSectionRows(
+            section: .lostRevenue,
+            grain: .region,
+            tables: loss,
+            packs: []
+        )
+        XCTAssertEqual(lossChrome.first { $0.label == "East Region" }?.values.first, "$393,334.12")
+        XCTAssertEqual(lossChrome.first { $0.label == "East Region" }?.storeCount, 610)
+        XCTAssertFalse(lossChrome.contains { $0.storeCount == 615 })
+        let dynacapDivisions = MarketRegion.officialDivisions.filter { $0 != "United" }.enumerated().map { index, name in
+            line(name, 12 + index, "6\(index).1")
+        }
+        XCTAssertEqual(dynacapDivisions.count, 11)
+        let dynacapBook = dynacap + dynacapDivisions
+        let dynacapRegions = HeartbeatMath.chromeSectionRows(
+            section: .dynacap,
+            grain: .region,
+            tables: dynacapBook,
+            packs: []
+        )
+        XCTAssertEqual(dynacapRegions.first { $0.label == "East Region" }?.values.first, "81.3")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "East Region" }?.storeCount, 612)
+        XCTAssertEqual(dynacapRegions.first { $0.label == "South Region" }?.values.first, "59.4")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "South Region" }?.storeCount, 324)
+        XCTAssertEqual(dynacapRegions.first { $0.label == "California Region" }?.values.first, "59.1")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "California Region" }?.storeCount, 600)
+        XCTAssertEqual(dynacapRegions.first { $0.label == "West Region" }?.values.first, "67.4")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "West Region" }?.storeCount, 552)
+        XCTAssertEqual(dynacapRegions.count, 4)
+        let dynacapMarkets = HeartbeatMath.chromeSectionRows(
+            section: .dynacap,
+            grain: .division,
+            tables: dynacapBook,
+            packs: []
+        )
+        XCTAssertEqual(dynacapMarkets.count, 11)
+        XCTAssertFalse(dynacapMarkets.contains { $0.label == "United" })
+        XCTAssertFalse(dynacapMarkets.contains { $0.storeCount == 0 })
+        XCTAssertTrue(dynacapMarkets.allSatisfy(HeartbeatMath.grainRowHasSectionValue))
+        XCTAssertFalse(HeartbeatMath.grainLabelsMatch([line("Jewel Osco", 0, "—")], grain: .division))
+
+        func salesLine(_ label: String, _ count: Int, _ dollars: String) -> HeartbeatMath.DashboardGrainTableRow {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: count,
+                values: [dollars, "—", "—"],
+                health: .risk
+            )
+        }
+        let deviceSales = [
+            salesLine("East Region", 615, "$8,209,791.69"),
+            salesLine("South Region", 397, "$4,994,836.32"),
+            salesLine("California Region", 604, "$7,868,959.21"),
+            salesLine("West Region", 555, "$6,685,100.87"),
+        ]
+        XCTAssertTrue(HeartbeatMath.grainLabelsMatch(deviceSales, grain: .region))
+        let keptDeviceSales = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.sales: rosterDash],
+            live: [.sales: deviceSales],
+            grain: .region
+        )
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "East Region" }?.values.first, "$8,209,791.69")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "East Region" }?.storeCount, 615)
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "East Region" }?.values.dropFirst().first, "—")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "South Region" }?.values.first, "$4,994,836.32")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "South Region" }?.storeCount, 397)
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "California Region" }?.values.first, "$7,868,959.21")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "California Region" }?.storeCount, 604)
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "West Region" }?.values.first, "$6,685,100.87")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "West Region" }?.storeCount, 555)
+
+        let shoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 6_996,
+            values: ["6,996", "—", "—", "—"],
+            health: .none
+        )
+        let status = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 0,
+            values: ["—", "1,200", "400", "80"],
+            health: .risk
+        )
+        let filledPickers = HeartbeatMath.pickerRowsKeepingShoppers([shoppers], filling: [status])
+        XCTAssertEqual(filledPickers.first?.values, ["6,996", "1,200", "400", "80"])
+        XCTAssertEqual(filledPickers.first?.storeCount, 6_996)
+        let southShoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "South Region",
+            storeCount: 4_117,
+            values: ["4,117", "—", "—", "—"],
+            health: .none
+        )
+        let californiaShoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "California Region",
+            storeCount: 5_807,
+            values: ["5,807", "—", "—", "—"],
+            health: .none
+        )
+        let westShoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "West Region",
+            storeCount: 4_862,
+            values: ["4,862", "—", "—", "—"],
+            health: .none
+        )
+        let keptShoppers = HeartbeatMath.pickerRowsKeepingShoppers(
+            [shoppers, southShoppers, californiaShoppers, westShoppers],
+            filling: [status]
+        )
+        XCTAssertEqual(keptShoppers.map(\.storeCount), [6_996, 4_117, 5_807, 4_862])
+        XCTAssertEqual(keptShoppers.map { $0.values.first }, ["6,996", "4,117", "5,807", "4,862"])
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {

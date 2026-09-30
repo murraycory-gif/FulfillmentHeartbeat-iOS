@@ -3041,6 +3041,20 @@ struct PickPathRollupTable: View {
         let next = forcedGrain ?? PickPathRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .pickPath, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                PickPathRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    path: HeartbeatMath.grainNumber(row, 0),
+                    pph: HeartbeatMath.grainNumber(row, 1),
+                    orders: HeartbeatMath.grainNumber(row, 2)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = PickPathRollupBuilder.source(from: store.rollupStores(for: .pickPath), filters: store.filters)
         var rows = PickPathRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -4339,6 +4353,20 @@ struct DynacapRollupTable: View {
         let next = forcedGrain ?? DynacapRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .dynacap, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                DynacapRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    rate: HeartbeatMath.grainNumber(row, 0),
+                    pph: HeartbeatMath.grainNumber(row, 1),
+                    util: HeartbeatMath.grainNumber(row, 2)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = DynacapRollupBuilder.source(from: store.rollupStores(for: .dynacap), filters: store.filters)
         var pphByStore: [String: Double] = [:]
         for row in store.latest(for: .pph) {
@@ -5237,19 +5265,9 @@ struct PrepRollupTable: View {
         let next = forcedGrain ?? PrepRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let dashGrain: DashScopeGrain
-        switch next {
-        case .region: dashGrain = .region
-        case .division: dashGrain = .division
-        case .district: dashGrain = .district
-        case .store: dashGrain = .store
-        }
-        let chrome = store.dashboardGrainRows(for: .prepNotReady, grain: dashGrain)
-        if chrome.contains(where: HeartbeatMath.grainRowHasSectionValue) {
+        if let chrome = store.chromeRollupRows(for: .prepNotReady, grain: next.scopeGrain) {
             summary = chrome.map { row in
-                let rate = HeartbeatMath.grainRowHasSectionValue(row)
-                    ? HeartbeatMath.parsedTileNumber(row.values.first ?? "")
-                    : nil
+                let rate = HeartbeatMath.grainNumber(row, 0)
                 return PrepRollupRow(
                     id: row.label,
                     label: HeartbeatMath.displayGrainLabel(row.label),
@@ -6036,6 +6054,23 @@ struct FiveStarRollupTable: View {
         let next = forcedGrain ?? FiveStarRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .fiveStar, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                FiveStarRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    rating: HeartbeatMath.grainNumber(row, 0),
+                    flash: HeartbeatMath.grainNumber(row, 1),
+                    presub: HeartbeatMath.grainNumber(row, 4),
+                    coe: HeartbeatMath.grainNumber(row, 2),
+                    ott: HeartbeatMath.grainNumber(row, 3),
+                    oth: HeartbeatMath.grainNumber(row, 5)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = FiveStarRollupBuilder.source(from: store.rollupStores(for: .fiveStar), filters: store.filters)
         var rows = FiveStarRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -6313,6 +6348,15 @@ enum LaborRollupGrain {
         case .division: self = .division
         case .district: self = .district
         case .store: self = .store
+        }
+    }
+
+    var scopeGrain: DashScopeGrain {
+        switch self {
+        case .region: return .region
+        case .division: return .division
+        case .district: return .district
+        case .store: return .store
         }
     }
 
@@ -7092,6 +7136,24 @@ struct LaborRollupTable: View {
         let next = forcedGrain ?? LaborRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .labor, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                LaborRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    tva: HeartbeatMath.grainNumber(row, 0),
+                    cost: HeartbeatMath.grainNumber(row, 2),
+                    act: HeartbeatMath.grainNumber(row, 1),
+                    efficiency: HeartbeatMath.grainNumber(row, 3),
+                    uplh: HeartbeatMath.grainNumber(row, 4),
+                    wage: HeartbeatMath.grainNumber(row, 5),
+                    aiv: HeartbeatMath.grainNumber(row, 6)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = LaborRollupBuilder.source(from: store.rollupStores(for: .labor), filters: store.filters)
         var rows = LaborRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -8237,6 +8299,24 @@ struct LostRevenueRollupTable: View {
         let next = forcedGrain ?? LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                LostRevenueRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    lost: HeartbeatMath.grainNumber(row, 0),
+                    pct: HeartbeatMath.grainNumber(row, 1),
+                    goal: HeartbeatMath.grainNumber(row, 2),
+                    sales: HeartbeatMath.grainNumber(row, 3),
+                    post: HeartbeatMath.grainNumber(row, 4),
+                    refund: HeartbeatMath.grainNumber(row, 5),
+                    missed: HeartbeatMath.grainNumber(row, 6)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
         let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
@@ -9313,6 +9393,21 @@ struct ScheduleRollupTable: View {
         let next = forcedGrain ?? ScheduleRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .scheduleQuality, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                ScheduleRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    efficiency: HeartbeatMath.grainNumber(row, 0),
+                    staffing: HeartbeatMath.grainNumber(row, 1),
+                    under: HeartbeatMath.grainNumber(row, 2),
+                    over: HeartbeatMath.grainNumber(row, 3)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -10080,6 +10175,19 @@ struct PPHRollupTable: View {
         let next = forcedGrain ?? PPHRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .pph, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                PPHRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    pph: HeartbeatMath.grainNumber(row, 0),
+                    pickers: 0
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
         var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCounts: store.pphPickerCounts())
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }

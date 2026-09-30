@@ -199,6 +199,21 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertTrue(detail.contains("frame(minWidth: detailWidth, minHeight: laidOut"))
         XCTAssertTrue(detail.contains("No stores in this scope."))
         XCTAssertTrue(detail.contains("header(detailColumns, tappable: true)"))
+        guard let pageStart = detail.range(of: "private func detailPage"),
+              let pageEnd = detail.range(of: "private func marketBlock") else {
+            XCTFail("Store Detail page is missing")
+            return
+        }
+        let page = String(detail[pageStart.lowerBound..<pageEnd.lowerBound])
+        let header = page.range(of: "header(detailColumns, tappable: true)")
+        let scroll = page.range(of: "ScrollView(.horizontal)")
+        XCTAssertNotNil(header)
+        XCTAssertNotNil(scroll)
+        if let header, let scroll {
+            XCTAssertLessThan(header.lowerBound, scroll.lowerBound, "the column header has to sit outside the horizontal scroll")
+        }
+        XCTAssertTrue(page.contains(".frame(height: rowBody"))
+        XCTAssertTrue(page.contains("frame(height: ScheduleCheckMath.detailHeaderHeight"))
     }
 
     func testScheduleRowsRoundTripInsideCurrentSqlite() throws {
