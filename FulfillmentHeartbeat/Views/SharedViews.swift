@@ -7827,7 +7827,7 @@ private struct LostRevenueRollupRow: Identifiable {
     let refund: Double?
     let missed: Double?
 
-    var health: Health { HeartbeatMath.lostRevenueStatus(pct: pct, goal: goal) }
+    var health: Health { HeartbeatMath.lostRevenueRowHealth(lost: lost, pct: pct, goal: goal) }
 }
 
 private enum LostRevenueMath {
@@ -8061,7 +8061,7 @@ private struct LostRevenueMetricLine: View, Equatable {
     let missed: Double?
 
     var body: some View {
-        let health = HeartbeatMath.lostRevenueHealth(pct: pct)
+        let health = HeartbeatMath.lostRevenueRowHealth(lost: lost, pct: pct, goal: goal)
         ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.lostMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
@@ -8076,7 +8076,7 @@ private struct LostRevenueMetricLine: View, Equatable {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            cell(HeartbeatFormat.moneyShort(lost), health)
+            cell(HeartbeatFormat.money(lost), health)
             cell(HeartbeatFormat.pct(pct), health)
             cell(HeartbeatFormat.pct(goal), .none, brand: true)
             cell(HeartbeatFormat.moneyShort(sales), .none, brand: true)
@@ -8244,9 +8244,9 @@ struct LostRevenueRollupTable: View {
                             ForEach(summary.prefix(40)) { row in
                                 PhoneGrainRow(
                                     label: row.label,
-                                    value: HeartbeatFormat.moneyShort(row.lost),
+                                    value: HeartbeatFormat.money(row.lost),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: HeartbeatMath.lostRevenueHealth(pct: row.pct),
+                                    health: row.health,
                                     metricLabel: "Lost $"
                                 )
                             }
@@ -10176,13 +10176,18 @@ struct PPHRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         if let chrome = store.chromeRollupRows(for: .pph, grain: next.scopeGrain) {
+            let pickers = store.dashboardGrainRows(for: .pickerScorecard, grain: next.scopeGrain)
             summary = chrome.map { row in
                 PPHRollupRow(
                     id: row.label,
                     label: HeartbeatMath.displayGrainLabel(row.label),
                     storeCount: row.storeCount,
                     pph: HeartbeatMath.grainNumber(row, 0),
-                    pickers: 0
+                    pickers: HeartbeatMath.pphPickerCount(
+                        label: row.label,
+                        grain: next.scopeGrain,
+                        pickerRows: pickers
+                    )
                 )
             }
             applyCurrentSort()

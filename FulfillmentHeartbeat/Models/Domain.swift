@@ -4349,6 +4349,64 @@ enum HeartbeatMath {
         return parsedTileNumber(row.values[index])
     }
 
+    /// Shopper count from the picker chrome row for this label.
+    /// A PPH chrome row has the rate and the store count. It does not have pickers.
+    /// Zero is only the answer when the picker row itself is missing.
+    static func pphPickerCount(
+        label: String,
+        grain: DashScopeGrain,
+        pickerRows: [DashboardGrainTableRow]
+    ) -> Int {
+        let wanted = Set(grainAliasKeys(label, grain: grain))
+        guard !wanted.isEmpty else { return 0 }
+        for row in pickerRows {
+            let aliases = grainAliasKeys(row.label, grain: grain)
+            guard aliases.contains(where: { wanted.contains($0) }) else { continue }
+            if let count = grainNumber(row, 0), count > 0 {
+                return Int(count.rounded())
+            }
+            if row.storeCount > 0 { return row.storeCount }
+        }
+        return 0
+    }
+
+    /// Department cells that already sit on the chrome row or its flags.
+    /// The Rate / Healthy / Watch / At Risk header is not a department list.
+    /// A present department number is kept. This does not invent one.
+    static func missingItemsChromeValues(
+        _ row: DashboardGrainTableRow,
+        flags: [FiveStarFlag] = [],
+        depts: [MissingItemDept] = MissingItemDept.allCases
+    ) -> [String: Double] {
+        var values: [String: Double] = [:]
+        let headers = dashboardTableHeaders(.missingItems)
+        if row.values.count > headers.count {
+            for (dept, cell) in zip(depts, row.values.dropFirst(headers.count)) {
+                if let number = parsedTileNumber(cell) {
+                    values[dept.rawValue] = number
+                }
+            }
+        }
+        for flag in flags {
+            guard let dept = MissingItemDept.match(flag.name) else { continue }
+            guard values[dept.rawValue] == nil, let number = parsedTileNumber(flag.value) else { continue }
+            values[dept.rawValue] = number
+        }
+        return values
+    }
+
+    /// Chrome department cells win. A fact average fills only a cell the chrome left empty.
+    static func missingItemsKeepingDepartments(
+        chrome: [String: Double],
+        filling incoming: [String: Double]
+    ) -> [String: Double] {
+        var merged = incoming
+        for (key, value) in chrome {
+            merged[key] = value
+        }
+        return merged
+    }
+
     /// Shopper counts already on the row stay. Healthy / Watch / At Risk fill
     /// only where the current cell is a dash.
     static func pickerRowsKeepingShoppers(
@@ -4525,6 +4583,13 @@ enum HeartbeatMath {
             return pct > goal ? .risk : .good
         }
         return lostRevenueHealth(pct: pct)
+    }
+
+    /// Lost % still sets the band. A Lost $ with no Lost % is not "No data".
+    static func lostRevenueRowHealth(lost: Double?, pct: Double?, goal: Double?) -> Health {
+        if let pct { return lostRevenueStatus(pct: pct, goal: goal) }
+        if let lost, lost != 0 { return .risk }
+        return .none
     }
 
     /// "203 of 2,177 stores reported · 9/27". The day comes from the sheet footer when the cook stamped it.

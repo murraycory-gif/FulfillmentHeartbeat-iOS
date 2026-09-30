@@ -3516,6 +3516,69 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(keptShoppers.map(\.storeCount), [6_996, 4_117, 5_807, 4_862])
         XCTAssertEqual(keptShoppers.map { $0.values.first }, ["6,996", "4,117", "5,807", "4,862"])
+
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "East Region", grain: .region, pickerRows: picker),
+            6_996
+        )
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "South Region", grain: .region, pickerRows: picker),
+            4_117
+        )
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "California Region", grain: .region, pickerRows: picker),
+            5_807
+        )
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "West Region", grain: .region, pickerRows: picker),
+            4_862
+        )
+        XCTAssertEqual(HeartbeatMath.grainNumber(pph[0], 0), 69.5)
+        XCTAssertEqual(pph[0].storeCount, 613)
+
+        XCTAssertEqual(HeartbeatFormat.money(393_334.12), "$393,334.12")
+        XCTAssertEqual(HeartbeatFormat.money(136_425), "$136,425")
+        XCTAssertEqual(HeartbeatFormat.money(168_079.57), "$168,079.57")
+        XCTAssertEqual(HeartbeatFormat.money(191_547.49), "$191,547.49")
+        XCTAssertNotEqual(HeartbeatFormat.money(393_334.12), HeartbeatFormat.moneyShort(393_334.12))
+        XCTAssertNotEqual(
+            HeartbeatMath.lostRevenueRowHealth(lost: 393_334.12, pct: nil, goal: nil),
+            Health.none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueRowHealth(lost: 393_334.12, pct: 4.2, goal: 3),
+            Health.risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueRowHealth(lost: nil, pct: nil, goal: nil),
+            Health.none
+        )
+
+        let missingEast = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["8.61%", "—", "—", "—", "9.10%"],
+            health: .risk
+        )
+        let fromChrome = HeartbeatMath.missingItemsChromeValues(missingEast)
+        XCTAssertEqual(HeartbeatMath.grainNumber(missingEast, 0), 8.61)
+        XCTAssertEqual(fromChrome[MissingItemDept.grocery.rawValue] ?? 0, 9.10, accuracy: 0.001)
+        let headerOnly = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["8.61%", "120", "40", "10"],
+            health: .risk
+        )
+        XCTAssertTrue(HeartbeatMath.missingItemsChromeValues(headerOnly).isEmpty)
+        let grocery = HeartbeatMath.FiveStarFlag(name: "Grocery", value: "9.40%", health: .risk, stores: 10)
+        let fromFlag = HeartbeatMath.missingItemsChromeValues(headerOnly, flags: [grocery])
+        XCTAssertEqual(fromFlag[MissingItemDept.grocery.rawValue] ?? 0, 9.40, accuracy: 0.001)
+        let keptDept = HeartbeatMath.missingItemsKeepingDepartments(
+            chrome: fromFlag,
+            filling: [MissingItemDept.grocery.rawValue: 1, MissingItemDept.alcohol.rawValue: 3.2]
+        )
+        XCTAssertEqual(keptDept[MissingItemDept.grocery.rawValue] ?? 0, 9.40, accuracy: 0.001)
+        XCTAssertEqual(keptDept[MissingItemDept.alcohol.rawValue] ?? 0, 3.2, accuracy: 0.001)
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {

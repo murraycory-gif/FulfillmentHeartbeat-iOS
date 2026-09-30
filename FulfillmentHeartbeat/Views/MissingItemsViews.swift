@@ -1132,14 +1132,42 @@ struct MissingItemsRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         if let chrome = store.chromeRollupRows(for: section, grain: next.scopeGrain) {
+            let flagsByAlias = departmentFlags(grain: next.scopeGrain)
+            func flags(for label: String) -> [HeartbeatMath.FiveStarFlag] {
+                for alias in HeartbeatMath.grainAliasKeys(label, grain: next.scopeGrain) {
+                    if let hit = flagsByAlias[alias] { return hit }
+                }
+                return []
+            }
+            var averages: [String: [String: Double]] = [:]
+            let needsFacts = chrome.contains { row in
+                let kept = HeartbeatMath.missingItemsChromeValues(row, flags: flags(for: row.label))
+                return depts.contains { kept[$0.rawValue] == nil }
+            }
+            if needsFacts {
+                for (label, values) in store.missingDepartmentAverages(section: section, grain: next.scopeGrain) {
+                    for alias in HeartbeatMath.grainAliasKeys(label, grain: next.scopeGrain) where averages[alias] == nil {
+                        averages[alias] = values
+                    }
+                }
+            }
             summary = chrome.map { row in
                 let total = HeartbeatMath.grainNumber(row, 0)
+                let onRow = HeartbeatMath.missingItemsChromeValues(row, flags: flags(for: row.label))
+                var filled: [String: Double] = [:]
+                for alias in HeartbeatMath.grainAliasKeys(row.label, grain: next.scopeGrain) {
+                    if let hit = averages[alias] {
+                        filled = hit
+                        break
+                    }
+                }
+                let values = HeartbeatMath.missingItemsKeepingDepartments(chrome: onRow, filling: filled)
                 return MissingItemsRollupRow(
                     id: row.label,
                     label: HeartbeatMath.displayGrainLabel(row.label),
                     storeCount: row.storeCount,
                     total: total,
-                    values: [:],
+                    values: values,
                     health: MissingItemsMath.health(total)
                 )
             }
@@ -1194,6 +1222,17 @@ struct MissingItemsRollupTable: View {
         }
         summary = rows
         applyCurrentSort()
+    }
+
+    private func departmentFlags(grain: DashScopeGrain) -> [String: [HeartbeatMath.FiveStarFlag]] {
+        var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+        for pack in store.chromeScopePacks(for: section) {
+            guard !pack.flags.isEmpty else { continue }
+            for alias in HeartbeatMath.grainAliasKeys(pack.line.label, grain: grain) where out[alias] == nil {
+                out[alias] = pack.flags
+            }
+        }
+        return out
     }
 
     private func applySort(_ key: String) {

@@ -598,6 +598,46 @@ enum PulseSQLite {
         return out
     }
 
+    /// Department numbers for one section, one row at a time. The map is not a
+    /// resident fact plane: only the requested keys are kept, then the payload is dropped.
+    static func departmentPayloads(
+        from url: URL,
+        section: MetricSection,
+        keys: [String]
+    ) -> [String: (division: String, numbers: [String: Double])] {
+        guard exists(at: url), !keys.isEmpty else { return [:] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return [:]
+        }
+        defer { sqlite3_close(db) }
+        residentCap(db)
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = """
+        SELECT store_number, division, payload_json
+        FROM facts
+        WHERE section = ?;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        bind(stmt, 1, section.rawValue)
+        let wanted = Set(keys)
+        var out: [String: (division: String, numbers: [String: Double])] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let store = string(stmt, 0)
+            guard !store.isEmpty else { continue }
+            let payload = decodeMap(optional(stmt, 2) ?? "{}")
+            var numbers: [String: Double] = [:]
+            numbers.reserveCapacity(wanted.count)
+            for key in wanted {
+                if let value = payload[key] { numbers[key] = value }
+            }
+            guard !numbers.isEmpty else { continue }
+            out[store] = (division: string(stmt, 1), numbers: numbers)
+        }
+        return out
+    }
+
     /// One row per store. Not a `LIMIT` walk of `facts_section_div` (that prefix
     /// is Haggen, then Jewel, then a slice of Mid-Atlantic — everyone else is 0).
     static func pickerHeadcounts(from url: URL) -> [String: Int] {
