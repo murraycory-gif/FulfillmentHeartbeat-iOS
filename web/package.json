@@ -1,0 +1,9 @@
+{
+  "name": "fulfillment-heartbeat-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test_web.mjs",
+    "build": "node test_web.mjs"
+  }
+}

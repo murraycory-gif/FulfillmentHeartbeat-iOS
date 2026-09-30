@@ -274,6 +274,12 @@ enum HubLayout {
     static var isPhoneDevice: Bool { profile.kind == .phone || livePhoneIdiom }
     static var isPadDevice: Bool { profile.kind == .pad && !livePhoneIdiom }
     static var isMac: Bool { profile.kind == .mac }
+    /// Mac Catalyst, or this iPad app running on a Mac (Designed for iPad).
+    /// Layout and push registration only. Workbook ingest stays on `isMac`.
+    static var runsOnMac: Bool {
+        if isMac { return true }
+        return ProcessInfo.processInfo.isiOSAppOnMac
+    }
     static var lowMemory: Bool { profile.ramGB < 6 }
     static var lightLaunch: Bool { profile.lightLaunch }
     /// Skip Excel. Name kept for HeartbeatStore call sites.
@@ -428,12 +434,17 @@ enum HubLayout {
         )
     }
 
-    /// Smaller than `phoneBannerTitleFont`. Soft FAIL same bold size on both lines.
+    /// At least 13pt at Dynamic Type Large. Caption is 12pt and was clipping the week line.
     static func phoneBannerSubtitleFont() -> Font {
         AppTheme.rounded(
-            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .caption : .subheadline,
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .footnote : .subheadline,
             weight: .semibold
         )
+    }
+
+    /// Smaller than the 13pt subtitle. Still a text style so Large type stays readable.
+    static func phoneBannerUpdatedFont() -> Font {
+        AppTheme.rounded(.caption2, weight: .semibold)
     }
     static func phoneBannerIconFont() -> Font {
         AppTheme.rounded(

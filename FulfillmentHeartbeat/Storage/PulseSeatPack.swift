@@ -217,6 +217,19 @@ enum PulseSeatPack {
         [.pickerScorecard, .pickPathPicker, .preSubOOSItem]
     }
 
+    /// Dashboard rows for a filter. Shopper tape is included only for a single store,
+    /// so a division or district change does not decode the company picker file.
+    static func sectionsForScopedRead(grain: Grain, storeCount: Int) -> Set<MetricSection> {
+        var sections = Set(MetricSection.dashboardCards)
+        sections.remove(.pickerScorecard)
+        sections.insert(.aisleMapper)
+        sections.insert(.storeRoster)
+        if grain == .store || storeCount <= 1 {
+            sections.formUnion(shopperSections())
+        }
+        return sections
+    }
+
     /// Rows that belong in a seat sqlite. Company thin drops shopper tape.
     /// District / OM / store packs keep picker scorecard plus `pick_path_picker`
     /// rows joined by LDAP so Pick Path store expand is not an empty placeholder.
@@ -284,8 +297,17 @@ enum PulseSeatPack {
         roster: [String: HeartbeatMath.StoreIdentity],
         to dest: URL
     ) throws -> Entry {
+        let directory = roster.isEmpty ? PulseCaches.storeRoster(from: rows) : roster
         let scoped = PulseLaunch.bakeAisleMapperOntoPickPath(
-            scopeRows(rows, roster: roster, key: key)
+            scopeRows(rows, roster: directory, key: key)
+        )
+        // Company facts drop the item plane. Roll the top 10 from the full rows
+        // first so the phone can paint every card without those 16.8k lines.
+        let itemSource = key.grain == .company ? rows : scoped
+        let tops = PreSubTopItems.catalog(
+            items: itemSource.filter { $0.section == .preSubOOSItem },
+            roster: directory,
+            includeCompany: key.grain == .company
         )
         let grain = key.dashboardGrain
         let caches = PulseCaches.build(
@@ -296,6 +318,7 @@ enum PulseSeatPack {
             grain: grain
         )
         var chrome = PulseDashChrome.from(caches, grain: grain)
+        chrome.preSubItemTabPresent = tops.tabPresent
         let seatN = (PulseCaches.allowedStores(
             roster: caches.roster.isEmpty ? roster : caches.roster,
             filters: key.filters
@@ -307,10 +330,26 @@ enum PulseSeatPack {
                 uploads: uploads
             )
         }
+        // Company facts drop the shopper tape. Roll counts from the full tab
+        // first so region cards are not the first 80 streamed rows.
+        let pickerSource = key.grain == .company ? rows : scoped
+        PickerScopeRollups.apply(
+            onto: &chrome,
+            rows: pickerSource.filter { $0.section == .pickerScorecard },
+            roster: directory,
+            includeCompany: key.grain == .company
+        )
         if seatN > 0 {
             chrome.summaries = PulseLaunch.pinCompanyRosterStoreCounts(chrome.summaries, rosterStores: seatN)
         }
-        try PulseSQLite.write(rows: scoped, uploads: uploads, seeded: true, chrome: chrome, to: dest)
+        try PulseSQLite.write(
+            rows: scoped,
+            uploads: uploads,
+            seeded: true,
+            chrome: chrome,
+            preSubTops: tops.lists,
+            to: dest
+        )
         PulseSQLite.compact(at: dest)
         let bytes = PulseSQLite.fileBytes(at: dest)
         if key == .company, !shouldPromoteIncomingAsCompanySeat(bytes: bytes) {
@@ -327,32 +366,30 @@ enum PulseSeatPack {
     }
 
     /// Device fallback when the published seat object is not on disk yet.
-    /// SQL `readStores` → new sqlite. Not an in-memory market slice.
+    /// SQL `readStores` for the chosen stores only. Never `PulseSQLite.read` of the company file.
     static func materialize(
         from company: URL,
         key: Key,
         roster: [String: HeartbeatMath.StoreIdentity],
         uploads: [UploadRecord],
-        to dest: URL
+        to dest: URL,
+        sections: Set<MetricSection>? = nil
     ) throws -> Entry {
-        var roster = roster
-        let sourceRows: [MetricRow]
-        if roster.isEmpty {
-            let pack = try PulseSQLite.read(from: company)
-            roster = PulseCaches.storeRoster(from: pack.rows)
-            sourceRows = pack.rows
-        } else if key.grain == .company {
-            let pack = try PulseSQLite.read(from: company)
-            sourceRows = pack.rows
-            if roster.isEmpty { roster = pack.rows.isEmpty ? [:] : PulseCaches.storeRoster(from: pack.rows) }
-        } else {
-            let allowed = PulseCaches.allowedStores(roster: roster, filters: key.filters) ?? []
-            sourceRows = PulseSQLite.readStores(
-                from: company,
-                sections: Set(MetricSection.allCases),
-                stores: allowed
-            )
+        if key.grain == .company {
+            throw PulseSQLError.schema
         }
+        var roster = roster
+        if roster.isEmpty {
+            roster = PulseSQLite.readStoreIndex(from: company)
+        }
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: key.filters) ?? []
+        guard !allowed.isEmpty else { throw PulseSQLError.schema }
+        let wanted = sections ?? Set(MetricSection.allCases)
+        let sourceRows = PulseSQLite.readStores(
+            from: company,
+            sections: wanted,
+            stores: allowed
+        )
         return try writeCooked(rows: sourceRows, uploads: uploads, key: key, roster: roster, to: dest)
     }
 

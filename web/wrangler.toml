@@ -1,0 +1,17 @@
+# Heartbeat web. Cloudflare Pages, free tier. Do not put an account_id here.
+# Deploy steps: web/DEPLOY.md. This file does not create resources by itself.
+# The existing heartbeat-web Pages project is an unrelated site. Do not deploy there.
+name = "fulfillment-heartbeat-web"
+compatibility_date = "2026-09-28"
+pages_build_output_dir = "dist"
+
+# Existing bucket. The function reads it. The site never publishes a bucket URL.
+[[r2_buckets]]
+binding = "HEARTBEAT_PACKS"
+bucket_name = "heartbeat-packs"
+
+# Lets functions/api import functions/allowlist.txt as text.
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true

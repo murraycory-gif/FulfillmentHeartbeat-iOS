@@ -142,6 +142,57 @@ jobs:
             exit 1
           fi
 
+      - name: Fold schedule rows into the sqlite pack
+        if: env.skip != '1'
+        env:
+          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
+          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+        run: |
+          set +e
+          CODE=$(curl -sS --connect-timeout 15 --max-time 60 -o /tmp/sched-list.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"prefix":"Schedule Review","limit":50}' \
+            "$PROJECT/storage/v1/object/list/heartbeat-packs")
+          if [ "$CODE" != "200" ]; then
+            echo "schedule fold skipped: workbook list failed ($CODE)"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          raw = json.load(open("/tmp/sched-list.json"))
+          names = []
+          if isinstance(raw, list):
+              for row in raw:
+                  name = row.get("name") or ""
+                  if name.startswith("~$"):
+                      continue
+                  if name.startswith("Schedule Review Week ") and name.endswith(".xlsx"):
+                      names.append(name)
+          open("/tmp/sched-name.txt","w").write(names[0] if names else "")
+          PY
+          NAME=$(cat /tmp/sched-name.txt)
+          if [ -z "$NAME" ]; then
+            echo "schedule fold skipped: no Schedule Review Week workbook"
+            exit 0
+          fi
+          ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$NAME")
+          DL=$(curl -sS -L --connect-timeout 20 --max-time 180 -o /tmp/schedule.xlsx -w "%{http_code}" \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            "$PROJECT/storage/v1/object/authenticated/heartbeat-packs/$ENC")
+          if [ "$DL" != "200" ]; then
+            echo "schedule fold skipped: workbook download failed ($DL)"
+            exit 0
+          fi
+          python3 -m pip install --quiet openpyxl
+          python3 Tools/ScheduleCheck/cook_schedule.py /tmp/schedule.xlsx --sqlite /tmp/current.sqlite \
+            || echo "schedule fold skipped: current.sqlite was not updated"
+          if [ -f /tmp/packs/seat/company/all/current.sqlite ]; then
+            python3 Tools/ScheduleCheck/cook_schedule.py /tmp/schedule.xlsx --sqlite /tmp/packs/seat/company/all/current.sqlite \
+              || echo "schedule fold skipped: company seat was not updated"
+          fi
+          exit 0
+
       - name: Publish company LIVE
         if: env.skip != '1'
         env:
@@ -162,3 +213,104 @@ jobs:
         run: |
           set -euo pipefail
           Tools/HeartbeatIngest/publish-cloud.sh seats /tmp/current.sqlite
+
+      - name: Notify devices
+        if: env.skip != '1' && env.company_live == '1'
+        continue-on-error: true
+        env:
+          APNS_KEY_P8: ${{ secrets.APNS_KEY_P8 }}
+          APNS_KEY_ID: ${{ secrets.APNS_KEY_ID }}
+          APNS_TEAM_ID: ${{ secrets.APNS_TEAM_ID }}
+          APNS_BUNDLE_ID: com.corymurray.FulfillmentHeartbeat
+          PUSH_WORKER_URL: ${{ secrets.PUSH_WORKER_URL }}
+          PUSH_LIST_SECRET: ${{ secrets.PUSH_LIST_SECRET }}
+        run: python3 Tools/HeartbeatPush/send_push.py /tmp/packs/seat/company/all/current.sqlite
+
+  # Separate from `cook`. No `needs:`. A missing or failed schedule file
+  # does not stop the Heartbeat pack. The live watcher is the Mac LaunchAgent.
+  cook-schedule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cook schedule pack when the workbook is in the bucket
+        env:
+          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
+          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          set -u
+          CODE=$(curl -sS --connect-timeout 15 --max-time 60 -o /tmp/sched-list.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"prefix":"Schedule Review","limit":50}' \
+            "$PROJECT/storage/v1/object/list/heartbeat-packs" || echo "000")
+          if [ "$CODE" != "200" ]; then
+            echo "Schedule workbook list failed ($CODE). Heartbeat cook is independent."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          raw = json.load(open("/tmp/sched-list.json"))
+          names = []
+          if isinstance(raw, list):
+              for row in raw:
+                  name = row.get("name") or ""
+                  if name.startswith("~$"):
+                      continue
+                  if name.startswith("Schedule Review Week ") and name.endswith(".xlsx"):
+                      names.append(name)
+          open("/tmp/sched-name.txt","w").write(names[0] if names else "")
+          print("schedule workbook:", names[0] if names else "(none)")
+          PY
+          NAME=$(cat /tmp/sched-name.txt)
+          if [ -z "$NAME" ]; then
+            echo "No Schedule Review Week workbook in the bucket. The Mac iCloud cook owns this file."
+            exit 0
+          fi
+          ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$NAME")
+          DL=$(curl -sS -L --connect-timeout 20 --max-time 180 -o /tmp/schedule.xlsx -w "%{http_code}" \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            "$PROJECT/storage/v1/object/authenticated/heartbeat-packs/$ENC" || echo "000")
+          if [ "$DL" != "200" ]; then
+            echo "Schedule workbook download failed ($DL). Heartbeat cook is independent."
+            exit 0
+          fi
+          python3 -m pip install --quiet openpyxl
+          if ! python3 Tools/ScheduleCheck/cook_schedule.py /tmp/schedule.xlsx /tmp/schedule-check.json --check; then
+            echo "schedule cook failed (heartbeat cook is independent)"
+            exit 0
+          fi
+          if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ] || [ -z "${R2_BUCKET:-}" ] || [ -z "${R2_ENDPOINT:-}" ]; then
+            echo "schedule publish skipped: no r2 key"
+            exit 0
+          fi
+          # The pack is current.sqlite. Do not upload schedule-check.json as the pack.
+          AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+            aws s3 cp "s3://${R2_BUCKET}/current.sqlite" /tmp/current.sqlite \
+              --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+            || echo "schedule pack download failed (heartbeat cook is independent)"
+          if [ -f /tmp/current.sqlite ]; then
+            python3 Tools/ScheduleCheck/cook_schedule.py /tmp/schedule.xlsx --sqlite /tmp/current.sqlite \
+              || echo "schedule sqlite write failed (heartbeat cook is independent)"
+            AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+              aws s3 cp /tmp/current.sqlite "s3://${R2_BUCKET}/current.sqlite" \
+                --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+              || echo "schedule pack publish failed (heartbeat cook is independent)"
+          fi
+          AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+            aws s3 cp "s3://${R2_BUCKET}/packs/seat/company/all/current.sqlite" /tmp/company-seat.sqlite \
+              --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+            || true
+          if [ -f /tmp/company-seat.sqlite ]; then
+            python3 Tools/ScheduleCheck/cook_schedule.py /tmp/schedule.xlsx --sqlite /tmp/company-seat.sqlite \
+              || echo "company seat schedule write failed (heartbeat cook is independent)"
+            AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+              aws s3 cp /tmp/company-seat.sqlite "s3://${R2_BUCKET}/packs/seat/company/all/current.sqlite" \
+                --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+              || echo "company seat publish failed (heartbeat cook is independent)"
+          fi
+          exit 0

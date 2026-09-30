@@ -1,8 +1,10 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct FulfillmentHeartbeatApp: App {
+    @UIApplicationDelegateAdaptor(HeartbeatPushBridge.self) private var pushBridge
     @StateObject private var store = HeartbeatStore()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -46,6 +48,9 @@ struct FulfillmentHeartbeatApp: App {
                     store.flush()
                 } else if phase == .active {
                     store.pullLatestWorkbookIfNeeded()
+                    if NewDataPreferences.pushAlertsEnabled(in: .standard) {
+                        NewDataPush.registerIfAuthorized()
+                    }
                 }
             }
             .onAppear {
@@ -68,6 +73,108 @@ struct FulfillmentHeartbeatApp: App {
         .defaultSize(width: 1280, height: 860)
         #endif
     }
+}
+
+/// APNs registration. The iOS permission dialog runs after a pack is on screen.
+enum NewDataPush {
+    static let tokenKey = "hb.apnsToken"
+
+    static var environment: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "prod"
+        #endif
+    }
+
+    /// iPhone and iPad register `ios`. Mac Catalyst and Designed for iPad register `macos`.
+    static var platform: String {
+        #if targetEnvironment(macCatalyst)
+        return "macos"
+        #else
+        if ProcessInfo.processInfo.isiOSAppOnMac { return "macos" }
+        return "ios"
+        #endif
+    }
+
+    static func requestSystemPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            guard granted else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    static func registerIfAuthorized() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    static func refreshAuthorizationDenied(_ update: @escaping (Bool) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let denied = settings.authorizationStatus == .denied
+            DispatchQueue.main.async {
+                update(denied)
+            }
+        }
+    }
+
+    /// ON keeps or registers the token. OFF posts the same token with optedOut so the cook skips it.
+    static func applyPreference(_ on: Bool, defaults: UserDefaults = .standard) {
+        let token = defaults.string(forKey: tokenKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !token.isEmpty {
+            post(token: token, optedOut: !on)
+        }
+        if on {
+            requestSystemPermission()
+        }
+    }
+
+    static func storeAndPost(deviceToken: Data, defaults: UserDefaults = .standard) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        defaults.set(hex, forKey: tokenKey)
+        let optedOut = !NewDataPreferences.pushAlertsEnabled(in: defaults)
+        post(token: hex, optedOut: optedOut)
+    }
+
+    static func post(token: String, optedOut: Bool = false, bundle: Bundle = .main) {
+        let raw = (bundle.object(forInfoDictionaryKey: "HBPushWorkerURL") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let base = URL(string: raw), !raw.isEmpty else { return }
+        let endpoint = base.appendingPathComponent("token")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "token": token,
+            "env": environment,
+            "platform": platform,
+            "appVersion": BuildStamp.id,
+            "optedOut": optedOut,
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request).resume()
+    }
+}
+
+final class HeartbeatPushBridge: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        NewDataPush.storeAndPost(deviceToken: deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {}
 }
 
 private extension UIFont {

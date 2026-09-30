@@ -8,9 +8,22 @@ struct PulseDashChrome: Codable {
     var pickerShoppers: Int
     var pickerOpportunity: Int
     var pickerStrong: Int
+    /// Company card tiles keyed by `MetricSection.rawValue`. Painted with fact payloads released.
+    var companyTiles: [String: CompanyCardTiles]
+    /// Workbook Total / market rows for Sales, Loss, and Labor. One row each.
+    var companyRollupRows: [String: MetricRow]
+    /// When this pack was cooked. Missing on older chrome. Never invent a clock time.
+    var publishedAt: Date?
+    /// Workbook had a Pre-Sub OOS Item tab. Nil on older chrome — treat as missing.
+    /// The top-10 lists themselves live in `presub_top`, not in this JSON.
+    var preSubItemTabPresent: Bool?
+    /// Picker ScoreCard counts at every grain. Keyed like Pre-Sub scopes
+    /// (`company`, `region:East Region`, `division:United`, `store:10`).
+    var pickerRollups: [String: PickerScopeRollup]
 
     enum CodingKeys: String, CodingKey {
         case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
+        case companyTiles, companyRollupRows, publishedAt, preSubItemTabPresent, pickerRollups
     }
 
     init(
@@ -20,7 +33,12 @@ struct PulseDashChrome: Codable {
         tables: [String: [HeartbeatMath.DashboardGrainTableRow]] = [:],
         pickerShoppers: Int,
         pickerOpportunity: Int = 0,
-        pickerStrong: Int = 0
+        pickerStrong: Int = 0,
+        companyTiles: [String: CompanyCardTiles] = [:],
+        companyRollupRows: [String: MetricRow] = [:],
+        publishedAt: Date? = nil,
+        preSubItemTabPresent: Bool? = nil,
+        pickerRollups: [String: PickerScopeRollup] = [:]
     ) {
         self.summaries = summaries
         self.flags = flags
@@ -29,6 +47,11 @@ struct PulseDashChrome: Codable {
         self.pickerShoppers = pickerShoppers
         self.pickerOpportunity = pickerOpportunity
         self.pickerStrong = pickerStrong
+        self.companyTiles = companyTiles
+        self.companyRollupRows = companyRollupRows
+        self.publishedAt = publishedAt
+        self.preSubItemTabPresent = preSubItemTabPresent
+        self.pickerRollups = pickerRollups
     }
 
     init(from decoder: Decoder) throws {
@@ -40,6 +63,29 @@ struct PulseDashChrome: Codable {
         pickerShoppers = try container.decodeIfPresent(Int.self, forKey: .pickerShoppers) ?? 0
         pickerOpportunity = try container.decodeIfPresent(Int.self, forKey: .pickerOpportunity) ?? 0
         pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
+        companyTiles = try container.decodeIfPresent([String: CompanyCardTiles].self, forKey: .companyTiles) ?? [:]
+        companyRollupRows = try container.decodeIfPresent([String: MetricRow].self, forKey: .companyRollupRows) ?? [:]
+        publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
+        preSubItemTabPresent = try container.decodeIfPresent(Bool.self, forKey: .preSubItemTabPresent)
+        pickerRollups = try container.decodeIfPresent([String: PickerScopeRollup].self, forKey: .pickerRollups) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(summaries, forKey: .summaries)
+        try container.encode(flags, forKey: .flags)
+        try container.encode(packs, forKey: .packs)
+        try container.encode(tables, forKey: .tables)
+        try container.encode(pickerShoppers, forKey: .pickerShoppers)
+        try container.encode(pickerOpportunity, forKey: .pickerOpportunity)
+        try container.encode(pickerStrong, forKey: .pickerStrong)
+        try container.encode(companyTiles, forKey: .companyTiles)
+        try container.encode(companyRollupRows, forKey: .companyRollupRows)
+        try container.encodeIfPresent(publishedAt, forKey: .publishedAt)
+        try container.encodeIfPresent(preSubItemTabPresent, forKey: .preSubItemTabPresent)
+        if !pickerRollups.isEmpty {
+            try container.encode(pickerRollups, forKey: .pickerRollups)
+        }
     }
 
     static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {
@@ -73,6 +119,8 @@ struct PulseDashChrome: Codable {
                 tables[MetricSection.pickerScorecard] = pickerTable
             }
         }
+        let companySource = caches.latestBySection
+        let laborMarket = caches.laborMarketRow
         return PulseDashChrome(
             summaries: caches.cachedSummaries,
             flags: Dictionary(uniqueKeysWithValues: caches.cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
@@ -80,7 +128,10 @@ struct PulseDashChrome: Codable {
             tables: Dictionary(uniqueKeysWithValues: tables.map { ($0.key.rawValue, $0.value) }),
             pickerShoppers: caches.cachedPickerBoard.shopperCount,
             pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
-            pickerStrong: caches.cachedPickerBoard.strongCount
+            pickerStrong: caches.cachedPickerBoard.strongCount,
+            companyTiles: HeartbeatMath.companyScopeTiles(latest: companySource, laborMarket: laborMarket),
+            companyRollupRows: HeartbeatMath.companyScopeRollups(latest: companySource, laborMarket: laborMarket),
+            publishedAt: Date()
         )
     }
 
@@ -109,6 +160,11 @@ struct PulseDashChrome: Codable {
         if !laborOK { missing.append("Labor") }
         if !pickerOK { missing.append("Picker ScoreCard") }
         return missing
+    }
+
+    /// Sales may be absent from this upload. That card stays NO DATA. It does not block the cook.
+    var cookBlockingTitles: [String] {
+        missingTitles.filter { $0 != "Sales" }
     }
 }
 
@@ -148,6 +204,8 @@ struct PulseCaches {
     var pphPickersByStore: [String: [MetricRow]]
     var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
     var cachedGrainPacks: [MetricSection: [DashScopePack]]
+    /// Workbook Labor Total. Summaries already append it for RESULT. Tiles need the same row.
+    var laborMarketRow: MetricRow?
 
     struct HeavyBits {
         var pickerBoard: HeartbeatMath.PickerBoard
@@ -370,7 +428,8 @@ struct PulseCaches {
                     hidePicker: hidePicker,
                     stores: stores,
                     roster: roster
-                )
+                ),
+            laborMarketRow: filters.isActive ? nil : laborMarket
         )
     }
 
@@ -901,6 +960,12 @@ struct PulseCaches {
             if !filters.includesOM(identity.om) { continue }
             if !filters.includesStore(number) { continue }
             allowed.insert(HeartbeatMath.canonicalStore(number))
+        }
+        // A typed store is the scope even when the roster omitted it or its
+        // division / district / OM key does not match the open seat.
+        for raw in filters.stores {
+            let store = HeartbeatMath.canonicalStore(raw)
+            if !store.isEmpty { allowed.insert(store) }
         }
         return allowed
     }

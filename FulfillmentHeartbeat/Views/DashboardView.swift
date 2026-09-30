@@ -15,14 +15,6 @@ struct DashboardView: View {
 
     private var dashboardBody: some View {
         VStack(spacing: 0) {
-            if !HubLayout.isPhone(sizeClass) {
-                HubStickyPageBanner(
-                    icon: "waveform.path.ecg",
-                    title: "Operational Heartbeat",
-                    accessory: store.filters.summary,
-                    trailing: store.sharedDataWindow()
-                )
-            }
             if PulseLaunch.shouldUseCommandCenterHome() {
                 commandCenterBody
             } else {
@@ -549,8 +541,12 @@ struct DashScopeStrip: View {
     }
 
     /// Live expand caches only. Never roster / placeholder pack counts.
+    /// Sales uses the chrome grain table when the store rebuild did not resolve.
     private var bannerCount: Int {
-        PulseLaunch.dashboardBannerCount(
+        if section == .sales, salesRows.isEmpty, HeartbeatMath.grainRowsAreLive(grainRows) {
+            return grainRows.count
+        }
+        return PulseLaunch.dashboardBannerCount(
             section: section,
             salesRows: salesRows,
             grainRows: grainRows
@@ -565,6 +561,15 @@ struct DashScopeStrip: View {
                     OverviewSalesAlignedTable(
                         title: grain.title,
                         rows: grain == .store ? Array(salesRows.prefix(40)) : salesRows,
+                        showCount: grain != .store,
+                        district: grain == .district
+                    )
+                } else if HeartbeatMath.grainRowsAreLive(grainRows) {
+                    OverviewMetricAlignedTable(
+                        title: grain.title,
+                        section: section,
+                        headers: HeartbeatMath.dashboardTableHeaders(section),
+                        rows: grain == .store ? Array(grainRows.prefix(40)) : grainRows,
                         showCount: grain != .store,
                         district: grain == .district
                     )
@@ -661,7 +666,9 @@ private struct OverviewMetricColumns: View {
                     label: item.label,
                     stores: HeartbeatFormat.num(Double(item.storeCount)),
                     values: item.values,
-                    health: item.health == .none && item.storeCount > 0 ? .good : item.health,
+                    health: section == .prepNotReady
+                        ? item.health
+                        : (item.health == .none && item.storeCount > 0 ? .good : item.health),
                     header: false,
                     stripe: index.isMultiple(of: 2)
                 )
@@ -758,43 +765,89 @@ struct PhoneMetricChip: Identifiable, Hashable {
 
 /// Classic Albertsons navy overview banner. Compact — no RESULT cavern,
 /// no white Labor scorecard chrome. STATUS pill stays on navy.
-/// Line 1 is the page name. Line 2 is `{Filter seat} | {week}`, smaller.
+/// Line 1 is the page name. Line 2 is `{Filter seat} | {week}` and wraps.
+/// Line 3 is when this pack was published.
 struct PhoneCompactPageBanner: View {
+    enum Metrics { case phone, pad, mac }
+
     let title: String
     var subtitle: String = ""
+    var updated: String = ""
     var health: Health = .none
+    var metrics: Metrics = .phone
 
     var body: some View {
-        let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
-        let corner: CGFloat = compact ? 10 : 14
-        HStack(alignment: .center, spacing: compact ? 8 : 10) {
-            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+        let compact = metrics == .phone && PulseLaunch.shouldUseCompactPhoneCommandChrome()
+        let corner: CGFloat = metrics == .mac ? 16 : (compact ? 10 : 14)
+        HStack(alignment: .center, spacing: metrics == .phone ? (compact ? 8 : 10) : 12) {
+            VStack(alignment: .leading, spacing: metrics == .mac ? 4 : 2) {
                 Text(title)
-                    .font(HubLayout.phoneBannerTitleFont())
+                    .font(titleFont)
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .fixedSize(horizontal: false, vertical: true)
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(HubLayout.phoneBannerSubtitleFont())
-                        .foregroundStyle(Color.white.opacity(0.88))
+                        .font(subtitleFont)
+                        .foregroundStyle(Color.white)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !renderedPublishLine.isEmpty {
+                    Text(renderedPublishLine)
+                        .font(updatedFont)
+                        .foregroundStyle(Color.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            HealthBadge(health: health, prominent: true, compact: compact)
+            HealthBadge(health: health, prominent: true, compact: metrics != .mac)
                 .layoutPriority(1)
         }
-        .padding(.horizontal, compact ? 10 : 14)
-        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
+        .padding(.horizontal, metrics == .mac ? 18 : (compact ? 10 : 14))
+        .padding(.vertical, metrics == .mac ? 14 : (compact ? HubLayout.phoneBannerVerticalPadding() : 10))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(subtitle.isEmpty ? "\(title), \(health.label)" : "\(title), \(subtitle), \(health.label)")
+        .accessibilityLabel(bannerAccessibilityLabel)
     }
+
+    private var titleFont: Font {
+        switch metrics {
+        case .phone: return HubLayout.phoneBannerTitleFont()
+        case .pad: return AppTheme.rounded(.title3, weight: .bold)
+        case .mac: return AppTheme.rounded(.title2, weight: .bold)
+        }
+    }
+
+    private var subtitleFont: Font {
+        switch metrics {
+        case .phone: return HubLayout.phoneBannerSubtitleFont()
+        case .pad: return Font.body.weight(.semibold)
+        case .mac: return Font.title3.weight(.semibold)
+        }
+    }
+
+    private var updatedFont: Font {
+        switch metrics {
+        case .phone: return HubLayout.phoneBannerUpdatedFont()
+        case .pad: return Font.footnote.weight(.semibold)
+        case .mac: return Font.subheadline.weight(.semibold)
+        }
+    }
+
+    /// Line 3 as the banner paints it. Phone, iPad, and Mac all use this string.
+    var renderedPublishLine: String { updated }
+
+    var accessibilitySummary: String {
+        [title, subtitle, renderedPublishLine, health.label]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
+    private var bannerAccessibilityLabel: String { accessibilitySummary }
 }
 
 struct RowAccessibilityIdentifier: ViewModifier {
@@ -833,6 +886,8 @@ struct PhoneScorecardRow: View {
     var subtitle: String? = nil
     var chips: [PhoneMetricChip] = []
     var health: Health = .none
+    /// Pre-Sub OOS only. Sits under the Rate / Healthy / Watch / At Risk tiles.
+    var preSubTop: PreSubTopItems.Card? = nil
     var chevronExpanded: Bool? = nil
     var rowAccessibilityIdentifier: String = ""
     var onTap: (() -> Void)? = nil
@@ -846,7 +901,7 @@ struct PhoneScorecardRow: View {
                 cornerRadii: RectangleCornerRadii(topLeading: corner, bottomLeading: corner, bottomTrailing: 0, topTrailing: 0),
                 style: .continuous
             )
-            .fill(AppTheme.healthInk(health == .none ? .good : health))
+            .fill(scorecardAccent)
             .frame(width: CommandCenterLayout.phoneScorecardAccentWidth())
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneScorecardStackSpacing()) {
                 HStack(alignment: .top, spacing: compact ? 8 : 12) {
@@ -867,7 +922,7 @@ struct PhoneScorecardRow: View {
                             Text(subtitle)
                                 .font((compact ? Font.subheadline : Font.body).weight(.semibold))
                                 .foregroundStyle(AppTheme.textSecondary)
-                                .lineLimit(2)
+                                .lineLimit(3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -913,6 +968,9 @@ struct PhoneScorecardRow: View {
                         }
                     }
                 }
+                if let preSubTop {
+                    PreSubTopListBlock(card: preSubTop)
+                }
             }
             .padding(CommandCenterLayout.phoneScorecardPadding())
         }
@@ -920,7 +978,7 @@ struct PhoneScorecardRow: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.22), lineWidth: 1)
+                .stroke(scorecardAccent.opacity(0.22), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.07), radius: CommandCenterLayout.phoneScorecardShadowRadius(), y: compact ? 2 : 4)
 
@@ -933,6 +991,11 @@ struct PhoneScorecardRow: View {
         } else {
             card
         }
+    }
+
+    /// NO DATA stays gray. A missing grade must not borrow the healthy green bar.
+    private var scorecardAccent: Color {
+        health == .none ? AppTheme.textTertiary : AppTheme.healthInk(health)
     }
 
     private func chipInk(_ health: Health) -> Color {
@@ -951,6 +1014,92 @@ struct PhoneScorecardRow: View {
         case .risk: return AppTheme.badSoft
         case .none: return AppTheme.blueSoft.opacity(0.55)
         }
+    }
+}
+
+/// Compact top 10 inside a Pre-Sub scorecard, under the health tiles.
+struct PreSubTopListBlock: View {
+    var card: PreSubTopItems.Card
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HubLayout.runsOnMac ? 6 : 4) {
+            if card.missingNote == PreSubTopItems.missingTabNote {
+                Text(PreSubTopItems.missingTabNote)
+                    .font(itemFont)
+                    .foregroundStyle(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let note = card.missingNote, !note.isEmpty {
+                Text(note)
+                    .font(itemFont)
+                    .foregroundStyle(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(PreSubTopItems.heading)
+                    .font(headingFont)
+                    .foregroundStyle(AppTheme.text)
+                if !card.items.isEmpty {
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        Text("OOS %")
+                            .frame(width: 64, alignment: .trailing)
+                        Text("Count")
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                    .font(HubLayout.runsOnMac ? .caption.weight(.heavy) : (HubLayout.isPadDevice ? .caption.weight(.heavy) : .caption2.weight(.heavy)))
+                    .foregroundStyle(AppTheme.textTertiary)
+                }
+                ForEach(Array(card.items.prefix(PreSubTopItems.limit).enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(item.name)
+                                .font(itemFont)
+                                .foregroundStyle(AppTheme.text)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !item.code.isEmpty {
+                                Text(item.code)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(AppTheme.textTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(HeartbeatFormat.pct(item.percent))
+                            .font(valueFont)
+                            .foregroundStyle(AppTheme.text)
+                            .frame(width: HubLayout.runsOnMac ? 72 : 64, alignment: .trailing)
+                        Text(PreSubTopItems.countText(item.count))
+                            .font(valueFont)
+                            .foregroundStyle(AppTheme.text)
+                            .frame(width: HubLayout.runsOnMac ? 60 : 52, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        "\(item.name), \(HeartbeatFormat.pct(item.percent)), \(PreSubTopItems.countText(item.count)) times out of stock"
+                    )
+                }
+            }
+        }
+        .padding(.top, 2)
+        .accessibilityIdentifier("presub-top-items")
+    }
+
+    private var headingFont: Font {
+        if HubLayout.runsOnMac { return .body.weight(.heavy) }
+        if HubLayout.isPadDevice { return .subheadline.weight(.heavy) }
+        return .footnote.weight(.heavy)
+    }
+
+    private var itemFont: Font {
+        if HubLayout.runsOnMac { return .body.weight(.semibold) }
+        if HubLayout.isPadDevice { return .subheadline.weight(.semibold) }
+        return .footnote.weight(.semibold)
+    }
+
+    private var valueFont: Font {
+        if HubLayout.runsOnMac { return .body.weight(.bold).monospacedDigit() }
+        if HubLayout.isPadDevice { return .subheadline.weight(.bold).monospacedDigit() }
+        return .footnote.weight(.bold).monospacedDigit()
     }
 }
 
@@ -1120,13 +1269,13 @@ struct DashScopeGrainCard: View {
                 Spacer(minLength: 4)
                 Text(child.value)
                     .font(HubLayout.MacReadable.metricValueFont)
-                    .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
+                    .foregroundStyle(dashInk(shownHealth(child.health)))
                 if grain != .store {
                     Text(storeCountLine(child.count, title: false))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(AppTheme.textSecondary)
                 }
-                HealthBadge(health: child.health, prominent: true, compact: true)
+                HealthBadge(health: shownHealth(child.health), prominent: true, compact: true)
             }
             if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
                 DashFlagGrid(
@@ -1139,7 +1288,13 @@ struct DashScopeGrainCard: View {
     }
 
     private var displayHealth: Health {
-        line.health == .none ? .good : line.health
+        shownHealth(line.health)
+    }
+
+    /// Prep with no grade stays NO DATA. Other sections still treat an empty grade as healthy.
+    private func shownHealth(_ health: Health) -> Health {
+        if section == .prepNotReady { return health }
+        return health == .none ? .good : health
     }
 
     private func storeCountLine(_ count: Int, title: Bool) -> String {
@@ -1471,7 +1626,11 @@ struct PickerHighlightsPanel: View {
                                 title: "Top opportunity",
                                 subtitle: "Underperforming vs the metric mix",
                                 rows: board.opportunity,
-                                empty: "No opportunity shoppers in this filter.",
+                                empty: board.opportunityCount > 0
+                                    ? "\(HeartbeatFormat.num(Double(board.opportunityCount))) opportunity shoppers. Open a division to list names."
+                                    : (board.shopperCount > 0
+                                        ? "Open a division to list opportunity shoppers."
+                                        : "No opportunity shoppers in this filter."),
                                 tone: .risk,
                                 action: onSelectOpportunity
                             )
@@ -1479,7 +1638,11 @@ struct PickerHighlightsPanel: View {
                                 title: "Doing well",
                                 subtitle: "Hitting the metric mix",
                                 rows: board.strong,
-                                empty: "No strong shoppers in this filter.",
+                                empty: board.strongCount > 0
+                                    ? "\(HeartbeatFormat.num(Double(board.strongCount))) shoppers doing well. Open a division to list names."
+                                    : (board.shopperCount > 0
+                                        ? "Open a division to list shoppers doing well."
+                                        : "No strong shoppers in this filter."),
                                 tone: .good,
                                 action: onSelectStrong
                             )

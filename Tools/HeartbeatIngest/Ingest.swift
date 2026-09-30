@@ -42,8 +42,28 @@ enum HeartbeatIngest {
             heavy: true,
             grain: .region
         )
-        let chrome = PulseDashChrome.from(caches, grain: .region)
-        try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, chrome: chrome, to: sqlite)
+        let roster = PulseCaches.storeRoster(from: rows)
+        let tops = PreSubTopItems.catalog(
+            items: rows.filter { $0.section == .preSubOOSItem },
+            roster: roster,
+            includeCompany: true
+        )
+        var chrome = PulseDashChrome.from(caches, grain: .region)
+        chrome.preSubItemTabPresent = tops.tabPresent
+        PickerScopeRollups.apply(
+            onto: &chrome,
+            rows: rows.filter { $0.section == .pickerScorecard },
+            roster: roster,
+            includeCompany: true
+        )
+        try PulseSQLite.write(
+            rows: rows,
+            uploads: uploads,
+            seeded: true,
+            chrome: chrome,
+            preSubTops: tops.lists,
+            to: sqlite
+        )
         let size = (try FileManager.default.attributesOfItem(atPath: sqlite.path)[.size] as? NSNumber)?.intValue ?? 0
         print("Wrote \(rows.count) rows + \(chrome.summaries.count) dashboard cards → \(sqlite.lastPathComponent) (\(size) bytes)")
         for summary in chrome.summaries {
@@ -51,6 +71,12 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        if let company = chrome.pickerRollups[PreSubTopItems.companyScope] {
+            print("  picker rollup shoppers=\(company.shoppers) stores=\(company.stores) healthy=\(company.healthy) watch=\(company.watch) risk=\(company.risk)")
+        }
+        print("  pre-sub item tab=\(tops.tabPresent) top scopes=\(tops.lists.count)")
+        let tiled = chrome.companyTiles.keys.sorted().joined(separator: ", ")
+        print("  company card tiles: \(chrome.companyTiles.count) [\(tiled)]")
         let pickerTable = chrome.tables[MetricSection.pickerScorecard.rawValue] ?? []
         print("  picker expand live=\(HeartbeatMath.grainRowsAreLive(pickerTable)) rows=\(pickerTable.count)")
         for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar] {
@@ -72,8 +98,12 @@ enum HeartbeatIngest {
         if !missingSheets.isEmpty {
             print("Missing sheets: \(missingSheets.map(\.title).joined(separator: ", "))")
         }
-        if !chrome.isComplete {
-            let missing = chrome.missingTitles.joined(separator: ", ")
+        if chrome.missingTitles.contains("Sales") {
+            print("Sales is not in this upload. The company Sales card stays NO DATA.")
+        }
+        let blocking = chrome.cookBlockingTitles
+        if !blocking.isEmpty {
+            let missing = blocking.joined(separator: ", ")
             fputs("Kitchen refused to publish: dashboard tiles missing \(missing).\n", stderr)
             exit(1)
         }

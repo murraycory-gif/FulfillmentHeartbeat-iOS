@@ -4,6 +4,8 @@ import Foundation
 /// Keep this off the network and off SwiftUI so the boot path can be tested.
 enum PulseLaunch {
     static let minimumPackBytes = 50_000
+    /// iPhone 13 class (4 GB RAM). Jetsam is about 2 GB. Every screen stays under this.
+    static let residentMemoryBudgetBytes = 400 * 1024 * 1024
     static let stagingFileName = "heartbeat-cloud.sqlite"
     static let bootDownloadTimeout: TimeInterval = 60
     /// Let the hub settle before expanding grains. Cards already painted.
@@ -476,17 +478,7 @@ enum PulseLaunch {
         let paths = pathRows.filter { $0.section == .pickPathPicker }
         if paths.isEmpty {
             _ = scorecardRows
-            return [
-                PickPathShopperLine(
-                    id: noPathPickerRowsID,
-                    name: noPathPickerRowsTitle,
-                    path: nil,
-                    pph: nil,
-                    orders: nil,
-                    mapper: nil,
-                    sequence: nil
-                )
-            ]
+            return [emptyPathPickerNoticeLine()]
         }
         var byKey: [String: PickPathShopperLine] = [:]
         var order: [String] = []
@@ -530,11 +522,49 @@ enum PulseLaunch {
             if a != b { return a < b }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
+        if lines.isEmpty {
+            return [emptyPathPickerNoticeLine()]
+        }
         return lines
+    }
+
+    private static func emptyPathPickerNoticeLine() -> PickPathShopperLine {
+        PickPathShopperLine(
+            id: noPathPickerRowsID,
+            name: noPathPickerRowsTitle,
+            path: nil,
+            pph: nil,
+            orders: nil,
+            mapper: nil,
+            sequence: nil
+        )
     }
 
     static func pickPathShopperLinesAreEmptyNotice(_ lines: [PickPathShopperLine]) -> Bool {
         lines.count == 1 && lines[0].id == noPathPickerRowsID
+    }
+
+    /// A settled zero-path store keeps this sentence on screen.
+    /// Pack loading and a filled store `pick_path` dashboard cell do not replace it.
+    static func pickPathShopperEmptyDetail(
+        pathOnlyEmpty: Bool,
+        awaitingPack: Bool,
+        pickerLoading: Bool
+    ) -> String {
+        if pathOnlyEmpty { return noPathPickerRowsTitle }
+        return shopperEmptyDetail(loading: awaitingPack || pickerLoading)
+    }
+
+    /// Store-scoped miss is final once any storeless path rows have a scorecard join.
+    /// An empty path section is that miss. A store `pick_path` row is not a path-picker row.
+    static func shouldRememberEmptyPickPathShopperLookup(
+        pathPickerRows: [MetricRow],
+        scorecardReady: Bool
+    ) -> Bool {
+        let pickerRows = pathPickerRows.filter { $0.section == .pickPathPicker }
+        let needsJoin = pickerRows.contains { HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+        if needsJoin, !scorecardReady { return false }
+        return true
     }
 
     private static func pickPathStoreDate(
@@ -558,9 +588,10 @@ enum PulseLaunch {
         shoppers.isEmpty
     }
 
-    /// EMPLOYEE_ALTERNATE_ID path picker has no STORE. `readStores` misses it.
+    /// A miss on one store must not decode the company path tape.
     static func shouldReadFullPickPathPickerWhenStoreReadEmpty(_ section: MetricSection) -> Bool {
-        section == .pickPathPicker
+        _ = section
+        return false
     }
 
     /// Path-grain-only first paint. Shopper tape stays parked until expand.
@@ -1462,7 +1493,8 @@ enum PulseLaunch {
 
     enum PickerPageFirstPaint: Equatable {
         case seatReadStores
-        case companyStream
+        /// Company pages use the painted chrome. They do not stream fact rows.
+        case chromeRollup
     }
 
     static var pageOpenSections: [MetricSection] {
@@ -1477,7 +1509,7 @@ enum PulseLaunch {
            !shouldStreamCompanyPickerForSeatFirstPaint() {
             return .seatReadStores
         }
-        return .companyStream
+        return .chromeRollup
     }
 
     static func pickerPageFirstPaint(filtersActive: Bool) -> PickerPageFirstPaint {
@@ -1488,9 +1520,10 @@ enum PulseLaunch {
         section == .pph || section == .dynacap || section == .pickPath
     }
 
-    /// Join pages may stream company shoppers only when no seat filter is on.
+    /// Company join pages stay on chrome. Shopper rows load for one store only.
     static func shouldStartCompanyPickerStreamOnJoinPage(filtersActive: Bool) -> Bool {
-        !filtersActive && !shouldStreamCompanyPickerForSeatFirstPaint()
+        _ = filtersActive
+        return false
     }
 
     /// Hub-wide EnvironmentObject ping when seat shoppers land. Off — that
@@ -1907,7 +1940,9 @@ enum PulseLaunch {
         guard shouldPaintDashboardResultFromActiveSeat(), filters.isActive else {
             return metricPageHeroCard(card, rows: rows)
         }
-        let facts = HeartbeatMath.metricFactRows(card.section, rows: rows)
+        let facts = card.section == .prepNotReady
+            ? rows
+            : HeartbeatMath.metricFactRows(card.section, rows: rows)
         var next = HeartbeatMath.summarize(card.section, rows: facts, upload: nil)
         next.lastFilename = card.lastFilename
         next.lastUploadedAt = card.lastUploadedAt
@@ -1915,10 +1950,11 @@ enum PulseLaunch {
         return next
     }
 
-    /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.
-    /// Company heroes use the same pin against the published roster gold.
+    /// Loss Revenue may take the seat store count. Other sections keep the
+    /// count already on the tile. Roster gold must not overwrite Prep, Sales,
+    /// or any other section.
     static func pinSeatStoreCount(_ summary: SectionSummary, seatStores: Int) -> SectionSummary {
-        guard seatStores > 0 else { return summary }
+        guard summary.section == .lostRevenue, seatStores > 0 else { return summary }
         var next = summary
         next.storeCount = seatStores
         return next
@@ -1952,6 +1988,9 @@ enum PulseLaunch {
             if next.salesYoyPct == nil {
                 next.salesYoyPct = chromeCard.salesYoyPct
             }
+        }
+        if card.section == .lostRevenue {
+            return next
         }
         return pinSeatStoreCount(next, seatStores: rosterStores)
     }
@@ -2082,14 +2121,25 @@ enum PulseLaunch {
         return max(filteredCount, warehouseSlicedCount, chromeCount)
     }
 
-    /// Live expand table for the current seat. Shopper facts win over chrome.
+    /// Live expand table for the current seat. Cooked scope rollups win over a
+    /// first-chunk warehouse so region cards are not 80 shoppers.
     static func pickerExpandTable(
         seatRows: [MetricRow],
         chrome: PulseDashChrome?,
         filters: DashboardFilters,
         grain: DashScopeGrain,
-        packOrder: [String] = []
+        packOrder: [String] = [],
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        if let chrome, !chrome.pickerRollups.isEmpty {
+            let cooked = PickerScopeRollups.grainRows(
+                rollups: chrome.pickerRollups,
+                grain: grain,
+                filters: filters,
+                roster: roster
+            )
+            if HeartbeatMath.grainRowsAreLive(cooked) { return cooked }
+        }
         if !seatRows.isEmpty {
             let table = HeartbeatMath.dashboardGrainTableFilled(
                 section: .pickerScorecard,
@@ -2157,15 +2207,93 @@ enum PulseLaunch {
         grainMatchesSeat(rows, filters: filters, grain: grain)
     }
 
-    /// Seat filters cannot be applied by matching grain labels
-    /// (`East Region` vs District 3). Rebuild from `PulseQuery.slice`.
+    /// Narrow chrome breakdown rows to the active seat. An active filter must
+    /// not throw the table away. District, OM, and Store use the roster to
+    /// keep the parent region and division. With no roster, a label that does
+    /// not name the filter stays out.
     static func grainRowsScopedToFilter(
         _ rows: [HeartbeatMath.DashboardGrainTableRow],
         filters: DashboardFilters,
-        grain _: DashScopeGrain = .region
+        grain _: DashScopeGrain = .region,
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
         guard filters.isActive else { return rows }
-        return []
+        let keys = chromeScopeKeys(filters: filters, roster: roster)
+        if keys.isEmpty {
+            return rows.filter { chromeLabelMatches($0.label, filters: filters) }
+        }
+        return rows.filter { row in
+            let label = HeartbeatMath.displayGrainLabel(row.label)
+            let compact = HeartbeatMath.compactKey(label)
+            if keys.contains(compact) || keys.contains(HeartbeatMath.compactKey(row.label)) {
+                return true
+            }
+            if let region = MarketRegion.named(label) ?? MarketRegion.containing(label) {
+                return keys.contains(HeartbeatMath.compactKey(region.rawValue))
+            }
+            return false
+        }
+    }
+
+    private static func chromeScopeKeys(
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> Set<String> {
+        var keys: Set<String> = []
+        func add(_ raw: String) {
+            let display = HeartbeatMath.displayGrainLabel(raw)
+            if !display.isEmpty { keys.insert(HeartbeatMath.compactKey(display)) }
+        }
+        for part in DashboardFilters.parts(filters.region) {
+            add(part)
+            if let region = MarketRegion.named(part) ?? MarketRegion.containing(part) {
+                add(region.rawValue)
+                for division in region.divisions { add(division) }
+            }
+        }
+        for part in DashboardFilters.parts(filters.division) {
+            add(part)
+            if let region = MarketRegion.containing(part) { add(region.rawValue) }
+        }
+        let seatCut = !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty
+        if seatCut, !roster.isEmpty {
+            for (number, identity) in roster {
+                if !filters.includesDivision(identity.division) { continue }
+                if !filters.includesDistrict(identity.district) { continue }
+                if !filters.includesOM(identity.om) { continue }
+                if !filters.includesStore(number) { continue }
+                add(identity.division)
+            }
+        }
+        return keys
+    }
+
+    private static func chromeLabelMatches(_ label: String, filters: DashboardFilters) -> Bool {
+        let name = HeartbeatMath.displayGrainLabel(label)
+        if !filters.region.isEmpty {
+            return DashboardFilters.parts(filters.region).contains {
+                MarketRegion.matchesDivision(name, $0) || HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.division.isEmpty {
+            return DashboardFilters.parts(filters.division).contains {
+                MarketRegion.matchesDivision(name, $0) || HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.district.isEmpty {
+            return DashboardFilters.parts(filters.district).contains {
+                HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.om.isEmpty {
+            return DashboardFilters.parts(filters.om).contains {
+                HeartbeatMath.compactKey(name) == HeartbeatMath.compactKey($0)
+            }
+        }
+        if !filters.store.isEmpty {
+            return filters.includesStore(name)
+        }
+        return false
     }
 
     /// Incoming paint must not drop a live picker (or any) expand table.
@@ -2176,15 +2304,22 @@ enum PulseLaunch {
         grain: DashScopeGrain = .region,
         filtersActive: Bool = false
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
-        _ = filtersActive
         var next = incoming
         for (section, rows) in live {
-            let incomingLive = HeartbeatMath.grainRowsAreLive(next[section] ?? [])
-            if incomingLive { continue }
+            let incomingRows = next[section] ?? []
+            if HeartbeatMath.grainRowsAreLive(incomingRows) { continue }
             guard HeartbeatMath.grainRowsAreLive(rows) else { continue }
             let labels = rows.map(\.label)
             let companyChrome = !filtersActive && labels.allSatisfy { $0 == "Company" }
             if !companyChrome && !grainTableMatchesCurrent(labels: labels, grain: grain) {
+                // Keep chrome that already has the section values. A short or
+                // mixed label is not a reason to drop it. A store seat
+                // (`304 | NorCal`) must not ride along under a region grain,
+                // and a region book must not ride along under a store grain.
+                if (grain == .region || grain == .division),
+                   HeartbeatMath.grainLabelsMatch(rows, grain: grain) {
+                    next[section] = rows
+                }
                 continue
             }
             next[section] = rows
@@ -2211,10 +2346,11 @@ enum PulseLaunch {
     /// Kept for the unused pager path; paging itself is off.
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
-    /// Grocery one-liners are banned on load. Keep the array empty.
+    /// Unused seat-load deck. Launch lines live in LoadingQuips.
     static let aisleQuips: [String] = []
 
-    static func shouldShowGroceryLoadQuips() -> Bool { false }
+    /// Rotating grocery lines on the launch splash. Owner reversed HB-0828.383.
+    static func shouldShowGroceryLoadQuips() -> Bool { true }
 
     static var seatLoadTitle: String { "Loading Heartbeat" }
 
@@ -2348,6 +2484,13 @@ enum PulseLaunch {
             return shouldLoadPickPathPickerOnPageOpen()
         }
         return false
+    }
+
+    /// Company Pre-Sub paints cooked top-10 rows. Opening the page must not
+    /// decode the item plane (about 16.8k rows). A seat filter may still load
+    /// the few item rows that pack already holds.
+    static func shouldLoadPreSubItemFacts(filtersActive: Bool) -> Bool {
+        filtersActive
     }
 
     /// Picker filterStamp / board rebuild is join-page work. Dashboard already has cards.

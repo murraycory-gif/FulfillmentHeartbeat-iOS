@@ -1003,10 +1003,15 @@ enum WorkbookParser {
         let keys = headers.map(lostRevenueColumn)
         guard keys.contains("store"), keys.contains("lost_revenue") else { return nil }
         var lastStore = ""
+        var lossDay = ""
         var out: [ParsedWorkbookRow] = []
         out.reserveCapacity(max(matrix.count - headerIndex, 1))
         for line in matrix.dropFirst(headerIndex + 1) {
             if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
+            let blob = line.joined(separator: " ")
+            if let day = lossCalendarDay(from: blob) {
+                lossDay = day
+            }
             var store = ""
             var division = ""
             var district = ""
@@ -1028,13 +1033,12 @@ enum WorkbookParser {
                 }
                 if let number = cellNumber(raw) {
                     // First header wins. Goal / FY must never overwrite a TO key.
+                    // Lost % and Goal % are already the display number (4.84, 2.47). Do not ×100.
                     if payload[key] != nil { continue }
-                    var value = number
-                    if key.hasSuffix("_pct"), value <= 2 { value *= 100 }
-                    payload[key] = value
+                    payload[key] = number
                 }
             }
-            if store.lowercased().hasPrefix("applied filters") { continue }
+            if store.lowercased().hasPrefix("applied filters") || isNonStoreFooter(store) { continue }
             let isTotal = isTotalCell(store)
             if store.isEmpty, !isTotal { store = lastStore }
             if store.isEmpty { continue }
@@ -1050,6 +1054,7 @@ enum WorkbookParser {
                 lastStore = store
             }
             var text: [String: String] = ["lost_grain": isTotal ? "market" : "store"]
+            if !lossDay.isEmpty { text["loss_day"] = lossDay }
             if isTotal { text["parser_rev"] = "lost1" }
             let districtCanon = HeartbeatMath.canonicalDistrict(district)
             if !districtCanon.isEmpty { text["district"] = districtCanon }
@@ -1065,7 +1070,35 @@ enum WorkbookParser {
                 )
             )
         }
+        if !lossDay.isEmpty {
+            for index in out.indices where out[index].textPayload["loss_day"] == nil {
+                out[index].textPayload["loss_day"] = lossDay
+            }
+        }
         return out.isEmpty ? nil : out
+    }
+
+    /// "CALENDAR_DT on or after 9/27/2026 and before 9/28/2026" → "9/27".
+    static func lossCalendarDay(from text: String) -> String? {
+        let lower = text.lowercased()
+        guard lower.contains("calendar") || lower.contains("applied filter") else { return nil }
+        let source = lower
+        let pattern = #"on or after\s+(\d{1,2})/(\d{1,2})/\d{2,4}"#
+        let fallback = #"(\d{1,2})/(\d{1,2})/\d{4}"#
+        for regex in [pattern, fallback] {
+            guard let expression = try? NSRegularExpression(pattern: regex) else { continue }
+            let range = NSRange(source.startIndex..., in: source)
+            guard let match = expression.firstMatch(in: source, range: range),
+                  match.numberOfRanges >= 3,
+                  let monthRange = Range(match.range(at: 1), in: source),
+                  let dayRange = Range(match.range(at: 2), in: source),
+                  let month = Int(source[monthRange]),
+                  let day = Int(source[dayRange]),
+                  month > 0, day > 0
+            else { continue }
+            return "\(month)/\(day)"
+        }
+        return nil
     }
 
     /// Public so tests fail if a Goal / FY header steals a Total Opportunity key.
@@ -1702,6 +1735,7 @@ enum WorkbookParser {
         var divIdx: Int?
         var distIdx: Int?
         var bpnIdx: Int?
+        var ordIdx: Int?
         var pctIdx: Int?
         var unitsIdx: Int?
         var dollarsIdx: Int?
@@ -1719,6 +1753,7 @@ enum WorkbookParser {
                 divIdx = names.firstIndex { $0 == "division" }
                 distIdx = names.firstIndex { $0 == "district" }
                 bpnIdx = names.firstIndex { $0.contains("bpn") || $0.contains("item") || $0.contains("upc") }
+                ordIdx = names.firstIndex { $0 == "ordqty" || $0 == "orderqty" || $0 == "ordqnty" }
                 pctIdx = line.indices.first { idx in
                     let lower = line[idx].lowercased()
                     return (lower.contains("pre-sub") || lower.contains("presub") || lower.contains("pre sub")
@@ -1758,6 +1793,7 @@ enum WorkbookParser {
                 guard let raw = index.map(cell), let number = cellNumber(raw) else { return }
                 payload[key] = percent && abs(number) <= 1.5 ? number * 100 : number
             }
+            put(ordIdx, "ord_qty")
             put(pctIdx, "presub_pct", percent: true)
             put(unitsIdx, "presub_count")
             put(dollarsIdx, "presub_dollars")
@@ -2810,6 +2846,17 @@ enum WorkbookParser {
 
     /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
     /// DATE banner + DIVISION / District / OM / Store + Net Prep Not Ready Hours % Total.
+    /// Store #, Store, division, district, and OM are not a Prep Not Ready rate.
+    /// A blank Total cell must stay blank instead of borrowing the store number.
+    private static func prepIdentityColumn(_ index: Int, header: [String], rawHeader: [String]) -> Bool {
+        let name = index < header.count ? header[index] : ""
+        let raw = index < rawHeader.count ? rawHeader[index] : ""
+        if isStoreHashHeader(raw) || isExactStoreHeader(raw) { return true }
+        if storeKeys.contains(name) || name == "store" || name.hasPrefix("store") { return true }
+        if divisionKeys.contains(name) || districtKeys.contains(name) || omKeys.contains(name) { return true }
+        return false
+    }
+
     private static func parsePrepHours(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
@@ -2870,7 +2917,7 @@ enum WorkbookParser {
             var raw = totalIdx < line.count ? line[totalIdx] : ""
             if cellNumber(raw) == nil {
                 for index in stride(from: line.count - 1, through: 0, by: -1) {
-                    if index == storeIdx || index == divIdx || index == distIdx || index == omIdx { continue }
+                    if prepIdentityColumn(index, header: header, rawHeader: rawHeader) { continue }
                     let candidate = index < line.count ? line[index] : ""
                     if cellNumber(candidate) != nil {
                         raw = candidate
@@ -2878,11 +2925,10 @@ enum WorkbookParser {
                     }
                 }
             }
-            guard let value = cellNumber(raw) else { continue }
-
             var payload: [String: Double] = [:]
-            applyMetric(&payload, header: "pnr_rate_pct", value: value)
-            guard payload["pnr_rate_pct"] != nil else { continue }
+            if let value = cellNumber(raw) {
+                applyMetric(&payload, header: "pnr_rate_pct", value: value)
+            }
 
             var text: [String: String] = [:]
             if !carryDist.isEmpty { text["district"] = carryDist }

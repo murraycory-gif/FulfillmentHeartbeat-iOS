@@ -2012,6 +2012,10 @@ struct FilterSheet: View {
     }
 
     private func apply(_ value: String) {
+        if focus == .store, !value.isEmpty {
+            draft = store.draftSelectingStore(value, draft: draft)
+            return
+        }
         var next = draft
         next.toggle(value, in: focus)
         draft = next
@@ -2084,7 +2088,9 @@ struct FilterColumn: View {
 
             if showsHelperCaption {
                 Text(selection.isEmpty
-                     ? "\(options.count) options · tap to select more than one"
+                     ? (title == "Division"
+                        ? "\(options.count) options · tap one to switch"
+                        : "\(options.count) options · tap to select more than one")
                      : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)
@@ -2222,7 +2228,7 @@ struct StoreTable: View {
                             label: section == .pickerScorecard ? row.shopperName : HeartbeatMath.storeDisplayLabel(row),
                             value: view.primary,
                             count: nil,
-                            health: health == .none ? .good : health
+                            health: section == .prepNotReady ? health : (health == .none ? .good : health)
                         )
                     }
                 }
@@ -3035,6 +3041,20 @@ struct PickPathRollupTable: View {
         let next = forcedGrain ?? PickPathRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .pickPath, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                PickPathRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    path: HeartbeatMath.grainNumber(row, 0),
+                    pph: HeartbeatMath.grainNumber(row, 1),
+                    orders: HeartbeatMath.grainNumber(row, 2)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = PickPathRollupBuilder.source(from: store.rollupStores(for: .pickPath), filters: store.filters)
         var rows = PickPathRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -3217,6 +3237,11 @@ private struct PathShopperTable: View {
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(.vertical, 6)
+                        .accessibilityIdentifier(
+                            emptyDetail == PulseLaunch.noPathPickerRowsTitle
+                                ? PulseLaunch.noPathPickerRowsTitle
+                                : ""
+                        )
                 } else if usePhoneCards {
                     ForEach(pickers.prefix(limit)) { picker in
                         pickerPhoneCard(picker)
@@ -3268,6 +3293,7 @@ private struct PathShopperTable: View {
             .onChange(of: storeNumber) { _, _ in reloadShoppers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
             .onChange(of: shopperReloadToken) { _, _ in reloadShoppers() }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier(pickPathShopperAccessibilityID)
         }
     }
@@ -3373,7 +3399,7 @@ private struct PathShopperTable: View {
             scorecardRows: store.pphPickers(forStore: storeNumber),
             storePath: storePath
         )
-        if PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines) {
+        if lines.isEmpty || PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines) {
             pickers = []
             pathOnlyEmpty = true
             return
@@ -3407,9 +3433,24 @@ private struct PathShopperTable: View {
     }
 
     private var emptyDetail: String {
-        if pickPathAwaitingPack { return PulseLaunch.shopperEmptyDetail(loading: true) }
-        if pathOnlyEmpty { return PulseLaunch.noPathPickerRowsTitle }
-        return PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
+        PulseLaunch.pickPathShopperEmptyDetail(
+            pathOnlyEmpty: liveZeroPathNotice,
+            awaitingPack: pickPathAwaitingPack,
+            pickerLoading: store.pickerLoading
+        )
+    }
+
+    /// In-memory path-picker rows, not the store `pick_path` dashboard cell.
+    /// Empty stays the notice while a pack load or a dashboard fill is still running.
+    private var liveZeroPathNotice: Bool {
+        guard pickers.isEmpty else { return false }
+        guard section == .pickPath || section == .pickPathPicker else { return false }
+        let lines = PulseLaunch.pickPathShopperLines(
+            pathRows: store.pickPathPickers(forStore: storeNumber),
+            scorecardRows: store.pphPickers(forStore: storeNumber),
+            storePath: nil
+        )
+        return PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines)
     }
 
     private func pickerPhoneCard(_ picker: PathShopperSnap) -> some View {
@@ -4312,6 +4353,20 @@ struct DynacapRollupTable: View {
         let next = forcedGrain ?? DynacapRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .dynacap, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                DynacapRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    rate: HeartbeatMath.grainNumber(row, 0),
+                    pph: HeartbeatMath.grainNumber(row, 1),
+                    util: HeartbeatMath.grainNumber(row, 2)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = DynacapRollupBuilder.source(from: store.rollupStores(for: .dynacap), filters: store.filters)
         var pphByStore: [String: Double] = [:]
         for row in store.latest(for: .pph) {
@@ -4789,8 +4844,13 @@ private struct PrepRollupRow: Identifiable {
     let label: String
     let storeCount: Int
     let pnr: Double?
+    let reported: Int
+    let inScope: Int
 
-    var health: Health { PrepMath.pnrHealth(pnr) }
+    var thin: Bool { HeartbeatMath.PrepCoverage(reported: reported, inScope: inScope).thin }
+    var health: Health { thin ? .none : PrepMath.pnrHealth(pnr) }
+    var note: String? { thin ? HeartbeatMath.prepThinNote(reported: reported, inScope: inScope) : nil }
+    var coverageTile: String { HeartbeatMath.PrepCoverage(reported: reported, inScope: inScope).coverageTile }
 }
 
 private enum PrepRollupBuilder {
@@ -4799,9 +4859,7 @@ private enum PrepRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter {
-            !$0.storeNumber.isEmpty && $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
-        }
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {
@@ -4821,12 +4879,15 @@ private enum PrepRollupBuilder {
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
             }
+            let coverage = HeartbeatMath.prepCoverage(group)
             result.append(
                 PrepRollupRow(
                     id: key,
                     label: label,
-                    storeCount: group.count,
-                    pnr: HeartbeatMath.average(group.compactMap { $0.number("pnr_rate_pct") })
+                    storeCount: coverage.inScope,
+                    pnr: coverage.thin ? nil : HeartbeatMath.average(group.compactMap { $0.number("pnr_rate_pct") }),
+                    reported: coverage.reported,
+                    inScope: coverage.inScope
                 )
             )
         }
@@ -4942,11 +5003,15 @@ private struct PrepMetricLine: View, Equatable {
     let pnr: Double?
 
     static func == (lhs: PrepMetricLine, rhs: PrepMetricLine) -> Bool {
-        lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr
+        lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr && lhs.thin == rhs.thin && lhs.note == rhs.note
     }
 
+    var thin: Bool = false
+    var note: String? = nil
+
     var body: some View {
-        let health = PrepMath.pnrHealth(pnr)
+        let health: Health = thin ? .none : PrepMath.pnrHealth(pnr)
+        VStack(alignment: .leading, spacing: 4) {
         ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.prepMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
@@ -4961,13 +5026,21 @@ private struct PrepMetricLine: View, Equatable {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            cell(HeartbeatFormat.pct(pnr), health)
-            cell(PrepMath.goalText, .none, brand: true)
-            cell(PrepMath.watchText, .watch)
+            cell(thin ? "—" : HeartbeatFormat.pct(pnr), health)
+            cell(thin ? "—" : PrepMath.goalText, .none, brand: true)
+            cell(thin ? "—" : PrepMath.watchText, thin ? .none : .watch)
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
+            if let note, !note.isEmpty {
+                Text(note)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+            }
+        }
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -5120,13 +5193,27 @@ struct PrepRollupTable: View {
                     if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                         VStack(spacing: 6) {
                             ForEach(summary.prefix(40)) { row in
-                                PhoneGrainRow(
-                                    label: row.label,
-                                    value: HeartbeatFormat.pct(row.pnr),
-                                    count: grain == .store ? nil : row.storeCount,
-                                    health: row.health,
-                                    metricLabel: "PNR"
-                                )
+                                if row.thin {
+                                    PhoneScorecardRow(
+                                        title: row.label,
+                                        subtitle: row.note,
+                                        chips: [
+                                            PhoneMetricChip(label: "Stores", value: row.coverageTile, health: .none),
+                                            PhoneMetricChip(label: "PNR %", value: "—", health: .none),
+                                            PhoneMetricChip(label: "Goal", value: "—", health: .none),
+                                            PhoneMetricChip(label: "Watch", value: "—", health: .none),
+                                        ],
+                                        health: .none
+                                    )
+                                } else {
+                                    PhoneGrainRow(
+                                        label: row.label,
+                                        value: HeartbeatFormat.pct(row.pnr),
+                                        count: grain == .store ? nil : row.storeCount,
+                                        health: row.health,
+                                        metricLabel: "PNR"
+                                    )
+                                }
                             }
                         }
                         .padding(.horizontal, 10)
@@ -5149,7 +5236,9 @@ struct PrepRollupTable: View {
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
                             labelWidth: grain.labelWidth,
-                            pnr: row.pnr
+                            pnr: row.pnr,
+                            thin: row.thin,
+                            note: row.note
                         )
                     }
                                     }
@@ -5176,18 +5265,33 @@ struct PrepRollupTable: View {
         let next = forcedGrain ?? PrepRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .prepNotReady, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                let rate = HeartbeatMath.grainNumber(row, 0)
+                return PrepRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    pnr: rate,
+                    reported: rate == nil ? 0 : max(row.storeCount, 1),
+                    inScope: max(row.storeCount, 1)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = PrepRollupBuilder.source(from: store.rollupStores(for: .prepNotReady), filters: store.filters)
         var rows = PrepRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
-                rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil))
+                rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil, reported: 0, inScope: 0))
             }
             if let orphan = RollupMarketFill.unassignedIfRealOrphans(
                 markets: store.marketStores(),
                 isRoster: store.isOfficialRosterStore
             ) {
-                rows.append(PrepRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, pnr: nil))
+                rows.append(PrepRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, pnr: nil, reported: 0, inScope: 0))
             }
             rows.sort { ($0.pnr ?? -1) > ($1.pnr ?? -1) }
         }
@@ -5520,7 +5624,7 @@ private struct FiveStarRollupRow: Identifiable {
 
     var health: Health {
         guard rating != nil else { return .none }
-        return HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+        return HeartbeatMath.band(rating, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
     }
 }
 
@@ -5715,7 +5819,7 @@ private struct FiveStarMetricLine: View, Equatable {
     let oth: Double?
 
     var body: some View {
-        let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+        let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: AssistScoreLine.fiveStarGoal, watch: AssistScoreLine.fiveStarPass)
         ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.fiveStarMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
@@ -5950,6 +6054,23 @@ struct FiveStarRollupTable: View {
         let next = forcedGrain ?? FiveStarRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .fiveStar, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                FiveStarRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    rating: HeartbeatMath.grainNumber(row, 0),
+                    flash: HeartbeatMath.grainNumber(row, 1),
+                    presub: HeartbeatMath.grainNumber(row, 4),
+                    coe: HeartbeatMath.grainNumber(row, 2),
+                    ott: HeartbeatMath.grainNumber(row, 3),
+                    oth: HeartbeatMath.grainNumber(row, 5)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = FiveStarRollupBuilder.source(from: store.rollupStores(for: .fiveStar), filters: store.filters)
         var rows = FiveStarRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -6227,6 +6348,15 @@ enum LaborRollupGrain {
         case .division: self = .division
         case .district: self = .district
         case .store: self = .store
+        }
+    }
+
+    var scopeGrain: DashScopeGrain {
+        switch self {
+        case .region: return .region
+        case .division: return .division
+        case .district: return .district
+        case .store: return .store
         }
     }
 
@@ -7006,6 +7136,24 @@ struct LaborRollupTable: View {
         let next = forcedGrain ?? LaborRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .labor, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                LaborRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    tva: HeartbeatMath.grainNumber(row, 0),
+                    cost: HeartbeatMath.grainNumber(row, 2),
+                    act: HeartbeatMath.grainNumber(row, 1),
+                    efficiency: HeartbeatMath.grainNumber(row, 3),
+                    uplh: HeartbeatMath.grainNumber(row, 4),
+                    wage: HeartbeatMath.grainNumber(row, 5),
+                    aiv: HeartbeatMath.grainNumber(row, 6)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = LaborRollupBuilder.source(from: store.rollupStores(for: .labor), filters: store.filters)
         var rows = LaborRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -7679,7 +7827,7 @@ private struct LostRevenueRollupRow: Identifiable {
     let refund: Double?
     let missed: Double?
 
-    var health: Health { HeartbeatMath.lostRevenueHealth(pct: pct) }
+    var health: Health { HeartbeatMath.lostRevenueRowHealth(lost: lost, pct: pct, goal: goal) }
 }
 
 private enum LostRevenueMath {
@@ -7690,7 +7838,7 @@ private enum LostRevenueMath {
 
     static func ratio(_ dollars: Double?, _ sales: Double?) -> Double? {
         guard let dollars, let sales, sales > 0 else { return nil }
-        return dollars / sales * 100
+        return dollars / sales
     }
 
     static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {
@@ -7913,7 +8061,7 @@ private struct LostRevenueMetricLine: View, Equatable {
     let missed: Double?
 
     var body: some View {
-        let health = HeartbeatMath.lostRevenueHealth(pct: pct)
+        let health = HeartbeatMath.lostRevenueRowHealth(lost: lost, pct: pct, goal: goal)
         ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.lostMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
@@ -7928,7 +8076,7 @@ private struct LostRevenueMetricLine: View, Equatable {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            cell(HeartbeatFormat.moneyShort(lost), health)
+            cell(HeartbeatFormat.money(lost), health)
             cell(HeartbeatFormat.pct(pct), health)
             cell(HeartbeatFormat.pct(goal), .none, brand: true)
             cell(HeartbeatFormat.moneyShort(sales), .none, brand: true)
@@ -8096,9 +8244,9 @@ struct LostRevenueRollupTable: View {
                             ForEach(summary.prefix(40)) { row in
                                 PhoneGrainRow(
                                     label: row.label,
-                                    value: HeartbeatFormat.moneyShort(row.lost),
+                                    value: HeartbeatFormat.money(row.lost),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: HeartbeatMath.lostRevenueHealth(pct: row.pct),
+                                    health: row.health,
                                     metricLabel: "Lost $"
                                 )
                             }
@@ -8151,6 +8299,24 @@ struct LostRevenueRollupTable: View {
         let next = forcedGrain ?? LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                LostRevenueRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    lost: HeartbeatMath.grainNumber(row, 0),
+                    pct: HeartbeatMath.grainNumber(row, 1),
+                    goal: HeartbeatMath.grainNumber(row, 2),
+                    sales: HeartbeatMath.grainNumber(row, 3),
+                    post: HeartbeatMath.grainNumber(row, 4),
+                    refund: HeartbeatMath.grainNumber(row, 5),
+                    missed: HeartbeatMath.grainNumber(row, 6)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
         let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
@@ -9227,6 +9393,21 @@ struct ScheduleRollupTable: View {
         let next = forcedGrain ?? ScheduleRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .scheduleQuality, grain: next.scopeGrain) {
+            summary = chrome.map { row in
+                ScheduleRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    efficiency: HeartbeatMath.grainNumber(row, 0),
+                    staffing: HeartbeatMath.grainNumber(row, 1),
+                    under: HeartbeatMath.grainNumber(row, 2),
+                    over: HeartbeatMath.grainNumber(row, 3)
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -9994,6 +10175,24 @@ struct PPHRollupTable: View {
         let next = forcedGrain ?? PPHRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        if let chrome = store.chromeRollupRows(for: .pph, grain: next.scopeGrain) {
+            let pickers = store.dashboardGrainRows(for: .pickerScorecard, grain: next.scopeGrain)
+            summary = chrome.map { row in
+                PPHRollupRow(
+                    id: row.label,
+                    label: HeartbeatMath.displayGrainLabel(row.label),
+                    storeCount: row.storeCount,
+                    pph: HeartbeatMath.grainNumber(row, 0),
+                    pickers: HeartbeatMath.pphPickerCount(
+                        label: row.label,
+                        grain: next.scopeGrain,
+                        pickerRows: pickers
+                    )
+                )
+            }
+            applyCurrentSort()
+            return
+        }
         let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
         var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCounts: store.pphPickerCounts())
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -10969,6 +11168,10 @@ struct HubBrandBar: View {
                         regularFilterChrome
                     }
                 }
+                regularPageBanner
+            }
+            if store.isReady, !store.needsRolePick, let text = store.newDataBanner {
+                NewDataUploadBanner(text: text)
             }
         }
         .padding(.horizontal, compact ? 12 : (HubLayout.MacReadable.enabled ? 24 : 20))
@@ -10985,20 +11188,32 @@ struct HubBrandBar: View {
         .onChange(of: compactBannerDestination) { _, _ in scheduleBannerHealth() }
         .onChange(of: store.filters.summary) { _, _ in scheduleBannerHealth() }
         .onChange(of: store.seatPaintStamp) { _, _ in scheduleBannerHealth() }
+        .onChange(of: store.scheduleCheckStamp) { _, _ in scheduleBannerHealth() }
     }
 
     private var compactPageBanner: some View {
+        pageBanner(metrics: .phone)
+    }
+
+    private var regularPageBanner: some View {
+        pageBanner(metrics: HubLayout.runsOnMac ? .mac : .pad)
+    }
+
+    private func pageBanner(metrics: PhoneCompactPageBanner.Metrics) -> some View {
         PhoneCompactPageBanner(
             title: CommandCenterLayout.overviewPageTitle(compactBannerDestination),
             subtitle: CommandCenterLayout.overviewBannerCopy(
                 filters: store.filters,
                 weekWindow: compactBannerWindow
             ),
-            health: compactBannerHealth
+            updated: CommandCenterLayout.updatedBannerLine(compactBannerUpdated),
+            health: compactBannerHealth,
+            metrics: metrics
         )
     }
 
     private var compactBannerHealth: Health {
+        if !compact { return phoneBannerHealth(allowRowWalk: false) }
         if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() {
             if settledBannerDest == compactBannerDestination, let settledBannerHealth {
                 return settledBannerHealth
@@ -11008,7 +11223,23 @@ struct HubBrandBar: View {
         return phoneBannerHealth(allowRowWalk: true)
     }
 
+    private var compactBannerUpdated: Date? {
+        CommandCenterLayout.pageBannerPublishDate(
+            destination: compactBannerDestination,
+            packPublishedAt: store.packPublishedAt,
+            schedulePublishedAt: store.scheduleCheck?.publishedDate
+        )
+    }
+
     private func phoneBannerHealth(allowRowWalk: Bool) -> Health {
+        if compactBannerDestination == .settings { return .none }
+        if compactBannerDestination == .scheduleCheck {
+            guard let pack = store.scheduleCheck else { return .none }
+            return ScheduleCheckMath.effHealth(
+                ScheduleCheckMath.summary(pack: pack, filters: store.filters).eff,
+                notScheduled: false
+            )
+        }
         if let section = compactBannerDestination.section {
             return CommandCenterLayout.displayedHealth(
                 store.phonePageChromeCard(for: section, allowRowWalk: allowRowWalk)
@@ -11023,6 +11254,16 @@ struct HubBrandBar: View {
 
     private func scheduleBannerHealth() {
         guard compact, PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() else { return }
+        if compactBannerDestination == .settings {
+            settledBannerDest = .settings
+            settledBannerHealth = .none
+            return
+        }
+        if compactBannerDestination == .scheduleCheck {
+            settledBannerDest = .scheduleCheck
+            settledBannerHealth = phoneBannerHealth(allowRowWalk: false)
+            return
+        }
         let dest = compactBannerDestination
         settledBannerDest = dest
         settledBannerHealth = phoneBannerHealth(allowRowWalk: false)
@@ -11036,6 +11277,8 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerDestination: HubDestination {
+        if router.current == .settings { return .settings }
+        if router.current == .scheduleCheck { return .scheduleCheck }
         if let section = PulseLaunch.activeScorecardSection(
             visible: router.current,
             pushed: router.pushedSection
@@ -11046,6 +11289,14 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerWindow: String? {
+        if compactBannerDestination == .settings { return nil }
+        if compactBannerDestination == .scheduleCheck {
+            guard let week = store.scheduleCheck?.week else { return "NO DATA" }
+            return "Week \(week)"
+        }
+        if compactBannerDestination.section == .sales, let coverage = store.salesCoverageLabel() {
+            return coverage
+        }
         if let section = compactBannerDestination.section {
             return store.dataWindow(for: section)
         }

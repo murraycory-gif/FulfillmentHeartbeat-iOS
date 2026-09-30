@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import FulfillmentHeartbeat
 
@@ -40,7 +41,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(HubDestination.metricItems.contains { $0.rawValue == "checklist" })
         XCTAssertFalse(HubDestination.settingsItems.contains { $0.rawValue == "checklist" })
         XCTAssertFalse(HubDestination.allCases.contains { $0.rawValue == "upload" })
-        XCTAssertTrue(HubDestination.settingsItems.isEmpty)
+        XCTAssertEqual(HubDestination.settingsItems, [.settings])
+        XCTAssertFalse(HubDestination.sectionItems.contains(.settings))
         XCTAssertTrue(HubNavSelection.lightsIcon(selected: true))
         XCTAssertFalse(HubNavSelection.lightsIcon(selected: false))
     }
@@ -427,8 +429,15 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let fourWide = HubLayout.calloutColumns(count: 4, width: 1_000)
         XCTAssertEqual(fourWide, 4)
-        let fourTight = HubLayout.calloutColumns(count: 4, width: 600)
-        XCTAssertLessThanOrEqual(fourTight, 2)
+        // 600pt on pad-regular / Mac is the <760 band (≤2 columns). An iPhone
+        // sim host sets livePhoneIdiom, and isPhone then ignores sizeClass
+        // .regular, so the same width uses the phone 520–699 band (3).
+        let fourTight = HubLayout.calloutColumns(count: 4, width: 600, sizeClass: .regular)
+        if HubLayout.livePhoneIdiom {
+            XCTAssertEqual(fourTight, 3)
+        } else {
+            XCTAssertLessThanOrEqual(fourTight, 2)
+        }
         let tile = HubLayout.calloutTileMinWidth(columns: 4, width: 900, phone: false)
         XCTAssertLessThanOrEqual(tile * 4 + HubLayout.calloutGridSpacing * 3, 900)
         XCTAssertEqual(HubLayout.calloutTileHeight(phone: false), HubLayout.calloutMinHeight(phone: false))
@@ -436,6 +445,298 @@ final class HeartbeatMathTests: XCTestCase {
             HubLayout.grid(4, spacing: 8, minWidth: 152).count,
             4
         )
+    }
+
+    /// Top 10 is sum(Pre-Sub OOS) / sum(ORD_QTY), ranked by count then %. Cooked
+    /// per scope so a company card does not decode the item plane.
+    func testPreSubTopRollupAndScopes() throws {
+        XCTAssertEqual(PreSubTopItems.missingTabNote, "Item detail not in this upload")
+        XCTAssertEqual(PreSubTopItems.displayParts("184350009 - Sweet Corn").name, "Sweet Corn")
+        XCTAssertEqual(PreSubTopItems.displayParts("184350009 - Sweet Corn").code, "184350009")
+        XCTAssertEqual(PreSubTopItems.displayParts("MILK").name, "MILK")
+        XCTAssertEqual(PreSubTopItems.displayParts("MILK").code, "")
+        XCTAssertFalse(PulseLaunch.shouldLoadPreSubItemFacts(filtersActive: false))
+        XCTAssertTrue(PulseLaunch.shouldLoadPreSubItemFacts(filtersActive: true))
+        XCTAssertEqual(PreSubTopItems.seatScope(DashboardFilters()), PreSubTopItems.companyScope)
+        var storeFilter = DashboardFilters()
+        storeFilter.store = "10"
+        XCTAssertEqual(PreSubTopItems.seatScope(storeFilter), "store:10")
+        var omFilter = DashboardFilters()
+        omFilter.om = "Pat Ruiz"
+        XCTAssertEqual(PreSubTopItems.seatScope(omFilter), "om:Pat Ruiz")
+
+        let parsed = WorkbookParser.parseCSV("""
+        STORE_ID,DIVISION,DISTRICT,BPN DESC,ORD_QTY,Subs,Pre-Sub OOS%,Pre-Sub OOS,$Pre-Sub OOS,OOS,OOS%,$OOS
+        10,United,J3,184350009 - Sweet Corn,100,1,0.5,10,1,9,0.09,1
+        """)
+        XCTAssertEqual(parsed.first?.payload["ord_qty"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(parsed.first?.payload["presub_count"] ?? 0, 10, accuracy: 0.01)
+
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "10": .init(division: "United", district: "J3", om: "Pat Ruiz", name: "Alpha"),
+            "11": .init(division: "United", district: "J3", om: "Pat Ruiz", name: "Beta"),
+            "20": .init(division: "Haggen", district: "39", om: "Luke Lomas", name: "Gamma"),
+        ]
+        func item(
+            _ store: String,
+            _ bpn: String,
+            count: Double,
+            orders: Double,
+            pct: Double,
+            division: String = "Southwest",
+            district: String = "ZZ"
+        ) -> MetricRow {
+            MetricRow(
+                section: .preSubOOSItem,
+                division: division,
+                operationsOM: "",
+                storeNumber: store,
+                payload: ["presub_count": count, "ord_qty": orders, "presub_pct": pct],
+                textPayload: ["bpn": bpn, "presub_item": "1", "district": district]
+            )
+        }
+        var rows: [MetricRow] = [
+            item("10", "11111 - Milk", count: 1, orders: 10, pct: 90),
+            item("11", "11111 - Milk", count: 1, orders: 10, pct: 10),
+            item("10", "44444 - Soda", count: 4, orders: 10, pct: 1),
+            item("10", "55555 - Chips", count: 4, orders: 40, pct: 99),
+            item("10", "77777 - Air", count: 3, orders: 0, pct: 100),
+            item("20", "22222 - Bread", count: 9, orders: 100, pct: 1),
+            item("20", "33333 - Eggs", count: 5, orders: 10, pct: 99),
+            item("239", "66666 - Ghost", count: 500, orders: 500, pct: 100, division: "Southwest", district: "N0"),
+        ]
+        XCTAssertEqual(PreSubTopItems.catalog(items: [], roster: roster, includeCompany: true).tabPresent, false)
+
+        let cooked = PreSubTopItems.catalog(items: rows, roster: roster, includeCompany: true)
+        XCTAssertTrue(cooked.tabPresent)
+        let company = cooked.lists[PreSubTopItems.companyScope] ?? []
+        let milk = company.first { $0.name == "Milk" }
+        XCTAssertEqual(milk?.count ?? 0, 2, accuracy: 0.001)
+        XCTAssertEqual(milk?.percent ?? -1, 10, accuracy: 0.001, "percent is the ratio, not the average of 90 and 10")
+        XCTAssertEqual(milk?.code, "11111")
+        XCTAssertNil(company.first { $0.name == "Ghost" })
+
+        let store10 = cooked.lists["store:10"] ?? []
+        XCTAssertEqual(store10.map(\.name), ["Soda", "Chips", "Air", "Milk"])
+        XCTAssertEqual(store10.first { $0.name == "Soda" }?.percent ?? 0, 40, accuracy: 0.001)
+        XCTAssertEqual(store10.first { $0.name == "Chips" }?.percent ?? 0, 10, accuracy: 0.001)
+        XCTAssertNil(store10.first { $0.name == "Air" }?.percent)
+        XCTAssertNil(store10.first { $0.name == "Bread" })
+
+        let store11 = cooked.lists["store:11"] ?? []
+        XCTAssertEqual(store11.map(\.name), ["Milk"])
+        let store20 = cooked.lists["store:20"] ?? []
+        XCTAssertEqual(store20.map(\.name), ["Bread", "Eggs"])
+        var cappedRows: [MetricRow] = []
+        for rank in 1...12 {
+            cappedRows.append(item("20", "\(80000 + rank) - Extra \(rank)", count: Double(rank), orders: 10, pct: 50))
+        }
+        let capped = PreSubTopItems.catalog(items: cappedRows, roster: roster, includeCompany: true)
+            .lists["store:20"] ?? []
+        XCTAssertEqual(capped.count, 10)
+        XCTAssertEqual(capped.first?.name, "Extra 12")
+        XCTAssertEqual(capped.last?.name, "Extra 3")
+        XCTAssertFalse(capped.contains { $0.name == "Extra 1" || $0.name == "Extra 2" })
+
+        let south = cooked.lists[PreSubTopItems.regionScope("South Region")] ?? []
+        XCTAssertTrue(south.contains { $0.name == "Milk" })
+        XCTAssertFalse(south.contains { $0.name == "Bread" })
+        let west = cooked.lists[PreSubTopItems.regionScope("West Region")] ?? []
+        XCTAssertTrue(west.contains { $0.name == "Bread" })
+        XCTAssertFalse(west.contains { $0.name == "Milk" })
+        XCTAssertTrue((cooked.lists[PreSubTopItems.omScope("Pat Ruiz")] ?? []).contains { $0.name == "Milk" })
+        XCTAssertFalse((cooked.lists[PreSubTopItems.omScope("Pat Ruiz")] ?? []).contains { $0.name == "Bread" })
+        XCTAssertFalse(cooked.lists.keys.contains(PreSubTopItems.omScope("")))
+        XCTAssertTrue((cooked.lists[PreSubTopItems.divisionScope("United")] ?? []).contains { $0.name == "Milk" })
+        XCTAssertFalse(cooked.lists.keys.contains(PreSubTopItems.divisionScope("Southwest")))
+        XCTAssertTrue((cooked.lists[PreSubTopItems.districtScope("J3")] ?? []).contains { $0.name == "Milk" })
+        XCTAssertFalse(cooked.lists.keys.contains(PreSubTopItems.districtScope("ZZ")))
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("presub-top-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let pack = tmp.appendingPathComponent("company.sqlite")
+        var chrome = PulseDashChrome(summaries: [], flags: [:], packs: [:], pickerShoppers: 0)
+        chrome.preSubItemTabPresent = true
+        try PulseSQLite.write(
+            rows: [],
+            uploads: [],
+            seeded: true,
+            chrome: chrome,
+            preSubTops: cooked.lists,
+            to: pack
+        )
+        let facts = PulseSQLite.companyFactReadCount
+        let sections = PulseSQLite.sectionFactReadCount
+        let decoded = PulseSQLite.decodedFactRowCount
+        let fromDisk = PulseSQLite.readPreSubTop(from: pack, scope: PreSubTopItems.companyScope)
+        let storeFromDisk = PulseSQLite.readPreSubTop(from: pack, scope: "store:10")
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, facts)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sections)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, decoded)
+        XCTAssertEqual(fromDisk?.first { $0.name == "Milk" }?.percent ?? -1, 10, accuracy: 0.001)
+        XCTAssertEqual(storeFromDisk?.map(\.name), ["Soda", "Chips", "Air", "Milk"])
+        XCTAssertEqual(PulseSQLite.readChrome(from: pack)?.preSubItemTabPresent, true)
+
+        let bare = tmp.appendingPathComponent("bare.sqlite")
+        try PulseSQLite.write(rows: [], uploads: [], seeded: true, chrome: nil, to: bare)
+        XCTAssertNil(PulseSQLite.readPreSubTop(from: bare, scope: PreSubTopItems.companyScope))
+
+        let seat = tmp.appendingPathComponent("store10.sqlite")
+        _ = try PulseSeatPack.writeCooked(
+            rows: rows,
+            uploads: [],
+            key: PulseSeatPack.Key(grain: .store, id: "10"),
+            roster: roster,
+            to: seat
+        )
+        XCTAssertEqual(PulseSQLite.readChrome(from: seat)?.preSubItemTabPresent, true)
+        XCTAssertEqual(
+            PulseSQLite.readPreSubTop(from: seat, scope: "store:10")?.map(\.name),
+            ["Soda", "Chips", "Air", "Milk"]
+        )
+        XCTAssertNil(PulseSQLite.readPreSubTop(from: seat, scope: PreSubTopItems.companyScope)?.first { $0.name == "Bread" })
+        XCTAssertTrue((PulseSQLite.readPreSubTop(from: seat, scope: PreSubTopItems.companyScope) ?? []).isEmpty)
+
+        let cook = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/PulseSeatPack.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cook.contains("key.grain == .company ? rows : scoped"))
+        let page = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(page.contains("PreSubTopItems.grainScope"))
+        XCTAssertTrue(page.contains("PreSubTopItems.storeScope"))
+        XCTAssertTrue(page.contains("PreSubTopItems.seatScope"))
+        XCTAssertTrue(page.contains("shouldLoadPreSubItemFacts"))
+        let cards = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cards.contains("PreSubTopListBlock(card: preSubTop)"))
+        XCTAssertTrue(cards.contains("PreSubTopItems.heading"))
+        XCTAssertTrue(cards.contains("PreSubTopItems.missingTabNote"))
+    }
+
+    /// Company Shoppers is the distinct PICKER count. Region shopper sums match
+    /// that total. A first-chunk seat cannot replace the cooked region cards.
+    func testPickerScopeRollupsMatchDistinctPickers() throws {
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "10": .init(division: "NorCal", district: "03", om: "Jino Arvin", name: "Alpha"),
+            "11": .init(division: "SoCal", district: "04", om: "Jino Arvin", name: "Beta"),
+            "20": .init(division: "Jewel Osco", district: "J1", om: "Pat Ruiz", name: "East"),
+            "30": .init(division: "United", district: "U1", om: "Alex Kim", name: "South"),
+            "40": .init(division: "Haggen", district: "39", om: "Luke Lomas", name: "West"),
+            "210": .init(division: "NorCal", district: "03", om: "Jino Arvin", name: "Ignored"),
+        ]
+        func picker(_ id: String, _ store: String, pph: Double) -> MetricRow {
+            MetricRow(
+                section: .pickerScorecard,
+                division: "Southwest",
+                operationsOM: "Not the roster OM",
+                storeNumber: store,
+                payload: ["pph": pph, "orders": 4],
+                textPayload: ["shopper_id": id, "shopper_name": id, "district": "ZZ"]
+            )
+        }
+        let rows = [
+            picker("A1", "10", pph: 90),
+            picker("A1", "10", pph: 90),
+            picker("A2", "10", pph: 76),
+            picker("A2", "11", pph: 76),
+            picker("A3", "11", pph: 50),
+            picker("E1", "20", pph: 90),
+            picker("E2", "20", pph: 40),
+            picker("S1", "30", pph: 75),
+            picker("W1", "40", pph: 60),
+            picker("Z1", "210", pph: 90),
+        ]
+        var chrome = PulseDashChrome(summaries: [], flags: [:], packs: [:], pickerShoppers: 0)
+        PickerScopeRollups.apply(onto: &chrome, rows: rows, roster: roster, includeCompany: true)
+        let company = chrome.pickerRollups[PreSubTopItems.companyScope]
+        XCTAssertEqual(company?.shoppers, PickerScopeRollups.distinctPickerCount(rows))
+        XCTAssertEqual(company?.shoppers, 7)
+        XCTAssertEqual(company?.stores, 5)
+        XCTAssertEqual((company?.healthy ?? 0) + (company?.watch ?? 0) + (company?.risk ?? 0), company?.shoppers)
+        XCTAssertEqual(company?.healthy, 2)
+        XCTAssertEqual(company?.watch, 2)
+        XCTAssertEqual(company?.risk, 3)
+        let regionNames = MarketRegion.allCases.map(\.rawValue)
+        let regionSum = regionNames.reduce(0) { sum, name in
+            sum + (chrome.pickerRollups[PreSubTopItems.regionScope(name)]?.shoppers ?? 0)
+        }
+        XCTAssertEqual(regionSum, company?.shoppers)
+        let california = chrome.pickerRollups[PreSubTopItems.regionScope("California Region")]
+        XCTAssertEqual(california?.shoppers, 3)
+        XCTAssertEqual(california?.stores, 2)
+        XCTAssertEqual(california?.healthy, 1)
+        XCTAssertEqual(california?.watch, 1)
+        XCTAssertEqual(california?.risk, 1)
+        XCTAssertEqual((california?.healthy ?? 0) + (california?.watch ?? 0) + (california?.risk ?? 0), 3)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("East Region")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("East Region")]?.stores, 1)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("South Region")]?.shoppers, 1)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.regionScope("West Region")]?.shoppers, 1)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.omScope("Pat Ruiz")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.districtScope("J1")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.storeScope("10")]?.shoppers, 2)
+        XCTAssertEqual(chrome.pickerRollups[PreSubTopItems.storeScope("10")]?.stores, 1)
+        XCTAssertNil(chrome.pickerRollups[PreSubTopItems.storeScope("210")])
+        XCTAssertEqual(chrome.pickerShoppers, 7)
+        XCTAssertEqual(chrome.companyTiles[MetricSection.pickerScorecard.rawValue]?.values.first, HeartbeatFormat.num(Double(7)))
+        let sample = Array(rows.prefix(2))
+        let table = PulseLaunch.pickerExpandTable(
+            seatRows: sample,
+            chrome: chrome,
+            filters: DashboardFilters(),
+            grain: .region,
+            roster: roster
+        )
+        XCTAssertEqual(table.count, 4)
+        let card = table.first { $0.label == "California Region" }
+        XCTAssertEqual(card?.storeCount, 2)
+        XCTAssertEqual(card?.values.first, "3")
+        XCTAssertEqual(card?.values, ["3", "1", "1", "1"])
+        var eastOnly = DashboardFilters()
+        eastOnly.region = "East Region"
+        let eastDivisions = PickerScopeRollups.grainRows(
+            rollups: chrome.pickerRollups,
+            grain: .division,
+            filters: eastOnly,
+            roster: roster
+        )
+        XCTAssertEqual(eastDivisions.map(\.label), ["Jewel Osco"])
+        XCTAssertEqual(eastDivisions.first?.storeCount, 1)
+        let cook = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/PulseSeatPack.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cook.contains("PickerScopeRollups.catalog") || cook.contains("PickerScopeRollups.apply"))
+        XCTAssertTrue(cook.contains("key.grain == .company ? rows : scoped"))
+        let page = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(page.contains("pickerGrainTable"))
+        XCTAssertTrue(page.contains("pickerScopeRollup"))
     }
 
     func testPPHDashboardHasTotalCalloutAndDynacapFallsBackToBookPPH() {
@@ -799,6 +1100,70 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.pickPathShopperLinesAreEmptyNotice(empty))
     }
 
+    /// Store 2224 has a store path row and no path-picker rows.
+    /// The shopper notice stays. The dashboard cell still uses the store row.
+    func testZeroPathStoreKeepsEmptyNoticeWhenStorePathFillsDashboardCell() {
+        let storePath = MetricRow(
+            section: .pickPath,
+            division: "United",
+            operationsOM: "A",
+            storeNumber: "2224",
+            payload: ["compliance_pct": 79.6, "pph": 81.4]
+        )
+        let lines = PulseLaunch.pickPathShopperLines(
+            pathRows: [],
+            scorecardRows: [],
+            storePath: storePath
+        )
+        XCTAssertTrue(PulseLaunch.pickPathShopperLinesAreEmptyNotice(lines))
+        XCTAssertEqual(lines.first?.name, PulseLaunch.noPathPickerRowsTitle)
+        XCTAssertEqual(
+            PulseLaunch.pickPathShopperEmptyDetail(
+                pathOnlyEmpty: true,
+                awaitingPack: true,
+                pickerLoading: true
+            ),
+            PulseLaunch.noPathPickerRowsTitle
+        )
+        XCTAssertEqual(
+            PulseLaunch.pickPathShopperEmptyDetail(
+                pathOnlyEmpty: false,
+                awaitingPack: true,
+                pickerLoading: false
+            ),
+            "Loading shoppers…"
+        )
+        let tiles = HeartbeatMath.companyCardTiles(section: .pickPath, rows: [storePath])
+        XCTAssertEqual(tiles?.values.first, HeartbeatFormat.pct(79.6))
+        XCTAssertEqual(tiles?.values.dropFirst().first, HeartbeatFormat.num(81.4, digits: 1))
+        XCTAssertTrue(
+            PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: [storePath],
+                scorecardReady: false
+            )
+        )
+        let storeless = MetricRow(
+            section: .pickPathPicker,
+            division: "United",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["compliance_pct": 70],
+            textPayload: ["shopper_id": "PATH1"]
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: [storeless],
+                scorecardReady: false
+            )
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldRememberEmptyPickPathShopperLookup(
+                pathPickerRows: [],
+                scorecardReady: false
+            )
+        )
+    }
+
     func testPickPathMissingPPHUsesSameStoreScorecardOnly() {
         let missing = MetricRow(
             section: .pickPathPicker,
@@ -917,13 +1282,13 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture428PickPathStoreExpandListsJoinedShoppers() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexOnPickerPaint())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPathPicker))
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPath))
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream())
-        XCTAssertTrue(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.pickPathPicker))
+        XCTAssertFalse(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.pickPathPicker))
         XCTAssertFalse(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.sales))
         XCTAssertFalse(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.sales))
         XCTAssertEqual(
@@ -1086,7 +1451,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture429PickPathSequenceDatesAndPrepFromThinPack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldJoinAisleMapperOnSeatInstall())
         XCTAssertTrue(PulseLaunch.shouldBakeAisleMapperOntoPickPathAtCook())
         XCTAssertFalse(PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap())
@@ -1185,7 +1550,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture436PickPathExpandLoadsPickerAndPrepUsesStoreNotStoreHash() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldLoadPickPathPickerOnPageOpen())
         XCTAssertTrue(PulseLaunch.shouldLoadPickPathPickerOnStoreExpand())
         XCTAssertTrue(PulseLaunch.shouldShowPickerLoadingOnPickPathExpand(dest: .pickPath))
@@ -1300,6 +1665,651 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(empty.health, .none)
     }
 
+    func testPrepThinCoverageIsNotHealthy() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(
+            HeartbeatMath.prepThinNote(reported: 36, inScope: 1297),
+            "Only 36 of 1,297 stores reported Prep Not Ready this upload."
+        )
+        XCTAssertEqual(
+            HeartbeatMath.prepCoverageTile(fromNote: HeartbeatMath.prepThinNote(reported: 36, inScope: 1297)),
+            "36 of 1,297"
+        )
+
+        func prepRow(_ store: String, rate: Double?) -> MetricRow {
+            var payload: [String: Double] = [:]
+            if let rate { payload["pnr_rate_pct"] = rate }
+            return MetricRow(
+                section: .prepNotReady,
+                division: "United",
+                operationsOM: "Pat Ruiz",
+                storeNumber: store,
+                payload: payload
+            )
+        }
+
+        var thinRows = [prepRow("10", rate: 0.01), prepRow("11", rate: 0.01)]
+        for store in 12...19 {
+            thinRows.append(prepRow("\(store)", rate: nil))
+        }
+        let thin = HeartbeatMath.summarize(.prepNotReady, rows: thinRows, upload: nil)
+        XCTAssertEqual(thin.health, .none)
+        XCTAssertEqual(thin.health.label.uppercased(), "NO DATA")
+        XCTAssertNil(thin.headline)
+        XCTAssertEqual(thin.headlineText, "—")
+        XCTAssertEqual(thin.secondary, HeartbeatMath.prepThinNote(reported: 2, inScope: 10))
+        XCTAssertEqual(thin.watchCount, 0)
+        XCTAssertEqual(thin.riskCount, 0)
+        XCTAssertEqual(thin.storeCount, 10)
+        let table = HeartbeatMath.dashboardTableValues(.prepNotReady, rows: thinRows)
+        XCTAssertEqual(table.values, ["—", "—", "—"])
+        XCTAssertEqual(table.health, .none)
+        let tiles = HeartbeatMath.companyCardTiles(section: .prepNotReady, rows: thinRows)
+        XCTAssertEqual(tiles?.values, ["2 of 10", "—", "—", "—"])
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(thin), .none)
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardSubtitle(thin), thin.secondary)
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardChips(thin).map(\.value), ["2 of 10", "—", "—", "—"])
+        XCTAssertTrue(CommandCenterLayout.phoneScorecardChips(thin).allSatisfy { $0.health == .none })
+        let grain = HeartbeatMath.scopeCard(section: .prepNotReady, rows: thinRows)
+        XCTAssertEqual(grain.health, .none)
+        XCTAssertEqual(grain.value, thin.secondary)
+        XCTAssertEqual(grain.count, 10)
+
+        let zeroStore = prepRow("7", rate: 0)
+        XCTAssertEqual(HeartbeatMath.prepCoverage([zeroStore]).reported, 1)
+        XCTAssertFalse(HeartbeatMath.prepCoverage([zeroStore]).thin)
+        let zeroCard = HeartbeatMath.summarize(.prepNotReady, rows: [zeroStore], upload: nil)
+        XCTAssertEqual(zeroCard.headline ?? -1, 0, accuracy: 0.001)
+        XCTAssertFalse(HeartbeatMath.isPrepThinNote(zeroCard.secondary))
+        XCTAssertNotEqual(zeroCard.secondary, "No Prep rows this week")
+        let blankOnly = [prepRow("8", rate: nil)]
+        XCTAssertEqual(HeartbeatMath.prepCoverage(blankOnly).reported, 0)
+        XCTAssertFalse(HeartbeatMath.prepCoverage(blankOnly).thin)
+        XCTAssertEqual(
+            HeartbeatMath.summarize(.prepNotReady, rows: blankOnly, upload: nil).secondary,
+            "No Prep rows this week"
+        )
+
+        let halfRows = [prepRow("1", rate: 0.5), prepRow("2", rate: nil)]
+        XCTAssertFalse(HeartbeatMath.prepCoverage(halfRows).thin)
+        let half = HeartbeatMath.summarize(.prepNotReady, rows: halfRows, upload: nil)
+        XCTAssertEqual(half.health, .good)
+        XCTAssertNotNil(half.headline)
+        XCTAssertFalse(HeartbeatMath.isPrepThinNote(half.secondary))
+
+        let scoped = AssistRank.scopedSummary(section: .prepNotReady, rows: thinRows, prior: nil)
+        XCTAssertEqual(scoped.health, .none)
+        XCTAssertNil(scoped.headline)
+        XCTAssertEqual(scoped.secondary, thin.secondary)
+        XCTAssertNil(
+            AssistRank.score(
+                AssistRank.Input(
+                    section: .prepNotReady,
+                    health: scoped.health,
+                    risk: scoped.riskCount,
+                    watch: scoped.watchCount,
+                    distance: 0,
+                    storeCount: scoped.storeCount
+                )
+            )
+        )
+
+        let csv = """
+        DIVISION,District,OM,Store #,Store,Net Prep Not Ready Hours % Total
+        Southwest,97,A,1,10,0.0001
+        Southwest,97,A,1,11,
+        Southwest,97,A,1,12,
+        """
+        let parsed = WorkbookParser.parseCSV(csv).map { $0.asRow(section: .prepNotReady) }
+        XCTAssertEqual(parsed.count, 3)
+        XCTAssertEqual(parsed.filter { $0.number("pnr_rate_pct") != nil }.count, 1)
+        let parsedSummary = HeartbeatMath.summarize(.prepNotReady, rows: parsed, upload: nil)
+        XCTAssertEqual(parsedSummary.health, .none)
+        XCTAssertNil(parsedSummary.headline)
+        XCTAssertEqual(parsedSummary.secondary, HeartbeatMath.prepThinNote(reported: 1, inScope: 3))
+
+        let stillEmpty = HeartbeatMath.summarize(.prepNotReady, rows: [], upload: nil)
+        XCTAssertEqual(stillEmpty.secondary, "No Prep rows this week")
+        XCTAssertEqual(stillEmpty.headlineText, "0%")
+        XCTAssertEqual(stillEmpty.health, .none)
+    }
+
+    /// Company pack: every prep fact has a rate, and the roster is larger.
+    /// The dashboard tile is the rollup of those rates. A dash or No data fails.
+    @MainActor
+    func testCompanyPrepTileRollsUpRatedFactsInsteadOfNoData() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let rate10 = 1.8036477701044753
+        let rate11 = 3.2529244991485323
+        let rollup = (rate10 + rate11) / 2
+        let facts = HeartbeatMath.PrepCoverage(reported: 2, inScope: 2)
+        XCTAssertTrue(HeartbeatMath.companyPrepKeepsFactRollup(facts))
+        XCTAssertFalse(facts.thin)
+        XCTAssertTrue(HeartbeatMath.PrepCoverage(reported: 2, inScope: 6).thin)
+
+        let store = try installRatedPrepCompanyPack(
+            rates: ["10": rate10, "11": rate11],
+            rosterStores: ["10", "11", "20", "21", "22", "23"]
+        )
+        let painted = store.summary(for: .prepNotReady)
+        let value = CommandCenterLayout.compactValue(painted)
+        XCTAssertEqual(painted.headline ?? 0, rollup, accuracy: 0.000_000_1)
+        XCTAssertEqual(value, String(format: "%.1f%%", rollup))
+        XCTAssertNotEqual(value, "—")
+        XCTAssertNotEqual(value, "0%")
+        XCTAssertNotEqual(painted.health, .none)
+        XCTAssertNotEqual(painted.health.label, "No data")
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(painted), .none)
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(painted).label, "No data")
+        XCTAssertFalse(HeartbeatMath.isPrepThinNote(painted.secondary))
+        XCTAssertNotEqual(painted.secondary, "No Prep rows this week")
+        XCTAssertFalse(PulseLaunch.shouldInventPrepRateOnEmptyStore())
+    }
+
+    /// A roster store with no prep fact does not receive a made-up rate.
+    @MainActor
+    func testStoreOutsidePrepFactsDoesNotGetAMadeUpRate() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let rate10 = 1.8036477701044753
+        let store = try installRatedPrepCompanyPack(
+            rates: ["10": rate10],
+            rosterStores: ["10", "999"]
+        )
+        let grain = store.grainMetricRows(for: .prepNotReady)
+        let rated = try XCTUnwrap(grain.first { $0.storeNumber == "10" })
+        XCTAssertEqual(rated.number("pnr_rate_pct") ?? 0, rate10, accuracy: 0.000_000_1)
+        XCTAssertNil(grain.first { $0.storeNumber == "999" })
+        XCTAssertFalse(grain.contains { $0.storeNumber == "999" && $0.payload["pnr_rate_pct"] != nil })
+        XCTAssertFalse(grain.contains { $0.storeNumber != "10" && $0.number("pnr_rate_pct") != nil })
+        let outside = MetricRow(
+            section: .prepNotReady,
+            division: "United",
+            operationsOM: "Pat Ruiz",
+            storeNumber: "999"
+        )
+        XCTAssertNil(outside.number("pnr_rate_pct"))
+        XCTAssertEqual(HeartbeatFormat.pct(outside.number("pnr_rate_pct")), "—")
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: outside), .none)
+        let filled = HeartbeatMath.rowsFillingRoster(
+            grain,
+            roster: [
+                "10": HeartbeatMath.StoreIdentity(division: "United", district: "97", om: "Pat Ruiz", name: "Ten"),
+                "999": HeartbeatMath.StoreIdentity(division: "United", district: "97", om: "Pat Ruiz", name: "Outside"),
+            ]
+        )
+        XCTAssertNil(filled.first { $0.storeNumber == "999" }?.number("pnr_rate_pct"))
+        XCTAssertFalse(filled.contains { $0.storeNumber == "999" })
+    }
+
+    /// Blank rows inside the upload stay NO DATA. That is not the 365-rate pack.
+    @MainActor
+    func testThinPrepFactsInsideTheUploadStayNoData() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let coverage = HeartbeatMath.PrepCoverage(reported: 2, inScope: 10)
+        XCTAssertTrue(coverage.thin)
+        XCTAssertFalse(HeartbeatMath.companyPrepKeepsFactRollup(coverage))
+        let store = try installRatedPrepCompanyPack(
+            rates: ["10": 0.01, "11": 0.01],
+            blankStores: (12...19).map { "\($0)" },
+            rosterStores: (10...19).map { "\($0)" }
+        )
+        let painted = store.summary(for: .prepNotReady)
+        XCTAssertEqual(painted.health, .none)
+        XCTAssertEqual(painted.health.label, "No data")
+        XCTAssertNil(painted.headline)
+        XCTAssertEqual(CommandCenterLayout.compactValue(painted), "—")
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(painted), .none)
+        XCTAssertTrue(HeartbeatMath.isPrepThinNote(painted.secondary))
+    }
+
+    @MainActor
+    private func installRatedPrepCompanyPack(
+        rates: [String: Double],
+        blankStores: [String] = [],
+        rosterStores: [String]
+    ) throws -> HeartbeatStore {
+        let values = Array(rates.values)
+        let rollup = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        var rows: [MetricRow] = []
+        for (store, rate) in rates {
+            rows.append(
+                MetricRow(
+                    section: .prepNotReady,
+                    division: "United",
+                    operationsOM: "Pat Ruiz",
+                    storeNumber: store,
+                    payload: ["pnr_rate_pct": rate]
+                )
+            )
+        }
+        for store in blankStores {
+            rows.append(
+                MetricRow(
+                    section: .prepNotReady,
+                    division: "United",
+                    operationsOM: "Pat Ruiz",
+                    storeNumber: store
+                )
+            )
+        }
+        for store in rosterStores {
+            rows.append(
+                MetricRow(
+                    section: .storeRoster,
+                    division: "United",
+                    operationsOM: "Pat Ruiz",
+                    storeNumber: store,
+                    storeName: "Store \(store)",
+                    textPayload: ["district": "97"]
+                )
+            )
+        }
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .prepNotReady,
+                    storeCount: values.count,
+                    headline: rollup,
+                    headlineLabel: "Avg PNR hours",
+                    secondary: values.isEmpty
+                        ? "No Prep rows this week"
+                        : "rated prep facts",
+                    health: rollup == nil ? .none : HeartbeatMath.band(
+                        rollup,
+                        good: HeartbeatMath.pnrGoal,
+                        watch: HeartbeatMath.pnrWatch,
+                        invert: true
+                    ),
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: "daily.xlsx · Prep Not Ready",
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prep-rollup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: chrome, to: seat)
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        return store
+    }
+
+    /// Live chrome has summaries, packs, and region tables. companyTiles / preSub tops / picker rollups are absent.
+    /// Section pages must still paint the company card and the region/division cards from that chrome.
+    func testLegacyChromePaintsCompanyAndRegionCards() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let preSub = SectionSummary(
+            section: .preSubOOS,
+            storeCount: 2_156,
+            headline: 5.69,
+            headlineLabel: "Rate",
+            secondary: "company",
+            health: .watch,
+            watchCount: 537,
+            riskCount: 658,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let tiles = HeartbeatMath.legacyCompanyTiles(summary: preSub)
+        XCTAssertEqual(tiles?.labels, ["Rate", "Healthy", "Watch", "At Risk"])
+        XCTAssertEqual(tiles?.values, [
+            HeartbeatFormat.pct(5.69),
+            HeartbeatFormat.num(961),
+            HeartbeatFormat.num(537),
+            HeartbeatFormat.num(658),
+        ])
+
+        let picker = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 2_160,
+            headline: 16_693,
+            headlineLabel: "Shoppers",
+            secondary: "company",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let pickerTiles = HeartbeatMath.legacyCompanyTiles(summary: picker, pickerShoppers: 16_693)
+        XCTAssertEqual(pickerTiles?.values.first, HeartbeatFormat.num(16_693))
+        XCTAssertEqual(Array(pickerTiles?.values.dropFirst() ?? []), ["—", "—", "—"])
+
+        let thinPrep = SectionSummary(
+            section: .prepNotReady,
+            storeCount: 2_160,
+            headline: nil,
+            headlineLabel: "PNR",
+            secondary: HeartbeatMath.prepThinNote(reported: 36, inScope: 1_297),
+            health: .none,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertNil(HeartbeatMath.legacyCompanyTiles(summary: thinPrep))
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(thinPrep), .none)
+        XCTAssertEqual(CommandCenterLayout.compactValue(thinPrep), "—")
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardChips(thinPrep).map(\.value), ["36 of 1,297", "—", "—", "—"])
+
+        let california = HeartbeatMath.DashboardGrainTableRow(
+            label: "California",
+            storeCount: 599,
+            values: ["5.69%", "280", "160", "159"],
+            health: .watch
+        )
+        let regions = HeartbeatMath.chromeSectionRows(
+            section: .preSubOOS,
+            grain: .region,
+            tables: [california],
+            packs: []
+        )
+        XCTAssertEqual(regions.map(\.label), ["California"])
+        XCTAssertEqual(regions.first?.storeCount, 599)
+        let norcal = DashScopeLine(label: "NorCal", value: "4.10%", health: .watch, count: 300)
+        let divisions = HeartbeatMath.chromeSectionRows(
+            section: .preSubOOS,
+            grain: .division,
+            tables: [california],
+            packs: [
+                DashScopePack(
+                    line: DashScopeLine(label: "California Region", value: "5.69%", health: .watch, count: 599),
+                    flags: [],
+                    children: [norcal]
+                ),
+            ]
+        )
+        XCTAssertEqual(divisions.map(\.label), ["NorCal"])
+        XCTAssertEqual(divisions.first?.values.first, "4.10%")
+
+        let lossRow = HeartbeatMath.DashboardGrainTableRow(
+            label: "California Region",
+            storeCount: 599,
+            values: ["$1", "1.80%", "247.06%", "—", "—", "—", "—", "—", "—"],
+            health: .none
+        )
+        XCTAssertEqual(HeartbeatMath.lossGrainHealth(lossRow), .good)
+        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Goal %", value: "247.06%"), "Goal %")
+        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Goal %", value: "2.47%"), "Goal %")
+        XCTAssertEqual(HeartbeatMath.phoneTileLabel("Lost %", value: "1.80%"), "Lost %")
+
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["lost_revenue": 3_456_041.35, "lost_revenue_pct": 1.80],
+            textPayload: ["lost_grain": "market"]
+        )
+        let loss = HeartbeatMath.summarize(.lostRevenue, rows: [market], upload: nil)
+        XCTAssertEqual(loss.health, .good)
+        XCTAssertEqual(loss.headline ?? 0, 3_456_041.35, accuracy: 1)
+        XCTAssertEqual(loss.storeCount, 0)
+
+        let oldChrome = """
+        {"summaries":[],"flags":{},"packs":{},"tables":{},"pickerShoppers":16693,"pickerOpportunity":0,"pickerStrong":0}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(PulseDashChrome.self, from: oldChrome)
+        XCTAssertEqual(decoded.pickerShoppers, 16_693)
+        XCTAssertTrue(decoded.companyTiles.isEmpty)
+        XCTAssertNil(decoded.preSubItemTabPresent)
+        let encoded = try JSONEncoder().encode(decoded)
+        let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        for key in ["summaries", "flags", "packs", "tables", "pickerShoppers", "pickerOpportunity", "pickerStrong"] {
+            XCTAssertNotNil(object?[key], key)
+        }
+        XCTAssertNotNil(object?["companyTiles"])
+
+        let pinned = SectionSummary(
+            section: .preSubOOS,
+            storeCount: 2_177,
+            headline: 5.69,
+            headlineLabel: "Rate",
+            secondary: "961 healthy · 537 watch · 658 over 6.50%",
+            health: .watch,
+            watchCount: 537,
+            riskCount: 658,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(HeartbeatMath.legacyCompanyTiles(summary: pinned)?.values[1], HeartbeatFormat.num(961))
+        XCTAssertEqual(HeartbeatMath.pickerGrainSubtitle(5_398), "5,398 shoppers")
+        XCTAssertEqual(HeartbeatMath.pickerGrainSubtitle(1), "1 shopper")
+        XCTAssertTrue(HeartbeatMath.PrepCoverage(reported: 36, inScope: 2_177).thin)
+        XCTAssertFalse(HeartbeatMath.PrepCoverage(reported: 36, inScope: 36).thin)
+        XCTAssertEqual(
+            HeartbeatMath.PrepCoverage(reported: 36, inScope: 2_177).note,
+            "Only 36 of 2,177 stores reported Prep Not Ready this upload."
+        )
+    }
+
+    func testLossCompanyTotalSkipsAnIncoherentMarketFragment() {
+        let fragment = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 149_208.02,
+                "lost_revenue_pct": 4.835874927555147,
+                "lost_revenue_goal": 76_229.69,
+                "lost_revenue_goal_pct": 2.4706262768101013,
+                "ecomm_sales": 30_854.40,
+            ],
+            textPayload: ["lost_grain": "market", "loss_day": "9/27"]
+        )
+        let scaled = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total",
+            payload: [
+                "lost_revenue": 3_456_041.35,
+                "lost_revenue_pct": 1.80,
+                "lost_revenue_goal_pct": 247.06,
+                "ecomm_sales": 192_329_558.25,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        XCTAssertTrue(HeartbeatMath.lostRevenueRowIsCompanyTotal(fragment))
+        XCTAssertTrue(HeartbeatMath.lostRevenueRowIsCompanyTotal(scaled))
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueMarketRow(in: [fragment, scaled])?.number("lost_revenue") ?? 0,
+            149_208.02,
+            accuracy: 0.01
+        )
+        let ignored = MetricRow(
+            section: .lostRevenue,
+            division: "Southwest",
+            operationsOM: "",
+            storeNumber: "239",
+            payload: ["lost_revenue": 218.31, "ecomm_sales": 10_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let east = MetricRow(
+            section: .lostRevenue,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: ["lost_revenue": 3_455_823.04, "ecomm_sales": 192_319_558.25],
+            textPayload: ["lost_grain": "store"]
+        )
+        let summed = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [fragment, ignored, east])
+        XCTAssertEqual(summed.values[0], HeartbeatFormat.money(149_208.02))
+        XCTAssertEqual(summed.values[1], HeartbeatFormat.pct(4.835874927555147))
+        XCTAssertEqual(summed.health, .risk)
+        let badTiles = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+            values: [
+                HeartbeatFormat.money(149_208.02),
+                HeartbeatFormat.pct(4.84),
+                "—",
+                HeartbeatFormat.money(30_854.40),
+                "—", "—", "—", "—", "—",
+            ]
+        )
+        let goodTiles = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+            values: [
+                HeartbeatFormat.money(3_456_041.35),
+                HeartbeatFormat.pct(1.80),
+                HeartbeatFormat.pct(247.06),
+                HeartbeatFormat.money(192_329_558.25),
+                "—", "—", "—", "—", "—",
+            ]
+        )
+        XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(badTiles))
+        XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(goodTiles))
+        let fixture = CompanyCardTiles(
+            labels: HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+            values: [
+                HeartbeatFormat.money(164_335),
+                HeartbeatFormat.pct(2.15),
+                HeartbeatFormat.pct(3.71),
+                HeartbeatFormat.money(7_600_000),
+                HeartbeatFormat.money(12_000),
+                HeartbeatFormat.money(8_000),
+                HeartbeatFormat.money(4_000),
+                HeartbeatFormat.money(2_000),
+                HeartbeatFormat.money(900),
+            ]
+        )
+        XCTAssertTrue(HeartbeatMath.lossTilesMatchCompanyTotal(fixture))
+
+        let eastChrome = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 609,
+            values: ["7.16%", "—", "—", "—"],
+            health: .risk
+        )
+        let shaw = MetricRow(
+            section: .preSubOOS,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: [MissingItemDept.totalKey: 4.0],
+            textPayload: [:]
+        )
+        let filled = HeartbeatMath.fillingGrainTable(
+            [eastChrome],
+            section: .preSubOOS,
+            metricRows: [shaw],
+            grain: .region,
+            fillDashesOnly: true
+        )
+        XCTAssertEqual(filled.first?.values.first, "7.16%")
+        XCTAssertEqual(filled.first?.values[1], HeartbeatFormat.num(1))
+        XCTAssertEqual(filled.first?.values[2], HeartbeatFormat.num(0))
+        XCTAssertEqual(filled.first?.values[3], HeartbeatFormat.num(0))
+    }
+
+    @MainActor
+    func testIncoherentLossMarketRowDoesNotReplaceTheCompanyTotal() throws {
+        let fragment = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 149_208.02,
+                "lost_revenue_pct": 4.835874927555147,
+                "lost_revenue_goal": 76_229.69,
+                "lost_revenue_goal_pct": 2.4706262768101013,
+                "ecomm_sales": 30_854.40,
+                "post_sub_oos_foregone": 1,
+                "refund_lost": 2,
+                "missed_sales": 3,
+                "cancelled_lost": 4,
+                "kill_switch_lost": 5,
+            ],
+            textPayload: ["lost_grain": "market", "loss_day": "9/27"]
+        )
+        let haggen = MetricRow(
+            section: .lostRevenue,
+            division: "Haggen",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: [
+                "lost_revenue": 839,
+                "lost_revenue_pct": 839 / 83.25,
+                "ecomm_sales": 83.25,
+            ],
+            textPayload: ["lost_grain": "store", "loss_day": "9/27"]
+        )
+        let east = MetricRow(
+            section: .lostRevenue,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: ["lost_revenue": 3_455_823.04, "ecomm_sales": 192_319_558.25],
+            textPayload: ["lost_grain": "store", "district": "A1"]
+        )
+        let ignored = MetricRow(
+            section: .lostRevenue,
+            division: "Southwest",
+            operationsOM: "",
+            storeNumber: "239",
+            payload: ["lost_revenue": 218.31, "ecomm_sales": 10_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .lostRevenue,
+                    storeCount: 2_177,
+                    headline: 3_456_041.35,
+                    headlineLabel: "Total lost revenue",
+                    secondary: "Total Lost Revenue % (Total Opportunity)",
+                    health: .none,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil,
+                    lostRevenuePct: 1.80
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0,
+            companyRollupRows: [MetricSection.lostRevenue.rawValue: fragment]
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("loss-fragment-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: [fragment, haggen, east, ignored], uploads: [], seeded: true, chrome: chrome, to: seat)
+        PulseSQLite.decodedFactRowCount = 0
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        let painted = store.summary(for: .lostRevenue)
+        XCTAssertEqual(painted.headline ?? 0, 149_208.02, accuracy: 0.01)
+        XCTAssertEqual(painted.lostRevenuePct ?? 0, 4.835874927555147, accuracy: 0.0001)
+        XCTAssertEqual(painted.health, .risk)
+        XCTAssertEqual(CommandCenterLayout.compactValue(painted), HeartbeatFormat.money(149_208.02))
+        XCTAssertFalse(CommandCenterLayout.compactValue(painted).contains("164,335"))
+        let chips = PhoneThisWeekChrome.chips(section: .lostRevenue, store: store)
+        XCTAssertEqual(chips.first?.value, HeartbeatFormat.money(149_208.02))
+        XCTAssertEqual(chips.first { $0.label == "Lost %" }?.value, "4.84%")
+        XCTAssertEqual(chips.first { $0.label == "Goal %" }?.label, "Goal %")
+        XCTAssertEqual(chips.first { $0.label == "Goal %" }?.value, "2.47%")
+        XCTAssertEqual(chips.first { $0.label == "eComm $" }?.value, HeartbeatFormat.money(30_854.40))
+        XCTAssertFalse(chips.contains { $0.value.contains("164,335") })
+        XCTAssertFalse(chips.contains { $0.label == "vs FY goal" })
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 1)
+    }
+
     @MainActor
     func testClearFiltersResetsChromeAndCompanyGrain() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1377,6 +2387,31 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.refundHealth(row(20.01)), .risk)
         XCTAssertTrue(HeartbeatMath.pickerMatches(row(25), focus: .refund))
         XCTAssertFalse(HeartbeatMath.pickerMatches(row(0), focus: .refund))
+    }
+
+    func testLostRevenueDisplayPctIsTheRealPercentWhenTheSheetHasNoStoredPercent() {
+        let shown = HeartbeatMath.lostRevenueDisplayPct(dollars: 484, sales: 10_000, stored: [])
+        XCTAssertEqual(shown ?? 0, 4.84, accuracy: 0.0001)
+        XCTAssertEqual(HeartbeatFormat.pct(shown), "4.84%")
+        XCTAssertNotEqual(HeartbeatFormat.pct(484 / 10_000), "4.84%")
+        XCTAssertEqual(HeartbeatFormat.pct(484 / 10_000), "0.05%")
+
+        let scaledToStored = HeartbeatMath.lostRevenueDisplayPct(dollars: 484, sales: 10_000, stored: [4.84])
+        XCTAssertEqual(scaledToStored ?? 0, 4.84, accuracy: 0.0001)
+        let alreadyPercent = HeartbeatMath.lostRevenueDisplayPct(dollars: 4.84, sales: 1, stored: [4.84])
+        XCTAssertEqual(alreadyPercent ?? 0, 4.84, accuracy: 0.0001)
+
+        let row = MetricRow(
+            section: .lostRevenue,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "12",
+            payload: ["lost_revenue": 484, "ecomm_sales": 10_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let summary = HeartbeatMath.summarize(.lostRevenue, rows: [row], upload: nil)
+        XCTAssertEqual(summary.lostRevenuePct ?? 0, 4.84, accuracy: 0.0001)
+        XCTAssertEqual(HeartbeatFormat.pct(summary.lostRevenuePct), "4.84%")
     }
 
     func testLostRevenueSummarizeUsesMarketTotalThenFilterSum() {
@@ -2113,8 +3148,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.dashboardExpandIsLive(section: .pickerScorecard, salesRows: [], grainRows: all))
         var jewelFilter = DashboardFilters()
         jewelFilter.division = "Jewel Osco"
-        XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: jewelFilter).isEmpty)
-        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter).isEmpty)
+        XCTAssertEqual(
+            PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: jewelFilter).map(\.label),
+            ["Jewel Osco"]
+        )
+        XCTAssertEqual(
+            PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter).map(\.label),
+            ["Jewel Osco"]
+        )
         var districtFilter = DashboardFilters()
         districtFilter.district = "03"
         XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: districtFilter).isEmpty)
@@ -2122,6 +3163,506 @@ final class HeartbeatMathTests: XCTestCase {
         storeFilter.store = "304"
         XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: storeFilter).isEmpty)
         XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: storeFilter).isEmpty)
+    }
+
+    /// A roster-counted dash table must not replace chrome that already has the
+    /// section's numbers. A filter slices those rows. Roster gold stays off non-Loss tiles.
+    func testChromeBreakdownSurvivesRosterDashAndFilter() {
+        func line(_ label: String, _ count: Int, _ value: String) -> HeartbeatMath.DashboardGrainTableRow {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: count,
+                values: [value],
+                health: value == "—" ? .none : .risk
+            )
+        }
+        let sales = [
+            line("East Region", 615, "$8,209,791.69"),
+            line("West Region", 555, "$1.00"),
+            line("California Region", 604, "$1.00"),
+            line("South Region", 397, "$1.00"),
+        ]
+        let loss = [
+            line("East Region", 610, "$393,334.12"),
+            line("South Region", 395, "$136,425"),
+            line("California Region", 599, "$168,079.57"),
+            line("West Region", 553, "$191,547.49"),
+        ]
+        let missing = [
+            line("East Region", 613, "8.61%"),
+            line("South Region", 395, "7.19%"),
+            line("California Region", 600, "8.18%"),
+            line("West Region", 554, "6.49%"),
+        ]
+        let stars = [
+            line("East Region", 611, "2.60"),
+            line("South Region", 395, "3.46"),
+            line("California Region", 599, "3.75"),
+            line("West Region", 552, "3.64"),
+        ]
+        let presub = [
+            line("East Region", 613, "6.63%"),
+            line("South Region", 395, "5.51%"),
+            line("California Region", 600, "4.91%"),
+            line("West Region", 554, "4.85%"),
+        ]
+        let path = [
+            line("East Region", 610, "78.80%"),
+            line("South Region", 385, "80.06%"),
+            line("California Region", 596, "79.17%"),
+            line("West Region", 551, "81.03%"),
+        ]
+        let prep = [
+            line("East Region", 81, "3.70%"),
+            line("West Region", 65, "2.33%"),
+            line("California Region", 113, "1.78%"),
+            line("South Region", 106, "2.55%"),
+            line("Jewel Osco", 45, "3.06%"),
+            line("Mid-Atlantic", 23, "3.53%"),
+            line("Portland", 9, "3.48%"),
+            line("NorCal", 57, "2.39%"),
+            line("Southern", 36, "2.80%"),
+            line("Shaws", 13, "6.21%"),
+            line("Southwest", 70, "2.43%"),
+            line("SoCal", 56, "1.16%"),
+            line("Mountain West", 32, "2.63%"),
+            line("Seattle", 24, "1.50%"),
+            line("United", 70, "—"),
+        ]
+        let dynacap = [
+            line("East Region", 612, "81.3"),
+            line("South Region", 324, "59.4"),
+            line("California Region", 600, "59.1"),
+            line("West Region", 552, "67.4"),
+        ]
+        let schedule = [
+            line("East Region", 610, "89.07%"),
+            line("South Region", 325, "92.16%"),
+            line("California Region", 595, "88.58%"),
+            line("West Region", 550, "92.55%"),
+        ]
+        let picker = [
+            line("East Region", 6_996, "6996"),
+            line("South Region", 4_117, "4117"),
+            line("California Region", 5_807, "5807"),
+            line("West Region", 4_862, "4862"),
+        ]
+        let pph = [
+            line("East Region", 613, "69.5"),
+            line("South Region", 395, "74.3"),
+            line("California Region", 601, "73.5"),
+            line("West Region", 554, "80.2"),
+        ]
+        let labor = [
+            line("East Region", 490, "0.75%"),
+            line("South Region", 367, "0.89%"),
+            line("California Region", 438, "1.11%"),
+            line("West Region", 418, "0.33%"),
+        ]
+        let chrome: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [
+            .sales: sales, .lostRevenue: loss, .missingItems: missing, .fiveStar: stars,
+            .preSubOOS: presub, .pickPath: path, .prepNotReady: prep, .dynacap: dynacap,
+            .scheduleQuality: schedule, .pickerScorecard: picker, .pph: pph, .labor: labor,
+        ]
+        let dashes = chrome.mapValues { rows in
+            rows.map {
+                HeartbeatMath.DashboardGrainTableRow(
+                    label: $0.label,
+                    storeCount: $0.label == "East Region" && $0.storeCount == 81 ? 615 : $0.storeCount,
+                    values: ["—"],
+                    health: .none
+                )
+            }
+        }
+        let kept = PulseLaunch.mergeLiveGrainTables(incoming: dashes, live: chrome, grain: .region)
+        XCTAssertEqual(kept[.sales]?.first { $0.label == "East Region" }?.values.first, "$8,209,791.69")
+        XCTAssertEqual(kept[.sales]?.first { $0.label == "East Region" }?.storeCount, 615)
+        XCTAssertEqual(kept[.lostRevenue]?.first { $0.label == "East Region" }?.values.first, "$393,334.12")
+        XCTAssertEqual(kept[.lostRevenue]?.first { $0.label == "East Region" }?.storeCount, 610)
+        XCTAssertEqual(kept[.missingItems]?.first { $0.label == "East Region" }?.values.first, "8.61%")
+        XCTAssertEqual(kept[.fiveStar]?.first { $0.label == "East Region" }?.values.first, "2.60")
+        XCTAssertEqual(kept[.preSubOOS]?.first { $0.label == "East Region" }?.values.first, "6.63%")
+        XCTAssertEqual(kept[.pickPath]?.first { $0.label == "East Region" }?.values.first, "78.80%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "East Region" }?.values.first, "3.70%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "East Region" }?.storeCount, 81)
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "Jewel Osco" }?.values.first, "3.06%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "Jewel Osco" }?.storeCount, 45)
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "Shaws" }?.values.first, "6.21%")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "United" }?.values.first, "—")
+        XCTAssertEqual(kept[.prepNotReady]?.first { $0.label == "United" }?.storeCount, 70)
+        XCTAssertEqual(kept[.dynacap]?.first { $0.label == "East Region" }?.values.first, "81.3")
+        XCTAssertEqual(kept[.scheduleQuality]?.first { $0.label == "East Region" }?.values.first, "89.07%")
+        XCTAssertEqual(kept[.pickerScorecard]?.first { $0.label == "East Region" }?.storeCount, 6_996)
+        XCTAssertEqual(kept[.pph]?.first { $0.label == "East Region" }?.values.first, "69.5")
+        XCTAssertEqual(kept[.labor]?.first { $0.label == "East Region" }?.values.first, "0.75%")
+        XCTAssertFalse(HeartbeatMath.grainRowsAreLive(dashes[.prepNotReady] ?? []))
+
+        var east = DashboardFilters()
+        east.region = "East Region"
+        let sliced = PulseLaunch.grainRowsScopedToFilter(prep, filters: east)
+        XCTAssertFalse(sliced.isEmpty, "a region filter must slice chrome rows")
+        XCTAssertEqual(sliced.first { $0.label == "East Region" }?.storeCount, 81)
+        XCTAssertFalse(sliced.contains { $0.label == "West Region" })
+        XCTAssertTrue(sliced.contains { $0.label == "Shaws" })
+
+        let salesCard = SectionSummary(
+            section: .sales,
+            storeCount: 615,
+            headline: 27_760_000,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(PulseLaunch.pinSeatStoreCount(salesCard, seatStores: 2_163).storeCount, 615)
+
+        let unresolved = [
+            MetricRow(section: .sales, division: "not-a-market", operationsOM: "", storeNumber: "1", payload: ["sales_dollars": 5])
+        ]
+        XCTAssertTrue(SalesRollupBuilder.dashboardRows(from: unresolved, grain: .region).isEmpty)
+        let painted = SalesRollupBuilder.dashboardRows(from: unresolved, grain: .region, chrome: sales)
+        XCTAssertEqual(painted.first { $0.label == "East Region" }?.storeCount, 615)
+        XCTAssertEqual(painted.first { $0.label == "East Region" }?.pack.sales ?? 0, 8_209_791.69, accuracy: 0.01)
+        XCTAssertEqual(painted.count, 4)
+        let markets = SalesRollupBuilder.rowsFromChrome(prep, grain: .division)
+        XCTAssertEqual(markets.first { $0.label == "Jewel Osco" }?.storeCount, 45)
+        XCTAssertEqual(markets.first { $0.label == "Seattle" }?.pack.sales ?? 0, 1.50, accuracy: 0.001)
+        XCTAssertFalse(markets.contains { $0.label == "United" })
+
+        let prepDivisions = HeartbeatMath.chromeSectionRows(
+            section: .prepNotReady,
+            grain: .division,
+            tables: prep,
+            packs: []
+        )
+        XCTAssertEqual(prepDivisions.first { $0.label == "Jewel Osco" }?.values.first, "3.06%")
+        XCTAssertEqual(prepDivisions.first { $0.label == "Jewel Osco" }?.storeCount, 45)
+        XCTAssertEqual(prepDivisions.first { $0.label == "United" }?.values.first, "—")
+        XCTAssertEqual(prepDivisions.first { $0.label == "United" }?.storeCount, 70)
+        XCTAssertFalse(prepDivisions.contains { $0.label == "East Region" })
+        let prepRegions = HeartbeatMath.chromeSectionRows(
+            section: .prepNotReady,
+            grain: .region,
+            tables: prep,
+            packs: []
+        )
+        XCTAssertEqual(prepRegions.first { $0.label == "East Region" }?.values.first, "3.70%")
+        XCTAssertEqual(prepRegions.first { $0.label == "East Region" }?.storeCount, 81)
+        XCTAssertEqual(prepRegions.count, 4)
+
+        let odd = line("Book East", 615, "$8,209,791.69")
+        let oddDash = line("Book East", 615, "—")
+        let keptOdd = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.sales: [oddDash]],
+            live: [.sales: [odd]],
+            grain: .region
+        )
+        XCTAssertEqual(keptOdd[.sales]?.first?.values.first, "$8,209,791.69")
+        XCTAssertEqual(keptOdd[.sales]?.first?.storeCount, 615)
+        let oddRows = HeartbeatMath.chromeSectionRows(
+            section: .sales,
+            grain: .region,
+            tables: [odd],
+            packs: []
+        )
+        XCTAssertEqual(oddRows.first?.values.first, "$8,209,791.69")
+        XCTAssertFalse(HeartbeatMath.grainLabelsMatch([odd.label], grain: .region))
+        XCTAssertTrue(HeartbeatMath.grainLabelsMatch([odd], grain: .region))
+
+        let rosterDash = [
+            line("East Region", 615, "—"),
+            line("West Region", 555, "—"),
+            line("South Region", 397, "—"),
+            line("California Region", 604, "—"),
+        ]
+        XCTAssertFalse(HeartbeatMath.grainLabelsMatch(rosterDash, grain: .region))
+        XCTAssertTrue(HeartbeatMath.fittingGrainRows(rosterDash, grain: .region).isEmpty)
+        XCTAssertTrue(
+            HeartbeatMath.chromeSectionRows(
+                section: .scheduleQuality,
+                grain: .region,
+                tables: rosterDash,
+                packs: []
+            ).isEmpty
+        )
+        let scheduleChrome = HeartbeatMath.chromeSectionRows(
+            section: .scheduleQuality,
+            grain: .region,
+            tables: schedule,
+            packs: []
+        )
+        XCTAssertEqual(scheduleChrome.first { $0.label == "East Region" }?.values.first, "89.07%")
+        XCTAssertEqual(scheduleChrome.first { $0.label == "East Region" }?.storeCount, 610)
+        XCTAssertEqual(scheduleChrome.first { $0.label == "South Region" }?.values.first, "92.16%")
+        XCTAssertEqual(scheduleChrome.first { $0.label == "South Region" }?.storeCount, 325)
+        let pathChrome = HeartbeatMath.chromeSectionRows(
+            section: .pickPath,
+            grain: .region,
+            tables: path,
+            packs: []
+        )
+        XCTAssertEqual(pathChrome.first { $0.label == "East Region" }?.values.first, "78.80%")
+        XCTAssertEqual(pathChrome.first { $0.label == "East Region" }?.storeCount, 610)
+        let lossChrome = HeartbeatMath.chromeSectionRows(
+            section: .lostRevenue,
+            grain: .region,
+            tables: loss,
+            packs: []
+        )
+        XCTAssertEqual(lossChrome.first { $0.label == "East Region" }?.values.first, "$393,334.12")
+        XCTAssertEqual(lossChrome.first { $0.label == "East Region" }?.storeCount, 610)
+        XCTAssertFalse(lossChrome.contains { $0.storeCount == 615 })
+        let dynacapDivisions = MarketRegion.officialDivisions.filter { $0 != "United" }.enumerated().map { index, name in
+            line(name, 12 + index, "6\(index).1")
+        }
+        XCTAssertEqual(dynacapDivisions.count, 11)
+        let dynacapBook = dynacap + dynacapDivisions
+        let dynacapRegions = HeartbeatMath.chromeSectionRows(
+            section: .dynacap,
+            grain: .region,
+            tables: dynacapBook,
+            packs: []
+        )
+        XCTAssertEqual(dynacapRegions.first { $0.label == "East Region" }?.values.first, "81.3")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "East Region" }?.storeCount, 612)
+        XCTAssertEqual(dynacapRegions.first { $0.label == "South Region" }?.values.first, "59.4")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "South Region" }?.storeCount, 324)
+        XCTAssertEqual(dynacapRegions.first { $0.label == "California Region" }?.values.first, "59.1")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "California Region" }?.storeCount, 600)
+        XCTAssertEqual(dynacapRegions.first { $0.label == "West Region" }?.values.first, "67.4")
+        XCTAssertEqual(dynacapRegions.first { $0.label == "West Region" }?.storeCount, 552)
+        XCTAssertEqual(dynacapRegions.count, 4)
+        let dynacapMarkets = HeartbeatMath.chromeSectionRows(
+            section: .dynacap,
+            grain: .division,
+            tables: dynacapBook,
+            packs: []
+        )
+        XCTAssertEqual(dynacapMarkets.count, 11)
+        XCTAssertFalse(dynacapMarkets.contains { $0.label == "United" })
+        XCTAssertFalse(dynacapMarkets.contains { $0.storeCount == 0 })
+        XCTAssertTrue(dynacapMarkets.allSatisfy(HeartbeatMath.grainRowHasSectionValue))
+        XCTAssertFalse(HeartbeatMath.grainLabelsMatch([line("Jewel Osco", 0, "—")], grain: .division))
+
+        func salesLine(_ label: String, _ count: Int, _ dollars: String) -> HeartbeatMath.DashboardGrainTableRow {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: count,
+                values: [dollars, "—", "—"],
+                health: .risk
+            )
+        }
+        let deviceSales = [
+            salesLine("East Region", 615, "$8,209,791.69"),
+            salesLine("South Region", 397, "$4,994,836.32"),
+            salesLine("California Region", 604, "$7,868,959.21"),
+            salesLine("West Region", 555, "$6,685,100.87"),
+        ]
+        XCTAssertTrue(HeartbeatMath.grainLabelsMatch(deviceSales, grain: .region))
+        let keptDeviceSales = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.sales: rosterDash],
+            live: [.sales: deviceSales],
+            grain: .region
+        )
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "East Region" }?.values.first, "$8,209,791.69")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "East Region" }?.storeCount, 615)
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "East Region" }?.values.dropFirst().first, "—")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "South Region" }?.values.first, "$4,994,836.32")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "South Region" }?.storeCount, 397)
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "California Region" }?.values.first, "$7,868,959.21")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "California Region" }?.storeCount, 604)
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "West Region" }?.values.first, "$6,685,100.87")
+        XCTAssertEqual(keptDeviceSales[.sales]?.first { $0.label == "West Region" }?.storeCount, 555)
+
+        let shoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 6_996,
+            values: ["6,996", "—", "—", "—"],
+            health: .none
+        )
+        let status = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 0,
+            values: ["—", "1,200", "400", "80"],
+            health: .risk
+        )
+        let filledPickers = HeartbeatMath.pickerRowsKeepingShoppers([shoppers], filling: [status])
+        XCTAssertEqual(filledPickers.first?.values, ["6,996", "1,200", "400", "80"])
+        XCTAssertEqual(filledPickers.first?.storeCount, 6_996)
+        let southShoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "South Region",
+            storeCount: 4_117,
+            values: ["4,117", "—", "—", "—"],
+            health: .none
+        )
+        let californiaShoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "California Region",
+            storeCount: 5_807,
+            values: ["5,807", "—", "—", "—"],
+            health: .none
+        )
+        let westShoppers = HeartbeatMath.DashboardGrainTableRow(
+            label: "West Region",
+            storeCount: 4_862,
+            values: ["4,862", "—", "—", "—"],
+            health: .none
+        )
+        let keptShoppers = HeartbeatMath.pickerRowsKeepingShoppers(
+            [shoppers, southShoppers, californiaShoppers, westShoppers],
+            filling: [status]
+        )
+        XCTAssertEqual(keptShoppers.map(\.storeCount), [6_996, 4_117, 5_807, 4_862])
+        XCTAssertEqual(keptShoppers.map { $0.values.first }, ["6,996", "4,117", "5,807", "4,862"])
+
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "East Region", grain: .region, pickerRows: picker),
+            6_996
+        )
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "South Region", grain: .region, pickerRows: picker),
+            4_117
+        )
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "California Region", grain: .region, pickerRows: picker),
+            5_807
+        )
+        XCTAssertEqual(
+            HeartbeatMath.pphPickerCount(label: "West Region", grain: .region, pickerRows: picker),
+            4_862
+        )
+        XCTAssertEqual(HeartbeatMath.grainNumber(pph[0], 0), 69.5)
+        XCTAssertEqual(pph[0].storeCount, 613)
+
+        XCTAssertEqual(HeartbeatFormat.money(393_334.12), "$393,334.12")
+        XCTAssertEqual(HeartbeatFormat.money(136_425), "$136,425")
+        XCTAssertEqual(HeartbeatFormat.money(168_079.57), "$168,079.57")
+        XCTAssertEqual(HeartbeatFormat.money(191_547.49), "$191,547.49")
+        XCTAssertNotEqual(HeartbeatFormat.money(393_334.12), HeartbeatFormat.moneyShort(393_334.12))
+        XCTAssertNotEqual(
+            HeartbeatMath.lostRevenueRowHealth(lost: 393_334.12, pct: nil, goal: nil),
+            Health.none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueRowHealth(lost: 393_334.12, pct: 4.2, goal: 3),
+            Health.risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueRowHealth(lost: nil, pct: nil, goal: nil),
+            Health.none
+        )
+
+        let missingEast = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["8.61%", "—", "—", "—", "9.10%"],
+            health: .risk
+        )
+        let fromChrome = HeartbeatMath.missingItemsChromeValues(missingEast)
+        XCTAssertEqual(HeartbeatMath.grainNumber(missingEast, 0), 8.61)
+        XCTAssertEqual(fromChrome[MissingItemDept.grocery.rawValue] ?? 0, 9.10, accuracy: 0.001)
+        let headerOnly = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["8.61%", "120", "40", "10"],
+            health: .risk
+        )
+        XCTAssertTrue(HeartbeatMath.missingItemsChromeValues(headerOnly).isEmpty)
+        let grocery = HeartbeatMath.FiveStarFlag(name: "Grocery", value: "9.40%", health: .risk, stores: 10)
+        let fromFlag = HeartbeatMath.missingItemsChromeValues(headerOnly, flags: [grocery])
+        XCTAssertEqual(fromFlag[MissingItemDept.grocery.rawValue] ?? 0, 9.40, accuracy: 0.001)
+        let keptDept = HeartbeatMath.missingItemsKeepingDepartments(
+            chrome: fromFlag,
+            filling: [MissingItemDept.grocery.rawValue: 1, MissingItemDept.alcohol.rawValue: 3.2]
+        )
+        XCTAssertEqual(keptDept[MissingItemDept.grocery.rawValue] ?? 0, 9.40, accuracy: 0.001)
+        XCTAssertEqual(keptDept[MissingItemDept.alcohol.rawValue] ?? 0, 3.2, accuracy: 0.001)
+    }
+
+    /// Published chrome stores the region percent on the scope line, not in a
+    /// fifth cell and not in mi_grocery. A cached row with 613 stores and a
+    /// dash in cell 0 must take that line. An existing mi_pct stays.
+    func testMissingRegionTotalComesFromScopeLineWhenCachedCellIsDash() {
+        func dash(_ label: String, _ count: Int) -> HeartbeatMath.DashboardGrainTableRow {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: count,
+                values: ["—", "—", "—", "—"],
+                health: .none
+            )
+        }
+        func pack(_ label: String, _ count: Int, _ value: String) -> DashScopePack {
+            DashScopePack(
+                line: DashScopeLine(label: label, value: value, health: .risk, count: count),
+                flags: [],
+                children: []
+            )
+        }
+        let cached = [
+            dash("East Region", 613),
+            HeartbeatMath.DashboardGrainTableRow(
+                label: "South Region",
+                storeCount: 395,
+                values: ["7.19%", "—", "—", "—"],
+                health: .risk
+            ),
+            dash("California Region", 600),
+            dash("West Region", 554),
+        ]
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(cached))
+        XCTAssertNil(HeartbeatMath.grainNumber(cached[0], 0))
+        XCTAssertTrue(HeartbeatMath.missingItemsChromeValues(cached[0]).isEmpty)
+        let missingPacks = [
+            pack("East Region", 613, "8.61%"),
+            pack("South Region", 395, "9.99%"),
+            pack("California Region", 600, "8.18%"),
+            pack("West Region", 554, "6.49%"),
+        ]
+        let filled = HeartbeatMath.fillingMissingScopeLine(cached, packs: missingPacks, grain: .region)
+        XCTAssertEqual(filled[0].values.first, "8.61%")
+        XCTAssertEqual(filled[0].storeCount, 613)
+        XCTAssertEqual(HeartbeatMath.grainNumber(filled[0], 0), 8.61)
+        XCTAssertEqual(filled[1].values.first, "7.19%")
+        XCTAssertEqual(filled[1].storeCount, 395)
+        XCTAssertEqual(filled[2].values.first, "8.18%")
+        XCTAssertEqual(filled[2].storeCount, 600)
+        XCTAssertEqual(filled[3].values.first, "6.49%")
+        XCTAssertEqual(filled[3].storeCount, 554)
+        XCTAssertTrue(HeartbeatMath.missingItemsChromeValues(filled[0]).isEmpty)
+        let departments = [
+            MissingItemDept.grocery.rawValue: 3.86,
+            MissingItemDept.alcohol.rawValue: 6.71,
+        ]
+        let kept = HeartbeatMath.missingItemsKeepingDepartments(chrome: [:], filling: departments)
+        XCTAssertEqual(kept[MissingItemDept.grocery.rawValue] ?? 0, 3.86, accuracy: 0.001)
+        XCTAssertNotEqual(HeartbeatMath.grainNumber(filled[0], 0), kept[MissingItemDept.grocery.rawValue])
+
+        let blank = [
+            dash("East Region", 613),
+            dash("South Region", 395),
+            dash("California Region", 600),
+            dash("West Region", 554),
+        ]
+        let presubPacks = [
+            pack("East Region", 999, "6.63%"),
+            pack("South Region", 1, "5.51%"),
+            pack("California Region", 1, "4.91%"),
+            pack("West Region", 1, "4.85%"),
+        ]
+        let presub = HeartbeatMath.fillingMissingScopeLine(blank, packs: presubPacks, grain: .region)
+        XCTAssertEqual(presub.map { $0.values.first }, ["6.63%", "5.51%", "4.91%", "4.85%"])
+        XCTAssertEqual(presub.map(\.storeCount), [613, 395, 600, 554])
+        let page = String(
+            decoding: (try? Data(contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"))) ?? Data(),
+            as: UTF8.self
+        )
+        XCTAssertTrue(page.contains("fillingMissingScopeLine"))
+        XCTAssertTrue(page.contains("section == .missingItems || section == .preSubOOS"))
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {
@@ -2467,23 +4008,22 @@ final class HeartbeatMathTests: XCTestCase {
             section: .scheduleQuality
         )
         XCTAssertEqual(PulseLaunch.uniqueStores(in: padded), ["304", "667"])
+        let scheduleCard = SectionSummary(
+            section: .scheduleQuality,
+            storeCount: 1,
+            headline: 90,
+            headlineLabel: "Avg",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
         XCTAssertEqual(
-            PulseLaunch.pinSeatStoreCount(
-                SectionSummary(
-                    section: .scheduleQuality,
-                    storeCount: 1,
-                    headline: 90,
-                    headlineLabel: "Avg",
-                    secondary: "",
-                    health: .good,
-                    watchCount: 0,
-                    riskCount: 0,
-                    lastFilename: nil,
-                    lastUploadedAt: nil
-                ),
-                seatStores: 2
-            ).storeCount,
-            2
+            PulseLaunch.pinSeatStoreCount(scheduleCard, seatStores: 2).storeCount,
+            1,
+            "roster count must not stamp a non-Loss tile"
         )
     }
 
@@ -2555,25 +4095,26 @@ final class HeartbeatMathTests: XCTestCase {
                     "\(section.rawValue) HubStoreCard N must equal Heartbeat \(heartbeatN)"
                 )
             }
-            XCTAssertEqual(
-                PulseLaunch.pinSeatStoreCount(
-                    SectionSummary(
-                        section: section,
-                        storeCount: facts.count,
-                        headline: 1,
-                        headlineLabel: "Avg",
-                        secondary: "",
-                        health: .good,
-                        watchCount: 0,
-                        riskCount: 0,
-                        lastFilename: nil,
-                        lastUploadedAt: nil
-                    ),
-                    seatStores: heartbeatN
-                ).storeCount,
-                heartbeatN,
-                "\(section.rawValue) card storeCount must pin to Heartbeat N"
-            )
+            let pinnedCount = PulseLaunch.pinSeatStoreCount(
+                SectionSummary(
+                    section: section,
+                    storeCount: facts.count,
+                    headline: 1,
+                    headlineLabel: "Avg",
+                    secondary: "",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                ),
+                seatStores: heartbeatN
+            ).storeCount
+            if section == .lostRevenue {
+                XCTAssertEqual(pinnedCount, heartbeatN, "Loss may take the seat store count")
+            } else {
+                XCTAssertEqual(pinnedCount, facts.count, "\(section.rawValue) must keep its own count")
+            }
         }
     }
 
@@ -2640,7 +4181,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldLoadSeatPickerOnPageOpen(filtersActive: true))
         XCTAssertFalse(PulseLaunch.shouldLoadSeatPickerOnPageOpen(filtersActive: false))
         XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: true), .seatReadStores)
-        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: false), .companyStream)
+        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: false), .chromeRollup)
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPrefetchExpandOnFilterStamp())
         XCTAssertFalse(PulseLaunch.shouldShowPickerLoadingOnSeatFill(dest: .dashboard))
@@ -2655,7 +4196,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
         XCTAssertLessThanOrEqual(PulseLaunch.halloweenParadeFPS, 15)
         XCTAssertGreaterThanOrEqual(PulseLaunch.halloweenParadeFPS, 8)
-        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
         XCTAssertEqual(PulseLaunch.seatLoadTitle, "Loading Heartbeat")
         XCTAssertTrue(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("unlock"))
@@ -2790,7 +4331,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2832,7 +4373,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2900,7 +4441,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2908,7 +4449,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
-        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertTrue(CommandCenterLayout.coversEveryDashboardSection())
         XCTAssertEqual(CommandCenterLayout.heroSections, [.sales, .lostRevenue, .fiveStar])
@@ -2990,10 +4531,10 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
-        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
@@ -3141,7 +4682,9 @@ final class HeartbeatMathTests: XCTestCase {
             [sales2160, loss2159, five2189],
             rosterStores: 2189
         )
-        XCTAssertTrue(pinned.allSatisfy { $0.storeCount == 2189 })
+        XCTAssertEqual(pinned.first { $0.section == .sales }?.storeCount, 2160)
+        XCTAssertEqual(pinned.first { $0.section == .fiveStar }?.storeCount, 2189)
+        XCTAssertEqual(pinned.first { $0.section == .lostRevenue }?.storeCount, 2189)
 
         var roster: [String: HeartbeatMath.StoreIdentity] = [:]
         for n in 1...5 {
@@ -3230,7 +4773,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -3349,7 +4892,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch())
         XCTAssertFalse(PulseLaunch.shouldShowHubFillBanner(needsRolePick: false, warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
-        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertEqual(PulseLaunch.displayLoadStatus("Building store tables"), PulseLaunch.seatLoadTitle)
         for phase in PulseLaunch.BootPhase.allCases {
             XCTAssertEqual(phase.label, PulseLaunch.seatLoadTitle)
@@ -3369,7 +4912,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture392PhoneChromeCardsNotSqueezedTable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertEqual(HubLayout.SupportedCanvas.phonePortrait, 390)
         XCTAssertEqual(HubLayout.phoneHitTarget, 44)
         XCTAssertEqual(HubLayout.phoneControlHeight, 44)
@@ -3384,7 +4927,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture393PhoneScorecardRefusesPadTable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: true, phoneIdiom: false))
         XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: false, phoneIdiom: true))
         XCTAssertFalse(PulseLaunch.shouldRefusePadShopperTable(compact: false, phoneIdiom: false))
@@ -3398,7 +4941,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture394PhoneContentClearsHubChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.shouldGiveHubChromeItsOwnTopSafeArea())
         XCTAssertFalse(PulseLaunch.shouldClipPhoneContentBelowHubChrome())
@@ -3417,7 +4960,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture395HubChromeSafeAreaInset() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.shouldInsetHubChromeIntoContentSafeArea())
         XCTAssertTrue(PulseLaunch.shouldGiveHubChromeItsOwnTopSafeArea())
@@ -3433,7 +4976,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture397PhoneFilterSwapPaintsCachedSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
         XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
@@ -3473,7 +5016,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture398PhonePageNavAndFilterSwapAreBothInstant() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
         XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
@@ -3543,7 +5086,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture396PhoneNativeCommandCenter() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(CommandCenterLayout.shouldFillPhoneViewport())
@@ -3567,7 +5110,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture391ColdOpenCannotMountWhoIsLooking() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
         XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
@@ -3584,7 +5127,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -3604,7 +5147,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: 0))
         XCTAssertTrue(PulseLaunch.shouldLoadSection(visible: .dashboard, section: .sales, pushed: .sales))
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
-        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertFalse(PulseLaunch.shouldLeaveSplashForSeatLoad())
         XCTAssertEqual(PulseLaunch.displayLoadStatus("Building store tables"), PulseLaunch.seatLoadTitle)
         XCTAssertEqual(PulseSeatPack.Key.company.objectPath, "packs/seat/company/all/current.sqlite")
@@ -3635,7 +5178,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -3687,7 +5230,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
         XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
@@ -3820,7 +5363,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture399KitchenIngestSafeHitTarget() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertEqual(PulseLaunch.phoneMinimumHitTarget(), 44)
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket("Unassigned"))
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket(""))
@@ -3829,7 +5372,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture390PickerPhonePagesAssistUnassignedAndLabor() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: true))
         XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false))
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 390))
@@ -4150,6 +5693,935 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseSQLite.needsAttentionStores(from: dest).allSatisfy { districtStores.contains($0) })
     }
 
+    /// Filter changes must not decode the company fact file.
+    /// Expected phone memory during a filter, including Store 3493: the chosen
+    /// scope's rows only (a store is a few megabytes of decoded rows, not the
+    /// company payloads). The picker is an id / name / division index. Peak
+    /// stays well under 1 GB because the company file is not expanded in Swift.
+    func testFilterChangeDoesNotDecodeTheCompanyFactSet() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        func row(_ section: MetricSection, _ store: String, _ division: String, _ payload: [String: Double]) -> MetricRow {
+            MetricRow(
+                section: section,
+                division: division,
+                operationsOM: "OM",
+                storeNumber: store,
+                storeName: store == "3493" ? "Haggen 3493" : "United 22",
+                payload: payload,
+                textPayload: ["district": store == "3493" ? "39" : "U5"]
+            )
+        }
+        let haggen = [
+            row(.lostRevenue, "3493", "Haggen", ["lost_revenue": 539]),
+            row(.missingItems, "3493", "Haggen", [MissingItemDept.totalKey: 8.9]),
+            row(.pickPath, "3493", "Haggen", ["compliance_pct": 82.1]),
+        ]
+        let other = row(.sales, "22", "United", ["sales_dollars": 100])
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("filter-scope-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let company = tmp.appendingPathComponent("company.sqlite")
+        try PulseSQLite.write(rows: haggen + [other], uploads: [], seeded: true, chrome: nil, to: company)
+
+        let readsBefore = PulseSQLite.companyFactReadCount
+        PulseSQLite.decodedFactRowCount = 0
+        let index = PulseSQLite.readStoreIndex(from: company)
+        XCTAssertEqual(index["3493"]?.division, "Haggen")
+        XCTAssertEqual(index["3493"]?.name, "Haggen 3493")
+        XCTAssertEqual(index["22"]?.division, "United")
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0, "store index must not decode fact payloads")
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, readsBefore)
+
+        PulseSQLite.decodedFactRowCount = 0
+        let dest = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .store, id: "3493"))
+        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = try PulseSeatPack.materialize(
+            from: company,
+            key: PulseSeatPack.Key(grain: .store, id: "3493"),
+            roster: [:],
+            uploads: [],
+            to: dest
+        )
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, readsBefore, "store materialize must not read the company file")
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, haggen.count, "only Store 3493 rows are decoded")
+
+        XCTAssertThrowsError(
+            try PulseSeatPack.materialize(
+                from: company,
+                key: .company,
+                roster: ["22": HeartbeatMath.StoreIdentity(division: "United", district: "U5", om: "OM", name: "United 22")],
+                uploads: [],
+                to: tmp.appendingPathComponent("company-seat.sqlite")
+            )
+        )
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, readsBefore)
+
+        let pack = try PulseSQLite.read(from: dest)
+        let stores = Set(pack.rows.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
+        XCTAssertEqual(stores, ["3493"])
+        XCTAssertFalse(stores.contains("22"))
+        XCTAssertEqual(PulseSQLite.distinctStoreCount(from: company), 2)
+        XCTAssertEqual(PulseSQLite.distinctStoreCount(from: dest), 1)
+    }
+
+    /// Company dashboard, company pages, Share's rollup, and a division filter
+    /// must not `PulseSQLite.read` the company file or stream a whole section.
+    @MainActor
+    func testCompanyScreensAndFiltersDoNotDecodeTheCompanyFactSet() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(PulseLaunch.residentMemoryBudgetBytes, 400 * 1024 * 1024)
+        XCTAssertEqual(ResidentMemory.budgetBytes, UInt64(PulseLaunch.residentMemoryBudgetBytes))
+        for section in MetricSection.allCases {
+            XCTAssertEqual(
+                PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: false),
+                .chromeRollup
+            )
+        }
+
+        func fact(_ section: MetricSection, _ store: String, _ division: String) -> MetricRow {
+            MetricRow(
+                section: section,
+                division: division,
+                operationsOM: "OM",
+                storeNumber: store,
+                storeName: store,
+                payload: ["sales_dollars": 100, "orders": 4],
+                textPayload: [
+                    "district": division == "United" ? "U5" : "39",
+                    "shopper_id": section == .pickerScorecard ? "S\(store)" : "",
+                ]
+            )
+        }
+        let rows = [
+            fact(.sales, "22", "United"),
+            fact(.sales, "23", "United"),
+            fact(.sales, "3493", "Haggen"),
+            fact(.pickerScorecard, "22", "United"),
+            fact(.pickerScorecard, "23", "United"),
+            fact(.pickerScorecard, "3493", "Haggen"),
+        ]
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 3,
+                    headline: 300,
+                    headlineLabel: "Sales",
+                    secondary: "company rollup",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 12
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: chrome, to: seat)
+
+        let reads = PulseSQLite.companyFactReadCount
+        let sectionReads = PulseSQLite.sectionFactReadCount
+        PulseSQLite.decodedFactRowCount = 0
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        XCTAssertEqual(store.summaries.first { $0.section == .sales }?.headline ?? 0, 300, accuracy: 1)
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0)
+
+        let companyAssist = AssistSnapshot.source(from: store, focus: nil)
+        XCTAssertTrue(companyAssist.latest.isEmpty)
+        XCTAssertTrue(AssistExchange.packReady(companyAssist))
+        let share = store.pulseMailSnapshot([.dashboard])
+        XCTAssertTrue(share.rows.values.allSatisfy(\.isEmpty))
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0)
+
+        var united = DashboardFilters()
+        united.division = "United"
+        XCTAssertTrue(store.applyFilterScope(united))
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads, "a filter must not read the company file")
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads, "a filter must not stream a whole section")
+        XCTAssertEqual(
+            PulseSQLite.decodedFactRowCount,
+            2,
+            "United sales rows only — Haggen and picker tape stay in sqlite"
+        )
+        let filteredAssist = AssistSnapshot.source(from: store, focus: nil)
+        XCTAssertNil(filteredAssist.latest[.pickerScorecard])
+        XCTAssertEqual(filteredAssist.latest[.sales]?.count, 2)
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+    }
+
+    /// Company card tiles are the workbook rollup. Sales is the Total row, not a store sum and not $0.
+    func testCompanyCardTilesUseWorkbookRollups() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let storeSale = MetricRow(
+            section: .sales,
+            division: "United",
+            operationsOM: "",
+            storeNumber: "22",
+            payload: ["sales_dollars": 100, "sales_orders": 4, "sales_yoy_pct": -79],
+            textPayload: ["sales_grain": "store"]
+        )
+        let workbookTotal = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total Sales $",
+            payload: [
+                "sales_dollars": 16_430_000,
+                "sales_yoy_pct": 4.25,
+                "sales_orders": 421_801,
+                "sales_orders_yoy_pct": 3.1,
+                "sales_aos": 38.95,
+                "sales_aiv": 3.5,
+                "sales_ipt": 11.2,
+                "sales_items": 4_700_000,
+            ],
+            textPayload: ["sales_grain": "company"]
+        )
+        let salesTiles = HeartbeatMath.companyCardTiles(section: .sales, rows: [storeSale, workbookTotal])
+        XCTAssertEqual(salesTiles?.labels, HeartbeatMath.salesPhoneTileLabels)
+        XCTAssertEqual(salesTiles?.values.first, HeartbeatFormat.money(16_430_000))
+        XCTAssertNotEqual(salesTiles?.values.first, HeartbeatFormat.money(100))
+        XCTAssertNotEqual(salesTiles?.values.first, "$0")
+        XCTAssertEqual(salesTiles?.values[2], HeartbeatFormat.num(421_801, digits: 0))
+        XCTAssertNotEqual(salesTiles?.values[2], "0")
+        XCTAssertFalse(salesTiles?.values.contains { HeartbeatMath.companyTileIsBlank($0) } ?? true)
+
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 164_335,
+                "lost_revenue_pct": 2.15,
+                "lost_revenue_goal_pct": 3.71,
+                "ecomm_sales": 7_600_000,
+                "post_sub_oos_foregone": 12_000,
+                "refund_lost": 8_000,
+                "missed_sales": 4_000,
+                "cancelled_lost": 2_000,
+                "kill_switch_lost": 900,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        let lossTiles = HeartbeatMath.companyCardTiles(section: .lostRevenue, rows: [market])
+        XCTAssertEqual(lossTiles?.labels, HeartbeatMath.dashboardTableHeaders(.lostRevenue))
+        XCTAssertEqual(lossTiles?.values.first, HeartbeatFormat.money(164_335))
+        XCTAssertFalse(lossTiles?.values.contains { HeartbeatMath.companyTileIsBlank($0) } ?? true)
+        XCTAssertFalse(lossTiles?.values.contains("$0") ?? true)
+
+        let caches = PulseCaches.build(
+            rows: [storeSale, workbookTotal, market],
+            filters: DashboardFilters(),
+            uploads: [],
+            heavy: false,
+            grain: .region
+        )
+        let cooked = PulseDashChrome.from(caches, grain: .region)
+        XCTAssertEqual(cooked.companyTiles[MetricSection.sales.rawValue]?.values.first, HeartbeatFormat.money(16_430_000))
+        XCTAssertEqual(
+            cooked.companyRollupRows[MetricSection.sales.rawValue].map { HeartbeatMath.salesHeadlineDollars($0) } ?? 0,
+            16_430_000,
+            accuracy: 1
+        )
+        XCTAssertEqual(
+            cooked.companyRollupRows[MetricSection.lostRevenue.rawValue]?.number("lost_revenue") ?? 0,
+            164_335,
+            accuracy: 1
+        )
+
+        func storeRow(_ section: MetricSection, _ payload: [String: Double], extra: [String: String] = [:]) -> MetricRow {
+            var text = extra
+            text["district"] = "U5"
+            return MetricRow(
+                section: section,
+                division: "United",
+                operationsOM: "OM",
+                storeNumber: "22",
+                storeName: "United 22",
+                payload: payload,
+                textPayload: text
+            )
+        }
+        let rich: [MetricSection: [MetricRow]] = [
+            .fiveStar: [storeRow(.fiveStar, ["star_rating": 4.2, "flash_pct": 80, "coe_pct": 70, "ott_pct": 75, "presub_pct": 6, "oth5_pct": 90])],
+            .missingItems: [storeRow(.missingItems, [MissingItemDept.totalKey: 4.2])],
+            .preSubOOS: [storeRow(.preSubOOS, [MissingItemDept.totalKey: 3.1])],
+            .pickPath: [storeRow(.pickPath, ["compliance_pct": 91, "pph": 82])],
+            .prepNotReady: [storeRow(.prepNotReady, ["pnr_rate_pct": 1.4])],
+            .dynacap: [storeRow(.dynacap, ["dynacap_rate": 70, "utilization_pct": 88, "pph": 81])],
+            .scheduleQuality: [storeRow(.scheduleQuality, [
+                "schedule_efficiency_pct": 92,
+                "staffing_efficiency_pct": 88,
+                "under_schedule_pct": 4,
+                "over_schedule_pct": 3,
+            ])],
+            .pph: [storeRow(.pph, ["pph": 81])],
+            .pickerScorecard: [storeRow(.pickerScorecard, ["pph": 90, "orders": 40], extra: ["shopper_name": "Ava"])],
+            .labor: [MetricRow(
+                section: .labor,
+                division: "",
+                operationsOM: "",
+                storeNumber: "",
+                payload: [
+                    "target_vs_actual_pct": 1.2,
+                    "act_cost_pct": 4.4,
+                    "cost_trgt_pct": 3.1,
+                    "schedule_efficiency_pct": 91,
+                    "uplh_impact_pct": 0.4,
+                    "wage_impact_pct": 0.2,
+                    "aiv_impact_pct": 0.1,
+                ],
+                textPayload: ["labor_grain": "market"]
+            )],
+        ]
+        let pphRows = rich[.pph] ?? []
+        for section in MetricSection.dashboardCards where section != .sales && section != .lostRevenue {
+            let tiles = HeartbeatMath.companyCardTiles(section: section, rows: rich[section] ?? [], pphRows: pphRows)
+            XCTAssertNotNil(tiles, section.rawValue)
+            XCTAssertEqual(tiles?.labels, HeartbeatMath.dashboardTableHeaders(section), section.rawValue)
+            XCTAssertFalse(
+                tiles?.values.contains { HeartbeatMath.companyTileIsBlank($0) } ?? true,
+                "\(section.rawValue) \(tiles?.values ?? [])"
+            )
+        }
+    }
+
+    /// Every company card tile is painted from chrome. Fact payloads stay in sqlite.
+    func testCompanyCardTilesAreFilledFromChromeWithFactsReleased() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        var tiles: [String: CompanyCardTiles] = [:]
+        for section in MetricSection.dashboardCards {
+            let labels = section == .sales
+                ? HeartbeatMath.salesPhoneTileLabels
+                : HeartbeatMath.dashboardTableHeaders(section)
+            let values: [String]
+            if section == .sales {
+                values = [
+                    HeartbeatFormat.money(16_430_000),
+                    HeartbeatFormat.pct(4.25),
+                    HeartbeatFormat.num(421_801, digits: 0),
+                    HeartbeatFormat.pct(3.1),
+                    HeartbeatFormat.money(38.95),
+                    "3.50",
+                    "11.2",
+                    HeartbeatFormat.num(4_700_000, digits: 0),
+                ]
+            } else if section == .lostRevenue {
+                values = [
+                    HeartbeatFormat.money(164_335),
+                    HeartbeatFormat.pct(2.15),
+                    HeartbeatFormat.pct(3.71),
+                    HeartbeatFormat.money(7_600_000),
+                    HeartbeatFormat.money(12_000),
+                    HeartbeatFormat.money(8_000),
+                    HeartbeatFormat.money(4_000),
+                    HeartbeatFormat.money(2_000),
+                    HeartbeatFormat.money(900),
+                ]
+            } else {
+                values = labels.enumerated().map { offset, _ in "12.\(section.rawValue).\(offset)" }
+            }
+            XCTAssertEqual(values.count, labels.count, section.rawValue)
+            tiles[section.rawValue] = CompanyCardTiles(labels: labels, values: values)
+        }
+        let salesTotal = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "sales_dollars": 16_430_000,
+                "sales_yoy_pct": 4.25,
+                "sales_orders": 421_801,
+            ],
+            textPayload: ["sales_grain": "company", "sales_week": "202631"]
+        )
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["lost_revenue": 164_335, "lost_revenue_pct": 2.15],
+            textPayload: ["lost_grain": "market"]
+        )
+        let summaries = MetricSection.dashboardCards.map { section in
+            SectionSummary(
+                section: section,
+                storeCount: 2_000,
+                headline: section == .sales ? 16_430_000 : (section == .lostRevenue ? 164_335 : 90),
+                headlineLabel: section.title,
+                secondary: "company rollup",
+                health: .risk,
+                watchCount: 8,
+                riskCount: section == .sales || section == .lostRevenue ? 40 : 0,
+                lastFilename: nil,
+                lastUploadedAt: nil
+            )
+        }
+        let chrome = PulseDashChrome(
+            summaries: summaries,
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 12,
+            companyTiles: tiles,
+            companyRollupRows: [
+                MetricSection.sales.rawValue: salesTotal,
+                MetricSection.lostRevenue.rawValue: market,
+            ]
+        )
+        let decoy = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 1, "sales_orders": 1],
+            textPayload: ["sales_grain": "company"]
+        )
+        let storeFact = MetricRow(
+            section: .sales,
+            division: "United",
+            operationsOM: "OM",
+            storeNumber: "22",
+            payload: ["sales_dollars": 999],
+            textPayload: ["sales_grain": "store", "district": "U5"]
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-tiles-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: [decoy, storeFact], uploads: [], seeded: true, chrome: chrome, to: seat)
+
+        let reads = PulseSQLite.companyFactReadCount
+        let sectionReads = PulseSQLite.sectionFactReadCount
+        PulseSQLite.decodedFactRowCount = 0
+        let touches = HeartbeatStore.residentFactTouchCount
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(store.residentFactRowCount, 0)
+
+        for section in MetricSection.dashboardCards {
+            let chips = PhoneThisWeekChrome.chips(section: section, store: store)
+            let expected = tiles[section.rawValue]
+            XCTAssertEqual(chips.map(\.label), expected?.labels, section.rawValue)
+            XCTAssertEqual(chips.map(\.value), expected?.values, section.rawValue)
+            XCTAssertFalse(chips.isEmpty, section.rawValue)
+            XCTAssertFalse(
+                chips.contains { HeartbeatMath.companyTileIsBlank($0.value) },
+                "\(section.rawValue) \(chips.map(\.value))"
+            )
+        }
+        let salesChips = PhoneThisWeekChrome.chips(section: .sales, store: store)
+        XCTAssertNotEqual(salesChips.first?.value, "$0")
+        XCTAssertNotEqual(salesChips.first?.value, HeartbeatFormat.money(1))
+        XCTAssertNotEqual(salesChips.first?.value, HeartbeatFormat.money(999))
+        XCTAssertNotEqual(salesChips.first { $0.label == "Orders" }?.value, "0")
+        let lossChips = PhoneThisWeekChrome.chips(section: .lostRevenue, store: store)
+        XCTAssertEqual(lossChips.first?.value, HeartbeatFormat.money(164_335))
+        XCTAssertFalse(lossChips.contains { HeartbeatMath.companyTileIsBlank($0.value) })
+
+        XCTAssertEqual(HeartbeatMath.salesHeadlineDollars(store.salesCompanyFact() ?? storeFact), 16_430_000, accuracy: 1)
+        XCTAssertEqual(store.lostRevenueMarketRow()?.number("lost_revenue") ?? 0, 164_335, accuracy: 1)
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 0, "chrome tiles must not decode fact payloads")
+        XCTAssertEqual(HeartbeatStore.residentFactTouchCount, touches)
+    }
+
+    /// Total Company dashboard. RESULT is the cooked headline. The other cells
+    /// are the workbook values already in the seat, not an em dash.
+    func testCompanyFiveStarDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .fiveStar,
+            rows: [companyMetricRow(.fiveStar, store: "22", payload: [
+                "star_rating": 3.29,
+                "flash_pct": 81.2,
+                "coe_pct": 12.5,
+                "ott_pct": 40,
+                "presub_pct": 6.1,
+                "oth5_pct": 55,
+            ])],
+            headline: 3.29
+        )
+        assertDashboardCell(chips, "Rating", "3.29")
+        assertDashboardCell(chips, "Flash", HeartbeatFormat.pct(81.2))
+        assertDashboardCell(chips, "COE", HeartbeatFormat.pct(12.5))
+        assertDashboardCell(chips, "OTT", HeartbeatFormat.pct(40))
+        assertDashboardCell(chips, "Pre-Sub", HeartbeatFormat.pct(6.1))
+        assertDashboardCell(chips, "OTH", HeartbeatFormat.pct(55))
+    }
+
+    func testCompanyLaborDashboardShowsWorkbookCells() throws {
+        let storeLabor = companyMetricRow(.labor, store: "22", payload: [
+            "target_vs_actual_pct": 9.9,
+        ], text: ["labor_grain": "store"])
+        let market = MetricRow(
+            section: .labor,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "target_vs_actual_pct": 0.25,
+                "act_cost_pct": 4.1,
+                "cost_trgt_pct": 3.85,
+                "schedule_efficiency_pct": 91.2,
+                "uplh_impact_pct": 0.4,
+                "wage_impact_pct": 0.15,
+                "aiv_impact_pct": 0.08,
+            ],
+            textPayload: ["labor_grain": "market"]
+        )
+        let cooked = PulseDashChrome.from(
+            PulseCaches.build(
+                rows: [storeLabor, market],
+                filters: DashboardFilters(),
+                uploads: [],
+                heavy: false,
+                grain: .region
+            ),
+            grain: .region
+        )
+        let tiles = cooked.companyTiles[MetricSection.labor.rawValue]
+        XCTAssertEqual(tiles?.values.first, HeartbeatFormat.pct(0.25))
+        XCTAssertNotEqual(tiles?.values.first, HeartbeatFormat.pct(9.9))
+        XCTAssertEqual(tiles?.labels, HeartbeatMath.dashboardTableHeaders(.labor))
+        XCTAssertFalse(tiles?.values.contains { HeartbeatMath.companyTileIsBlank($0) } ?? true)
+
+        let chips = try companyDashboardChips(
+            section: .labor,
+            rows: [companyMetricRow(.labor, store: "22", payload: [
+                "target_vs_actual_pct": 0.25,
+                "act_cost_pct": 4.1,
+                "cost_trgt_pct": 3.85,
+                "schedule_efficiency_pct": 91.2,
+                "uplh_impact_pct": 0.4,
+                "wage_impact_pct": 0.15,
+                "aiv_impact_pct": 0.08,
+            ], text: ["labor_grain": "store"])],
+            headline: 0.25
+        )
+        assertDashboardCell(chips, "Target Vs Actual", HeartbeatFormat.pct(0.25))
+        assertDashboardCell(chips, "Act Cost", HeartbeatFormat.pct(4.1))
+        assertDashboardCell(chips, "Cost Tgt", HeartbeatFormat.pct(3.85))
+        assertDashboardCell(chips, "Sch Eff", HeartbeatFormat.pct(91.2))
+        assertDashboardCell(chips, "UPLH", HeartbeatFormat.pct(0.4))
+        assertDashboardCell(chips, "Wage", HeartbeatFormat.pct(0.15))
+        assertDashboardCell(chips, "AIV", HeartbeatFormat.pct(0.08))
+    }
+
+    func testCompanyPickerDashboardShowsRollupSplit() throws {
+        let rollup = PickerScopeRollup(shoppers: 16_693, stores: 203, healthy: 1_759, watch: 36, risk: 14_898)
+        let chips = try companyDashboardChips(
+            section: .pickerScorecard,
+            rows: [companyMetricRow(.sales, store: "22", payload: ["sales_dollars": 1])],
+            headline: 16_693,
+            pickerRollup: rollup
+        )
+        assertDashboardCell(chips, "Shoppers", HeartbeatFormat.num(Double(rollup.shoppers)))
+        assertDashboardCell(chips, "Healthy", HeartbeatFormat.num(Double(rollup.healthy)))
+        assertDashboardCell(chips, "Watch", HeartbeatFormat.num(Double(rollup.watch)))
+        assertDashboardCell(chips, "At Risk", HeartbeatFormat.num(Double(rollup.risk)))
+        XCTAssertFalse(chips.contains { $0.label != "Result" && HeartbeatMath.companyTileIsBlank($0.value) })
+    }
+
+    func testCompanyDynacapDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .dynacap,
+            rows: [
+                companyMetricRow(.dynacap, store: "22", payload: [
+                    "dynacap_rate": 67.9,
+                    "utilization_pct": 88,
+                ]),
+                companyMetricRow(.pph, store: "22", payload: ["pph": 74.2]),
+            ],
+            headline: 67.9
+        )
+        assertDashboardCell(chips, "Pcs/Hr", HeartbeatFormat.num(67.9, digits: 1))
+        assertDashboardCell(chips, "PPH", HeartbeatFormat.num(74.2, digits: 1))
+        assertDashboardCell(chips, "Util %", HeartbeatFormat.pct(88))
+    }
+
+    func testCompanyPPHDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .pph,
+            rows: [
+                companyMetricRow(.pph, store: "22", payload: ["pph": 80]),
+                companyMetricRow(.pph, store: "23", payload: ["pph": 68.4]),
+            ],
+            headline: 74.2
+        )
+        assertDashboardCell(chips, "PPH", HeartbeatFormat.num(74.2, digits: 1))
+        assertDashboardCell(chips, "At Goal", HeartbeatFormat.num(1))
+        assertDashboardCell(chips, "Below 74", HeartbeatFormat.num(1))
+    }
+
+    func testCompanyScheduleDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .scheduleQuality,
+            rows: [companyMetricRow(.scheduleQuality, store: "22", payload: [
+                "schedule_efficiency_pct": 90.3,
+                "staffing_efficiency_pct": 88.1,
+                "under_schedule_pct": 4.2,
+                "over_schedule_pct": 3.1,
+            ])],
+            headline: 90.3
+        )
+        assertDashboardCell(chips, "Sch Eff", HeartbeatFormat.pct(90.3))
+        assertDashboardCell(chips, "Staffing", HeartbeatFormat.pct(88.1))
+        assertDashboardCell(chips, "Under", HeartbeatFormat.pct(4.2))
+        assertDashboardCell(chips, "Over", HeartbeatFormat.pct(3.1))
+    }
+
+    func testCompanyPickPathDashboardShowsWorkbookCells() throws {
+        let chips = try companyDashboardChips(
+            section: .pickPath,
+            rows: [companyMetricRow(.pickPath, store: "22", payload: [
+                "compliance_pct": 79.6,
+                "pph": 81.4,
+            ])],
+            headline: 79.6
+        )
+        assertDashboardCell(chips, "Path %", HeartbeatFormat.pct(79.6))
+        assertDashboardCell(chips, "AVG PPH", HeartbeatFormat.num(81.4, digits: 1))
+    }
+
+    /// The section page split lives on chrome counts when the pack has no picker rollup.
+    func testCompanyPickerDashboardUsesChromeSplitWhenRollupIsAbsent() throws {
+        let chips = try companyDashboardChips(
+            section: .pickerScorecard,
+            rows: [companyMetricRow(.fiveStar, store: "22", payload: ["star_rating": 3.29])],
+            headline: 16_693,
+            pickerShoppers: 16_693,
+            pickerStrong: 1_759,
+            pickerOpportunity: 14_898,
+            riskCount: 14_898
+        )
+        assertDashboardCell(chips, "Shoppers", HeartbeatFormat.num(16_693))
+        assertDashboardCell(chips, "Healthy", HeartbeatFormat.num(1_759))
+        assertDashboardCell(chips, "Watch", HeartbeatFormat.num(36))
+        assertDashboardCell(chips, "At Risk", HeartbeatFormat.num(14_898))
+    }
+
+    /// Sales and Pre-Sub are not in this upload. A dash is the right paint. It does not block the cook.
+    func testAbsentSalesAndPreSubStayBlankAndDoNotBlockTheCook() throws {
+        let labor = SectionSummary(
+            section: .labor,
+            storeCount: 1_714,
+            headline: 0.25,
+            headlineLabel: "Target vs Actual",
+            secondary: "company rollup",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let loss = SectionSummary(
+            section: .lostRevenue,
+            storeCount: 203,
+            headline: 149_208.02,
+            headlineLabel: "Total lost revenue",
+            secondary: "203 of 2,177 stores reported",
+            health: .risk,
+            watchCount: 0,
+            riskCount: 1,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let picker = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 2_158,
+            headline: 16_693,
+            headlineLabel: "Shoppers",
+            secondary: "14898 opportunity · 1759 doing well",
+            health: .risk,
+            watchCount: 0,
+            riskCount: 14_898,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        var chrome = PulseDashChrome(
+            summaries: [labor, loss, picker],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 16_693,
+            pickerOpportunity: 14_898,
+            pickerStrong: 1_759
+        )
+        chrome.preSubItemTabPresent = false
+        XCTAssertEqual(chrome.missingTitles, ["Sales"])
+        XCTAssertTrue(chrome.cookBlockingTitles.isEmpty)
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("absent-sheets-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(
+            rows: [companyMetricRow(.fiveStar, store: "22", payload: ["star_rating": 3.29])],
+            uploads: [],
+            seeded: true,
+            chrome: chrome,
+            to: seat
+        )
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+
+        let emptySales = SectionSummary(
+            section: .sales,
+            storeCount: 0,
+            headline: nil,
+            headlineLabel: "eComm sales",
+            secondary: "No Sales rows in this filter",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let emptyPreSub = SectionSummary(
+            section: .preSubOOS,
+            storeCount: 0,
+            headline: nil,
+            headlineLabel: "Avg Pre-Sub OOS",
+            secondary: "No Pre-Sub OOS rows in this filter",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        for (section, painted) in [(MetricSection.sales, emptySales), (.preSubOOS, emptyPreSub)] {
+            let chips = store.cachedPhoneDashboardChips(section: section, painted: painted)
+            XCTAssertFalse(chips.isEmpty, section.rawValue)
+            XCTAssertTrue(
+                chips.allSatisfy { HeartbeatMath.companyTileIsBlank($0.value) },
+                "\(section.rawValue) \(chips.map { "\($0.label)=\($0.value)" })"
+            )
+        }
+        let items = store.preSubTopCard(scope: PreSubTopItems.companyScope)
+        XCTAssertEqual(items.missingNote, PreSubTopItems.missingTabNote)
+        XCTAssertTrue(items.items.isEmpty)
+    }
+
+    private func companyMetricRow(
+        _ section: MetricSection,
+        store: String,
+        payload: [String: Double],
+        text: [String: String] = [:]
+    ) -> MetricRow {
+        MetricRow(
+            section: section,
+            division: "United",
+            operationsOM: "OM",
+            storeNumber: store,
+            storeName: "Store \(store)",
+            payload: payload,
+            textPayload: text
+        )
+    }
+
+    /// Dashed company tiles plus the seat rows. The dashboard card must paint the known values.
+    private func companyDashboardChips(
+        section: MetricSection,
+        rows: [MetricRow],
+        headline: Double,
+        pickerRollup: PickerScopeRollup? = nil,
+        pickerShoppers: Int = 0,
+        pickerStrong: Int = 0,
+        pickerOpportunity: Int = 0,
+        riskCount: Int = 0
+    ) throws -> [PhoneMetricChip] {
+        let labels = HeartbeatMath.dashboardTableHeaders(section)
+        var chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: section,
+                    storeCount: 1,
+                    headline: headline,
+                    headlineLabel: "Result",
+                    secondary: "company rollup",
+                    health: .watch,
+                    watchCount: 0,
+                    riskCount: riskCount,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: pickerRollup?.shoppers ?? pickerShoppers,
+            pickerOpportunity: pickerRollup?.risk ?? pickerOpportunity,
+            pickerStrong: pickerRollup?.healthy ?? pickerStrong,
+            companyTiles: [
+                section.rawValue: CompanyCardTiles(
+                    labels: labels,
+                    values: Array(repeating: "—", count: labels.count)
+                )
+            ]
+        )
+        if let pickerRollup {
+            chrome.pickerRollups = [PreSubTopItems.companyScope: pickerRollup]
+        }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-dash-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: chrome, to: seat)
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        let painted = SectionSummary(
+            section: section,
+            storeCount: 1,
+            headline: headline,
+            headlineLabel: "Result",
+            secondary: "company rollup",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let chips = store.cachedPhoneDashboardChips(section: section, painted: painted)
+        XCTAssertEqual(chips.first?.label, "Result")
+        return chips
+    }
+
+    private func assertDashboardCell(
+        _ chips: [PhoneMetricChip],
+        _ label: String,
+        _ expected: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let value = chips.first { $0.label == label }?.value
+        XCTAssertEqual(value, expected, label, file: file, line: line)
+        XCTAssertFalse(
+            HeartbeatMath.companyTileIsBlank(value ?? "—"),
+            "\(label) rendered as a dash",
+            file: file,
+            line: line
+        )
+    }
+
+    /// A pack cooked before company tiles still paints Sales and Loss from the Total / market rows only.
+    func testCompanyTilesFillFromSeatRollupRowsWhenChromeOmitsThem() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let workbookTotal = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total Sales $",
+            payload: [
+                "sales_dollars": 16_430_000,
+                "sales_yoy_pct": 4.25,
+                "sales_orders": 421_801,
+                "sales_orders_yoy_pct": 3.1,
+                "sales_aos": 38.95,
+                "sales_aiv": 3.5,
+                "sales_ipt": 11.2,
+                "sales_items": 4_700_000,
+            ],
+            textPayload: ["sales_grain": "company"]
+        )
+        let storeSale = MetricRow(
+            section: .sales,
+            division: "United",
+            operationsOM: "",
+            storeNumber: "22",
+            payload: ["sales_dollars": 100, "sales_orders": 4],
+            textPayload: ["sales_grain": "store", "district": "U5"]
+        )
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 164_335,
+                "lost_revenue_pct": 2.15,
+                "lost_revenue_goal_pct": 3.71,
+                "ecomm_sales": 7_600_000,
+                "post_sub_oos_foregone": 12_000,
+                "refund_lost": 8_000,
+                "missed_sales": 4_000,
+                "cancelled_lost": 2_000,
+                "kill_switch_lost": 900,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 200,
+                    headline: 16_430_000,
+                    headlineLabel: "Sales",
+                    secondary: "company rollup",
+                    health: .risk,
+                    watchCount: 8,
+                    riskCount: 40,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-rollup-rows-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seat = PulseSeatPack.localURL(root: root, key: .company)
+        try FileManager.default.createDirectory(at: seat.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(rows: [workbookTotal, storeSale, market], uploads: [], seeded: true, chrome: chrome, to: seat)
+
+        let reads = PulseSQLite.companyFactReadCount
+        let sectionReads = PulseSQLite.sectionFactReadCount
+        PulseSQLite.decodedFactRowCount = 0
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(store.residentFactRowCount, 0)
+        XCTAssertEqual(PulseSQLite.companyFactReadCount, reads)
+        XCTAssertEqual(PulseSQLite.sectionFactReadCount, sectionReads)
+        XCTAssertEqual(PulseSQLite.decodedFactRowCount, 2, "Total and market rows only")
+
+        let sales = PhoneThisWeekChrome.chips(section: .sales, store: store)
+        XCTAssertEqual(sales.first?.value, HeartbeatFormat.money(16_430_000))
+        XCTAssertNotEqual(sales.first?.value, "$0")
+        XCTAssertNotEqual(sales.first?.value, HeartbeatFormat.money(100))
+        XCTAssertFalse(sales.contains { HeartbeatMath.companyTileIsBlank($0.value) })
+        let loss = PhoneThisWeekChrome.chips(section: .lostRevenue, store: store)
+        XCTAssertEqual(loss.first?.value, HeartbeatFormat.money(164_335))
+        XCTAssertFalse(loss.contains { HeartbeatMath.companyTileIsBlank($0.value) })
+        XCTAssertEqual(store.residentFactRowCount, 0)
+    }
+
     func testSeatPackIndexedSchemaAtomicSwapAndCacheCeiling() throws {
         let risk = MetricRow(
             section: .fiveStar,
@@ -4321,7 +6793,7 @@ final class HeartbeatMathTests: XCTestCase {
         let card = HeartbeatMath.summarize(.pickerScorecard, rows: fromSeatStores, upload: nil)
         XCTAssertGreaterThan(card.headline ?? 0, 0, "District 03 Picker headline must not stay 0")
         let pinned = PulseLaunch.pinSeatStoreCount(card, seatStores: 20)
-        XCTAssertEqual(pinned.storeCount, 20)
+        XCTAssertEqual(pinned.storeCount, card.storeCount, "Picker must not take roster.count")
         let table = PulseLaunch.pickerExpandTable(
             seatRows: fromSeatStores,
             chrome: nil,
@@ -4471,12 +6943,12 @@ final class HeartbeatMathTests: XCTestCase {
             )
             XCTAssertEqual(
                 PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: false),
-                .companyStream,
-                "\(section.rawValue) unfiltered may use the company pack"
+                .chromeRollup,
+                "\(section.rawValue) at company stays on the painted rollup"
             )
         }
         XCTAssertFalse(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: true))
-        XCTAssertTrue(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false))
         XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.pph))
         XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.dynacap))
         XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.pickPath))
@@ -5433,7 +7905,10 @@ final class HeartbeatMathTests: XCTestCase {
         let caches = PulseCaches.build(rows: rows, filters: DashboardFilters(), uploads: [], heavy: false, grain: .region)
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(summary?.storeCount, 2160)
-        XCTAssertEqual(summary?.headline ?? 0, 3_456_041, accuracy: 50)
+        // facts.json Total row is 3,337,325.44. A market Total wins even when the
+        // store-row sum is higher (see testUnfilteredLostRevenueHeadlineUsesMarketTotal1962441).
+        // 3,456,041 is that store sum, including ignored store 239, so it is not the company headline.
+        XCTAssertEqual(summary?.headline ?? 0, 3_337_325, accuracy: 50)
         let packs = caches.cachedGrainPacks[.lostRevenue] ?? []
         XCTAssertEqual(packs.count, 4)
         for pack in packs {
@@ -5836,7 +8311,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture401CompanyGrainExpandIsPageScopedNotAllCards() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: true))
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: false))
         XCTAssertFalse(PulseLaunch.shouldPrefillExpandTables(filtersActive: false))
@@ -5902,7 +8377,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture402ShareMailPresentsAfterShareSheetDismiss() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
         XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
         XCTAssertEqual(
@@ -5943,7 +8418,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture403ShareMailStacksTablesAndWiresPickerBuckets() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
         XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
         XCTAssertFalse(PulseLaunch.shouldUseFixedNowrapShareTableColumns())
@@ -6027,7 +8502,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture404ShareMailLiveFlagsEveryPage() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
         XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
         XCTAssertFalse(PulseLaunch.shouldUseFixedNowrapShareTableColumns())
@@ -6257,7 +8732,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// ghost keys (`otp_pct`, `exception_count`, `pnr_count`, `rows.count`)
     /// while the hero used `dashboardTableValues`. Dual map deleted.
     func testArchitecture406SeatChipsFalseZeroBanAndLiveKeys() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
@@ -6478,7 +8953,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture407PhoneDensitySoftKeep() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
@@ -6522,7 +8997,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST M: Mac Catalyst / MacBook whole-app readable chrome. Phone D1–D5
     /// shrink never applies on Mac, including compact Catalyst windows.
     func testArchitecture407MacReadableSoftKeep() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseExpandedMacReadableChrome())
         XCTAssertFalse(PulseLaunch.shouldApplyPhoneCompactChromeOnMac())
         XCTAssertTrue(PulseLaunch.shouldPaintMacHubDynamicType())
@@ -6559,7 +9034,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST M 408: Mac window-fit + collapsible Pages rail. Phone D1–D5 and
     /// iPad leftover-fill stay on the 407 Soft KEEP.
     func testArchitecture408MacWindowFitAndCollapsibleRail() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldHideMacHeaderPagesButton())
         XCTAssertTrue(PulseLaunch.shouldAllowMacSidebarCollapse())
         XCTAssertTrue(PulseLaunch.shouldPlaceMacSidebarCollapseInChrome())
@@ -6652,7 +9127,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// HARDENED MUST 1: `336752c` HB-0828.397 PhoneSectionPage.seatChips
     /// (~1380–1478; hypothesis ~1433–1530) was a second key table. Deleted.
     func testArchitecture407SeatChipsDualMapDeleted() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldUseSeatChipDualMap())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
@@ -6685,7 +9160,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST P: seat-repull / company-as-root / no-delete / expand gates stay
     /// on KEEP 730 (`a9e2f68`). Tip must not re-arm promote / wipe / expand.
     func testArchitecture407MustPSeatRepullUnchanged() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableSeatOnFilterChange())
         XCTAssertTrue(PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer())
@@ -6709,7 +9184,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL on 735: Mac New Message Back faint; To / top chrome unreachable.
     func testArchitecture410MacShareComposeReachable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseMacShareInContentChrome())
         XCTAssertTrue(PulseLaunch.shouldHideMacShareNavigationBar())
         XCTAssertTrue(PulseLaunch.shouldPinMacShareComposeFields())
@@ -6732,7 +9207,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL on 410: floating "Hide pages" overlapped Loss Revenue ScoreCard.
     func testArchitecture411MacSidebarCollapseInChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldHideMacHeaderPagesButton())
         XCTAssertTrue(PulseLaunch.shouldAllowMacSidebarCollapse())
         XCTAssertTrue(PulseLaunch.shouldPlaceMacSidebarCollapseInChrome())
@@ -6756,7 +9231,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL on 411: Prep glance + sidebar stamp clipped at the window bottom.
     func testArchitecture412MacBottomCalloutsVisible() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldFitMacCommandCenterToWindow())
         XCTAssertTrue(PulseLaunch.shouldRespectMacWindowSafeArea())
         XCTAssertTrue(PulseLaunch.shouldReserveMacWindowBottomChrome())
@@ -6790,7 +9265,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL: Mac Share said sent but recipient never got mail.
     func testArchitecture413MacShareDoesNotFakeSend() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
         XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
         XCTAssertEqual(PulseLaunch.shareSheetDismissSettleNanoseconds, 350_000_000)
@@ -6823,7 +9298,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST K: Mac scrolls readable glance tiles. overflows() is the gate.
     /// MUST S: Mail sent only on sharing didShare — not mailto / hop.
     func testArchitecture414MacScrollAndMailSendCompletion() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldFillMacViewport())
         XCTAssertFalse(CommandCenterLayout.shouldFillPhoneViewport())
         XCTAssertTrue(PulseLaunch.shouldScrollMacCommandCenterWhenOverflow())
@@ -6868,7 +9343,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// FILE ROOT: empty To / silent mailto / activityDidFinish(true) / no .failed.
     /// KEEP hop dismiss → 350ms → keyWindowRoot → MFMailCompose. No Sent toast.
     func testArchitecture415MacShareToAndMailHop() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldRequireShareRecapToAddress())
         XCTAssertTrue(PulseLaunch.shouldRefusePresentMailWithoutTo())
         XCTAssertTrue(PulseLaunch.shouldPinMacShareToAboveFold())
@@ -6919,7 +9394,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL a7822f6: AppKit sharing composer unavailable on Catalyst.
     /// Mail path is MFMailCompose only. FILE ROOT MUST SEND 1–7 stand.
     func testArchitecture416NoAppKitSharingServiceOnCatalyst() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldCompileMacMailComposer())
         XCTAssertFalse(PulseLaunch.shouldUseAppKitSharingServiceOnMacCatalyst())
         XCTAssertFalse(PulseLaunch.shouldUseMacSharingServiceForMailSend())
@@ -6943,7 +9418,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Architecture OVERRIDE of a7822f6 / .415: MUST 8 file+pbx gone.
     /// MUST SEND 1–7 + hop KEEP + MUST K + MUST P.
     func testArchitecture417MacMailComposerDeletedFromTarget() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldCompileMacMailComposer())
         XCTAssertFalse(PulseLaunch.shouldUseAppKitSharingServiceOnMacCatalyst())
         XCTAssertFalse(PulseLaunch.shouldUseMacSharingServiceForMailSend())
@@ -6983,7 +9458,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Architecture OVERRIDE of fda1bf0 / .417 / 743: dual filter identity.
     /// Clear paints chrome + row plane same turn. Remount is not the fix.
     func testArchitecture418ClearRewritesRowPlaneWithChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatRowPlaneWithChrome())
         XCTAssertFalse(PulseLaunch.shouldDeferSeatInstallWhenRowPlaneMissing())
         XCTAssertTrue(PulseLaunch.shouldDeferHeavySeatInstallAfterCachedChrome())
@@ -7025,7 +9500,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL ab890c4 / .418 / 744: filter selection re-read the pack and
     /// rebuilt on MainActor after chrome already painted.
     func testArchitecture419FilterSwapPaintsWithoutReinstall() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPaintCachedSeatOnFilterTap())
         XCTAssertFalse(PulseLaunch.shouldReinstallSeatPackWhenRowPlanePainted())
         XCTAssertTrue(PulseLaunch.shouldPublishSeatPaintAfterChromeBeforeCaches())
@@ -7058,7 +9533,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Architecture OVERRIDE of 90a53cd / .419 / 745: unbounded seatRowPlanes
     /// + PulseCaches.build on applyFilters. Shared path, all platforms.
     func testArchitecture420SeatPlaneTinyLRUNoFullCaches() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertEqual(PulseLaunch.maxCachedSeatRowPlanes(), 2)
         XCTAssertTrue(PulseLaunch.shouldPinCompanySeatRowPlane())
         XCTAssertTrue(PulseLaunch.shouldEvictInactiveSeatRowPlanes())
@@ -7098,7 +9573,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL 90a53cd / 745: Catalyst ~270% CPU idle/after open.
     /// xlsx ingest + cook + fillAfterReady picker lock is the hot loop.
     func testArchitecture421IdleAfterOpenNoHotLoop() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: true))
         XCTAssertFalse(PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: false))
         XCTAssertFalse(PulseLaunch.shouldIngestCloudWorkbookOnForeground())
@@ -7125,7 +9600,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// FILE ROOT OVERRIDE of f1b9a76 / 421: chrome painted, box maps leftover
     /// until section tap. LRU miss must still rewrite maps same turn.
     func testArchitecture422BoxMapsRewriteSameTurnAsChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatBoxMapsSameTurnAsChrome())
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing())
         XCTAssertTrue(PulseLaunch.shouldDropStaleSeatRowsWhenPlaneMissing())
@@ -7160,7 +9635,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL c59c1fc / 422: dashboard glance stayed stale until Sales
     /// navigation remounted GeometryReader. Tiles must bind seatPaintStamp.
     func testArchitecture423CommandCenterDashboardPaintsOnFilter() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint())
         XCTAssertFalse(PulseLaunch.shouldSampleCommandCenterCardsInsideGeometryReaderOnly())
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatBoxMapsSameTurnAsChrome())
@@ -7182,7 +9657,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// applyDashChrome; cachedSummaries (not @Published) stayed leftover
     /// until Sales open+back. Thin summary rewrite + MainActor tile bind.
     func testArchitecture424CommandCenterSummariesRewriteWithBoxMaps() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldRewriteCommandCenterSummariesWithBoxMaps())
         XCTAssertTrue(PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint())
         XCTAssertFalse(PulseLaunch.shouldSampleCommandCenterCardsInsideGeometryReaderOnly())
@@ -7206,7 +9681,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL 2026-09-14 work Mac: Send opened Apple Mail (Hide My Email)
     /// with plaintext and no file. Outlook / Teams / Files need a file URL.
     func testArchitecture425MacShareAttachesReportViaShareSheet() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldPreferSystemShareSheetWithFile())
         XCTAssertFalse(PulseLaunch.shouldBounceFilledToToSystemShareSheet())
         XCTAssertTrue(PulseLaunch.shouldSendFilledToInMailCompose())
@@ -7299,7 +9774,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL 2026-09-14: cold open painted week 202628 (~$113M) then
     /// swapped to week 202629 (~$26.4M). First paint is current-pack gold.
     func testArchitecture426FirstPaintIsCurrentPackGold() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldBlockFirstPaintUntilCurrentPack())
         XCTAssertFalse(PulseLaunch.shouldPaintLocalSeatBeforeCloudFreshnessCheck())
         XCTAssertTrue(PulseLaunch.shouldShowShortLoadUntilCurrentPack())
@@ -7356,7 +9831,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// because Info.plist lacked LSApplicationCategoryType. GENERATE_INFOPLIST_FILE
     /// is NO, so the key must live in Info.plist (INFOPLIST_KEY on the target too).
     func testArchitecture427MacCatalystHasAppCategory() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertEqual(BuildStamp.applicationCategoryType, "public.app-category.business")
 
         let root = URL(fileURLWithPath: #filePath)
@@ -7381,7 +9856,7 @@ final class HeartbeatMathTests: XCTestCase {
                 pbx.contains("INFOPLIST_KEY_LSApplicationCategoryType = \"public.app-category.business\""),
                 "Target must stamp INFOPLIST_KEY_LSApplicationCategoryType"
             )
-            XCTAssertTrue(pbx.contains("CURRENT_PROJECT_VERSION = 789;"))
+            XCTAssertTrue(pbx.contains("CURRENT_PROJECT_VERSION = 790;"))
         }
         if let bundled = Bundle.main.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String {
             XCTAssertEqual(bundled, "public.app-category.business")
@@ -7857,7 +10332,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.seatLoadTitle.isEmpty)
         XCTAssertFalse(PulseLaunch.seatLoadDirective.isEmpty)
         XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
-        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("rotisserie"))
         XCTAssertEqual(PulseLaunch.seatLoadQuip(at: 1), PulseLaunch.BootPhase.openingFloor.label)
         XCTAssertEqual(PulseLaunch.loadStatus(at: 5), PulseLaunch.BootPhase.buildingTables.label)
@@ -8079,7 +10554,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Empty shopper buckets are not a full scorecard read. A division seat still
     /// summarizes from counts — it does not assign the shopper tape (HB-0828.474).
     func testArchitecture470PPHIndexSurvivesPackChromeAndDivisionSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         let emptyBuckets = PulseLaunch.pphOpenPlan(
             section: .pph, filtersActive: false, countedStores: 0, countedShoppers: 0, packShoppers: 24_500
         )
@@ -8163,7 +10638,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Live pack `facts_section_div` makes `LIMIT 4000` return Haggen + Jewel only.
     /// PPH PICKERS and the filtered Picker tile must use the full shopper tape.
     func testPickerHeadcountIgnoresDivisionIndexPrefix() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         let prefix = PulseLaunch.pickerHeadcountIndex(storeCounts: [
             "3427": 77,
             "1": 2_962,
@@ -8278,7 +10753,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// HB-0828.474: PPH open uses pack GROUP BY. A prefix cannot shrink a store.
     /// Expand reads that store's shoppers only.
     func testPPHOpenUsesPackGroupByCensusNotFullScorecard() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("hb-pph-census-\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -8635,7 +11110,7 @@ final class HeartbeatMathTests: XCTestCase {
             payload: ["ecomm_sales": 10_000, "lost_revenue": 400, "lost_revenue_goal": 250],
             textPayload: ["lost_grain": "store"]
         )
-        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(row) ?? 0, 2.5, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(row) ?? 0, 0.025, accuracy: 0.0001)
         let withPct = MetricRow(
             section: .lostRevenue,
             division: "NorCal",
@@ -9706,7 +12181,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 28MB refused today's ~29.6MB company current.sqlite. Cap is 40MB under the 50MB cook refuse.
     func testArchitecture437CompanySeatFortyMegabytesAndCompanySalesGrain() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: true))
@@ -9789,7 +12264,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory 2026-09-20: THIS SEAT callout is gone on every page and filter.
     func testArchitecture438ThisSeatCalloutRemovedEverywhere() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: true))
@@ -9808,7 +12283,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Phone Operational Heartbeat / Sales / Loss / 5 Star reuse Labor white chrome.
     func testArchitecture446PhoneHeroesUseLaborScorecardChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
@@ -9886,7 +12361,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// 446 put Operational Heartbeat in PhoneScorecardRow with no RESULT chips;
     /// the chrome VStack leftover-filled a cavern. 447 is a tight header.
     func testArchitecture447CompactPageBannerIsNotScorecardRow() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
         XCTAssertFalse(PulseLaunch.shouldPaintPhonePageBannerAsScorecardRow())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhonePageBanner())
@@ -9934,7 +12409,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// 448: Operational Heartbeat is classic navy `{Seat} Overview | Current Week`.
     /// Sales / Loss / 5 Star stay white Labor scorecards.
     func testArchitecture448NavyOverviewBannerKeepsWhiteHeroes() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
         XCTAssertFalse(PulseLaunch.shouldPaintPhonePageBannerAsScorecardRow())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhonePageBanner())
@@ -10018,7 +12493,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 449: phone home drops the grey AT-A-GLANCE caption so KPI + glance cards flow.
     func testArchitecture449PhoneDropsAtAGlanceCaption() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLaunch.shouldShowPhoneAtAGlanceSectionCaption())
         XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
         XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
@@ -10054,7 +12529,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 450: Pages + Filters + Share share one toolbar on the CompactNav header.
     func testArchitecture450CompactPagesFiltersShareToolbar() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseCompactPagesFiltersShareToolbar())
         XCTAssertTrue(PulseLaunch.shouldKeepAssistInCompactBrandRow())
         XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
@@ -10094,7 +12569,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 451: Pages sheet Close is a finished navy pill, not a clipped circle.
     func testArchitecture451CompactNavCloseIsFinishedPill() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseFinishedCompactNavCloseControl())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPagesFiltersShareToolbar())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
@@ -10136,7 +12611,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 452: Close is in the sheet body so the full word is readable.
     func testArchitecture452CompactNavCloseLivesInSheetContent() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldPlaceCompactNavCloseInSheetContent())
         XCTAssertFalse(PulseLaunch.shouldApplyPhoneHitFrameToSheetClose())
         XCTAssertTrue(PulseLaunch.shouldUseFinishedCompactNavCloseControl())
@@ -10165,7 +12640,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 453: Filters is grain chips → values → Save. No duplicate copy.
     func testArchitecture453CompactFilterSheetFlow() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseCompactFilterSheetFlow())
         XCTAssertFalse(PulseLaunch.shouldShowDuplicateFilterInstructions())
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
@@ -10202,7 +12677,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 454: navy banner line 1 is the page name; line 2 is `{seat} | {week}`.
     func testArchitecture454CompactBannerPageOverFilterSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldShowPageNameOnCompactBanner())
         XCTAssertFalse(PulseLaunch.shouldShowFilterGrainOnCompactBannerTitle())
         XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
@@ -10261,12 +12736,353 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(banner.contains("phoneBannerTitleFont()"), banner)
         XCTAssertTrue(banner.contains("phoneBannerSubtitleFont()"), banner)
         XCTAssertTrue(banner.contains("layoutPriority(1)"), "STATUS pill must not clip")
-        XCTAssertFalse(banner.contains("lineLimit(2)"), "title and subtitle are one line each")
+        XCTAssertTrue(banner.contains("lineLimit(2)"), "week subtitle wraps instead of an ellipsis")
+        XCTAssertFalse(banner.contains("minimumScaleFactor(0.7)"), "subtitle must stay at least 13pt")
+    }
+
+    /// The navy page header names when this pack was published, in local time.
+    func testPageHeaderShowsPackPublishTime() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(CommandCenterLayout.updatedBannerLine(nil), "Updated —")
+
+        let published = Date(timeIntervalSince1970: 1_758_820_200)
+        let line = CommandCenterLayout.updatedBannerLine(published)
+        XCTAssertEqual(line, "Updated \(HeartbeatFormat.publishClock(published))")
+        XCTAssertTrue(line.hasPrefix("Updated "))
+        XCTAssertFalse(line.contains("—"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let parts = calendar.dateComponents([.month, .day, .minute], from: published)
+        XCTAssertTrue(line.contains("\(parts.month ?? 0)/\(parts.day ?? 0)"))
+        XCTAssertTrue(line.contains(String(format: ":%02d", parts.minute ?? -1)))
+
+        let cooked = Date(timeIntervalSince1970: 1_700_000_000)
+        let fileTime = Date(timeIntervalSince1970: 1_600_000_000)
+        let uploaded = Date(timeIntervalSince1970: 1_500_000_000)
+        let withCook = PulseDashChrome(
+            summaries: [summaryCard(uploaded: uploaded)],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0,
+            publishedAt: cooked
+        )
+        XCTAssertEqual(HeartbeatMath.packPublishDate(chrome: withCook, writtenAt: fileTime), cooked)
+        let fromFile = PulseDashChrome(
+            summaries: [summaryCard(uploaded: uploaded)],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 0
+        )
+        XCTAssertEqual(HeartbeatMath.packPublishDate(chrome: fromFile, writtenAt: fileTime), fileTime)
+        XCTAssertEqual(HeartbeatMath.packPublishDate(chrome: fromFile, writtenAt: nil), uploaded)
+        let empty = PulseDashChrome(summaries: [], flags: [:], packs: [:], pickerShoppers: 0)
+        XCTAssertNil(HeartbeatMath.packPublishDate(chrome: empty, writtenAt: nil))
+        XCTAssertNil(HeartbeatFormat.parsePackTimestamp(""))
+        XCTAssertNil(HeartbeatFormat.parsePackTimestamp("not-a-time"))
+
+        let week = "Total Company | Week 31 · Sun 9/27 only (1 of 7 days)"
+        let font = UIFont.systemFont(ofSize: 13, weight: .semibold)
+        let textWidth = (week as NSString).size(withAttributes: [.font: font]).width
+        let iPhone13 = CGFloat(390)
+        let oneLine = iPhone13 - 24 - 20 - 8 - 80
+        XCTAssertLessThanOrEqual(textWidth, oneLine * 2, "two lines hold the week label at 13pt on iPhone 13")
+
+        XCTAssertEqual(
+            CommandCenterLayout.pageBannerPublishDate(
+                destination: .sales,
+                packPublishedAt: published,
+                schedulePublishedAt: cooked
+            ),
+            published
+        )
+        XCTAssertEqual(
+            CommandCenterLayout.pageBannerPublishDate(
+                destination: .scheduleCheck,
+                packPublishedAt: published,
+                schedulePublishedAt: cooked
+            ),
+            cooked
+        )
+        let header = CommandCenterLayout.updatedBannerLine(
+            CommandCenterLayout.pageBannerPublishDate(
+                destination: .dashboard,
+                packPublishedAt: published,
+                schedulePublishedAt: nil
+            )
+        )
+        XCTAssertEqual(header, line)
+        let layouts: [(PhoneCompactPageBanner.Metrics, String)] = [
+            (.phone, "phone"),
+            (.pad, "pad"),
+            (.mac, "mac"),
+        ]
+        for (metrics, name) in layouts {
+            let banner = PhoneCompactPageBanner(
+                title: "Sales",
+                subtitle: week,
+                updated: header,
+                health: .watch,
+                metrics: metrics
+            )
+            XCTAssertEqual(banner.renderedPublishLine, header, name)
+            XCTAssertTrue(banner.accessibilitySummary.contains(header), name)
+            XCTAssertTrue(banner.accessibilitySummary.contains("Sales"), name)
+        }
+        let missing = PhoneCompactPageBanner(
+            title: "Sales",
+            subtitle: week,
+            updated: CommandCenterLayout.updatedBannerLine(nil),
+            health: .none,
+            metrics: .phone
+        )
+        XCTAssertEqual(missing.renderedPublishLine, "Updated —")
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let theme = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/AppTheme.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(theme.contains("? .footnote : .subheadline"), "subtitle is at least 13pt at Dynamic Type Large")
+
+        let stamp = ISO8601DateFormatter().string(from: published)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("header-publish-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let seat = PulseSeatPack.localURL(root: tmp, key: .company)
+        let chrome = PulseDashChrome(
+            summaries: [summaryCard(uploaded: nil)],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 1
+        )
+        try PulseSQLite.write(rows: [], uploads: [], seeded: true, chrome: chrome, writtenAt: published, to: seat)
+        let store = HeartbeatStore(rootURL: tmp)
+        XCTAssertTrue(store.installCompanyRollup(at: seat))
+        XCTAssertEqual(
+            store.packPublishedAt?.timeIntervalSince1970 ?? 0,
+            published.timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertEqual(CommandCenterLayout.updatedBannerLine(store.packPublishedAt), line)
+        XCTAssertEqual(
+            HeartbeatFormat.parsePackTimestamp(stamp)?.timeIntervalSince1970 ?? 0,
+            published.timeIntervalSince1970,
+            accuracy: 1
+        )
+    }
+
+    private func summaryCard(uploaded: Date?) -> SectionSummary {
+        SectionSummary(
+            section: .sales,
+            storeCount: 1,
+            headline: 1,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: uploaded
+        )
+    }
+
+    /// A newer published pack raises the same clock the Updated header uses, then the banner can dismiss.
+    func testNewDataBannerUsesPublishClock() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let onScreen = Date(timeIntervalSince1970: 1_700_000_000)
+        let incoming = Date(timeIntervalSince1970: 1_758_820_200)
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: nil, incoming: incoming))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: nil))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: onScreen))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: incoming, incoming: onScreen))
+        let banner = NewDataAlert.bannerText(onScreen: onScreen, incoming: incoming)
+        let clock = HeartbeatFormat.publishClock(incoming)
+        XCTAssertEqual(banner, "New data uploaded \(clock)")
+        XCTAssertEqual(banner, "New data uploaded \(CommandCenterLayout.updatedBannerLine(incoming).replacingOccurrences(of: "Updated ", with: ""))")
+        XCTAssertGreaterThan(NewDataAlert.dismissAfterSeconds, 0)
+        XCTAssertFalse(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: false,
+            alreadyAsked: false,
+            pushEnabled: true
+        ))
+        XCTAssertFalse(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: true,
+            pushEnabled: true
+        ))
+        XCTAssertFalse(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: false,
+            pushEnabled: false
+        ))
+        XCTAssertTrue(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: false,
+            pushEnabled: true
+        ))
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let app = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/RootView.swift"), encoding: .utf8)
+        XCTAssertTrue(app.contains("NewDataUploadBanner"))
+        let store = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"), encoding: .utf8)
+        XCTAssertTrue(store.contains("NewDataAlert.bannerText"))
+        XCTAssertTrue(store.contains("pullLatestWorkbookIfNeeded") || store.contains("showNewDataBanner"))
+        let entitlements = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements"), encoding: .utf8)
+        XCTAssertTrue(entitlements.contains("aps-environment"))
+        let sender = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/send_push.py"), encoding: .utf8)
+        XCTAssertTrue(sender.contains("push skipped: no key"))
+        XCTAssertTrue(sender.contains("Heartbeat: new data uploaded"))
+        let workflow = try String(contentsOf: root.appendingPathComponent(".github/workflows/cook-heartbeat-pack.yml"), encoding: .utf8)
+        XCTAssertTrue(workflow.contains("send_push.py"))
+        XCTAssertNil(NewDataAlert.bannerText(onScreen: onScreen, incoming: incoming, bannerEnabled: false))
+        XCTAssertTrue(store.contains("requestSystemPermission()"))
+    }
+
+    /// A fresh install has no toggle keys. Both New data alerts and the in-app banner read as on.
+    func testFreshInstallDefaultsBothNewDataTogglesOn() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let suite = "hb-fresh-newdata-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertNil(defaults.object(forKey: NewDataPreferences.pushAlertsKey))
+        XCTAssertNil(defaults.object(forKey: NewDataPreferences.bannerKey))
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: defaults))
+        XCTAssertTrue(NewDataPreferences.bannerEnabled(in: defaults))
+        XCTAssertTrue(NewDataPushPrompt.shouldRequestSystemPermission(
+            dataOnScreen: true,
+            alreadyAsked: false,
+            pushEnabled: NewDataPreferences.pushAlertsEnabled(in: defaults)
+        ))
+    }
+
+    /// iPhone, iPad, and Mac (Catalyst and Designed for iPad) share the .491 chrome.
+    /// Mac builds keep the same aps-environment entitlement and register platform macos.
+    func testMacIPadAndPhoneShare491Chrome() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let layout = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/AppTheme.swift"), encoding: .utf8)
+        XCTAssertTrue(layout.contains("static var runsOnMac"))
+        XCTAssertTrue(layout.contains("isiOSAppOnMac"))
+
+        let pages = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"), encoding: .utf8)
+        XCTAssertTrue(pages.contains("pickerGrainTable(grain: grain)"))
+        XCTAssertTrue(pages.contains("OverviewMetricAlignedTable"))
+
+        let missing = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/MissingItemsViews.swift"), encoding: .utf8)
+        XCTAssertTrue(missing.contains("presubRollupRows(metrics:"))
+        XCTAssertTrue(missing.contains("PreSubTopListBlock"))
+
+        let store = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"), encoding: .utf8)
+        XCTAssertTrue(store.contains("cookedPickerCount"))
+        XCTAssertTrue(store.contains("pickerGrainTable(grain: grain)"))
+
+        let rootView = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/RootView.swift"), encoding: .utf8)
+        XCTAssertTrue(rootView.contains("if HubLayout.runsOnMac { return .title3.weight(.semibold) }"))
+        XCTAssertFalse(rootView.contains("NewDataUploadBanner(text:"))
+        XCTAssertFalse(rootView.contains(".zIndex(40)"))
+        let chrome = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"), encoding: .utf8)
+        let bannerStart = try XCTUnwrap(chrome.range(of: "NewDataUploadBanner(text: text)"))
+        let bannerEnd = try XCTUnwrap(chrome.range(of: "private var compactPageBanner"))
+        let bannerFlow = String(chrome[bannerStart.lowerBound..<bannerEnd.lowerBound])
+        XCTAssertFalse(bannerFlow.contains(".overlay"), "the new-data banner stays in the chrome stack")
+        XCTAssertFalse(bannerFlow.contains("ignoresSafeArea"), "the new-data banner stays under the safe area")
+        XCTAssertFalse(bannerFlow.contains("zIndex"))
+
+        let settings = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/MainHubView.swift"), encoding: .utf8)
+        XCTAssertTrue(settings.contains("settingsContentWidth"))
+        XCTAssertTrue(settings.contains("Open iOS Settings"))
+        XCTAssertTrue(settings.contains("Open System Settings"))
+        XCTAssertTrue(settings.contains("New data alerts"))
+        XCTAssertTrue(settings.contains("In-app new data banner"))
+
+        let app = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/FulfillmentHeartbeatApp.swift"), encoding: .utf8)
+        XCTAssertTrue(app.contains("\"platform\": platform"))
+        XCTAssertTrue(app.contains("return \"macos\""))
+        XCTAssertTrue(app.contains("return \"ios\""))
+        XCTAssertTrue(app.contains("isiOSAppOnMac"))
+
+        let worker = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/worker/src/index.ts"), encoding: .utf8)
+        XCTAssertTrue(worker.contains("platform: \"ios\" | \"macos\""))
+        XCTAssertTrue(worker.contains("token, env, platform, and appVersion are required"))
+
+        let entitlements = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements"), encoding: .utf8)
+        XCTAssertTrue(entitlements.contains("aps-environment"))
+        XCTAssertTrue(entitlements.contains("$(APS_ENVIRONMENT)"))
+
+        let project = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat.xcodeproj/project.pbxproj"), encoding: .utf8)
+        XCTAssertEqual(project.components(separatedBy: "SUPPORTS_MACCATALYST = YES").count - 1, 2)
+        XCTAssertEqual(project.components(separatedBy: "SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES").count - 1, 2)
+        XCTAssertEqual(project.components(separatedBy: "CODE_SIGN_ENTITLEMENTS = FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements;").count - 1, 2)
+        let debug = try XCTUnwrap(project.range(of: "AA0100000000000000001103 /* Debug */"))
+        let release = try XCTUnwrap(project.range(of: "AA0100000000000000001104 /* Release */"))
+        let debugBlock = String(project[debug.lowerBound..<release.lowerBound])
+        XCTAssertTrue(debugBlock.contains("APS_ENVIRONMENT = development"))
+        XCTAssertTrue(debugBlock.contains("SUPPORTS_MACCATALYST = YES"))
+        XCTAssertTrue(debugBlock.contains("SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES"))
+        let releaseBlock = String(project[release.lowerBound...])
+        XCTAssertTrue(releaseBlock.contains("APS_ENVIRONMENT = production"))
+        XCTAssertTrue(releaseBlock.contains("SUPPORTS_MACCATALYST = YES"))
+        XCTAssertTrue(releaseBlock.contains("SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES"))
+    }
+
+    /// Settings toggles live in UserDefaults. The cook skips a token marked opted out.
+    func testNewDataAlertTogglesPersistAndSenderSkipsOptOut() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let suite = "hb-newdata-toggles-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: defaults))
+        XCTAssertFalse(NewDataPreferences.pushPreferenceChosen(in: defaults))
+        XCTAssertTrue(NewDataPreferences.bannerEnabled(in: defaults))
+
+        NewDataPreferences.setPushAlertsEnabled(false, in: defaults)
+        NewDataPreferences.setBannerEnabled(false, in: defaults)
+        let again = UserDefaults(suiteName: suite)!
+        XCTAssertTrue(NewDataPreferences.pushPreferenceChosen(in: again))
+        XCTAssertFalse(NewDataPreferences.pushAlertsEnabled(in: again))
+        XCTAssertFalse(NewDataPreferences.bannerEnabled(in: again))
+
+        NewDataPreferences.setPushAlertsEnabled(true, in: defaults)
+        NewDataPreferences.setBannerEnabled(true, in: defaults)
+        XCTAssertTrue(NewDataPreferences.pushAlertsEnabled(in: again))
+        XCTAssertTrue(NewDataPreferences.bannerEnabled(in: again))
+
+        XCTAssertEqual(HubDestination.settings.symbol, "gearshape.fill")
+        XCTAssertEqual(HubDestination.settings.title, "Settings")
+        XCTAssertNil(HubDestination.settings.section)
+        XCTAssertFalse(HubDestination.sectionItems.contains(.settings))
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pages = try String(contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/MainHubView.swift"), encoding: .utf8)
+        XCTAssertTrue(pages.contains("New data alerts"))
+        XCTAssertTrue(pages.contains("In-app new data banner"))
+        XCTAssertTrue(pages.contains("Open iOS Settings"))
+        XCTAssertTrue(pages.contains("SettingsNotificationsPage"))
+        let sender = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/send_push.py"), encoding: .utf8)
+        XCTAssertTrue(sender.contains("def should_deliver"))
+        XCTAssertTrue(sender.contains("push skipped: opted out"))
+        XCTAssertTrue(sender.contains("if not should_deliver(device)"))
+        let worker = try String(contentsOf: root.appendingPathComponent("Tools/HeartbeatPush/worker/src/index.ts"), encoding: .utf8)
+        XCTAssertTrue(worker.contains("optedOut"))
     }
 
     /// 455: Total Company pages show This Week company rollup above Regions.
     func testArchitecture455CompanyThisWeekRollupAboveRegions() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldShowCompanyThisWeekRollup(filters: DashboardFilters()))
         XCTAssertTrue(PulseLaunch.shouldShowSalesDayWeekBlock(filters: DashboardFilters()))
         XCTAssertFalse(PulseLaunch.shouldShowMetricCompanyThisWeekRollup(section: .sales, filters: DashboardFilters()))
@@ -10336,7 +13152,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 456: metric page store counts are fact stores, not roster 2161 vs 2164.
     func testArchitecture456MetricPageStoreCountIsFactStores() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage())
         XCTAssertFalse(PulseLaunch.shouldPinRosterStoreCountOnMetricPageHero())
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
@@ -10423,7 +13239,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 457: Dashboard RESULT cards nest the same This Week detail as metric pages.
     func testArchitecture457DashboardNestsThisWeekDetail() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldShowDashboardThisWeekDetail())
         XCTAssertTrue(PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage())
         XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
@@ -10482,7 +13298,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 458: one RESULT + This Week card, navy {Section} Overview, filter-seat RESULT.
     func testArchitecture458DashboardMergesResultAndPaintsFilterSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldMergeDashboardResultAndThisWeek())
         XCTAssertTrue(PulseLaunch.shouldShowDashboardSectionOverviewBanner())
         XCTAssertTrue(PulseLaunch.shouldPaintDashboardResultFromActiveSeat())
@@ -10629,7 +13445,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 459: PhoneThisWeekChrome reads HeartbeatStore on MainActor (458 cable FAIL).
     func testArchitecture459ThisWeekChromeIsMainActor() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldMergeDashboardResultAndThisWeek())
         XCTAssertTrue(PulseLaunch.shouldPaintDashboardResultFromActiveSeat())
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
@@ -10661,7 +13477,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 460: PPH stays on the phone Dashboard stack immediately under Dynacap.
     func testArchitecture460PPHStaysOnPhoneDashboardUnderDynacap() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldKeepPPHOnPhoneDashboard())
         XCTAssertTrue(PulseLaunch.shouldShowDashboardSection(.pph))
         XCTAssertTrue(PulseLaunch.shouldShowDashboardSection(.pickerScorecard))
@@ -10718,7 +13534,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 461: Dynacap This Week PPH chip is seat weekPurePPH, not dynacap_rate / —.
     func testArchitecture461DynacapPPHChipUsesPPHSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldFillDynacapPPHFromPPHSeat())
         XCTAssertTrue(PulseLaunch.shouldKeepPPHOnPhoneDashboard())
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
@@ -10798,7 +13614,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 462: Pages taps must not rebuild hidden Dashboard RESULT+grid sections.
     func testArchitecture462ParkHiddenDashboardAndCacheSeatPaint() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldParkHiddenPhoneDashboard())
         XCTAssertFalse(PulseLaunch.shouldRenderHiddenPhoneDashboardHeavy())
         XCTAssertTrue(PulseLaunch.shouldCachePhoneDashboardSectionPaint())
@@ -10853,7 +13669,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 463: parked Dashboard still has a ViewBuilder-inferable home (462 cable FAIL).
     func testArchitecture463PhoneDashboardHomeHasViewBuilderReturn() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldParkHiddenPhoneDashboard())
         XCTAssertTrue(PulseLaunch.shouldFillDynacapPPHFromPPHSeat())
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
@@ -10882,7 +13698,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// 465: tapping a page in the Pages sheet paints that page before roster walks
     /// and before the page being left is torn down.
     func testArchitecture465PagesNavPaintsBeforeRowWalks() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint())
         XCTAssertFalse(PulseLaunch.shouldShowParkedPhoneDashboard(isVisible: true, parked: false))
         XCTAssertFalse(PulseLaunch.shouldShowParkedPhoneDashboard(isVisible: true, parked: true))
@@ -10941,7 +13757,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// 474: iPad Pages taps under a division must not walk seat rows on the tap,
     /// and the iPhone Pages sheet shows the same bottom build stamp as iPad/Mac.
     func testArchitecture474PadPagesNavSkipsRowWalkAndPhoneStamp() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldSkipPagesNavRowWalk())
         XCTAssertFalse(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .dashboard))
         XCTAssertTrue(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .pickerScorecard))
@@ -10986,7 +13802,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// 467: BY DAY follows payload keys, shoppers show on Store/Ops/District/Division,
     /// and shared section chrome is a little denser. 455–463 chrome stays.
     func testArchitecture467LivePackDaysShoppersDensity() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertTrue(PulseLaunch.shouldUseDenserSectionChrome())
         XCTAssertEqual(CommandCenterLayout.phoneHeroMinHeight(), 92)
         XCTAssertEqual(CommandCenterLayout.phoneGlanceMinHeight(), 68)
@@ -11157,7 +13973,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// 468: live Sales are current.sqlite. facts.json week 202628 must not paint,
     /// cook must delete that object, and an older on-device week is cleared.
     func testArchitecture468LiveSqliteOverStaleFacts() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.477")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
         XCTAssertFalse(PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: true))
         XCTAssertFalse(PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: false))
         XCTAssertFalse(PulseLiveSource.shouldPublishFactsJSON())
@@ -11258,6 +14074,241 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseFacts.bundledMetricRows().contains {
             HeartbeatMath.canonicalStore($0.storeNumber) == "68" && $0.section == .sales
         })
+    }
+
+    /// Region and division YOY is sum(sales) / sum(prior) − 1.
+    /// Prior year is sales / (1 + yoy) per store. Blank, Infinity, and absurd rates stay out of both sums.
+    /// The company Total card copies the workbook Total row, including +17.30% sales and +17.12% orders.
+    func testSalesDivisionYoYIsWeightedAndTotalMatchesWorkbookRow() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(
+            HeartbeatMath.salesPartialWeekNote,
+            "Partial week — YOY compares these days only"
+        )
+        XCTAssertTrue(HeartbeatMath.salesShowsPartialWeekNote(dayCount: 1))
+        XCTAssertFalse(HeartbeatMath.salesShowsPartialWeekNote(dayCount: 7))
+        XCTAssertFalse(HeartbeatMath.salesShowsPartialWeekNote(dayCount: 0))
+
+        let united = MetricRow(
+            section: .sales,
+            division: "United",
+            operationsOM: "",
+            storeNumber: "22",
+            recordedOn: "202631",
+            payload: [
+                "sales_dollars": 63_554.66,
+                "sales_yoy_pct": -79.47,
+                "sales_orders": 1_000,
+                "sales_orders_yoy_pct": -80.5,
+                "sales_d0_dollars": 63_554.66,
+            ],
+            textPayload: ["sales_grain": "store", "sales_days": "Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday"]
+        )
+        let unitedPack = SalesPack(rows: [united])
+        XCTAssertEqual(unitedPack.sales ?? 0, 63_554.66, accuracy: 0.01)
+        XCTAssertEqual(unitedPack.yoy ?? 0, -79.47, accuracy: 0.001)
+        XCTAssertEqual(unitedPack.ordersYoy ?? 0, -80.5, accuracy: 0.001)
+        XCTAssertEqual(
+            HeartbeatMath.salesCoverageLabel(rows: [united], weekKey: "202631"),
+            "Week 31 · Sun 9/27 only (1 of 7 days)"
+        )
+
+        // Unequal prior-year bases. Arithmetic mean of −50 and +485.81 is about +217.9.
+        // Dollar-weighted result is −1.29, the Southern Sunday rate from the 10:24 workbook.
+        let southDown = MetricRow(
+            section: .sales,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "100",
+            recordedOn: "202631",
+            payload: [
+                "sales_dollars": 500_000,
+                "sales_yoy_pct": -50,
+                "sales_orders": 500,
+                "sales_orders_yoy_pct": -50,
+                "sales_d0_dollars": 500_000,
+            ],
+            textPayload: ["sales_grain": "store"]
+        )
+        let southUp = MetricRow(
+            section: .sales,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "101",
+            recordedOn: "202631",
+            payload: [
+                "sales_dollars": 585_810,
+                "sales_yoy_pct": 485.81,
+                "sales_orders": 585.81,
+                "sales_orders_yoy_pct": 485.81,
+                "sales_d0_dollars": 585_810,
+            ],
+            textPayload: ["sales_grain": "store"]
+        )
+        let blankYoY = MetricRow(
+            section: .sales,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "102",
+            recordedOn: "202631",
+            payload: ["sales_dollars": 9_999_999, "sales_orders": 9_000, "sales_d0_dollars": 9_999_999],
+            textPayload: ["sales_grain": "store"]
+        )
+        let infiniteYoY = MetricRow(
+            section: .sales,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "103",
+            recordedOn: "202631",
+            payload: [
+                "sales_dollars": 8_888_888,
+                "sales_yoy_pct": .infinity,
+                "sales_orders": 8_000,
+                "sales_orders_yoy_pct": .infinity,
+            ],
+            textPayload: ["sales_grain": "store"]
+        )
+        let absurdYoY = MetricRow(
+            section: .sales,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "104",
+            recordedOn: "202631",
+            payload: [
+                "sales_dollars": 7_777_777,
+                "sales_yoy_pct": 5_000,
+                "sales_orders": 7_000,
+                "sales_orders_yoy_pct": -100,
+            ],
+            textPayload: ["sales_grain": "store"]
+        )
+        let southern = [southDown, southUp, blankYoY, infiniteYoY, absurdYoY]
+        let southernPack = SalesPack(rows: southern)
+        let meanYoY = (-50.0 + 485.81) / 2
+        XCTAssertEqual(southernPack.yoy ?? 0, -1.29, accuracy: 0.01)
+        XCTAssertEqual(southernPack.ordersYoy ?? 0, -1.29, accuracy: 0.01)
+        XCTAssertNotEqual(southernPack.yoy ?? 0, meanYoY, accuracy: 1)
+        XCTAssertEqual(
+            HeartbeatMath.salesRollupYoY(
+                current: southern.map { HeartbeatMath.salesHeadlineDollars($0) },
+                yoyPct: southern.map { $0.number("sales_yoy_pct") }
+            ) ?? 0,
+            -1.29,
+            accuracy: 0.01
+        )
+        XCTAssertNil(HeartbeatMath.salesPriorFromYoY(current: 7_777_777, yoyPct: nil))
+        XCTAssertNil(HeartbeatMath.salesPriorFromYoY(current: 7_777_777, yoyPct: .infinity))
+        XCTAssertNil(HeartbeatMath.salesPriorFromYoY(current: 7_777_777, yoyPct: 5_000))
+        XCTAssertNil(HeartbeatMath.salesPriorFromYoY(current: 7_777_777, yoyPct: -100))
+
+        let divisions = SalesRollupBuilder.rows(from: [united] + southern, grain: .division)
+        let unitedRow = divisions.first { $0.label == "United" }
+        let southernRow = divisions.first { $0.label == "Southern" }
+        XCTAssertEqual(unitedRow?.pack.sales ?? 0, 63_554.66, accuracy: 0.01)
+        XCTAssertEqual(unitedRow?.pack.yoy ?? 0, -79.47, accuracy: 0.001)
+        XCTAssertEqual(unitedRow?.pack.ordersYoy ?? 0, -80.5, accuracy: 0.001)
+        XCTAssertEqual(southernRow?.pack.yoy ?? 0, -1.29, accuracy: 0.01)
+
+        let workbookTotal = MetricRow(
+            section: .sales,
+            division: "Total Company",
+            operationsOM: "",
+            storeNumber: "",
+            recordedOn: "202631",
+            payload: [
+                "sales_dollars": 50_000_000,
+                "sales_yoy_pct": 17.30,
+                "sales_orders": 1_000_000,
+                "sales_orders_yoy_pct": 17.12,
+                "sales_d0_dollars": 50_000_000,
+            ],
+            textPayload: ["sales_grain": "company"]
+        )
+        let total = SalesPack(company: workbookTotal, stores: [united] + southern)
+        XCTAssertEqual(total.yoy ?? 0, 17.30, accuracy: 0.001)
+        XCTAssertEqual(total.ordersYoy ?? 0, 17.12, accuracy: 0.001)
+        XCTAssertEqual(total.sales ?? 0, 50_000_000, accuracy: 0.01)
+        let storeRollup = SalesPack(rows: [united] + southern)
+        XCTAssertNotEqual(total.yoy ?? 0, storeRollup.yoy ?? 0, accuracy: 0.5)
+        XCTAssertNotEqual(total.sales ?? 0, storeRollup.sales ?? 0, accuracy: 1)
+    }
+
+    /// A roster placeholder is not a Loss Revenue row. Tiles stay em dashes.
+    /// An explicit 0 on a real row stays $0. Store 3493 is absent from that tab.
+    func testLossTilesDashWhenStoreHasNoLossRow() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueMissingStoreNote,
+            "Store not in this week's Loss report"
+        )
+        let headers = HeartbeatMath.dashboardTableHeaders(.lostRevenue)
+        XCTAssertEqual(
+            headers,
+            ["Lost $", "Lost %", "Goal %", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]
+        )
+        let missing = MetricRow(
+            section: .lostRevenue,
+            division: "United",
+            operationsOM: "Haggen 1",
+            storeNumber: "3493",
+            storeName: "Haggen",
+            textPayload: ["district": "39"]
+        )
+        let absent = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [missing], goalFallback: 3.0)
+        XCTAssertEqual(absent.health, .none)
+        XCTAssertEqual(absent.values, Array(repeating: "—", count: headers.count))
+        XCTAssertFalse(absent.values.contains("$0"))
+        var storeFilter = DashboardFilters()
+        storeFilter.store = "3493"
+        XCTAssertTrue(
+            HeartbeatMath.lostRevenueMissingStoreNoteApplies(filters: storeFilter, rows: [missing])
+        )
+        var company = DashboardFilters()
+        XCTAssertFalse(
+            HeartbeatMath.lostRevenueMissingStoreNoteApplies(filters: company, rows: [missing])
+        )
+
+        let zero = MetricRow(
+            section: .lostRevenue,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "22",
+            payload: [
+                "lost_revenue": 0,
+                "lost_revenue_pct": 0,
+                "ecomm_sales": 0,
+                "post_sub_oos_foregone": 0,
+                "refund_lost": 0,
+                "missed_sales": 0,
+                "cancelled_lost": 0,
+                "kill_switch_lost": 0,
+            ],
+            textPayload: ["lost_grain": "store"]
+        )
+        let zeros = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [zero])
+        for name in ["Lost $", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"] {
+            let index = headers.firstIndex(of: name) ?? -1
+            XCTAssertEqual(zeros.values[index], "$0", name)
+        }
+        storeFilter.store = "22"
+        XCTAssertFalse(
+            HeartbeatMath.lostRevenueMissingStoreNoteApplies(filters: storeFilter, rows: [zero])
+        )
+
+        let partial = MetricRow(
+            section: .lostRevenue,
+            division: "United",
+            operationsOM: "",
+            storeNumber: "100",
+            payload: ["lost_revenue": 12, "ecomm_sales": 100],
+            textPayload: ["lost_grain": "store"]
+        )
+        let partialValues = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [partial]).values
+        XCTAssertEqual(partialValues[headers.firstIndex(of: "Lost $") ?? -1], "$12")
+        XCTAssertEqual(partialValues[headers.firstIndex(of: "eComm $") ?? -1], "$100")
+        XCTAssertEqual(partialValues[headers.firstIndex(of: "Kill") ?? -1], "—")
+        XCTAssertNil(HeartbeatMath.lostRevenueReportedValue([missing], key: "lost_revenue"))
+        XCTAssertEqual(HeartbeatMath.lostRevenueReportedValue([zero], key: "kill_switch_lost") ?? -1, 0, accuracy: 0.001)
     }
 }
 

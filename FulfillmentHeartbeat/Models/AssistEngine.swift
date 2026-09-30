@@ -120,6 +120,13 @@ enum HeartbeatAssist {
                 "Is this a map problem or no-shows?",
                 "What do we change on the map?",
             ]
+        case .scheduleCheck:
+            return [
+                "Which stores need a schedule fix?",
+                "Who is under scheduled this week?",
+                "Which divisions are below 90% efficiency?",
+                "Which stores are not scheduled yet?",
+            ]
         case .pph:
             return [
                 "Who is the worst district for PPH?",
@@ -143,6 +150,8 @@ enum HeartbeatAssist {
                 "Who should we coach today?",
                 "Which stores have the weakest shopper mix?",
             ]
+        case .settings:
+            return []
         }
     }
 
@@ -226,12 +235,18 @@ enum HeartbeatAssist {
                 wrong: "Ask about \(dest.title) in \(store.filters.summary). Tap a prompt or type a store, district, or LDAP."
             )
         }
+        if dest == .scheduleCheck {
+            return ScheduleCheckMath.assistText(pack: store.scheduleCheck, filters: store.filters)
+        }
         guard store.seeded else {
             return coachFallback(
                 dest: dest,
                 filter: store.filters.summary,
                 wrong: "The Heartbeat pack is not on this device yet. Stay on Dashboard — the server pack fills the cards when it lands."
             )
+        }
+        if !store.filters.isActive {
+            return companyDashboardAnswer(question: q, dest: dest, store: store)
         }
         var intent = intent(for: q, dest: dest)
         let brain = Brain(dest: dest, store: store)
@@ -249,6 +264,34 @@ enum HeartbeatAssist {
             }
         }
         return brain.answer(intent, question: q)
+    }
+
+    /// Company scope stays on the painted cards. `Brain` walks fact rows and picker tape.
+    @MainActor
+    private static func companyDashboardAnswer(question _: String, dest: HubDestination, store: HeartbeatStore) -> String {
+        let cards = store.summaries.filter { summary in
+            summary.health != .none || summary.headline != nil || summary.storeCount > 0
+        }
+        if cards.isEmpty {
+            return coachFallback(
+                dest: dest,
+                filter: "Total company",
+                wrong: "Dashboard cards are not on screen yet."
+            )
+        }
+        var lines = [
+            "Heartbeat Assist — \(dest.title)",
+            "Total company",
+            "",
+            "WHAT'S WRONG",
+        ]
+        for card in cards where card.riskCount + card.watchCount > 0 {
+            lines.append("• \(card.section.title): \(card.headlineText)  ·  \(card.riskCount) at risk")
+        }
+        if lines.last == "WHAT'S WRONG" {
+            lines.append("No scorecard is off goal on the company dashboard.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     @MainActor
@@ -960,6 +1003,13 @@ enum HeartbeatAssist {
         private func prepBrief() -> String {
             var lines = header("Prep not ready")
             let rows = storeRows(.prepNotReady)
+            let coverage = HeartbeatMath.prepCoverage(rows)
+            if coverage.thin {
+                lines.append("ISSUE")
+                lines.append(coverage.note)
+                lines.append("Prep is not graded. Reporting is too thin to call it healthy.")
+                return join(lines)
+            }
             let avg = HeartbeatMath.average(rows.compactMap { $0.number("pnr_rate_pct") })
             lines.append("ISSUE")
             lines.append("Avg PNR hours \(HeartbeatFormat.pct(avg)) in \(filter). Goal 1.9% or less. Above 2.5% is at risk. Grocery owns prep, not e-comm.")
@@ -1325,6 +1375,8 @@ enum HeartbeatAssist {
             case .pickPath, .pickPathPicker:
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number("compliance_pct") }))
             case .prepNotReady:
+                let coverage = HeartbeatMath.prepCoverage(rows)
+                if coverage.thin { return coverage.note }
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number("pnr_rate_pct") }))
             case .dynacap:
                 return HeartbeatFormat.num(HeartbeatMath.average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1)

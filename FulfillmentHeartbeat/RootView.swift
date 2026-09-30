@@ -59,6 +59,33 @@ struct RootView: View {
     }
 }
 
+struct NewDataUploadBanner: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(bannerFont)
+            .foregroundStyle(Color.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            .padding(.horizontal, HubLayout.runsOnMac ? 20 : 16)
+            .padding(.vertical, HubLayout.runsOnMac ? 14 : (HubLayout.isPadDevice ? 12 : 10))
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .accessibilityIdentifier("new-data-banner")
+            .onAppear { store.armNewDataBannerDismiss() }
+            .onChange(of: text) { _, _ in store.armNewDataBannerDismiss() }
+    }
+
+    private var bannerFont: Font {
+        if HubLayout.runsOnMac { return .title3.weight(.semibold) }
+        if HubLayout.isPadDevice { return .body.weight(.semibold) }
+        return .subheadline.weight(.semibold)
+    }
+}
+
 struct LaunchSplashView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -87,27 +114,13 @@ struct LaunchSplashView: View {
                         .font(.system(size: phone ? 16 : 17, weight: .semibold))
                         .foregroundStyle(AppTheme.blue)
                         .padding(.top, 4)
+                    } else if PulseLaunch.shouldShowGroceryLoadQuips() {
+                        LaunchLoadingQuip(progress: store.importProgress)
                     } else {
-                        ProgressView()
-                            .controlSize(.regular)
-                            .tint(AppTheme.blue)
-                        Text(PulseLaunch.displayLoadStatus(store.importProgress.label, tick: store.importProgress.loaded))
+                        Text(PulseLaunch.seatLoadTitle)
                             .font(.system(size: phone ? 16 : 18, weight: .semibold))
-                            .foregroundStyle(AppTheme.text)
+                            .foregroundStyle(AppTheme.textSecondary)
                             .multilineTextAlignment(.center)
-                            .lineLimit(3)
-                            .minimumScaleFactor(0.8)
-                        if store.importProgress.expected > 0 {
-                            ProgressView(
-                                value: store.importProgress.fraction,
-                                total: 1
-                            )
-                            .tint(AppTheme.blue)
-                            .frame(maxWidth: phone ? 220 : 280)
-                            Text("\(store.importProgress.loaded) of \(store.importProgress.expected)")
-                                .font(.system(size: phone ? 13 : 14, weight: .semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
                     }
                 }
                 .padding(.top, 4)
@@ -115,7 +128,26 @@ struct LaunchSplashView: View {
             .padding(.horizontal, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityLabel("Fulfillment")
+        .modifier(LaunchSplashAccessibility(isLoading: !launchFailed))
+    }
+
+    private var launchFailed: Bool {
+        store.errorMessage != nil && !store.isImporting
+    }
+}
+
+/// VoiceOver hears "Loading Heartbeat" once. Quips stay out of the accessibility tree.
+private struct LaunchSplashAccessibility: ViewModifier {
+    var isLoading: Bool
+
+    func body(content: Content) -> some View {
+        if isLoading {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(PulseLaunch.seatLoadTitle)
+        } else {
+            content.accessibilityLabel("Fulfillment")
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum HubNavSelection {
     static func lightsIcon(selected: Bool) -> Bool { selected }
@@ -471,6 +472,8 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        case .scheduleCheck:
+            return scheduleCheckNavHealth()
         default:
             guard let section = dest.section else { return .none }
             return store.summary(for: section).health
@@ -481,10 +484,20 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        case .scheduleCheck:
+            return scheduleCheckNavHealth()
         default:
             guard let section = dest.section else { return .none }
             return store.cheapPhonePageChrome(section).health
         }
+    }
+
+    private func scheduleCheckNavHealth() -> Health {
+        guard let pack = store.scheduleCheck else { return .none }
+        return ScheduleCheckMath.effHealth(
+            ScheduleCheckMath.summary(pack: pack, filters: store.filters).eff,
+            notScheduled: false
+        )
     }
 
     private func healthRank(_ health: Health) -> Int {
@@ -569,6 +582,14 @@ struct MainHubView: View {
                     .allowsHitTesting(isVisibleScorecard(section))
                     .accessibilityHidden(!isVisibleScorecard(section))
             }
+            if router.current == .settings {
+                SettingsNotificationsPage()
+                    .hubPageCanvas()
+            }
+            if router.current == .scheduleCheck {
+                ScheduleCheckView()
+                    .hubPageCanvas()
+            }
         }
     }
 
@@ -629,6 +650,117 @@ struct MainHubView: View {
             if let section = dest.section {
                 SectionDetailView(section: section).hubPageCanvas()
             }
+        case .settings:
+            SettingsNotificationsPage().hubPageCanvas()
+        case .scheduleCheck:
+            ScheduleCheckView().hubPageCanvas()
+        }
+    }
+}
+
+/// Pages → Settings. Two UserDefaults toggles. Does not read pack rows.
+struct SettingsNotificationsPage: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var permissionDenied = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Notifications")
+                    .font(HubLayout.runsOnMac ? .title.weight(.bold) : .title2.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                VStack(spacing: 0) {
+                    toggleRow(
+                        title: "New data alerts",
+                        identifier: "new-data-alerts-toggle",
+                        isOn: Binding(
+                            get: { store.newDataAlertsEnabled },
+                            set: { store.setNewDataAlertsEnabled($0) }
+                        )
+                    )
+                    Divider().overlay(AppTheme.cardBorder)
+                    toggleRow(
+                        title: "In-app new data banner",
+                        identifier: "in-app-new-data-banner-toggle",
+                        isOn: Binding(
+                            get: { store.inAppNewDataBannerEnabled },
+                            set: { store.setInAppNewDataBannerEnabled($0) }
+                        )
+                    )
+                }
+                .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                if store.newDataAlertsEnabled, permissionDenied {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(permissionDeniedNote)
+                            .font(HubLayout.runsOnMac ? .body : .subheadline)
+                            .foregroundStyle(AppTheme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button {
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(url)
+                        } label: {
+                            Text(HubLayout.runsOnMac ? "Open System Settings" : "Open iOS Settings")
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.blue)
+                        .accessibilityIdentifier("open-ios-settings")
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                            .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    )
+                }
+            }
+            .padding(HubLayout.runsOnMac ? 28 : 20)
+            .frame(maxWidth: settingsContentWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(AppTheme.bg)
+        .accessibilityIdentifier("settings-notifications")
+        .onAppear { refreshPermission() }
+        .onChange(of: store.newDataAlertsEnabled) { _, _ in refreshPermission() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { refreshPermission() }
+        }
+    }
+
+    private var settingsContentWidth: CGFloat {
+        HubLayout.isPhone(sizeClass) ? .infinity : 680
+    }
+
+    private var permissionDeniedNote: String {
+        if HubLayout.runsOnMac {
+            return "macOS is blocking alerts for Heartbeat. Turn Notifications on in System Settings."
+        }
+        return "iOS is blocking alerts for Heartbeat. Turn Notifications on in iOS Settings."
+    }
+
+    private func toggleRow(title: String, identifier: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Text(title)
+                .font(HubLayout.runsOnMac ? .title3 : .body)
+                .foregroundStyle(AppTheme.text)
+        }
+        .tint(AppTheme.blue)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func refreshPermission() {
+        NewDataPush.refreshAuthorizationDenied { denied in
+            permissionDenied = denied
         }
     }
 }
@@ -759,6 +891,16 @@ struct CompactNavSheet: View {
                     ForEach(HubDestination.sectionItems) { item in
                         navRow(item)
                     }
+                    if !HubDestination.settingsItems.isEmpty {
+                        Text("SETTINGS")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 14)
+                        ForEach(HubDestination.settingsItems) { item in
+                            navRow(item)
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -831,6 +973,8 @@ struct CompactNavSheet: View {
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        case .scheduleCheck:
+            return scheduleCheckNavHealth()
         default:
             guard let section = dest.section else { return .none }
             if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint()
@@ -841,6 +985,14 @@ struct CompactNavSheet: View {
             }
             return store.summary(for: section).health
         }
+    }
+
+    private func scheduleCheckNavHealth() -> Health {
+        guard let pack = store.scheduleCheck else { return .none }
+        return ScheduleCheckMath.effHealth(
+            ScheduleCheckMath.summary(pack: pack, filters: store.filters).eff,
+            notScheduled: false
+        )
     }
 
     private func healthRank(_ health: Health) -> Int {

@@ -559,15 +559,15 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["2218", "1", ""]))
         let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
         XCTAssertEqual(store.payload["lost_revenue"] ?? 0, 2538.573, accuracy: 0.001)
-        XCTAssertEqual(store.payload["lost_revenue_pct"] ?? 0, 115.744807933432, accuracy: 0.001)
-        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 54.6313005813291, accuracy: 0.001)
+        XCTAssertEqual(store.payload["lost_revenue_pct"] ?? 0, 1.15744807933432, accuracy: 0.001)
+        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 0.546313005813291, accuracy: 0.001)
         XCTAssertEqual(store.payload["ecomm_sales"] ?? 0, 2193.25, accuracy: 0.001)
         XCTAssertEqual(store.textPayload["lost_grain"], "store")
         let company = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
-        XCTAssertEqual(company.payload["lost_revenue_pct"] ?? 0, 4.5, accuracy: 0.01)
+        XCTAssertEqual(company.payload["lost_revenue_pct"] ?? 0, 0.045, accuracy: 0.0001)
         let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
         XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 2087654.14383581, accuracy: 0.01)
-        XCTAssertEqual(market.payload["lost_revenue_pct"] ?? 0, 4.53078021185763, accuracy: 0.0001)
+        XCTAssertEqual(market.payload["lost_revenue_pct"] ?? 0, 0.0453078021185763, accuracy: 0.0001)
         XCTAssertEqual(market.payload["ecomm_sales"] ?? 0, 46077144.47, accuracy: 0.01)
         XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
     }
@@ -599,9 +599,9 @@ final class WorkbookParserTests: XCTestCase {
         """
         let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
         let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
-        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 3.0, accuracy: 0.01)
+        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 0.03, accuracy: 0.0001)
         XCTAssertEqual(store.payload["lost_revenue_goal"] ?? 0, 250, accuracy: 0.01)
-        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(store.asRow(section: .lostRevenue)) ?? 0, 3.0, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(store.asRow(section: .lostRevenue)) ?? 0, 0.03, accuracy: 0.0001)
     }
 
     func testLostRevenueColumnMapKeepsGoalAndTotalOpportunityOnDistinctKeys() {
@@ -699,7 +699,7 @@ final class WorkbookParserTests: XCTestCase {
         let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
         XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
         XCTAssertEqual(market.payload["lost_revenue_goal"] ?? 0, 1_147_500.91, accuracy: 0.01)
-        XCTAssertEqual(market.payload["lost_revenue_goal_pct"] ?? 0, 2.49, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal_pct"] ?? 0, 0.0249, accuracy: 0.0001)
         XCTAssertEqual(market.payload["missed_sales"] ?? 0, 126_864.44, accuracy: 0.01)
         XCTAssertEqual(market.payload["missed_sales_goal"] ?? 0, 31_716, accuracy: 0.01)
         XCTAssertEqual(market.payload["kill_switch_lost_goal"] ?? 0, 16_574.80, accuracy: 0.01)
@@ -709,6 +709,87 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Missed Sales (Total Opportunity)"), "missed_sales")
         XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Total Lost Revenue (FY2026 Goal)"), "lost_revenue_goal")
         XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Kill Switch Lost Sales (FY2026 Goal)"), "kill_switch_lost_goal")
+    }
+
+    func testHaggenLossTotalIsTheSheetRatioAndOneDay() throws {
+        let csv = """
+        Store,Division,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity),FY2026 Goal,FY2026 Goal %,Post Sub OOS Foregone (Total Opportunity),Refund Lost Sales (Total Opportunity),Missed Sales (Total Opportunity),Cancelled Lost Sales (Total Opportunity),Kill Switch Lost Sales (TO / $90)
+        12,Haggen,83.25,839,10.078078078078078,20.5,0.24624624624624625,10,20,30,40,50
+        14,Haggen,100,500,5,30,0.3,1,1,1,1,1
+        Total,,30854.40,149208.02,4.835874927555147,76229.69,2.4706262768101013,11,21,31,41,51
+        Applied filters, SALES is not blank, CALENDAR_DT on or after 9/27/2026 and before 9/28/2026
+        """
+        XCTAssertEqual(
+            WorkbookParser.lossCalendarDay(from: "Applied filters, SALES is not blank, CALENDAR_DT on or after 9/27/2026 and before 9/28/2026"),
+            "9/27"
+        )
+        let parsed = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Heartbeat Daily Report.xlsx")
+        let rows = parsed.map { $0.asRow(section: .lostRevenue) }
+        let store12 = try XCTUnwrap(rows.first { $0.storeNumber == "12" })
+        XCTAssertEqual(store12.payload["lost_revenue"] ?? 0, 839, accuracy: 0.001)
+        XCTAssertEqual(store12.payload["ecomm_sales"] ?? 0, 83.25, accuracy: 0.001)
+        XCTAssertEqual(store12.payload["lost_revenue_pct"] ?? 0, 839 / 83.25, accuracy: 0.0001)
+        XCTAssertEqual(store12.division, "Haggen")
+        XCTAssertEqual(store12.textPayload["loss_day"], "9/27")
+        let total = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(total.payload["lost_revenue"] ?? 0, 149_208.02, accuracy: 0.001)
+        XCTAssertEqual(total.payload["ecomm_sales"] ?? 0, 30_854.40, accuracy: 0.001)
+        XCTAssertEqual(total.payload["lost_revenue_pct"] ?? 0, 4.835874927555147, accuracy: 0.0000001)
+        XCTAssertEqual(total.payload["lost_revenue_goal"] ?? 0, 76_229.69, accuracy: 0.001)
+        XCTAssertEqual(total.payload["lost_revenue_goal_pct"] ?? 0, 2.4706262768101013, accuracy: 0.0000001)
+        XCTAssertEqual(total.payload["lost_revenue"] ?? 0, total.payload["ecomm_sales"]! * total.payload["lost_revenue_pct"]!, accuracy: 0.05)
+        XCTAssertNotEqual(total.payload["lost_revenue_pct"] ?? 0, 149_208.02 / 30_854.40 * 100, accuracy: 1)
+        let storeSum = rows.filter { $0.textPayload["lost_grain"] != "market" }.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+        XCTAssertEqual(storeSum, 1_339, accuracy: 0.01)
+        XCTAssertNotEqual(storeSum, 149_208.02, accuracy: 1)
+
+        let tiles = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: rows)
+        XCTAssertEqual(tiles.values[0], HeartbeatFormat.money(149_208.02))
+        XCTAssertEqual(tiles.values[1], "4.84%")
+        XCTAssertEqual(tiles.values[2], "2.47%")
+        XCTAssertEqual(tiles.values[3], HeartbeatFormat.money(30_854.40))
+        XCTAssertEqual(tiles.values[4], HeartbeatFormat.money(11))
+        XCTAssertEqual(tiles.values[5], HeartbeatFormat.money(21))
+        XCTAssertEqual(tiles.values[6], HeartbeatFormat.money(31))
+        XCTAssertEqual(tiles.values[7], HeartbeatFormat.money(41))
+        XCTAssertEqual(tiles.values[8], HeartbeatFormat.money(51))
+        XCTAssertEqual(tiles.health, .risk)
+        XCTAssertFalse(tiles.values.contains { $0.contains("1,339") })
+
+        XCTAssertEqual(HeartbeatMath.lostRevenueScopeNote(rows), "2 stores reported · 9/27")
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueScopeNote(rows, rosterStores: 2_177),
+            "2 of 2,177 stores reported · 9/27"
+        )
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "12": .init(division: "Shaws", district: "01", om: "Pat", name: nil),
+            "14": .init(division: "Portland", district: "02", om: "Pat", name: nil),
+        ]
+        let stamped = rows.map { HeartbeatMath.stampRoster($0, roster: roster) }
+        XCTAssertEqual(stamped.first { $0.storeNumber == "12" }?.division, "Shaws")
+        XCTAssertNotEqual(stamped.first { $0.storeNumber == "12" }?.division, "Haggen")
+        let regions = HeartbeatMath.dashboardGrainTable(
+            section: .lostRevenue,
+            rows: stamped,
+            grain: .region,
+            order: MarketRegion.allCases.map(\.rawValue)
+        )
+        let east = try XCTUnwrap(regions.first { $0.label == "East Region" })
+        XCTAssertEqual(east.storeCount, 1)
+        XCTAssertEqual(east.values[0], HeartbeatFormat.money(839))
+        XCTAssertEqual(east.values[1], "10.08%")
+        let west = try XCTUnwrap(regions.first { $0.label == "West Region" })
+        XCTAssertEqual(west.storeCount, 1)
+        XCTAssertEqual(west.values[0], HeartbeatFormat.money(500))
+        let south = try XCTUnwrap(regions.first { $0.label == "South Region" })
+        XCTAssertEqual(south.storeCount, 0)
+        XCTAssertTrue(south.values.allSatisfy { $0 == "—" })
+        XCTAssertEqual(south.health, .none)
+        let summary = HeartbeatMath.summarize(.lostRevenue, rows: rows, upload: nil)
+        XCTAssertEqual(summary.headline ?? 0, 149_208.02, accuracy: 0.01)
+        XCTAssertEqual(summary.health, .risk)
+        XCTAssertEqual(summary.secondary, "2 stores reported · 9/27")
+        XCTAssertEqual(summary.storeCount, 2)
     }
 }
 

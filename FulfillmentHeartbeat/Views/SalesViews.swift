@@ -277,14 +277,16 @@ private struct OverviewSalesColumns: View {
 struct OverviewSalesPhoneCard: View {
     let label: String
     var count: Int? = nil
+    var detail: String? = nil
     let pack: SalesPack
 
     var body: some View {
         let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
+        let stores = count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil }
         return PhoneScorecardRow(
             title: label,
             eyebrow: "Sales",
-            subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
+            subtitle: detail ?? stores,
             chips: Self.chips(pack: pack),
             health: cardHealth
         )
@@ -292,16 +294,11 @@ struct OverviewSalesPhoneCard: View {
 
     static func chips(pack: SalesPack) -> [PhoneMetricChip] {
         let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
-        return [
-            PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
-            PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
-            PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
-            PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
-            PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
-            PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
-            PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
-            PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0)),
-        ]
+        let tiles = HeartbeatMath.salesPhoneTiles(pack)
+        return zip(tiles.labels, tiles.values).map { label, value in
+            let tone: Health = (label == "Sales $" || label == "YoY") ? cardHealth : .none
+            return PhoneMetricChip(label: label, value: value, health: tone)
+        }
     }
 }
 
@@ -311,11 +308,15 @@ enum SalesRollupBuilder {
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: HeartbeatMath.StoreIdentity] = [:]) -> [MetricRow] {
-        let raw = rows.filter {
-            $0.textPayload["sales_grain"] != "day"
-                && $0.textPayload["sales_grain"] != "company"
-                && !$0.storeNumber.isEmpty
-                && $0.storeNumber.caseInsensitiveCompare("total") != .orderedSame
+        let raw = rows.filter { row in
+            if row.textPayload["sales_grain"] == "day" { return false }
+            if row.storeNumber.caseInsensitiveCompare("total") == .orderedSame { return false }
+            if row.textPayload["sales_grain"] == "company" {
+                // The company total is the card. A region line that was cooked
+                // onto a company-grain row still belongs in the breakdown.
+                return MarketRegion.named(row.division) != nil
+            }
+            return !row.storeNumber.isEmpty
         }
         let stores = roster.isEmpty ? raw : HeartbeatMath.applyRoster(raw, roster: roster)
         if !filters.isActive {
@@ -365,13 +366,7 @@ enum SalesRollupBuilder {
 
     /// Real day payload. `text_json.sales_days` is a label list and is not a day.
     static func rowHasSalesDayPayload(_ row: MetricRow, index: Int) -> Bool {
-        guard weekdayNames.indices.contains(index) else { return false }
-        let prefix = "sales_d\(index)_"
-        let dollars = row.payload[prefix + "dollars"]
-        let orders = row.payload[prefix + "orders"]
-        let items = row.payload[prefix + "items"]
-        if dollars == nil, orders == nil, items == nil { return false }
-        return (dollars ?? 0) > 0 || (orders ?? 0) > 0 || (items ?? 0) > 0
+        HeartbeatMath.salesRowHasDay(row, index: index)
     }
 
     static func salesDayIndexes(in rows: [MetricRow]) -> [Int] {
@@ -459,15 +454,23 @@ enum SalesRollupBuilder {
         }
     }
 
-    static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
+    static func dashboardRows(
+        from stores: [MetricRow],
+        grain: DashScopeGrain,
+        chrome: [HeartbeatMath.DashboardGrainTableRow] = []
+    ) -> [SalesRollupRow] {
+        let built: [SalesRollupRow]
         switch grain {
         case .region:
             var buckets: [String: [MetricRow]] = [:]
             for store in stores {
-                guard let region = MarketRegion.containing(store.division) else { continue }
+                let region = MarketRegion.containing(store.division)
+                    ?? MarketRegion.named(store.division)
+                    ?? MarketRegion.resolved(division: store.division, district: store.district)
+                guard let region else { continue }
                 buckets[region.rawValue, default: []].append(store)
             }
-            return MarketRegion.allCases.compactMap { region in
+            built = MarketRegion.allCases.compactMap { region in
                 let slice = buckets[region.rawValue] ?? []
                 guard !slice.isEmpty else { return nil }
                 let pack = SalesPack(rows: slice)
@@ -475,11 +478,46 @@ enum SalesRollupBuilder {
                 return SalesRollupRow(label: region.rawValue, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: slice), pack: pack)
             }
         case .division:
-            return rows(from: stores, grain: .division)
+            built = rows(from: stores, grain: .division)
         case .district:
-            return rows(from: stores, grain: .district)
+            built = rows(from: stores, grain: .district)
         case .store:
-            return rows(from: stores, grain: .store)
+            built = rows(from: stores, grain: .store)
+        }
+        if PulseLaunch.salesExpandIsLive(built) { return built }
+        return rowsFromChrome(chrome, grain: grain)
+    }
+
+    /// Chrome grain rows already have the section dollars. Use them when store
+    /// divisions do not resolve into regions or markets.
+    static func rowsFromChrome(
+        _ rows: [HeartbeatMath.DashboardGrainTableRow],
+        grain: DashScopeGrain
+    ) -> [SalesRollupRow] {
+        rows.compactMap { row in
+            guard HeartbeatMath.grainLabelsMatch([row.label], grain: grain) else { return nil }
+            guard HeartbeatMath.grainRowHasSectionValue(row) else { return nil }
+            guard let sales = HeartbeatMath.parsedTileNumber(row.values.first ?? ""), sales > 0 else { return nil }
+            let yoy = row.values.count > 1 ? HeartbeatMath.parsedTileNumber(row.values[1]) : nil
+            let orders = row.values.count > 2 ? HeartbeatMath.parsedTileNumber(row.values[2]) : nil
+            let label = MarketRegion.named(row.label)?.rawValue ?? HeartbeatMath.displayGrainLabel(row.label)
+            return SalesRollupRow(
+                label: label,
+                storeCount: row.storeCount,
+                pack: SalesPack(
+                    sales: sales,
+                    yoy: yoy,
+                    orders: orders,
+                    ordersYoy: nil,
+                    aos: nil,
+                    aiv: nil,
+                    items: nil,
+                    ipt: nil,
+                    hd: nil,
+                    dug: nil,
+                    health: row.health
+                )
+            )
         }
     }
 }
@@ -695,7 +733,18 @@ struct SalesRollupTable: View {
         let next = forcedGrain ?? SalesRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        var rows = SalesRollupBuilder.rows(from: store.rollupStores(for: .sales), grain: next)
+        let dashGrain: DashScopeGrain
+        switch next {
+        case .region: dashGrain = .region
+        case .division: dashGrain = .division
+        case .district: dashGrain = .district
+        case .store: dashGrain = .store
+        }
+        var rows = SalesRollupBuilder.dashboardRows(
+            from: SalesRollupBuilder.source(from: store.rollupStores(for: .sales), filters: store.filters),
+            grain: dashGrain,
+            chrome: store.dashboardGrainRows(for: .sales, grain: dashGrain)
+        )
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         rows.sort { lhs, rhs in
             let result: ComparisonResult

@@ -1,0 +1,1555 @@
+{
+ "version": "2026-09-25.2",
+ "line": "0dcad79201cba43c75e6a70e2cfe67b6339eeaec",
+ "metrics": [
+  {
+   "metricId": "sales",
+   "displayName": "Sales",
+   "ownerName": null,
+   "parentId": null,
+   "section": "sales",
+   "packField": "sales_yoy_pct (else sales_plan_pct)",
+   "trigger": "sales_yoy_pct ≤ 0 → Watch (0 to −3), < −3 → At risk; if no YoY, sales_plan_pct < 100 → Watch (95–100), < 95 → At risk (SPEC §6; `salesHealth`)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [
+    "lost_revenue"
+   ],
+   "causesConfirm": [
+    "lost_revenue"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is Dynacap set to the recommended pickup and delivery capacity?",
+     "owner": "Store lead",
+     "destination": "dynacap",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is the kill switch off during every open slot hour?",
+     "owner": "Store lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Was every cancelled order this week reviewed with the shopper?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is every pickup customer handed off within the promise window?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Are pickup signs, bays, and check-in instructions clear and working?",
+     "owner": "Store lead",
+     "destination": "sales",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "lost_revenue",
+   "displayName": "Loss Revenue",
+   "ownerName": "Lost Sales",
+   "parentId": null,
+   "section": "lostRevenue",
+   "packField": "lost_revenue_pct (buckets below)",
+   "trigger": "lost_revenue_pct > 3 → Watch (3–5), > 5 → At risk (SPEC §6; `lostRevenueHealth`); largest-dollar bucket's check moves to order 1",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [
+    "lost_reduced_capacity"
+   ],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is the backroom checked before any item is marked out?",
+     "owner": "Grocery lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Are found items restaged before any refund is issued?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is every cancelled order reviewed with the shopper same day?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is the kill switch off unless capacity is truly blocked?",
+     "owner": "Store lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Is capacity back to recommended once the crew is on?",
+     "owner": "Store lead",
+     "destination": "dynacap",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 6,
+     "type": "floor",
+     "question": "Has the OM seen the store's loss plan this week?",
+     "owner": "OM",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "lost_post_sub_oos",
+   "displayName": "Post Sub OOS Foregone",
+   "ownerName": null,
+   "parentId": "lost_revenue",
+   "section": "lostRevenue",
+   "packField": "post_sub_oos_foregone / post_sub_oos_foregone_pct",
+   "trigger": "post_sub_oos_foregone_pct > 3 → Watch (3–5), > 5 → At risk; if no pct, any dollars > 0 → Watch (`lostRevenueMetricFlags` default branch)",
+   "level": "store",
+   "ownerDefault": "Grocery lead",
+   "confirm": false,
+   "causes": [
+    "pre_sub_oos"
+   ],
+   "causesConfirm": [
+    "pre_sub_oos"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is the backroom checked before any item is marked out?",
+     "owner": "Grocery lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Do shoppers radio grocery before marking an item out?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are the top out-of-stocks walked with grocery today?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Are shoppers offering a sub before marking items out?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "lost_refund",
+   "displayName": "Refund $ Fulfillment",
+   "ownerName": null,
+   "parentId": "lost_revenue",
+   "section": "lostRevenue",
+   "packField": "refund_lost / refund_lost_pct",
+   "trigger": "refund_lost > 0 → Watch; At risk if refund_lost_pct > 5 (`lostSalesDollarHealth`, anyDollarIsRisk false)",
+   "level": "store",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Are found items restaged before any refund is issued?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is every tote checked against the order before handoff?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are cold and frozen totes held in the right staging zone?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is each refund reviewed with the shopper who picked it?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "lost_reduced_capacity",
+   "displayName": "Reduced Capacity Missed Sales",
+   "ownerName": "Low capacity",
+   "parentId": "lost_revenue",
+   "section": "dynacap",
+   "packField": "missed_sales / missed_sales_pct (or reduced_capacity)",
+   "trigger": "missed_sales_pct > 3 → Watch (3–5), > 5 → At risk; if no pct, any dollars > 0 → Watch (`lostRevenueMetricFlags` default branch)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [
+    "five_star_ott",
+    "pph",
+    "dynacap"
+   ],
+   "causesConfirm": [
+    "dynacap"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is capacity back to recommended once the crew is on?",
+     "owner": "Store lead",
+     "destination": "dynacap",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Are all scheduled shoppers here for the peak window?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is call-in coverage lined up before capacity gets cut?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "lost_cancelled",
+   "displayName": "Cancelled Orders LDAP",
+   "ownerName": null,
+   "parentId": "lost_revenue",
+   "section": "lostRevenue",
+   "packField": "cancelled_lost / cancelled_lost_pct",
+   "trigger": "cancelled_lost > 0 → Watch; At risk if cancelled_lost_pct > 5 (`lostSalesDollarHealth`, anyDollarIsRisk false)",
+   "level": "store",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is every cancelled order reviewed with the shopper same day?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Are late orders escalated before anyone cancels them?",
+     "owner": "Fulfillment lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are orders released early enough to finish before the window?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "lost_kill_switch",
+   "displayName": "Kill Switch Lost Sales",
+   "ownerName": null,
+   "parentId": "lost_revenue",
+   "section": "lostRevenue",
+   "packField": "kill_switch_lost / kill_switch_pct",
+   "trigger": "kill_switch_lost > 0 → At risk (`lostSalesDollarHealth`, anyDollarIsRisk true)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is the kill switch off unless capacity is truly blocked?",
+     "owner": "Store lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Did the store lead approve every kill switch use?",
+     "owner": "Store lead",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Was the OM told before the kill switch went on?",
+     "owner": "OM",
+     "destination": "lostRevenue",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "missing_items",
+   "displayName": "Missing Items",
+   "ownerName": null,
+   "parentId": null,
+   "section": "missingItems",
+   "packField": "mi_pct (departments mi_grocery … mi_bakery_pkgd)",
+   "trigger": "mi_pct > 5 → Watch (5–6.5), > 6.5 → At risk (SPEC §6; `missingItemsHealth`)",
+   "level": "store",
+   "ownerDefault": "Grocery lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Are aisle tags hung in the worst department first?",
+     "owner": "Grocery lead",
+     "destination": "missingItems",
+     "fallback": "dept_chip",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Do new and moved items get a location tag same day?",
+     "owner": "Grocery lead",
+     "destination": "missingItems",
+     "fallback": "dept_chip",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is the aisle map updated within the last 90 days?",
+     "owner": "Store lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Do shoppers report untagged items to grocery by radio?",
+     "owner": "Fulfillment lead",
+     "destination": "missingItems",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Are handheld devices charged for the tagging walk?",
+     "owner": "Grocery lead",
+     "destination": "missingItems",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "five_star",
+   "displayName": "5 Star",
+   "ownerName": null,
+   "parentId": null,
+   "section": "fiveStar",
+   "packField": "star_rating (parts flash_pct, presub_pct, coe_pct, ott_pct, oth5_pct)",
+   "trigger": "star_rating < 4.5 → Watch (4.0–4.5), < 4.0 → At risk (SPEC §6; `fiveStarHealth`); card leads with the weakest part's entry",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Are complete totes staged before the order cutoff?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Do shoppers confirm the home location is empty before subbing?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is every sub and age-restricted item scanned, no skip-throughs?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is each shopper below a full star coached this week?",
+     "owner": "Store lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Does the OM review the weakest star with the store weekly?",
+     "owner": "OM",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "five_star_flash",
+   "displayName": "Flash",
+   "ownerName": null,
+   "parentId": "five_star",
+   "section": "fiveStar",
+   "packField": "flash_pct (or flash_star)",
+   "trigger": "flash_pct < 75 → half star / Watch; < 55 → no star / At risk (`flashStar`; flash_star ≥ 0.75 full, ≥ 0.25 half)",
+   "level": "store",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": true,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Do shoppers start each batch as soon as it releases?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Are enough charged devices ready at wave start?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are shoppers scheduled to match the order release curve?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is each shopper below Flash goal coached on a live wave?",
+     "owner": "Store lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "five_star_presub",
+   "displayName": "High Pre Subs (5 Star Presub)",
+   "ownerName": "High Pre Subs",
+   "parentId": "five_star",
+   "section": "fiveStar",
+   "packField": "presub_pct (or presub_star); same pack key as pre_sub_oos",
+   "trigger": "presub_pct ≥ 5 → half star / Watch; > 6 → no star / At risk (inverted, `presubStar`)",
+   "level": "store",
+   "ownerDefault": "Grocery lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Are shoppers using radios?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is the whole store using radios?",
+     "owner": "Store lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is store PI (perpetual inventory) accurate?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "dept_chip",
+     "confirm": false,
+     "detail": "Check PI accuracy; look for out-of-stocks showing as on-hand."
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Do shoppers confirm the home location is empty before subbing?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Do shoppers check backroom and top stock before OOS?",
+     "owner": "Fulfillment lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "five_star_coe",
+   "displayName": "COE",
+   "ownerName": null,
+   "parentId": "five_star",
+   "section": "fiveStar",
+   "packField": "coe_pct (or coe_star)",
+   "trigger": "coe_pct < 20 → half star / Watch; ≤ 0 → no star / At risk (`coeStar`)",
+   "level": "store",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": true,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is every sub and age-restricted item scanned, no skip-throughs?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Are bags QC'd for crushed, leaking, or mixed items?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are cold and frozen totes kept in cold holds until handoff?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Do shoppers text customers about subs during the pick?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "five_star_ott",
+   "displayName": "OTT",
+   "ownerName": "Poor OTT",
+   "parentId": "five_star",
+   "section": "fiveStar",
+   "packField": "ott_pct (or ott_star)",
+   "trigger": "ott_pct < 95 → half star / Watch; < 90 → no star / At risk (`ottStar`)",
+   "level": "store",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": false,
+   "causes": [
+    "schedule_quality",
+    "pph"
+   ],
+   "causesConfirm": [
+    "schedule_quality",
+    "pph"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "auto",
+     "label": "Under-scheduled",
+     "packFields": [
+      "under_schedule_pct",
+      "under_scheduled"
+     ],
+     "combine": "first",
+     "supportFields": [
+      "under_adherence_pct"
+     ],
+     "comparator": ">",
+     "threshold": 5,
+     "thresholdSource": "code: HeartbeatMath.scheduleVarianceWatch (same test as SectionSummary.underScheduledCount)",
+     "rollup": "countFailing",
+     "passText": "Under-scheduled: no (Sch vs Tgt {value}%[, Pch vs Sch {field:under_adherence_pct}%])",
+     "failText": "Under-scheduled: yes (Sch vs Tgt {value}%, over {threshold}%[, Pch vs Sch {field:under_adherence_pct}%])",
+     "scopePassText": "Under-scheduled: no store over {threshold}% (Sch vs Tgt)",
+     "scopeFailText": "Under-scheduled: yes, {k} of {n} stores over {threshold}% (Sch vs Tgt)",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 2,
+     "type": "auto",
+     "label": "PPH under 65",
+     "packFields": [
+      "pph",
+      "pure_pph"
+     ],
+     "combine": "first",
+     "supportFields": [],
+     "comparator": "<",
+     "threshold": 65,
+     "thresholdSource": "owner: PPH floor 65 (differs from ranking band pphGoal 80 / pphRisk 74)",
+     "rollup": "avg",
+     "passText": "PPH {value}, at or above {threshold}",
+     "failText": "PPH {value}, under {threshold}",
+     "scopePassText": "PPH {value}, at or above {threshold}[; {k} of {n} stores under {threshold}]",
+     "scopeFailText": "PPH {value}, under {threshold}; {k} of {n} stores under {threshold}",
+     "owner": "Store lead",
+     "destination": "pph",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are complete totes staged before the order cutoff?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Are batches released early enough for the promise window?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Are scheduled shoppers on the floor at the order peak?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 6,
+     "type": "floor",
+     "question": "Is prep staged before the first wave?",
+     "owner": "Grocery lead",
+     "destination": "prepNotReady",
+     "fallback": "store",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "five_star_oth5",
+   "displayName": "OTH 5%",
+   "ownerName": null,
+   "parentId": "five_star",
+   "section": "fiveStar",
+   "packField": "oth5_pct (or oth5_star)",
+   "trigger": "oth5_pct < 92 → half star / Watch; < 78 → no star / At risk (`othStar`)",
+   "level": "store",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is someone assigned to watch check-ins every open hour?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Do check-in alerts reach a radio or headset right away?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are staged orders labeled so anyone can find them fast?",
+     "owner": "Fulfillment lead",
+     "destination": "fiveStar",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is dispatch covered during breaks and shift change?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "pre_sub_oos",
+   "displayName": "High Pre Subs",
+   "ownerName": "High Pre Subs",
+   "parentId": null,
+   "section": "preSubOOS",
+   "packField": "presub_pct (store/department, Pre-Sub OOS report)",
+   "trigger": "presub_pct > 5 → Watch (5–6.5), > 6.5 → At risk (SPEC §6; `missingItemsHealth` bands)",
+   "level": "store",
+   "ownerDefault": "Grocery lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Are shoppers using radios?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is the whole store using radios?",
+     "owner": "Store lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is store PI (perpetual inventory) accurate?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "dept_chip",
+     "confirm": false,
+     "detail": "Check PI accuracy; look for out-of-stocks showing as on-hand."
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Do shoppers check backroom and top stock before OOS?",
+     "owner": "Fulfillment lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Are pick faces filled before the first eComm wave?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "dept_chip",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "pre_sub_oos_item",
+   "displayName": "Pre-Sub OOS Item",
+   "ownerName": null,
+   "parentId": "pre_sub_oos",
+   "section": "preSubOOS",
+   "packField": "presub_pct, presub_count, bpn (pre_sub_oos_item rows)",
+   "trigger": "item presub_pct > 5 → Watch (5–6.5), > 6.5 → At risk (`preSubOOSItem` summary, same bands)",
+   "level": "store",
+   "ownerDefault": "Grocery lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Was the top item walked with grocery today?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is the top item's on-hand count correct in the system?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is the top item's home location tagged and full?",
+     "owner": "Grocery lead",
+     "destination": "missingItems",
+     "fallback": "store",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "pick_path",
+   "displayName": "Pick Path Compliance",
+   "ownerName": null,
+   "parentId": null,
+   "section": "pickPath",
+   "packField": "compliance_pct (store; shoppers from pick_path_picker rows)",
+   "trigger": "compliance_pct < 90 → Watch (80–90), < 80 → At risk (SPEC §6; `pickPathGoal` / `pickPathRisk`)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [
+    "aisle_mapper"
+   ],
+   "causesConfirm": [
+    "aisle_mapper"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Do shoppers follow the handheld sequence, aisle by aisle?",
+     "owner": "Fulfillment lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is the aisle map updated within the last 90 days?",
+     "owner": "Store lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is the aisle sequence updated within the last 90 days?",
+     "owner": "Store lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Do shoppers radio for prep instead of leaving the path?",
+     "owner": "Fulfillment lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Is the lowest-path shopper coached on a live wave?",
+     "owner": "Store lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "aisle_mapper",
+   "displayName": "Aisle Map / Sequence Age",
+   "ownerName": null,
+   "parentId": "pick_path",
+   "section": "pickPath",
+   "packField": "aisle_mapper_date, aisle_sequence_date",
+   "trigger": "either date older than 90 days → At risk (`AisleMapperMath.watchDays = 90`; SPEC Appendix A)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is the aisle map updated within the last 90 days?",
+     "owner": "Store lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is the aisle sequence updated after the last reset?",
+     "owner": "Store lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are moved sections re-mapped the week they move?",
+     "owner": "Grocery lead",
+     "destination": "missingItems",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "prep_not_ready",
+   "displayName": "Prep Not Ready",
+   "ownerName": null,
+   "parentId": null,
+   "section": "prepNotReady",
+   "packField": "pnr_rate_pct (aliases pnr_hours, prep_not_ready_pct on 0dcad79)",
+   "trigger": "pnr_rate_pct > 1.9 → Watch (1.9–2.5), > 2.5 → At risk (SPEC §6; `pnrGoal` / `pnrWatch`)",
+   "level": "store",
+   "ownerDefault": "Grocery lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is produce, meat, and bakery prep staged before the first wave?",
+     "owner": "Grocery lead",
+     "destination": "prepNotReady",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Do fresh departments get the prep list before the wave?",
+     "owner": "Fulfillment lead",
+     "destination": "prepNotReady",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Do shoppers radio fresh departments instead of waiting at counters?",
+     "owner": "Fulfillment lead",
+     "destination": "prepNotReady",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is prep labor on the schedule for early-wave hours?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "dynacap",
+   "displayName": "Dynacap Setting",
+   "ownerName": null,
+   "parentId": null,
+   "section": "dynacap",
+   "packField": "dynacap_rate or pieces_per_hour; pickup_capacity vs rec_pickup, delivery_capacity vs rec_delivery",
+   "trigger": "dynacap_rate < 65 → Watch (60–65), < 60 → At risk; or capacity ≠ recommended (SPEC §6 and §9; `dynacapGoal` / `dynacapRisk`)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Is pickup capacity set to the recommended value?",
+     "owner": "Store lead",
+     "destination": "dynacap",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is delivery capacity set to the recommended value?",
+     "owner": "Store lead",
+     "destination": "dynacap",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is capacity reset after short-staffed hours end?",
+     "owner": "Store lead",
+     "destination": "dynacap",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is labor checked before hours are added for capacity?",
+     "owner": "Store lead",
+     "destination": "labor",
+     "fallback": "store",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "schedule_quality",
+   "displayName": "Schedule Quality",
+   "ownerName": null,
+   "parentId": null,
+   "section": "scheduleQuality",
+   "packField": "schedule_efficiency_pct, staffing_efficiency_pct, under_schedule_pct, over_schedule_pct",
+   "trigger": "worst of efficiency/staffing < 90 → Watch (85–90), < 85 → At risk; under/over > 0.05 → Watch, > 5 → At risk (SPEC §6; `scheduleHealth`)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Does the schedule follow the order-drop peaks by hour?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Are hours cut where no orders come in?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are open peaks filled with trained shoppers, not overtime?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is call-in coverage posted for every peak shift?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Does the OM approve schedule changes outside the build?",
+     "owner": "OM",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "pph",
+   "displayName": "PPH (Pure Picks Per Hour)",
+   "ownerName": "Low PPH",
+   "parentId": null,
+   "section": "pph",
+   "packField": "pph (or pure_pph)",
+   "trigger": "pph < 80 → Watch (74–80), < 74 → At risk (SPEC §6; `pphGoal` / `pphRisk`; ranking band). Owner floor 65 is used only in the auto check and the Why line (confirm which rules ranking)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [
+    "prep_not_ready",
+    "pick_path"
+   ],
+   "causesConfirm": [
+    "prep_not_ready",
+    "pick_path"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Are shoppers picking 30 items within the first 15 minutes of their run or shift start?",
+     "owner": "Fulfillment lead",
+     "destination": "pph",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "auto",
+     "label": "PPH under 65",
+     "packFields": [
+      "pph",
+      "pure_pph"
+     ],
+     "combine": "first",
+     "supportFields": [],
+     "comparator": "<",
+     "threshold": 65,
+     "thresholdSource": "owner: PPH floor 65 (differs from ranking band pphGoal 80 / pphRisk 74)",
+     "rollup": "avg",
+     "passText": "PPH {value}, at or above {threshold}",
+     "failText": "PPH {value}, under {threshold}",
+     "scopePassText": "PPH {value}, at or above {threshold}[; {k} of {n} stores under {threshold}]",
+     "scopeFailText": "PPH {value}, under {threshold}; {k} of {n} stores under {threshold}",
+     "owner": "Store lead",
+     "destination": "pph",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Is prep staged so shoppers never wait on departments?",
+     "owner": "Grocery lead",
+     "destination": "prepNotReady",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Do shoppers follow the handheld path without backtracking?",
+     "owner": "Fulfillment lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Are carts, totes, and charged devices ready at wave start?",
+     "owner": "Fulfillment lead",
+     "destination": "pph",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 6,
+     "type": "floor",
+     "question": "Is the slowest shopper coached on a live wave?",
+     "owner": "Store lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "labor",
+   "displayName": "Labor",
+   "ownerName": null,
+   "parentId": null,
+   "section": "labor",
+   "packField": "target_vs_actual_pct (extras act_cost_pct, cost_trgt_pct, sch_hrs, earned_hrs, charged_hrs)",
+   "trigger": "target_vs_actual_pct > 0 → Watch (0–3), > 3 → At risk (SPEC §6; `laborHealth`)",
+   "level": "store",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [
+    "schedule_quality"
+   ],
+   "causesConfirm": [
+    "schedule_quality"
+   ],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Does the schedule match the order-drop peaks?",
+     "owner": "Store lead",
+     "destination": "scheduleQuality",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Do associates clock out when their scheduled shift ends?",
+     "owner": "Store lead",
+     "destination": "labor",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are idle shoppers sent to another task or home?",
+     "owner": "Fulfillment lead",
+     "destination": "labor",
+     "fallback": "store",
+     "confirm": true
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Is prep ready so pick hours aren't spent waiting?",
+     "owner": "Grocery lead",
+     "destination": "prepNotReady",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Has the OM approved any hours over target this week?",
+     "owner": "OM",
+     "destination": "labor",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "picker_scorecard",
+   "displayName": "Picker ScoreCard",
+   "ownerName": null,
+   "parentId": null,
+   "section": "pickerScorecard",
+   "packField": "picker rows: pph, presub_pct, oos_pct, oth5_pct, ott_pct, coe_pct, oth_elig_pct, refund_amt (`pickerFlags`)",
+   "trigger": "any banded readout item not healthy (`pickerHealth` / `pickerMetricReadout`); not a ranked card, answers the shopper chip (SPEC §9)",
+   "level": "shopper",
+   "ownerDefault": "Store lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Has this shopper been floor-coached on a live wave?",
+     "owner": "Store lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Is this shopper using a radio or headset?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Does this shopper follow the handheld pick path?",
+     "owner": "Fulfillment lead",
+     "destination": "pickPath",
+     "fallback": "store",
+     "confirm": false
+    },
+    {
+     "order": 4,
+     "type": "floor",
+     "question": "Does this shopper check the home location before subbing?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 5,
+     "type": "floor",
+     "question": "Does this shopper stage totes before the cutoff?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "shopper_oos",
+   "displayName": "Shopper OOS",
+   "ownerName": null,
+   "parentId": "picker_scorecard",
+   "section": "pickerScorecard",
+   "packField": "oos_pct (or oos_star)",
+   "trigger": "oos_pct ≥ 3 → half star / Watch; > 5 → no star / At risk (inverted, `oosStar`)",
+   "level": "shopper",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Does this shopper check backroom and top stock before OOS?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Does this shopper radio grocery before marking items out?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Are this shopper's OOS items rechecked by grocery?",
+     "owner": "Grocery lead",
+     "destination": "preSubOOS",
+     "fallback": "store",
+     "confirm": true
+    }
+   ]
+  },
+  {
+   "metricId": "shopper_refund",
+   "displayName": "Shopper Refund",
+   "ownerName": null,
+   "parentId": "picker_scorecard",
+   "section": "pickerScorecard",
+   "packField": "refund_amt",
+   "trigger": "refund_amt > 0 → Watch (≤ 20), > 20 → At risk (`refundHealth`)",
+   "level": "shopper",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": false,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Does this shopper check every tote against the order?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Were this shopper's refunds reviewed with them this week?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Does this shopper put cold items in cold holds right away?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": false
+    }
+   ]
+  },
+  {
+   "metricId": "shopper_oth_elig",
+   "displayName": "Shopper OTH Elig",
+   "ownerName": null,
+   "parentId": "picker_scorecard",
+   "section": "pickerScorecard",
+   "packField": "oth_elig_pct (or oth_elig_star)",
+   "trigger": "oth_elig_pct < 95 → half star / Watch; < 90 → no star / At risk (`othEligStar`)",
+   "level": "shopper",
+   "ownerDefault": "Fulfillment lead",
+   "confirm": true,
+   "causes": [],
+   "causesConfirm": [],
+   "checks": [
+    {
+     "order": 1,
+     "type": "floor",
+     "question": "Does this shopper mark handoffs complete in the app?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": true
+    },
+    {
+     "order": 2,
+     "type": "floor",
+     "question": "Does this shopper answer check-in alerts right away?",
+     "owner": "Shopper",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": true
+    },
+    {
+     "order": 3,
+     "type": "floor",
+     "question": "Has this shopper been trained on the handoff steps?",
+     "owner": "Fulfillment lead",
+     "destination": "pickerScorecard",
+     "fallback": "shopper",
+     "confirm": true
+    }
+   ]
+  }
+ ]
+}

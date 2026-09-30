@@ -283,7 +283,10 @@ enum CommandCenterLayout {
     }
 
     static func compactValue(_ card: SectionSummary) -> String {
-        if card.section == .sales || card.section == .lostRevenue {
+        if card.section == .lostRevenue {
+            return HeartbeatFormat.money(card.headline)
+        }
+        if card.section == .sales {
             return HeartbeatFormat.moneyShort(card.headline)
         }
         if PulseLaunch.isPrepEmptyChrome(card) {
@@ -303,7 +306,8 @@ enum CommandCenterLayout {
             return Array(named.prefix(6))
         }
         if !named.isEmpty { return Array(named.prefix(6)) }
-        let healthy = max(0, card.storeCount - card.watchCount - card.riskCount)
+        let healthy = HeartbeatMath.namedHealthyCount(card.secondary)
+            ?? max(0, card.storeCount - card.watchCount - card.riskCount)
         return [
             HeartbeatMath.FiveStarFlag(name: "Healthy", value: HeartbeatFormat.num(Double(healthy)), health: .good, stores: healthy),
             HeartbeatMath.FiveStarFlag(name: "Watch", value: HeartbeatFormat.num(Double(card.watchCount)), health: card.watchCount == 0 ? .good : .watch, stores: card.watchCount),
@@ -323,12 +327,25 @@ enum CommandCenterLayout {
 
     /// Gray store-count subtitle — same Labor / Picker line, no gold bullet.
     static func phoneScorecardSubtitle(_ card: SectionSummary) -> String? {
-        card.storeCount > 0 ? "\(card.storeCount) stores" : nil
+        if HeartbeatMath.isPrepThinNote(card.secondary) { return card.secondary }
+        if card.section == .lostRevenue, HeartbeatMath.isLossScopeNote(card.secondary) {
+            return card.secondary
+        }
+        return card.storeCount > 0 ? "\(card.storeCount) stores" : nil
     }
 
     /// Existing headline only. Do not invent a second metric.
+    /// Thin Prep keeps the store-coverage tile and dashes the rate tiles.
     static func phoneScorecardChips(_ card: SectionSummary) -> [PhoneMetricChip] {
-        [
+        if let coverage = HeartbeatMath.prepCoverageTile(fromNote: card.secondary) {
+            return [
+                PhoneMetricChip(label: "Stores", value: coverage, health: .none),
+                PhoneMetricChip(label: "PNR %", value: "—", health: .none),
+                PhoneMetricChip(label: "Goal", value: "—", health: .none),
+                PhoneMetricChip(label: "Watch", value: "—", health: .none),
+            ]
+        }
+        return [
             PhoneMetricChip(
                 label: "Result",
                 value: compactValue(card),
@@ -384,6 +401,21 @@ enum CommandCenterLayout {
     /// Line 2: `{Filter seat} | {week}`. Updates with the active filter.
     static func overviewBannerCopy(filters: DashboardFilters, weekWindow: String?) -> String {
         "\(overviewSeatLabel(filters)) | \(overviewWeekLabel(weekWindow))"
+    }
+
+    /// Line 3. Missing publish time stays an em dash. Never a guessed clock.
+    static func updatedBannerLine(_ date: Date?) -> String {
+        guard let date else { return "Updated —" }
+        return "Updated \(HeartbeatFormat.publishClock(date))"
+    }
+
+    /// Schedule Check publishes on its own pack. Every other page uses the Heartbeat pack.
+    static func pageBannerPublishDate(
+        destination: HubDestination,
+        packPublishedAt: Date?,
+        schedulePublishedAt: Date?
+    ) -> Date? {
+        destination == .scheduleCheck ? schedulePublishedAt : packPublishedAt
     }
 
     private static func overviewGrain(_ raw: String, suffix: String, grainFirst: Bool = false) -> String {

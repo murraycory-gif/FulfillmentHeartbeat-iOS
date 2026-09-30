@@ -48,6 +48,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>HBPackHost</key>
 	<string>https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev</string>
+	<key>HBPushWorkerURL</key>
+	<string></string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>

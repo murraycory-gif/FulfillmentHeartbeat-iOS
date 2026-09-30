@@ -1,0 +1,18 @@
+{
+  // Free-tier Worker + KV. Do not put secrets in this file.
+  "name": "heartbeat-push",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "kv_namespaces": [
+    {
+      "binding": "TOKENS",
+      // Replace after `npx wrangler kv namespace create TOKENS`. Do not invent a live id here.
+      "id": "00000000000000000000000000000000"
+    }
+  ]
+}
