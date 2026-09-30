@@ -4407,6 +4407,53 @@ enum HeartbeatMath {
         return merged
     }
 
+    /// A cached region row can keep its store count and still have a dash in
+    /// cell 0 when those rows have no `mi_pct`. The published scope line is
+    /// that percent (`line.value` 8.61% / 6.63%). Department averages are not.
+    /// A cell that already has the section value stays. Store count stays.
+    static func fillingMissingScopeLine(
+        _ rows: [DashboardGrainTableRow],
+        packs: [DashScopePack],
+        grain: DashScopeGrain
+    ) -> [DashboardGrainTableRow] {
+        var byAlias: [String: String] = [:]
+        func take(_ line: DashScopeLine) {
+            let text = line.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard parsedTileNumber(text) != nil else { return }
+            for alias in grainAliasKeys(line.label, grain: grain) where byAlias[alias] == nil {
+                byAlias[alias] = text
+            }
+        }
+        for pack in packs {
+            take(pack.line)
+            for child in pack.children { take(child) }
+        }
+        guard !byAlias.isEmpty else { return rows }
+        return rows.map { row in
+            if grainRowHasSectionValue(row) { return row }
+            var rate: String?
+            for alias in grainAliasKeys(row.label, grain: grain) {
+                if let hit = byAlias[alias] {
+                    rate = hit
+                    break
+                }
+            }
+            guard let rate else { return row }
+            var values = row.values
+            if values.isEmpty {
+                values = [rate]
+            } else {
+                values[0] = rate
+            }
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: row.storeCount,
+                values: values,
+                health: row.health
+            )
+        }
+    }
+
     /// Shopper counts already on the row stay. Healthy / Watch / At Risk fill
     /// only where the current cell is a dash.
     static func pickerRowsKeepingShoppers(

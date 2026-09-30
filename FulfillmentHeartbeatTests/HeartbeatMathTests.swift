@@ -3581,6 +3581,90 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(keptDept[MissingItemDept.alcohol.rawValue] ?? 0, 3.2, accuracy: 0.001)
     }
 
+    /// Published chrome stores the region percent on the scope line, not in a
+    /// fifth cell and not in mi_grocery. A cached row with 613 stores and a
+    /// dash in cell 0 must take that line. An existing mi_pct stays.
+    func testMissingRegionTotalComesFromScopeLineWhenCachedCellIsDash() {
+        func dash(_ label: String, _ count: Int) -> HeartbeatMath.DashboardGrainTableRow {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: label,
+                storeCount: count,
+                values: ["—", "—", "—", "—"],
+                health: .none
+            )
+        }
+        func pack(_ label: String, _ count: Int, _ value: String) -> DashScopePack {
+            DashScopePack(
+                line: DashScopeLine(label: label, value: value, health: .risk, count: count),
+                flags: [],
+                children: []
+            )
+        }
+        let cached = [
+            dash("East Region", 613),
+            HeartbeatMath.DashboardGrainTableRow(
+                label: "South Region",
+                storeCount: 395,
+                values: ["7.19%", "—", "—", "—"],
+                health: .risk
+            ),
+            dash("California Region", 600),
+            dash("West Region", 554),
+        ]
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(cached))
+        XCTAssertNil(HeartbeatMath.grainNumber(cached[0], 0))
+        XCTAssertTrue(HeartbeatMath.missingItemsChromeValues(cached[0]).isEmpty)
+        let missingPacks = [
+            pack("East Region", 613, "8.61%"),
+            pack("South Region", 395, "9.99%"),
+            pack("California Region", 600, "8.18%"),
+            pack("West Region", 554, "6.49%"),
+        ]
+        let filled = HeartbeatMath.fillingMissingScopeLine(cached, packs: missingPacks, grain: .region)
+        XCTAssertEqual(filled[0].values.first, "8.61%")
+        XCTAssertEqual(filled[0].storeCount, 613)
+        XCTAssertEqual(HeartbeatMath.grainNumber(filled[0], 0), 8.61)
+        XCTAssertEqual(filled[1].values.first, "7.19%")
+        XCTAssertEqual(filled[1].storeCount, 395)
+        XCTAssertEqual(filled[2].values.first, "8.18%")
+        XCTAssertEqual(filled[2].storeCount, 600)
+        XCTAssertEqual(filled[3].values.first, "6.49%")
+        XCTAssertEqual(filled[3].storeCount, 554)
+        XCTAssertTrue(HeartbeatMath.missingItemsChromeValues(filled[0]).isEmpty)
+        let departments = [
+            MissingItemDept.grocery.rawValue: 3.86,
+            MissingItemDept.alcohol.rawValue: 6.71,
+        ]
+        let kept = HeartbeatMath.missingItemsKeepingDepartments(chrome: [:], filling: departments)
+        XCTAssertEqual(kept[MissingItemDept.grocery.rawValue] ?? 0, 3.86, accuracy: 0.001)
+        XCTAssertNotEqual(HeartbeatMath.grainNumber(filled[0], 0), kept[MissingItemDept.grocery.rawValue])
+
+        let blank = [
+            dash("East Region", 613),
+            dash("South Region", 395),
+            dash("California Region", 600),
+            dash("West Region", 554),
+        ]
+        let presubPacks = [
+            pack("East Region", 999, "6.63%"),
+            pack("South Region", 1, "5.51%"),
+            pack("California Region", 1, "4.91%"),
+            pack("West Region", 1, "4.85%"),
+        ]
+        let presub = HeartbeatMath.fillingMissingScopeLine(blank, packs: presubPacks, grain: .region)
+        XCTAssertEqual(presub.map { $0.values.first }, ["6.63%", "5.51%", "4.91%", "4.85%"])
+        XCTAssertEqual(presub.map(\.storeCount), [613, 395, 600, 554])
+        let page = String(
+            decoding: (try? Data(contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"))) ?? Data(),
+            as: UTF8.self
+        )
+        XCTAssertTrue(page.contains("fillingMissingScopeLine"))
+        XCTAssertTrue(page.contains("section == .missingItems || section == .preSubOOS"))
+    }
+
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {
         let districtStores = (1...20).map { String($0) }
         let otherStores = ["9001", "9002"]

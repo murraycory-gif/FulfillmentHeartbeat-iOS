@@ -1439,12 +1439,12 @@ final class HeartbeatStore: ObservableObject {
                 }
                 if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(shown)
                     || PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() {
-                    return shown
+                    return missingScopeLine(shown, section: section, grain: grain)
                 }
             }
         }
         if let chrome = chromeGrainRows(section: section, grain: grain) {
-            return chrome
+            return missingScopeLine(chrome, section: section, grain: grain)
         }
         if filters.isActive, section != .pickerScorecard {
             return PulseLaunch.grainRowsFromSeatPacks(
@@ -1478,6 +1478,20 @@ final class HeartbeatStore: ObservableObject {
             roster: roster
         )
         return shownGrainRows(scoped, grain: grain)
+    }
+
+    /// Cached Missing / Pre-Sub rows keep the store count and a dash in cell 0
+    /// when the fact rows have no `mi_pct`. The scope line on the pack is the
+    /// region percent. Other sections are unchanged.
+    private func missingScopeLine(
+        _ rows: [HeartbeatMath.DashboardGrainTableRow],
+        section: MetricSection,
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        guard section == .missingItems || section == .preSubOOS else { return rows }
+        let packs = packChrome?.packs[section.rawValue] ?? cachedGrainPacks[section] ?? []
+        guard !packs.isEmpty else { return rows }
+        return HeartbeatMath.fillingMissingScopeLine(rows, packs: packs, grain: grain)
     }
 
     /// Region and division pages paint this when chrome already has the section
