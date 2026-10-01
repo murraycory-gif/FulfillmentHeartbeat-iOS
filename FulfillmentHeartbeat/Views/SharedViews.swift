@@ -8299,7 +8299,21 @@ struct LostRevenueRollupTable: View {
         let next = forcedGrain ?? LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        if let chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
+        if var chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
+            if HeartbeatMath.grainTableNeedsColumnFill(chrome, section: .lostRevenue) {
+                let facts = LostRevenueRollupBuilder.source(
+                    from: store.dashFillRows(for: .lostRevenue),
+                    filters: store.filters
+                )
+                let goal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+                chrome = HeartbeatMath.fillingDashCellsKeepingCount(
+                    chrome,
+                    section: .lostRevenue,
+                    metricRows: facts,
+                    grain: next.scopeGrain,
+                    goalFallback: goal
+                )
+            }
             summary = chrome.map { row in
                 LostRevenueRollupRow(
                     id: row.label,

@@ -169,10 +169,14 @@ struct ScheduleCheckView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Column header and store rows share one horizontal scroll, inside the page's
+    /// vertical scroll. A fixed height of `rowCount * 32` on a nested scroller
+    /// (2,163 stores) lays the body out blank: no header, no rows.
+    /// The stack's min height is the header plus one line per store, and the
+    /// rows are lazy so that height does not build every line on the tap.
     private func detailPage(_ pack: ScheduleCheckPack) -> some View {
         let rows = sorted(ScheduleCheckMath.scoped(pack, filters: store.filters))
         let laidOut = ScheduleCheckMath.detailBodyHeight(rowCount: rows.count)
-        let rowBody = CGFloat(rows.count) * ScheduleCheckMath.detailRowHeight
         return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 if rows.isEmpty {
@@ -182,18 +186,18 @@ struct ScheduleCheckView: View {
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                header(detailColumns, tappable: true)
-                    .frame(height: ScheduleCheckMath.detailHeaderHeight, alignment: .leading)
                 ScrollView(.horizontal) {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        header(detailColumns, tappable: true)
+                            .frame(height: ScheduleCheckMath.detailHeaderHeight, alignment: .leading)
                         ForEach(rows) { store in
                             detailRow(store)
+                                .frame(minHeight: ScheduleCheckMath.detailRowHeight, alignment: .leading)
                             Divider().overlay(AppTheme.cardBorder)
                         }
                     }
                     .frame(minWidth: detailWidth, minHeight: laidOut, alignment: .topLeading)
                 }
-                .frame(height: rowBody, alignment: .topLeading)
             }
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)

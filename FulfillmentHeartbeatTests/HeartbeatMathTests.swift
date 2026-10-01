@@ -3665,6 +3665,202 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(page.contains("section == .missingItems || section == .preSubOOS"))
     }
 
+    /// East Missing is 8.61% on 613 stores. East Pre-Sub is 6.63% on 613.
+    /// The rate is the row total, not a department cell, and it is painted before
+    /// the department columns so it sits on the row next to the store count.
+    func testMissingAndPreSubEastRatesStayOnTheRow() throws {
+        let missing = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["8.61%", "—", "—", "—"],
+            health: .risk
+        )
+        XCTAssertEqual(HeartbeatMath.missingRollupRate(missing) ?? 0, 8.61, accuracy: 0.001)
+        XCTAssertEqual(missing.storeCount, 613)
+        let dashed = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["—", "—", "—", "—"],
+            health: .none
+        )
+        let fromFacts = HeartbeatMath.missingRollupRate(
+            dashed,
+            averages: [MissingItemDept.totalKey: 8.61, MissingItemDept.grocery.rawValue: 3.86]
+        )
+        XCTAssertEqual(fromFacts ?? 0, 8.61, accuracy: 0.001)
+        XCTAssertNotEqual(fromFacts, 3.86)
+        XCTAssertEqual(
+            HeartbeatMath.missingRollupRate(missing, averages: [MissingItemDept.totalKey: 1]) ?? 0,
+            8.61,
+            accuracy: 0.001
+        )
+        let presub = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["6.63%"],
+            health: .risk
+        )
+        XCTAssertEqual(HeartbeatMath.missingRollupRate(presub) ?? 0, 6.63, accuracy: 0.001)
+        XCTAssertEqual(presub.storeCount, 613)
+        XCTAssertNotEqual(presub.storeCount, 615)
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/MissingItemsViews.swift"),
+            encoding: .utf8
+        )
+        let lineStart = try XCTUnwrap(view.range(of: "private struct MissingItemsMetricLine"))
+        let lineEnd = try XCTUnwrap(view.range(of: "struct MissingItemsMetricHeader"))
+        let line = String(view[lineStart.lowerBound..<lineEnd.lowerBound])
+        let totalCell = try XCTUnwrap(line.range(of: "cell(HeartbeatFormat.pct(total)"))
+        let deptCells = try XCTUnwrap(line.range(of: "ForEach(depts)"))
+        XCTAssertLessThan(totalCell.lowerBound, deptCells.lowerBound)
+        let headerStart = lineEnd
+        let headerEnd = try XCTUnwrap(view.range(of: "struct MissingItemsStickyStoreHeader"))
+        let header = String(view[headerStart.lowerBound..<headerEnd.lowerBound])
+        let totalHead = try XCTUnwrap(header.range(of: "head(\"Total\""))
+        let deptHead = try XCTUnwrap(header.range(of: "ForEach(depts)"))
+        XCTAssertLessThan(totalHead.lowerBound, deptHead.lowerBound)
+        XCTAssertTrue(view.contains("missingRollupRate"))
+    }
+
+    /// Loss dollars already pass. Lost % and the other region cells must fill
+    /// from this section's facts without taking Sales' 615 store count.
+    func testLossRegionKeepsDollarsAndFillsLostPercent() throws {
+        let east = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 610,
+            values: ["$393,334.12", "—", "—", "—", "—", "—", "—"],
+            health: .risk
+        )
+        let west = HeartbeatMath.DashboardGrainTableRow(
+            label: "West Region",
+            storeCount: 553,
+            values: ["$191,547.49"],
+            health: .risk
+        )
+        let california = HeartbeatMath.DashboardGrainTableRow(
+            label: "California Region",
+            storeCount: 599,
+            values: ["$168,079.57", "—", "—", "—", "—", "—", "—"],
+            health: .risk
+        )
+        func store(_ number: String, _ division: String, _ lost: Double, _ pct: Double, _ sales: Double) -> MetricRow {
+            MetricRow(
+                section: .lostRevenue,
+                division: division,
+                operationsOM: "",
+                storeNumber: number,
+                payload: [
+                    "lost_revenue": lost,
+                    "lost_revenue_pct": pct,
+                    "ecomm_sales": sales,
+                    "post_sub_oos_foregone": 10,
+                    "refund_lost": 4,
+                    "missed_sales": 2,
+                ],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        let facts = [
+            store("117", "Shaws", 200, 4.0, 5_000),
+            store("200", "Jewel Osco", 100, 5.0, 2_000),
+            store("300", "Seattle", 50, 3.0, 1_000),
+            store("400", "NorCal", 80, 2.5, 4_000),
+        ]
+        let chrome = [east, west, california]
+        XCTAssertTrue(HeartbeatMath.grainTableNeedsColumnFill(chrome, section: .lostRevenue))
+        XCTAssertNil(HeartbeatMath.grainNumber(east, 1))
+        let filled = HeartbeatMath.fillingDashCellsKeepingCount(
+            chrome,
+            section: .lostRevenue,
+            metricRows: facts,
+            grain: .region
+        )
+        let eastRow = try XCTUnwrap(filled.first { $0.label == "East Region" })
+        XCTAssertEqual(eastRow.storeCount, 610)
+        XCTAssertNotEqual(eastRow.storeCount, 615)
+        XCTAssertEqual(HeartbeatMath.grainNumber(eastRow, 0) ?? 0, 393_334.12, accuracy: 0.01)
+        let eastPct = try XCTUnwrap(HeartbeatMath.grainNumber(eastRow, 1))
+        XCTAssertGreaterThan(eastPct, 1)
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 3))
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 4))
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 5))
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 6))
+        let westRow = try XCTUnwrap(filled.first { $0.label == "West Region" })
+        XCTAssertEqual(westRow.storeCount, 553)
+        XCTAssertEqual(HeartbeatMath.grainNumber(westRow, 0) ?? 0, 191_547.49, accuracy: 0.01)
+        XCTAssertNotNil(HeartbeatMath.grainNumber(westRow, 1))
+        let californiaRow = try XCTUnwrap(filled.first { $0.label == "California Region" })
+        XCTAssertEqual(californiaRow.storeCount, 599)
+        XCTAssertEqual(HeartbeatMath.grainNumber(californiaRow, 0) ?? 0, 168_079.57, accuracy: 0.01)
+        XCTAssertNotNil(HeartbeatMath.grainNumber(californiaRow, 1))
+        let untouched = HeartbeatMath.fillingDashCellsKeepingCount(
+            chrome,
+            section: .lostRevenue,
+            metricRows: [],
+            grain: .region
+        )
+        XCTAssertEqual(untouched.first?.values.first, "$393,334.12")
+        XCTAssertEqual(untouched.first?.storeCount, 610)
+    }
+
+    /// Sales keeps the cooked dollar and 615 stores, and fills YoY and orders
+    /// that chrome left as dashes. Four region rows need a floor tall enough for West.
+    func testSalesRegionKeepsChromeDollarsAndFillsTheOtherCells() throws {
+        let chromeRow = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 615,
+            values: ["$8,209,791.69", "—", "—"],
+            health: .risk
+        )
+        let chrome = SalesRollupBuilder.rowsFromChrome([chromeRow], grain: .region)
+        let facts = [
+            MetricRow(
+                section: .sales,
+                division: "Shaws",
+                operationsOM: "",
+                storeNumber: "117",
+                payload: [
+                    "sales_dollars": 100,
+                    "sales_yoy_pct": -10,
+                    "sales_orders": 4,
+                    "sales_items": 12,
+                ],
+                textPayload: ["sales_grain": "store"]
+            )
+        ]
+        let built = SalesRollupBuilder.dashboardRows(from: facts, grain: .region)
+        let kept = SalesRollupBuilder.keepingChromeHeadline(chrome, filling: built, grain: .region)
+        let east = try XCTUnwrap(kept.first { $0.label == "East Region" })
+        XCTAssertEqual(east.storeCount, 615)
+        XCTAssertEqual(east.pack.sales ?? 0, 8_209_791.69, accuracy: 0.01)
+        XCTAssertEqual(east.pack.yoy ?? 0, -10, accuracy: 0.01)
+        XCTAssertEqual(east.pack.orders ?? 0, 4, accuracy: 0.01)
+        XCTAssertEqual(east.pack.items ?? 0, 12, accuracy: 0.01)
+        XCTAssertNotNil(east.pack.aos)
+        XCTAssertGreaterThan(OverviewSalesAlignedTable.bodyHeight(rowCount: 4), 4 * 36 + 48)
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sales = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SalesViews.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(sales.contains("keepingChromeHeadline"))
+        XCTAssertTrue(sales.contains("dashFillRows(for: .sales)"))
+        XCTAssertTrue(sales.contains("OverviewSalesAlignedTable.bodyHeight(rowCount: summary.count)"))
+        XCTAssertTrue(sales.contains("minHeight: rollupBodyHeight"))
+        let loss = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(loss.contains("fillingDashCellsKeepingCount"))
+        XCTAssertTrue(loss.contains("dashFillRows(for: .lostRevenue)"))
+    }
+
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {
         let districtStores = (1...20).map { String($0) }
         let otherStores = ["9001", "9002"]
