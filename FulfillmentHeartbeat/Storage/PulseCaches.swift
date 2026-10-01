@@ -261,6 +261,12 @@ struct PulseCaches {
             if section == .lostRevenue, !filters.isActive, let lostRevenueMarket {
                 input.append(lostRevenueMarket)
             }
+            if section == .sales, !filters.isActive {
+                if let company = HeartbeatMath.salesCompanyRow(latest[.sales] ?? input),
+                   !input.contains(where: { $0.textPayload["sales_grain"] == "company" }) {
+                    input.append(company)
+                }
+            }
             var summary = HeartbeatMath.summarize(
                 section,
                 rows: input,

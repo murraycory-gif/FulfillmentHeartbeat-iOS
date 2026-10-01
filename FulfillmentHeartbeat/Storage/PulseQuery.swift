@@ -47,9 +47,14 @@ enum PulseQuery {
             filtered[section] = slice(rows, allowed: allowed)
         }
         let summaries = MetricSection.dashboardCards.map { section in
-            HeartbeatMath.summarize(
+            var input = filtered[section] ?? []
+            if section == .sales, allowed == nil,
+               let company = HeartbeatMath.salesCompanyRow(warehouse[.sales] ?? []) {
+                input.append(company)
+            }
+            return HeartbeatMath.summarize(
                 section,
-                rows: filtered[section] ?? [],
+                rows: input,
                 upload: uploads.first { $0.section == section }
             )
         }

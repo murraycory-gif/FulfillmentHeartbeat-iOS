@@ -246,7 +246,9 @@ struct SectionDetailView: View {
                     flags: store.dashboardFlags(for: section),
                     grains: [],
                     grain: nil,
-                    extraPct: section == .lostRevenue ? summary.lostRevenuePct : nil,
+                    extraPct: section == .lostRevenue
+                        ? summary.lostRevenuePct
+                        : section == .sales ? summary.salesYoyPct : nil,
                     tappable: false,
                     action: {}
                 )
