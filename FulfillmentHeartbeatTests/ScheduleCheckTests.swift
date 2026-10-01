@@ -174,8 +174,10 @@ final class ScheduleCheckTests: XCTestCase {
 
         let detail = sourceSpan(view, from: "private func detailPage", until: "private func marketBlock")
         XCTAssertFalse(detail.contains("ScrollView([.horizontal, .vertical])"))
-        XCTAssertFalse(detail.contains("LazyVStack"))
+        XCTAssertTrue(detail.contains("LazyVStack"), "store rows stay lazy so 2,163 lines do not blank the page")
         XCTAssertTrue(detail.contains("ForEach(rows)"))
+        XCTAssertTrue(detail.contains("header(detailColumns, tappable: true)"))
+        XCTAssertFalse(detail.contains("frame(height: rowBody"))
     }
 
     func testStoreDetailRowsHaveLaidOutHeight() {
@@ -199,6 +201,8 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertTrue(detail.contains("frame(minWidth: detailWidth, minHeight: laidOut"))
         XCTAssertTrue(detail.contains("No stores in this scope."))
         XCTAssertTrue(detail.contains("header(detailColumns, tappable: true)"))
+        XCTAssertTrue(detail.contains("LazyVStack"))
+        XCTAssertTrue(detail.contains("ForEach(rows)"))
         guard let pageStart = detail.range(of: "private func detailPage"),
               let pageEnd = detail.range(of: "private func marketBlock") else {
             XCTFail("Store Detail page is missing")
@@ -207,13 +211,17 @@ final class ScheduleCheckTests: XCTestCase {
         let page = String(detail[pageStart.lowerBound..<pageEnd.lowerBound])
         let header = page.range(of: "header(detailColumns, tappable: true)")
         let scroll = page.range(of: "ScrollView(.horizontal)")
+        let rows = page.range(of: "ForEach(rows)")
         XCTAssertNotNil(header)
         XCTAssertNotNil(scroll)
-        if let header, let scroll {
-            XCTAssertLessThan(header.lowerBound, scroll.lowerBound, "the column header has to sit outside the horizontal scroll")
+        XCTAssertNotNil(rows)
+        if let header, let scroll, let rows {
+            XCTAssertLessThan(scroll.lowerBound, header.lowerBound, "the column header sits in the same horizontal scroll as the rows")
+            XCTAssertLessThan(header.lowerBound, rows.lowerBound)
         }
-        XCTAssertTrue(page.contains(".frame(height: rowBody"))
+        XCTAssertFalse(page.contains("frame(height: rowBody"))
         XCTAssertTrue(page.contains("frame(height: ScheduleCheckMath.detailHeaderHeight"))
+        XCTAssertTrue(page.contains("frame(minHeight: ScheduleCheckMath.detailRowHeight"))
     }
 
     func testScheduleRowsRoundTripInsideCurrentSqlite() throws {

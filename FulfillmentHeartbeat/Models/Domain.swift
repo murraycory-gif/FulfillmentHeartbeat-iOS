@@ -1661,6 +1661,54 @@ enum HeartbeatMath {
         }
     }
 
+    /// Chrome keeps the headline and the store count that already passed on device
+    /// (Loss $393,334.12 on 610, Sales $ on 615). Later cells that are still "—"
+    /// take the same section's fact rollup. A missing fact match does not wipe the row.
+    static func fillingDashCellsKeepingCount(
+        _ rows: [DashboardGrainTableRow],
+        section: MetricSection,
+        metricRows: [MetricRow],
+        grain: DashScopeGrain,
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let headers = dashboardTableHeaders(section)
+        guard !rows.isEmpty, headers.count > 1, !metricRows.isEmpty else { return rows }
+        let rebuilt = dashboardGrainTableFilled(
+            section: section,
+            rows: metricRows,
+            grain: grain,
+            order: rows.map(\.label),
+            goalFallback: goalFallback
+        )
+        var aliasToRow: [String: DashboardGrainTableRow] = [:]
+        aliasToRow.reserveCapacity(rebuilt.count * 3)
+        for row in rebuilt {
+            for alias in grainAliasKeys(row.label, grain: grain) where aliasToRow[alias] == nil {
+                aliasToRow[alias] = row
+            }
+        }
+        return rows.map { row in
+            var match: DashboardGrainTableRow?
+            for alias in grainAliasKeys(row.label, grain: grain) {
+                if let hit = aliasToRow[alias] {
+                    match = hit
+                    break
+                }
+            }
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: row.storeCount > 0 ? row.storeCount : (match?.storeCount ?? row.storeCount),
+                values: mergedGrainValues(
+                    current: row.values,
+                    incoming: match?.values ?? [],
+                    headerCount: headers.count,
+                    fillDashesOnly: true
+                ),
+                health: row.health == .none ? (match?.health ?? row.health) : row.health
+            )
+        }
+    }
+
     static func paddedGrainTable(
         _ rows: [DashboardGrainTableRow],
         headerCount: Int
@@ -4452,6 +4500,17 @@ enum HeartbeatMath {
                 health: row.health
             )
         }
+    }
+
+    /// Region total on Missing and Pre-Sub. Cell 0 is the cooked scope line
+    /// (East 8.61% / 6.63%). A dash falls back to the fact average of `mi_pct`.
+    /// A department average is not this number.
+    static func missingRollupRate(
+        _ row: DashboardGrainTableRow,
+        averages: [String: Double] = [:]
+    ) -> Double? {
+        if let painted = grainNumber(row, 0) { return painted }
+        return averages[MissingItemDept.totalKey]
     }
 
     /// Shopper counts already on the row stay. Healthy / Watch / At Risk fill

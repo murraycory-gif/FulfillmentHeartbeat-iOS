@@ -164,6 +164,9 @@ final class HeartbeatStore: ObservableObject {
     /// Department keys only, keyed by store. Not the fact plane.
     private var deptPayloadCache: [MetricSection: [String: (division: String, numbers: [String: Double])]] = [:]
     private var deptPayloadPackPath: String = ""
+    /// Section facts used only to fill dash cells beside a cooked headline. Not the fact plane.
+    private var dashFillCache: [MetricSection: [MetricRow]] = [:]
+    private var dashFillPackPath: String = ""
     private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
     private var preSubTopCacheURL: String = ""
     private var companySeatChrome: PulseDashChrome?
@@ -942,6 +945,32 @@ final class HeartbeatStore: ObservableObject {
         return averages
     }
 
+    /// Store rows for one section, even when chrome already has the headline.
+    /// `grainFacts` stays empty in that case so the company card does not keep a second plane.
+    /// Loss and Sales call this to fill the dash cells next to a passing dollar.
+    func dashFillRows(for section: MetricSection) -> [MetricRow] {
+        let path = activePackURL.path
+        if dashFillPackPath != path {
+            dashFillPackPath = path
+            dashFillCache = [:]
+        }
+        if let hit = dashFillCache[section] { return hit }
+        let facts = PulseSQLite.readGrainFacts(from: activePackURL, section: section)
+        let rows = facts.map { fact in
+            MetricRow(
+                section: section,
+                division: fact.division,
+                operationsOM: "",
+                storeNumber: fact.store,
+                payload: fact.numbers,
+                textPayload: fact.text
+            )
+        }
+        let filled = HeartbeatMath.rowsFillingRoster(rows, roster: roster)
+        dashFillCache[section] = filled
+        return filled
+    }
+
     func chromeScopePacks(for section: MetricSection) -> [DashScopePack] {
         packChrome?.packs[section.rawValue] ?? cachedGrainPacks[section] ?? []
     }
@@ -958,7 +987,7 @@ final class HeartbeatStore: ObservableObject {
         let rows = PulseSQLite.departmentPayloads(
             from: activePackURL,
             section: section,
-            keys: MissingItemDept.allCases.map(\.rawValue)
+            keys: MissingItemDept.allCases.map(\.rawValue) + [MissingItemDept.totalKey]
         )
         deptPayloadCache[section] = rows
         return rows
@@ -6818,6 +6847,8 @@ final class HeartbeatStore: ObservableObject {
         grainFactPackPath = ""
         deptPayloadCache = [:]
         deptPayloadPackPath = ""
+        dashFillCache = [:]
+        dashFillPackPath = ""
         let coverageURL = packURL ?? activePackURL
         prepUploadedCoverage = PulseSQLite.prepCoverage(from: coverageURL)
         packChrome = chrome
