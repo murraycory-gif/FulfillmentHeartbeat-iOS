@@ -202,6 +202,8 @@ struct HeartbeatAssistSheet: View {
             return "You're on Dynacap for \(book). I'll call out stores under 60 pieces/hour and whether labor is hiding in the number."
         case .scheduleQuality:
             return "You're on Schedule Quality for \(book). I'll separate a fat map from no-shows."
+        case .scheduleCheck:
+            return "You're on Schedule Check for \(book). I'll use the action gate, the company and region rollup, and the store list. I won't fill a column the pack doesn't have."
         case .pph:
             return "You're on PPH for \(book). Goal 80. I'll name stores below 74 and the shoppers dragging the rate."
         case .labor:

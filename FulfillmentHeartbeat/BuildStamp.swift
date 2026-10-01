@@ -1,7 +1,9 @@
 import Foundation
 
+/// Cable tip 638 — Schedule Check (Action, Summary, Stores).
+/// Sales sqlite-only path is unchanged.
 enum BuildStamp {
-    static let id = "HB-0828.315"
+    static let id = "HB-0828.316"
 
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"

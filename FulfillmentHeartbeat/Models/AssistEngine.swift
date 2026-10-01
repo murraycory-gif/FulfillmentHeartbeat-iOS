@@ -124,6 +124,13 @@ enum HeartbeatAssist {
                 "Is this a map problem or no-shows?",
                 "What do we change on the map?",
             ]
+        case .scheduleCheck:
+            return [
+                "Who is the worst district for schedule check?",
+                "Which stores need a schedule action?",
+                "Which stores are over scheduled?",
+                "What is missing from the schedule pack?",
+            ]
         case .pph:
             return [
                 "Who is the worst district for PPH?",

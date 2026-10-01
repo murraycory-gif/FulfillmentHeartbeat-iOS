@@ -133,9 +133,21 @@ enum WorkbookParser {
         let expected = MetricSection.uploadOrder.count
         onProgress?(0, expected, "Reading workbook…")
         var found: [MetricSection: ParsedSheet] = [:]
+        var schedulePieces: [(name: String, kind: ScheduleCheckSheetKind, matrix: [[String]])] = []
         var lightReleased = false
         for entry in sheetsToRead {
             autoreleasepool {
+                if let kind = scheduleCheckKind(entry.name) {
+                    onProgress?(found.count, expected, "Schedule check · \(entry.name)")
+                    if kind != .presentation,
+                       let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
+                       !sheet.isEmpty {
+                        let matrix = SheetXML.parse(data: sheet, strings: strings)
+                        schedulePieces.append((entry.name, kind, matrix))
+                    }
+                    zip.release(entry.path)
+                    return
+                }
                 let hinted = section(fromSheetName: entry.name)
                 if !lightReleased, hinted == .labor || hinted == .pickerScorecard || hinted == .pickPathPicker || hinted == .preSubOOSItem {
                     lightReleased = true
@@ -210,6 +222,13 @@ enum WorkbookParser {
                 if section == .labor || section == .pickerScorecard || section == .pickPathPicker {
                     onSheetReady?(found[section]!)
                 }
+            }
+        }
+        if !schedulePieces.isEmpty {
+            let merged = mergeScheduleCheck(existing: found[.scheduleQuality]?.rows ?? [], pieces: schedulePieces)
+            if !merged.isEmpty {
+                let sheetName = found[.scheduleQuality]?.sheetName ?? "Schedule Check"
+                found[.scheduleQuality] = ParsedSheet(section: .scheduleQuality, sheetName: sheetName, rows: merged)
             }
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
@@ -295,7 +314,235 @@ enum WorkbookParser {
         return section(fromRows: rows)
     }
 
+    enum ScheduleCheckSheetKind: Equatable {
+        case currentWeek
+        case fourWeek
+        case day(Int)
+        case salesAvg
+        case star5
+        case presentation
+    }
+
+    /// Black tabs from Schedule Review. These must not be cooked as Sales or 5 Star.
+    static func scheduleCheckKind(_ raw: String) -> ScheduleCheckSheetKind? {
+        let name = raw.lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if name == "action needed" || name == "summary" || name == "store detail"
+            || name.hasPrefix("market look") || name.hasPrefix("_") {
+            return .presentation
+        }
+        if name == "stores current week" || name.hasPrefix("store look") { return .currentWeek }
+        if name.contains("last 4 week") { return .fourWeek }
+        let days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        if let index = days.firstIndex(of: name) { return .day(index) }
+        if name.contains("sales avg") { return .salesAvg }
+        if (name.contains("5 star") || name.contains("five star")) && name.contains("last 5") { return .star5 }
+        return nil
+    }
+
+    static func scheduleCheckFacts(kind: ScheduleCheckSheetKind, matrix: [[String]]) -> [ParsedWorkbookRow] {
+        switch kind {
+        case .presentation:
+            return []
+        case .salesAvg:
+            return scheduleSalesAvgFacts(matrix)
+        case .star5:
+            return scheduleStarFacts(matrix)
+        case .currentWeek:
+            return scheduleWeekFacts(matrix, underKey: "sched_under", overKey: "sched_over", efficiency: true)
+        case .fourWeek:
+            return scheduleFourWeekFacts(matrix)
+        case .day(let index):
+            let tokens = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            guard tokens.indices.contains(index) else { return [] }
+            let token = tokens[index]
+            return scheduleWeekFacts(matrix, underKey: "sched_\(token)_under", overKey: "sched_\(token)_over", efficiency: false)
+        }
+    }
+
+    static func mergeScheduleCheck(
+        existing: [ParsedWorkbookRow],
+        pieces: [(name: String, kind: ScheduleCheckSheetKind, matrix: [[String]])]
+    ) -> [ParsedWorkbookRow] {
+        let ordered = pieces.sorted { lhs, rhs in
+            schedulePieceRank(name: lhs.name, kind: lhs.kind) < schedulePieceRank(name: rhs.name, kind: rhs.kind)
+        }
+        var facts: [ParsedWorkbookRow] = []
+        for piece in ordered where piece.kind != .presentation {
+            facts.append(contentsOf: scheduleCheckFacts(kind: piece.kind, matrix: piece.matrix))
+        }
+        var byStore: [String: ParsedWorkbookRow] = [:]
+        for row in existing {
+            let key = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !key.isEmpty else { continue }
+            byStore[key] = row
+        }
+        for fact in facts {
+            let key = HeartbeatMath.canonicalStore(fact.storeNumber)
+            guard Int(key) != nil else { continue }
+            var base = byStore[key] ?? ParsedWorkbookRow(
+                division: "",
+                operationsOM: "",
+                storeNumber: key,
+                storeName: nil,
+                recordedOn: nil,
+                payload: [:],
+                textPayload: [:]
+            )
+            if base.division.isEmpty { base.division = fact.division }
+            if base.operationsOM.isEmpty { base.operationsOM = fact.operationsOM }
+            if (base.textPayload["district"] ?? "").isEmpty, let district = fact.textPayload["district"] {
+                base.textPayload["district"] = district
+            }
+            for (payloadKey, value) in fact.payload {
+                base.payload[payloadKey] = value
+            }
+            if base.payload["under_schedule_pct"] == nil, let value = fact.payload["sched_under"] {
+                base.payload["under_schedule_pct"] = value
+            }
+            if base.payload["over_schedule_pct"] == nil, let value = fact.payload["sched_over"] {
+                base.payload["over_schedule_pct"] = value
+            }
+            if base.payload["schedule_efficiency_pct"] == nil, let value = fact.payload["sched_eff"] {
+                base.payload["schedule_efficiency_pct"] = value
+            }
+            if base.payload["staffing_efficiency_pct"] == nil, let value = fact.payload["sched_pch_vs_sch"] {
+                base.payload["staffing_efficiency_pct"] = value
+            }
+            base.storeNumber = key
+            byStore[key] = base
+        }
+        return Array(byStore.values)
+    }
+
+    private static func schedulePieceRank(name: String, kind: ScheduleCheckSheetKind) -> Int {
+        switch kind {
+        case .presentation: return 0
+        case .day: return 10
+        case .fourWeek: return 20
+        case .salesAvg: return 30
+        case .star5: return 40
+        case .currentWeek:
+            return name.lowercased().contains("look") ? 50 : 60
+        }
+    }
+
+    private static func scheduleWeekFacts(
+        _ matrix: [[String]],
+        underKey: String,
+        overKey: String,
+        efficiency: Bool
+    ) -> [ParsedWorkbookRow] {
+        rows(from: matrix, prefer: .scheduleQuality).compactMap { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard Int(store) != nil else { return nil }
+            var payload: [String: Double] = [:]
+            if let value = row.payload["under_schedule_pct"] { payload[underKey] = value }
+            if let value = row.payload["over_schedule_pct"] { payload[overKey] = value }
+            if efficiency, let value = row.payload["schedule_efficiency_pct"] { payload["sched_eff"] = value }
+            guard !payload.isEmpty else { return nil }
+            var copy = row
+            copy.storeNumber = store
+            copy.payload = payload
+            return copy
+        }
+    }
+
+    private static func scheduleFourWeekFacts(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
+        rows(from: matrix, prefer: .scheduleQuality).compactMap { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard Int(store) != nil else { return nil }
+            var payload: [String: Double] = [:]
+            if let value = row.payload["under_schedule_pct"] { payload["sched_4wk_under"] = value }
+            if let value = row.payload["over_schedule_pct"] { payload["sched_4wk_over"] = value }
+            if let value = row.payload["staffing_efficiency_pct"] { payload["sched_pch_vs_sch"] = value }
+            guard !payload.isEmpty else { return nil }
+            var copy = row
+            copy.storeNumber = store
+            copy.payload = payload
+            return copy
+        }
+    }
+
+    /// Total Sales $ on Sales AVG Last 4 Wks ÷ 4. That is the Week 31 Average Sales Volume.
+    private static func scheduleSalesAvgFacts(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
+        guard let headerIdx = matrix.firstIndex(where: { row in
+            row.contains { normHeader($0) == "store" }
+        }) else { return [] }
+        let header = matrix[headerIdx]
+        let salesCols = header.enumerated().compactMap { index, cell -> Int? in
+            let name = normHeader(cell)
+            return (name == "sales" || name == "salesdollar" || name == "salesdollars") ? index : nil
+        }
+        guard let salesCol = salesCols.last else { return [] }
+        let storeCol = header.firstIndex { normHeader($0) == "store" } ?? 0
+        var out: [ParsedWorkbookRow] = []
+        for row in matrix.dropFirst(headerIdx + 1) {
+            guard storeCol < row.count, salesCol < row.count else { continue }
+            let store = HeartbeatMath.canonicalStore(row[storeCol])
+            guard Int(store) != nil, let total = cellNumber(row[salesCol]) else { continue }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: ["sched_avg_sales": total / 4],
+                    textPayload: [:]
+                )
+            )
+        }
+        return out
+    }
+
+    /// Last column of Store Total Rating on 5 Star Last 5 Weeks. Stars stay on a 0–5 scale.
+    private static func scheduleStarFacts(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
+        guard let headerIdx = matrix.firstIndex(where: { row in
+            let names = row.map(normHeader)
+            return names.contains("store") && names.contains(where: { $0.contains("rating") })
+        }) else { return [] }
+        let header = matrix[headerIdx]
+        let ratingCols = header.enumerated().compactMap { index, cell -> Int? in
+            let name = normHeader(cell)
+            return name.contains("totalrating") || name.contains("starrating") ? index : nil
+        }
+        guard let ratingCol = ratingCols.last else { return [] }
+        let storeCol = header.firstIndex { normHeader($0) == "store" } ?? 0
+        let divCol = header.firstIndex { divisionKeys.contains(normHeader($0)) }
+        let distCol = header.firstIndex { districtKeys.contains(normHeader($0)) }
+        let omCol = header.firstIndex { omKeys.contains(normHeader($0)) }
+        var out: [ParsedWorkbookRow] = []
+        for row in matrix.dropFirst(headerIdx + 1) {
+            guard storeCol < row.count, ratingCol < row.count else { continue }
+            let store = HeartbeatMath.canonicalStore(row[storeCol])
+            guard Int(store) != nil, let stars = cellNumber(row[ratingCol]), stars >= 0, stars <= 5 else { continue }
+            var text: [String: String] = [:]
+            if let distCol, distCol < row.count {
+                let district = row[distCol].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !district.isEmpty { text["district"] = district }
+            }
+            let division = divCol.flatMap { $0 < row.count ? row[$0] : nil } ?? ""
+            let om = omCol.flatMap { $0 < row.count ? row[$0] : nil } ?? ""
+            out.append(
+                ParsedWorkbookRow(
+                    division: division.trimmingCharacters(in: .whitespacesAndNewlines),
+                    operationsOM: om.trimmingCharacters(in: .whitespacesAndNewlines),
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: ["sched_star_5wk": stars],
+                    textPayload: text
+                )
+            )
+        }
+        return out
+    }
+
     static func section(fromSheetName raw: String) -> MetricSection? {
+        if scheduleCheckKind(raw) != nil { return nil }
         let name = raw.lowercased()
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
