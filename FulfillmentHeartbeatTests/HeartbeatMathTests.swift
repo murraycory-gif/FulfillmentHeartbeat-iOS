@@ -3812,6 +3812,55 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertNotEqual(reported ?? 0, 0.04, accuracy: 0.0001)
     }
 
+    /// Company Sales is the pack `sales_grain=company` row. A blank store with a
+    /// large dollar figure is not that row, and a labor store with no ActHrs stays.
+    func testCompanySalesGrainAndBlankLaborHoursStay() {
+        let impostor = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 9_000_000, "sales_yoy_pct": 15],
+            textPayload: [:]
+        )
+        XCTAssertNil(HeartbeatMath.salesCompanyRow([impostor]))
+        let company = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 37_065_336.17, "sales_yoy_pct": -6.561144357311532],
+            textPayload: ["sales_grain": "company", "sales_week": "202631"]
+        )
+        let hit = HeartbeatMath.salesCompanyRow([impostor, company])
+        XCTAssertEqual(hit?.textPayload["sales_grain"], "company")
+        XCTAssertEqual(hit?.number("sales_dollars") ?? 0, 37_065_336.17, accuracy: 0.01)
+        XCTAssertEqual(hit?.number("sales_yoy_pct") ?? 0, -6.561144357311532, accuracy: 0.0001)
+
+        let blankHours = MetricRow(
+            section: .labor,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "3427",
+            payload: ["cost_trgt_pct": 14.9],
+            textPayload: ["labor_grain": "store"]
+        )
+        XCTAssertNil(blankHours.number("act_hrs"))
+        XCTAssertTrue(PulseQuery.isStoreFact(blankHours))
+        let smallHours = MetricRow(
+            section: .labor,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "2219",
+            payload: ["act_hrs": 42, "cost_trgt_pct": 12],
+            textPayload: ["labor_grain": "store"]
+        )
+        XCTAssertTrue(PulseQuery.isStoreFact(smallHours))
+        XCTAssertEqual(smallHours.number("act_hrs") ?? 0, 42, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatFormat.pct(0), "0.00%")
+        XCTAssertEqual(HeartbeatFormat.pct(nil), "—")
+    }
+
     /// Sales keeps the cooked dollar and 615 stores, and fills YoY and orders
     /// that chrome left as dashes. Four region rows need a floor tall enough for West.
     func testSalesRegionKeepsChromeDollarsAndFillsTheOtherCells() throws {

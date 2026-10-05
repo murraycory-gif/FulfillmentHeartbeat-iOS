@@ -694,10 +694,7 @@ final class HeartbeatStore: ObservableObject {
            HeartbeatMath.salesHeadlineDollars(pinned) > 0 {
             return pinned
         }
-        return pool.first {
-            HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-                && HeartbeatMath.salesHeadlineDollars($0) >= 5_000_000
-        }
+        return nil
     }
 
     /// Top 10 for one Pre-Sub card. Missing tab is a sentence, never an empty list.

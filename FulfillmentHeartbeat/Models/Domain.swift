@@ -4766,16 +4766,11 @@ enum HeartbeatMath {
         return (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
     }
 
-    /// Official Excel Total row. Company-wide Sales must use this, not a store rollup.
+    /// Official pack Total. Company-wide Sales uses `sales_grain=company` only.
+    /// A large blank-store row is not that total.
     static func salesCompanyRow(_ rows: [MetricRow]) -> MetricRow? {
-        if let hit = rows.first(where: { $0.textPayload["sales_grain"] == "company" }) {
-            return hit
-        }
-        return rows.first {
-            canonicalStore($0.storeNumber).isEmpty
-                && $0.storeNumber.caseInsensitiveCompare("total") != .orderedSame
-                && $0.textPayload["sales_grain"] != "day"
-                && salesHeadlineDollars($0) >= 5_000_000
+        rows.first {
+            $0.textPayload["sales_grain"] == "company" && salesHeadlineDollars($0) > 0
         }
     }
 
