@@ -6,11 +6,13 @@ import {
   scheduleDistrictNote,
   emptyScopeNote,
   shownDistrict,
-  regions,
-  divisionsFor,
-  optionValues,
   scopeLabel,
   finestScope,
+  searchScope,
+  cascadePick,
+  scopeChips,
+  filtersUpTo,
+  browseLevel,
   sectionGrainRows,
   canonicalStore,
   canonicalDivision,
@@ -108,6 +110,8 @@ const ROW_PAGE = 80;
 const state = {
   page: "dashboard",
   filters: emptyFilters(),
+  scopeQuery: "",
+  browseOpen: false,
   home: null,
   homeError: "",
   packs: new Map(),
@@ -119,8 +123,15 @@ const state = {
 const drawer = document.querySelector("#drawer");
 const scrim = document.querySelector("#scrim");
 const main = document.querySelector("#main");
-const filtersForm = document.querySelector("#filters");
-const filterToggle = document.querySelector("#filter-toggle");
+const scopeSearch = document.querySelector("#scope-search");
+const scopeResults = document.querySelector("#scope-results");
+const scopeChipsBox = document.querySelector("#scope-chips");
+const browseOpen = document.querySelector("#browse-open");
+const browseRoot = document.querySelector("#browse");
+const browseList = document.querySelector("#browse-list");
+const browseTitle = document.querySelector("#browse-title");
+const browseBack = document.querySelector("#browse-back");
+const browseClose = document.querySelector("#browse-close");
 const clearFilters = document.querySelector("#clear-filters");
 const title = document.querySelector("#page-title");
 const updated = document.querySelector("#updated");
@@ -276,33 +287,120 @@ function logout() {
   }).then(retry, retry);
 }
 
-function renderFilters() {
-  const filters = state.filters;
-  const stores = roster();
-  const fields = [
-    ["region", "Region", ["", ...regions()]],
-    ["division", "Division", ["", ...divisionsFor(filters)]],
-    ["district", "District", ["", ...optionValues(stores, filters, "district")]],
-    ["om", "OM", ["", ...optionValues(stores, filters, "om")]],
-    ["store", "Store", ["", ...optionValues(stores, filters, "store")]],
-  ];
-  filtersForm.innerHTML = fields
-    .map(([key, label, values]) => {
-      const options = values
-        .map((value) => {
-          const text = value || (key === "om" ? "All OMs" : `All ${label.toLowerCase()}s`);
-          const selected = value === filters[key] ? " selected" : "";
-          return `<option value="${esc(value)}"${selected}>${esc(text)}</option>`;
+let searchHits = [];
+let browseHits = [];
+
+function scopeFromPick(pick) {
+  const cascaded = cascadePick(roster(), pick);
+  const order = ["region", "division", "district", "om", "store"];
+  const next = emptyFilters();
+  const index = order.indexOf(pick.kind);
+  for (const key of order) {
+    const place = order.indexOf(key);
+    if (place < index) next[key] = state.filters[key] || cascaded[key] || "";
+    else if (place === index) next[key] = cascaded[key] || "";
+  }
+  return next;
+}
+
+function applyScope(next) {
+  state.filters = next;
+  state.scopeQuery = "";
+  if (scopeSearch) scopeSearch.value = "";
+  state.tableWindow = ROW_PAGE;
+  if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(next)}`;
+  render();
+}
+
+function hideResults() {
+  if (!scopeResults) return;
+  scopeResults.hidden = true;
+  scopeResults.innerHTML = "";
+  if (scopeSearch) scopeSearch.setAttribute("aria-expanded", "false");
+}
+
+function paintResults() {
+  if (!scopeResults || !scopeSearch) return;
+  const query = state.scopeQuery.trim();
+  if (!query) {
+    hideResults();
+    return;
+  }
+  const groups = searchScope(roster(), state.filters, query);
+  searchHits = groups.flatMap((group) => group.hits);
+  if (!searchHits.length) {
+    scopeResults.hidden = false;
+    scopeSearch.setAttribute("aria-expanded", "true");
+    scopeResults.innerHTML = `<p class="scope-group">No matches</p>`;
+    return;
+  }
+  let index = 0;
+  scopeResults.innerHTML = groups
+    .map((group) => {
+      const rows = group.hits
+        .map((hit) => {
+          const detail = hit.detail ? `<small>${esc(hit.detail)}</small>` : "";
+          const html = `<button type="button" class="scope-hit" data-hit="${index}">${esc(hit.label)}${detail}</button>`;
+          index += 1;
+          return html;
         })
         .join("");
-      return `<label>${esc(label)}<select name="${key}">${options}</select></label>`;
+      return `<p class="scope-group">${esc(group.group)}</p>${rows}`;
     })
     .join("");
-  const seat = filtersActive(filters) ? scopeLabel(filters) : "Total Company";
-  filterToggle.textContent = `Filters · ${seat}`;
+  scopeResults.hidden = false;
+  scopeSearch.setAttribute("aria-expanded", "true");
+}
+
+function parentScope(filters) {
+  if (filters.store) return filtersUpTo(filters, "om");
+  if (filters.om) return filtersUpTo(filters, "district");
+  if (filters.district) return filtersUpTo(filters, "division");
+  if (filters.division) return filtersUpTo(filters, "region");
+  return emptyFilters();
+}
+
+function paintBrowse() {
+  if (!browseRoot || !browseList) return;
+  const open = state.browseOpen;
+  browseRoot.hidden = !open;
+  if (browseOpen) browseOpen.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) return;
+  const level = browseLevel(roster(), state.filters);
+  browseHits = level.rows;
+  if (browseTitle) browseTitle.textContent = level.title;
+  if (browseBack) browseBack.hidden = !filtersActive(state.filters);
+  browseList.innerHTML = level.rows
+    .map(
+      (item, index) =>
+        `<button type="button" class="browse-row" data-browse="${index}">${esc(item.label)}<small>${esc(String(item.count))}</small></button>`,
+    )
+    .join("");
+}
+
+function paintChips() {
+  if (!scopeChipsBox) return;
+  const chips = scopeChips(state.filters);
+  const last = chips.length - 1;
+  const reset = filtersActive(state.filters)
+    ? `<button type="button" class="scope-reset" data-clear-scope aria-label="Clear scope">×</button>`
+    : "";
+  scopeChipsBox.innerHTML =
+    chips
+      .map(
+        (chip, index) =>
+          `<button type="button" class="scope-chip" data-scope="${esc(chip.level)}"${index === last ? ' aria-current="true"' : ""}>${esc(chip.label)}</button>`,
+      )
+      .join("") + reset;
+}
+
+function renderFilters() {
+  paintChips();
+  paintResults();
+  paintBrowse();
   if (clearFilters) {
     clearFilters.textContent = "Clear all";
-    clearFilters.hidden = !filtersActive(filters);
+    clearFilters.hidden = !filtersActive(state.filters);
   }
 }
 
@@ -1240,9 +1338,16 @@ shareRoot.addEventListener("change", (event) => {
   if (event.target.name === "share-mode" || event.target.closest("#share-picks")) syncSharePicks();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && shareOpenOnScreen()) {
+  if (event.key !== "Escape") return;
+  if (shareOpenOnScreen()) {
     event.preventDefault();
     closeShare();
+    return;
+  }
+  if (state.browseOpen) {
+    event.preventDefault();
+    state.browseOpen = false;
+    paintBrowse();
   }
 });
 forceShareClosed();
@@ -1251,14 +1356,56 @@ window.addEventListener("pageshow", (event) => {
 });
 
 clearFilters.addEventListener("click", () => {
-  state.filters = emptyFilters();
-  state.tableWindow = ROW_PAGE;
-  render();
+  state.browseOpen = false;
+  applyScope(emptyFilters());
 });
 
-filterToggle.addEventListener("click", () => {
-  const open = filtersForm.classList.toggle("open");
-  filterToggle.setAttribute("aria-expanded", open ? "true" : "false");
+scopeSearch.addEventListener("input", () => {
+  state.scopeQuery = scopeSearch.value;
+  state.browseOpen = false;
+  paintResults();
+  paintBrowse();
+});
+
+scopeSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    state.scopeQuery = "";
+    scopeSearch.value = "";
+    hideResults();
+  }
+  if (event.key === "Enter" && searchHits[0]) {
+    event.preventDefault();
+    state.browseOpen = false;
+    applyScope(scopeFromPick(searchHits[0]));
+  }
+});
+
+scopeResults.addEventListener("mousedown", (event) => {
+  event.preventDefault();
+});
+
+browseOpen.addEventListener("click", () => {
+  state.browseOpen = !state.browseOpen;
+  hideResults();
+  paintBrowse();
+});
+
+browseClose.addEventListener("click", () => {
+  state.browseOpen = false;
+  paintBrowse();
+});
+
+browseRoot.addEventListener("click", (event) => {
+  if (event.target.closest(".browse-card")) return;
+  state.browseOpen = false;
+  paintBrowse();
+});
+
+browseBack.addEventListener("click", () => {
+  state.filters = parentScope(state.filters);
+  state.tableWindow = ROW_PAGE;
+  if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(state.filters)}`;
+  render();
 });
 
 navToggle.addEventListener("click", (event) => {
@@ -1291,6 +1438,39 @@ syncNavToggle();
 scrim.addEventListener("click", closeDrawer);
 
 document.body.addEventListener("click", (event) => {
+  const hit = event.target.closest("[data-hit]");
+  if (hit) {
+    const pick = searchHits[Number(hit.getAttribute("data-hit"))];
+    if (pick) {
+      state.browseOpen = false;
+      applyScope(scopeFromPick(pick));
+    }
+    return;
+  }
+  const drilled = event.target.closest("[data-browse]");
+  if (drilled) {
+    const pick = browseHits[Number(drilled.getAttribute("data-browse"))];
+    if (pick) {
+      if (pick.kind === "store") state.browseOpen = false;
+      applyScope(scopeFromPick(pick));
+    }
+    return;
+  }
+  const chip = event.target.closest("[data-scope]");
+  if (chip) {
+    applyScope(filtersUpTo(state.filters, chip.getAttribute("data-scope")));
+    return;
+  }
+  if (event.target.closest("[data-clear-scope]")) {
+    state.browseOpen = false;
+    applyScope(emptyFilters());
+    return;
+  }
+  if (!event.target.closest(".find")) hideResults();
+  if (state.browseOpen && !event.target.closest("#browse") && !event.target.closest("#browse-open")) {
+    state.browseOpen = false;
+    paintBrowse();
+  }
   if (event.target.closest("[data-logout]")) {
     logout();
     return;
@@ -1321,31 +1501,6 @@ document.body.addEventListener("click", (event) => {
     state.tableWindow = ROW_PAGE;
     render();
   }
-});
-
-filtersForm.addEventListener("change", (event) => {
-  const select = event.target;
-  if (!select.name) return;
-  const next = { ...state.filters, [select.name]: select.value };
-  if (select.name === "region") {
-    next.division = "";
-    next.district = "";
-    next.om = "";
-    next.store = "";
-  } else if (select.name === "division") {
-    next.district = "";
-    next.om = "";
-    next.store = "";
-  } else if (select.name === "district") {
-    next.om = "";
-    next.store = "";
-  } else if (select.name === "om") {
-    next.store = "";
-  }
-  state.filters = next;
-  state.tableWindow = ROW_PAGE;
-  if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(next)}`;
-  render();
 });
 
 function acceptHome(home) {

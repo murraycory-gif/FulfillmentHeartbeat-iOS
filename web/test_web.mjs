@@ -31,6 +31,12 @@ import {
   regionLineInScope,
   scopeStoreCount,
   sectionGrainRows,
+  searchScope,
+  cascadePick,
+  scopeChips,
+  filtersUpTo,
+  browseLevel,
+  storeLabel,
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
@@ -321,9 +327,12 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=14/);
-assert.match(css, /#filter-toggle,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
-assert.match(pageHtml, /app\.js\?v=17/);
+assert.match(pageHtml, /app\.css\?v=16/);
+assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
+assert.match(pageHtml, /id="scope-search"/);
+assert.match(pageHtml, /id="clear-filters"/);
+assert.match(pageHtml, /aria-label="Share"/);
+assert.match(pageHtml, /app\.js\?v=18/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -507,6 +516,37 @@ assert.equal(matchesDistrict("A1", "H1 NE PHILA SUBURB"), false);
 
 const packHome = JSON.parse(readFileSync(join(root, "public/data/home.json"), "utf8"));
 const packRoster = packHome.filters.stores;
+const store53 = cascadePick(packRoster, { kind: "store", value: "53" });
+assert.equal(storeLabel(53), "0053");
+assert.equal(store53.store, "53");
+assert.equal(store53.division, "Mid-Atlantic");
+assert.equal(store53.district, "A1");
+assert.equal(store53.region, "East Region");
+assert.equal(store53.om, "Abraham Negussie");
+const abraham = cascadePick(packRoster, { kind: "om", value: "Abraham Negussie" });
+assert.equal(abraham.om, "Abraham Negussie");
+assert.equal(abraham.division, "Mid-Atlantic");
+assert.equal(abraham.district, "");
+assert.equal(abraham.region, "East Region");
+const phila = searchScope(packRoster, { region: "", division: "", district: "", om: "", store: "" }, "ne phila").flatMap((group) => group.hits);
+assert.ok(phila.some((hit) => hit.kind === "district" && hit.value === "A1"));
+const stores53 = searchScope(packRoster, { region: "", division: "", district: "", om: "", store: "" }, "53")
+  .find((group) => group.group === "Store").hits;
+assert.equal(stores53[0].label, "0053");
+assert.equal(stores53[0].value, "53");
+const mid = searchScope(packRoster, { region: "East Region", division: "", district: "", om: "", store: "" }, "mid");
+assert.ok(mid.some((group) => group.hits.some((hit) => hit.value === "Mid-Atlantic")));
+const up = filtersUpTo(store53, "division");
+assert.equal(up.division, "Mid-Atlantic");
+assert.equal(up.district, "");
+assert.equal(up.store, "");
+assert.deepEqual(scopeChips(store53).map((chip) => chip.label), ["Company", "East", "Mid-Atlantic", "A1", "Abraham Negussie", "0053"]);
+const eastBrowse = browseLevel(packRoster, { region: "", division: "", district: "", om: "", store: "" });
+assert.equal(eastBrowse.level, "region");
+assert.ok(eastBrowse.rows.every((row) => row.count > 0));
+const a1Browse = browseLevel(packRoster, { region: "East Region", division: "Mid-Atlantic", district: "", om: "", store: "" });
+assert.equal(a1Browse.level, "district");
+assert.ok(a1Browse.rows.some((row) => row.value === "A1" && row.count > 0 && row.label.includes("PHILA")));
 const packSq = JSON.parse(readFileSync(join(root, "public/data/section/schedule_quality.json"), "utf8")).rows;
 function sqCount(district) {
   return packSq.filter((row) => includesScope(row, filters({ district }), packRoster, "schedule_quality")).length;

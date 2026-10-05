@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fulfillment Heartbeat</title>
-  <link rel="stylesheet" href="/app.css?v=14">
+  <link rel="stylesheet" href="/app.css?v=16">
   <script src="/nav-boot.js"></script>
 </head>
 <body>
@@ -49,12 +49,30 @@
     </header>
     <p id="banner" class="banner" hidden></p>
     <div class="filter-bar">
-      <div class="filter-tools">
-        <button id="filter-toggle" type="button" aria-expanded="false" aria-controls="filters">Filters</button>
-        <button id="share-open" type="button">Share</button>
+      <div class="find-row">
+        <div class="find">
+          <input id="scope-search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search store, OM, district, division…" aria-label="Search store, OM, district, division" aria-controls="scope-results" aria-expanded="false">
+          <div id="scope-results" class="scope-results" hidden></div>
+        </div>
+        <button id="browse-open" type="button" aria-expanded="false" aria-controls="browse">Browse</button>
+        <button id="share-open" type="button" aria-label="Share">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 16V4M7 8l5-5 5 5M5 20h14"/></svg>
+        </button>
+      </div>
+      <div class="chip-row">
+        <div id="scope-chips" class="scope-chips"></div>
         <button id="clear-filters" type="button" hidden>Clear all</button>
       </div>
-      <form id="filters" class="filters"></form>
+      <div id="browse" class="browse" hidden>
+        <div class="browse-card" role="dialog" aria-labelledby="browse-title">
+          <div class="browse-head">
+            <button id="browse-back" type="button" hidden>Back</button>
+            <p id="browse-title"></p>
+            <button id="browse-close" type="button">Close</button>
+          </div>
+          <div id="browse-list"></div>
+        </div>
+      </div>
     </div>
     </div>
     <main id="main">
@@ -79,6 +97,6 @@
       </div>
     </div>
   </div>
-  <script type="module" src="/app.js?v=17"></script>
+  <script type="module" src="/app.js?v=18"></script>
 </body>
 </html>

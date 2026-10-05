@@ -475,3 +475,341 @@ export function sectionGrainRows(lines, section, filters, roster) {
   }
   return rows;
 }
+
+export const DISTRICT_NAMES = {
+  "10": "CENTRAL CALIF.",
+  "11": "SACRAMENTO",
+  "12": "NO. SAC VALLEY",
+  "14": "RENO / TAHOE",
+  "15": "HAWAII",
+  "16": "ANDRONICO'S",
+  "21": "ANCHORAGE",
+  "22": "DENALI",
+  "23": "NORTH EVERETT",
+  "24": "SOUTH EVERETT",
+  "25": "BELLEVUE",
+  "28": "KENT",
+  "29": "TACOMA",
+  "30": "OLYMPIA",
+  "31": "CNTRL WASHINGTO",
+  "32": "SPOKANE WEST",
+  "33": "SPOKANE EAST",
+  "39": "HAGGEN",
+  "41": "CENTRAL COAST",
+  "42": "VENTURA",
+  "43": "CENTRAL CALI",
+  "44": "SANFERN VALLEY",
+  "46": "FOOTHILLS",
+  "47": "PAVILIONS",
+  "49": "LOS ANGELES",
+  "50": "N ORANGE COUNTY",
+  "51": "CTRL ORANGE CTY",
+  "52": "S ORANGE COUNTY",
+  "54": "DESERTS",
+  "55": "INLAND EMPIRE",
+  "58": "SW SAN DIEGO",
+  "59": "SE SAN DIEGO",
+  "61": "NORTH COLORADO",
+  "62": "DEN WEST & MTNS",
+  "63": "NORTHERN PLAINS",
+  "65": "DENVER/SPRINGS",
+  "66": "SOUTH CO & NM",
+  "72": "WEST PORTLAND",
+  "73": "VANCOUVER",
+  "74": "EAST PORTLAND",
+  "75": "SALEM",
+  "76": "EUGENE",
+  "77": "SOUTHERN OREGON",
+  "78": "EASTERN OREGON",
+  "82": "BALTIMORE",
+  "83": "SE SUBURBAN MD",
+  "84": "FAIRFAX",
+  "85": "NW DC/CENTRL MD",
+  "86": "WASHINGTONMETRO",
+  "87": "ARLGTN/ALXNDRIA",
+  "91": "STUC/COUNTRY/SC",
+  "92": "S PHX/ELPASO/L",
+  "93": "E TUC / S PHX",
+  "94": "W AZ/RIVER/YUMA",
+  "95": "E VLY/W MNT",
+  "96": "N VEGAS / UTAH",
+  "97": "S VEGAS/PAHRUMP",
+  "01": "SANTA ROSA/N CO",
+  "02": "MARIN / I-80",
+  "03": "SAN FRANCISCO",
+  "04": "OAKLAND",
+  "06": "PENNINSULA",
+  "07": "CONTRA COSTA",
+  "08": "SAN JOSE",
+  "09": "SANTA CRUZ",
+  "A1": "NE PHILA SUBURB",
+  "A2": "NY/CT",
+  "A3": "MAIN LINE SUBUR",
+  "A4": "DELAWARE/MARYLA",
+  "A5": "CENTRAL NJ",
+  "A6": "NORTHWEST NJ",
+  "A7": "JERSEY SHORE",
+  "A8": "NORTHEAST NJ",
+  "A9": "KINGS/BALDUCCIS",
+  "B1": "BOSTON/STAR MAR",
+  "B2": "N CENTRAL MA",
+  "B3": "NEW HAMPSHIRE",
+  "B4": "MAINE",
+  "B5": "VERMONT",
+  "B6": "SE MA/CAPE",
+  "B7": "S CENTRAL MA/RI",
+  "D1": "DFW-SOUTHWEST",
+  "D2": "DFW-NORTHWEST",
+  "D3": "DFW-CENTRAL",
+  "D4": "DFW-NORTHEAST",
+  "D5": "DFW-SOUTHEAST",
+  "D6": "RANDALLS",
+  "D7": "LOUISIANA",
+  "I1": "EASTERN TV",
+  "I2": "EASTERN IDAHO",
+  "I3": "WESTERN MONTANA",
+  "I4": "EASTERN MONTANA",
+  "I5": "WESTERN TV",
+  "J1": "NORTH SHORE",
+  "J2": "NORTHWEST",
+  "J3": "CHICAGO",
+  "J4": "OHARE",
+  "J5": "WESTERN SUBURBS",
+  "J6": "SE CHICAGO NW I",
+  "J7": "SW SIDE",
+  "J8": "SOUTHWEST QUADS",
+  "J9": "FAR WEST",
+  "N0": "N AZ/N PHX/GAL",
+  "N1": "CTR PHX/N SCTS",
+  "N2": "PHX/SCOTTSDALE"
+};
+
+export function storeLabel(store, name) {
+  const id = canonicalStore(store);
+  const padded = /^\d+$/.test(id) ? id.padStart(4, "0") : id;
+  const title = String(name || "").trim();
+  return title ? `${padded} · ${title}` : padded;
+}
+
+export function regionShort(region) {
+  return String(region || "").replace(/\s*region$/i, "");
+}
+
+export function districtLabel(code, names = DISTRICT_NAMES) {
+  const key = String(code || "").trim();
+  const name = (names && (names[key] || names[key.toUpperCase()])) || "";
+  return name ? `${key} · ${name}` : key;
+}
+
+export function scopeChips(filters) {
+  const chips = [{ level: "company", label: "Company" }];
+  if (!filters) return chips;
+  if (filters.region) chips.push({ level: "region", label: regionShort(filters.region) });
+  if (filters.division) chips.push({ level: "division", label: canonicalDivision(filters.division) || filters.division });
+  if (filters.district) chips.push({ level: "district", label: String(filters.district) });
+  if (filters.om) chips.push({ level: "om", label: String(filters.om) });
+  if (filters.store) chips.push({ level: "store", label: storeLabel(filters.store) });
+  return chips;
+}
+
+const SCOPE_LEVELS = ["region", "division", "district", "om", "store"];
+
+export function filtersUpTo(filters, level) {
+  if (!level || level === "company") return emptyFilters();
+  const next = emptyFilters();
+  for (const key of SCOPE_LEVELS) {
+    next[key] = (filters && filters[key]) || "";
+    if (key === level) break;
+  }
+  return next;
+}
+
+function rosterRows(roster) {
+  return (roster || []).filter((row) => row && row.store);
+}
+
+export function cascadePick(roster, pick) {
+  const rows = rosterRows(roster);
+  const kind = pick && pick.kind;
+  const value = (pick && pick.value) || "";
+  const next = emptyFilters();
+  if (kind === "region") {
+    next.region = value;
+    return next;
+  }
+  if (kind === "division") {
+    const name = canonicalDivision(value) || value;
+    next.division = name;
+    next.region = regionForDivision(name) || "";
+    return next;
+  }
+  if (kind === "district") {
+    const sample = rows.find((row) => matchesDistrict(row.district || "", value));
+    next.district = sample ? sample.district : value;
+    if (sample) {
+      next.division = canonicalDivision(sample.division) || sample.division || "";
+      next.region = regionForDivision(next.division) || "";
+    }
+    return next;
+  }
+  if (kind === "om") {
+    const matched = rows.filter((row) => isPersonOm(row.om) && matchesOM(row.om, value));
+    next.om = matched[0] ? matched[0].om : value;
+    const divisions = [...new Set(matched.map((row) => canonicalDivision(row.division) || row.division).filter(Boolean))];
+    const districts = [...new Set(matched.map((row) => String(row.district || "")).filter(Boolean))];
+    const homes = [...new Set(divisions.map((name) => regionForDivision(name)).filter(Boolean))];
+    if (divisions.length === 1) next.division = divisions[0];
+    if (homes.length === 1) next.region = homes[0];
+    if (districts.length === 1) next.district = districts[0];
+    return next;
+  }
+  if (kind === "store") {
+    const id = canonicalStore(value);
+    const sample = rows.find((row) => canonicalStore(row.store) === id);
+    next.store = id;
+    if (sample) {
+      if (isPersonOm(sample.om)) next.om = sample.om;
+      next.district = sample.district || "";
+      next.division = canonicalDivision(sample.division) || sample.division || "";
+      next.region = regionForDivision(next.division) || "";
+    }
+    return next;
+  }
+  return next;
+}
+
+function queryText(query) {
+  return String(query || "").trim().toLowerCase();
+}
+
+function storeQueryHit(store, name, query) {
+  const q = queryText(query);
+  if (name && String(name).toLowerCase().includes(q)) return true;
+  const digits = q.replace(/\D/g, "").replace(/^0+/, "");
+  if (!digits || digits !== q.replace(/^0+/, "")) return false;
+  const id = canonicalStore(store);
+  return id === digits || id.startsWith(digits);
+}
+
+export function searchScope(roster, filters, query, names = DISTRICT_NAMES) {
+  const q = queryText(query);
+  if (!q) return [];
+  const scope = filters || emptyFilters();
+  const rows = rosterRows(roster).filter((row) => includesScope(row, { ...scope, store: "" }));
+  const groups = [];
+  const take = (hits) => hits.slice(0, 6);
+
+  if (!scope.division) {
+    const hits = divisionsFor(scope)
+      .filter((name) => name.toLowerCase().includes(q) && rows.some((row) => matchesDivision(row.division, name)))
+      .map((name) => ({
+        kind: "division",
+        value: name,
+        label: name,
+        detail: regionShort(regionForDivision(name) || ""),
+      }));
+    if (hits.length) groups.push({ group: "Division", hits: take(hits) });
+  }
+
+  if (!scope.district) {
+    const seen = new Set();
+    const hits = [];
+    for (const row of rows) {
+      const code = String(row.district || "").trim();
+      if (!code || seen.has(code)) continue;
+      const label = districtLabel(code, names);
+      if (!`${code} ${label}`.toLowerCase().includes(q)) continue;
+      seen.add(code);
+      hits.push({ kind: "district", value: code, label, detail: canonicalDivision(row.division) || row.division || "" });
+    }
+    hits.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    if (hits.length) groups.push({ group: "District", hits: take(hits) });
+  }
+
+  if (!scope.om) {
+    const seen = new Set();
+    const hits = [];
+    for (const row of rows) {
+      if (!isPersonOm(row.om)) continue;
+      const key = String(row.om).trim().toLowerCase();
+      if (seen.has(key) || !key.includes(q)) continue;
+      seen.add(key);
+      hits.push({ kind: "om", value: row.om, label: row.om, detail: canonicalDivision(row.division) || "" });
+    }
+    hits.sort((a, b) => a.label.localeCompare(b.label));
+    if (hits.length) groups.push({ group: "OM", hits: take(hits) });
+  }
+
+  const storeHits = [];
+  const seenStores = new Set();
+  for (const row of rows) {
+    const id = canonicalStore(row.store);
+    if (seenStores.has(id) || !storeQueryHit(id, row.name, q)) continue;
+    seenStores.add(id);
+    const digits = q.replace(/\D/g, "").replace(/^0+/, "");
+    storeHits.push({
+      kind: "store",
+      value: id,
+      label: storeLabel(id, row.name),
+      detail: [canonicalDivision(row.division), row.district, isPersonOm(row.om) ? row.om : ""].filter(Boolean).join(" · "),
+      exact: id === digits,
+    });
+  }
+  storeHits.sort(
+    (a, b) => Number(b.exact) - Number(a.exact) || a.label.localeCompare(b.label, undefined, { numeric: true }),
+  );
+  if (storeHits.length) groups.push({ group: "Store", hits: take(storeHits) });
+  return groups;
+}
+
+export function browseLevel(roster, filters, names = DISTRICT_NAMES) {
+  const base = filters || emptyFilters();
+  const row = (kind, value, label) => {
+    const next = { ...base, [kind]: value };
+    if (kind === "region") {
+      next.division = "";
+      next.district = "";
+      next.om = "";
+      next.store = "";
+    }
+    return { kind, value, label, count: countStores(roster, next) };
+  };
+  if (!base.region) {
+    return {
+      level: "region",
+      title: "Region",
+      rows: regions().map((id) => row("region", id, regionShort(id))),
+    };
+  }
+  if (!base.division) {
+    return {
+      level: "division",
+      title: "Division",
+      rows: divisionsFor(base)
+        .map((name) => row("division", name, name))
+        .filter((item) => item.count > 0),
+    };
+  }
+  if (!base.district) {
+    return {
+      level: "district",
+      title: "District",
+      rows: optionValues(roster, base, "district").map((code) => row("district", code, districtLabel(code, names))),
+    };
+  }
+  if (!base.om) {
+    return {
+      level: "om",
+      title: "OM",
+      rows: optionValues(roster, base, "om").map((name) => row("om", name, name)),
+    };
+  }
+  return {
+    level: "store",
+    title: "Store",
+    rows: optionValues(roster, base, "store").map((id) => {
+      const sample = rosterRows(roster).find((item) => canonicalStore(item.store) === id);
+      return { kind: "store", value: id, label: storeLabel(id, sample && sample.name), count: 1 };
+    }),
+  };
+}
