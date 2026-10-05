@@ -1,5 +1,6 @@
 // Shared team gate for every Pages request, including static files.
 // Master: BASIC_USER + BASIC_PASS. Testers: user "tester" + BASIC_PASS_TESTER.
+// BASIC_USER_TESTER, when set, is an extra accepted tester name for the same tester password.
 // Nothing here is a password. A missing pair fails closed; the other pair can still match.
 
 const REALM = 'Basic realm="HeartBeat", charset="UTF-8"';
@@ -49,14 +50,16 @@ export function basicAuthOk(request, env) {
   const presentedPass = got ? got.pass : "";
   const masterUser = envSecret(env, "BASIC_USER");
   const masterPass = envSecret(env, "BASIC_PASS");
-  const testerUser = envSecret(env, "BASIC_USER_TESTER") || "tester";
+  const testerUser = "tester";
+  const testerNamed = envSecret(env, "BASIC_USER_TESTER");
   const testerPass = envSecret(env, "BASIC_PASS_TESTER");
   const masterUserOk = timingSafeEqualString(presentedUser, masterUser);
   const masterPassOk = timingSafeEqualString(presentedPass, masterPass);
   const testerUserOk = timingSafeEqualString(presentedUser, testerUser);
+  const testerNamedOk = timingSafeEqualString(presentedUser, testerNamed || testerUser);
   const testerPassOk = timingSafeEqualString(presentedPass, testerPass);
   const masterOk = Boolean(masterUser && masterPass && masterUserOk && masterPassOk);
-  const testerOk = Boolean(testerPass && testerUserOk && testerPassOk);
+  const testerOk = Boolean(testerPass && testerPassOk && (testerUserOk || testerNamedOk));
   return Boolean(got) && (masterOk || testerOk);
 }
 

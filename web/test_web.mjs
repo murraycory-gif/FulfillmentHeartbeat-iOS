@@ -666,6 +666,19 @@ const tester = new Request("https://fulfillment-heartbeat-web.pages.dev/", {
 });
 assert.equal(basicAuthOk(authed, gateEnv), true);
 assert.equal(basicAuthOk(tester, gateEnv), true);
+assert.equal(
+  basicAuthOk(tester, { ...gateEnv, BASIC_USER_TESTER: "heartbeat-test" }),
+  true,
+);
+assert.equal(
+  basicAuthOk(
+    new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+      headers: { Authorization: `Basic ${Buffer.from("heartbeat-test:tester-only-secret").toString("base64")}` },
+    }),
+    { ...gateEnv, BASIC_USER_TESTER: "heartbeat-test" },
+  ),
+  true,
+);
 assert.equal(basicAuthOk(new Request("https://fulfillment-heartbeat-web.pages.dev/"), gateEnv), false);
 assert.equal(basicAuthOk(authed, {}), false);
 assert.equal(basicAuthOk(tester, { BASIC_USER: "heartbeat", BASIC_PASS: "test-only-secret" }), false);
