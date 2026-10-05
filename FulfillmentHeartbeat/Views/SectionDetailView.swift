@@ -565,7 +565,7 @@ struct SectionDetailView: View {
     }
 
     private var fiveStarRows: [MetricRow] {
-        let joined = snapshots
+        let joined = snapshots.filter { $0.number("star_rating") != nil }
         switch fiveStarFocus {
         case .all:
             return joined
@@ -638,7 +638,9 @@ struct SectionDetailView: View {
     }
 
     private var prepRows: [MetricRow] {
-        let joined = store.rosterJoined(for: .prepNotReady)
+        let joined = snapshots.filter {
+            $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+        }
         switch prepFocus {
         case .all:
             return joined

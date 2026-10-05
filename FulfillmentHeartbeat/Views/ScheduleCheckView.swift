@@ -41,7 +41,7 @@ struct ScheduleCheckView: View {
             Text("NO DATA")
                 .font(.title.weight(.bold))
                 .foregroundStyle(AppTheme.textTertiary)
-            Text("Schedule Review Week file is not on this device.")
+            Text("This pack has no Schedule Check rows.")
                 .font(.body)
                 .foregroundStyle(AppTheme.textSecondary)
                 .multilineTextAlignment(.center)

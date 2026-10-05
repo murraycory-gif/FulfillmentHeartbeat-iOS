@@ -1639,8 +1639,17 @@ final class HeartbeatStore: ObservableObject {
         for section: MetricSection,
         grain: DashScopeGrain
     ) -> [HeartbeatMath.DashboardGrainTableRow]? {
-        let rows = dashboardGrainRows(for: section, grain: grain)
+        var rows = dashboardGrainRows(for: section, grain: grain)
         guard rows.contains(where: HeartbeatMath.grainRowHasSectionValue) else { return nil }
+        let facts = scopedPackRows(for: section)
+        if HeartbeatMath.grainTableNeedsColumnFill(rows, section: section), !facts.isEmpty {
+            rows = HeartbeatMath.fillingDashCellsKeepingCount(
+                rows,
+                section: section,
+                metricRows: facts,
+                grain: grain
+            )
+        }
         return rows
     }
 

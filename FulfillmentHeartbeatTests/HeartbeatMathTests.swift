@@ -14668,6 +14668,88 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(CommandCenterLayout.overviewSeatLabel(store), "A1 Shopper")
     }
 
+    /// Chrome keeps the cooked headline. Dashed side columns fill from pack facts.
+    /// Prep store rows keep an Excel 0 and drop a roster pad that has no rate.
+    func testChromeSideColumnsFillFromPackFacts() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let east = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["2.64", "—", "—", "—", "—", "—"],
+            health: .risk
+        )
+        let jewel = MetricRow(
+            section: .fiveStar,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "3407",
+            payload: [
+                "star_rating": 4,
+                "flash_pct": 1.5,
+                "coe_pct": 2.5,
+                "ott_pct": 3.5,
+                "presub_pct": 4.5,
+                "oth5_pct": 5.5,
+            ],
+            textPayload: ["district": "J2"]
+        )
+        let filled = HeartbeatMath.fillingDashCellsKeepingCount(
+            [east],
+            section: .fiveStar,
+            metricRows: [jewel],
+            grain: .region
+        )
+        XCTAssertEqual(filled.first?.values.first, "2.64")
+        XCTAssertEqual(filled.first?.storeCount, 613)
+        XCTAssertEqual(filled.first?.values.dropFirst().contains("—"), false)
+
+        let zero = MetricRow(
+            section: .prepNotReady,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "2219",
+            payload: ["pnr_rate_pct": 0],
+            textPayload: ["district": "J2"]
+        )
+        let pad = MetricRow(
+            section: .prepNotReady,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "3407",
+            textPayload: ["district": "J2"]
+        )
+        let kept = [zero, pad].filter {
+            $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+        }
+        XCTAssertEqual(kept.map(\.storeNumber), ["2219"])
+        XCTAssertEqual(HeartbeatFormat.pct(kept.first?.number("pnr_rate_pct")), "0.00%")
+
+        let storeSource = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSource?.contains("fillingDashCellsKeepingCount") == true)
+        let detail = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        guard let detail,
+              let prepStart = detail.range(of: "private var prepRows"),
+              let prepEnd = detail.range(of: "private var scheduleRows")
+        else {
+            return XCTFail("prepRows must stay on the section page")
+        }
+        let prep = String(detail[prepStart.lowerBound..<prepEnd.lowerBound])
+        XCTAssertFalse(prep.contains("rosterJoined"), prep)
+        XCTAssertTrue(prep.contains("pnr_rate_pct"), prep)
+    }
+
     private func shopperFact(
         store: String,
         division: String,

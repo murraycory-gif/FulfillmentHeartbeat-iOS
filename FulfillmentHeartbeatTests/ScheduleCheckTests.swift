@@ -293,7 +293,8 @@ final class ScheduleCheckTests: XCTestCase {
                 .appendingPathComponent("FulfillmentHeartbeat/Views/ScheduleCheckView.swift"),
             encoding: .utf8
         )
-        XCTAssertTrue(view.contains("Schedule Review Week file is not on this device."))
+        XCTAssertTrue(view.contains("This pack has no Schedule Check rows."))
+        XCTAssertFalse(view.contains("not on this device"))
         XCTAssertTrue(view.contains("store.scheduleCheck == nil"))
         let pack = ScheduleCheckPack(
             publishedAt: "2026-09-29T20:29:58Z",

@@ -3042,6 +3042,7 @@ struct PickPathRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -4354,6 +4355,7 @@ struct DynacapRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -5266,6 +5268,7 @@ struct PrepRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -6055,6 +6058,7 @@ struct FiveStarRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -7137,6 +7141,7 @@ struct LaborRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -9410,6 +9415,7 @@ struct ScheduleRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -10192,6 +10198,7 @@ struct PPHRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
