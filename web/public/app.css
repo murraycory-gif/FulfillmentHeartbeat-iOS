@@ -691,7 +691,39 @@ td.none, .unscheduled { color: var(--none); }
   letter-spacing: 0.01em;
 }
 
-.drawer-admin,
+.drawer-label {
+  margin: 8px 14px 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.drawer-settings {
+  padding: 0 8px 8px;
+  flex: none;
+}
+
+.drawer-settings a {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: inherit;
+  font-weight: 650;
+  text-align: left;
+  text-decoration: none;
+}
+
+.drawer-settings a:hover,
+.drawer-settings a:focus-visible {
+  background: #e7eef8;
+  color: var(--navy);
+}
+
 .drawer-logout {
   display: flex;
   align-items: center;
@@ -705,8 +737,6 @@ td.none, .unscheduled { color: var(--none); }
   font-weight: 750;
   text-decoration: none;
 }
-
-.drawer-admin { margin-bottom: 8px; }
 
 .drawer-title { padding: 16px 16px 0; }
 

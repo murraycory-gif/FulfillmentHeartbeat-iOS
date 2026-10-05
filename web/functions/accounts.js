@@ -369,6 +369,37 @@ export async function revokeSession(db, sessionId, now) {
   await db.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
 }
 
+export async function changePassword(db, env, request, session, current, password, confirm, now) {
+  if (!session || !session.account) return { error: "This sign-in does not have its own password." };
+  if (await loginThrottled(db, request, session.user, now)) return { error: "Too many attempts. Try again later.", status: 429 };
+  if (String(password || "").length < 10) return { error: "Use at least 10 characters." };
+  if (password !== confirm) return { error: "Those passwords do not match." };
+  if (String(password).length > 200) return { error: "That password is too long." };
+  const user = await findUserByEmail(db, session.user);
+  const active = Boolean(user && user.status === "active" && user.password_hash);
+  const match = await verifyPassword(
+    current || "invalid-password",
+    active ? user.password_salt : bytesToHex(crypto.getRandomValues(new Uint8Array(16))),
+    active ? user.password_hash : bytesToHex(new Uint8Array(32)),
+    active ? user.password_iterations : PBKDF2_ITERATIONS,
+  );
+  if (!match) {
+    await recordLoginFailure(db, request, session.user, now);
+    return { error: "That password is wrong.", status: 401 };
+  }
+  const hashed = await hashPassword(password);
+  await db
+    .prepare("UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ? WHERE id = ?")
+    .bind(hashed.hash, hashed.salt, hashed.iterations, user.id)
+    .run();
+  await db
+    .prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL")
+    .bind(now, user.id, session.sessionId)
+    .run();
+  await clearLoginFailures(db, request, session.user);
+  return { notice: "Password saved." };
+}
+
 export async function authenticateAccount(db, env, request, emailRaw, password, now) {
   const email = normalizeEmail(emailRaw);
   if (await loginThrottled(db, request, email, now)) return { throttled: true };
@@ -566,6 +597,32 @@ export function inviteHTML(email, token, message) {
 
 export function deniedHTML() {
   return shell("People · Fulfillment Heartbeat", "People", `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p><p><a href="/">Back to Heartbeat</a></p></section>`);
+}
+
+export function accountHTML(email, message, notice) {
+  const alert = message ? `<p class="login-error" role="alert">${escapeHtml(message)}</p>` : notice ? `<p class="hint">${escapeHtml(notice)}</p>` : "";
+  return shell(
+    "Account · Fulfillment Heartbeat",
+    "Account",
+    `<form class="login-card" method="POST" action="/account" autocomplete="on">
+      <h2>${escapeHtml(email || "Change password")}</h2>
+      ${alert}
+      <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
+      <label>New password<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+      <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
+      <p class="hint">At least 10 characters.</p>
+      <button type="submit">Save password</button>
+      <p><a href="/">Back to Heartbeat</a></p>
+    </form>`,
+  );
+}
+
+export function accountSharedHTML() {
+  return shell(
+    "Account · Fulfillment Heartbeat",
+    "Account",
+    `<section class="login-card"><h2>Shared sign-in</h2><p>This sign-in does not have its own password.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+  );
 }
 
 function userActions(user) {

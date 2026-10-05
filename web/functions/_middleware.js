@@ -5,6 +5,8 @@
 
 import {
   acceptInvite,
+  accountHTML,
+  accountSharedHTML,
   adminAct,
   adminHTML,
   authCutover,
@@ -16,6 +18,7 @@ import {
   inviteHTML,
   listUsers,
   loginHTML,
+  changePassword,
   clearLoginFailures,
   loginThrottled,
   openInvite,
@@ -348,6 +351,49 @@ async function adminResponse(request, env, db, session, now) {
   return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env) }));
 }
 
+function sessionPayload(session, env) {
+  const admin = sessionIsAdmin(session, env);
+  return {
+    email: session.user,
+    role: session.account ? session.role : admin ? "admin" : "viewer",
+    account: Boolean(session.account),
+  };
+}
+
+function sessionJSON(session, env) {
+  return new Response(JSON.stringify(sessionPayload(session, env)), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
+async function accountResponse(request, env, db, session, now) {
+  if (!session) return loginResponse("", "", 200);
+  if (!session.account) return htmlResponse(accountSharedHTML());
+  if (!db) return htmlResponse(accountHTML(session.user, "Accounts are not set up yet."), 503);
+  if (request.method === "POST") {
+    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, "That password is wrong."), 403);
+    const params = await readForm(request);
+    if (!params) return htmlResponse(accountHTML(session.user, "That form was empty."), 400);
+    const result = await changePassword(
+      db,
+      env,
+      request,
+      session,
+      params.get("current") || "",
+      params.get("password") || "",
+      params.get("confirm") || "",
+      now,
+    );
+    if (result.notice) return htmlResponse(accountHTML(session.user, "", result.notice));
+    return htmlResponse(accountHTML(session.user, result.error), result.status || 400);
+  }
+  return htmlResponse(accountHTML(session.user, ""));
+}
+
 export async function onRequest(context) {
   const request = context.request;
   const env = (context && context.env) || {};
@@ -395,11 +441,13 @@ export async function onRequest(context) {
   let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
   if (!session && !authCutover(env)) session = await readSession(request, env, now);
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
+  if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {
-    if (pathname.startsWith("/data/")) return unauthorizedJSON();
+    if (pathname.startsWith("/data/") || pathname === "/session") return unauthorizedJSON();
     return loginResponse("", "", 200);
   }
   if (pathname === "/login") return redirect(request, "/");
+  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session, env);
 
   const response = await context.next();
   if (!pathname.startsWith("/data/")) return response;

@@ -346,12 +346,12 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=18/);
+assert.match(pageHtml, /app\.css\?v=19/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=23/);
+assert.match(pageHtml, /app\.js\?v=24/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
@@ -866,8 +866,13 @@ assert.match(accountsSrc, /autocomplete="new-password"/);
 assert.match(accountsSrc, /name="email"/);
 assert.match(accountsSrc, /minlength="10"/);
 assert.match(accountsSrc, /PBKDF2/);
-assert.match(app, /href="\/admin"/);
-assert.match(css, /\.drawer-admin/);
+assert.match(app, /drawer-label">Settings/);
+assert.match(app, /href="\/admin">User management/);
+assert.match(app, /href="\/account">Account/);
+assert.match(app, /accountSession\.role === "admin"/);
+assert.match(app, /new URL\("\/session", location\.origin\)/);
+assert.match(css, /\.drawer-settings a/);
+assert.match(css, /\.drawer-label/);
 assert.match(app, /authBlocked/);
 assert.match(app, /retryHomeAfterAuth/);
 assert.match(app, /location\.assign\("\/login"\)/);
@@ -1370,6 +1375,79 @@ const crossSite = await accountRequest(auth.db, "/login", {
   headers: { origin: "https://evil.example" },
 });
 assert.equal(crossSite.status, 403);
+
+const adminBack = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=admin@example.com&password=long-enough-1",
+});
+assert.equal(adminBack.status, 303);
+const adminSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(adminBack) });
+assert.equal(adminSession.status, 200);
+assert.equal(adminSession.headers.get("cache-control"), "private, no-store");
+assert.deepEqual(await adminSession.json(), { email: "admin@example.com", role: "admin", account: true });
+const viewerBack = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-2",
+});
+assert.equal(viewerBack.status, 303);
+const viewerSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(viewerBack) });
+assert.deepEqual(await viewerSession.json(), { email: "viewer@example.com", role: "viewer", account: true });
+const viewerAccount = await accountRequest(auth.db, "/account", { cookie: cookieHeader(viewerBack) });
+assert.equal(viewerAccount.status, 200);
+const viewerAccountHtml = await viewerAccount.text();
+assert.match(viewerAccountHtml, /Change password|Current password/);
+assert.match(viewerAccountHtml, /autocomplete="current-password"/);
+assert.equal(viewerAccountHtml.includes("Add a person"), false);
+const shortChange = await accountRequest(auth.db, "/account", {
+  method: "POST",
+  cookie: cookieHeader(viewerBack),
+  body: "current=viewer-pass-2&password=short&confirm=short",
+});
+assert.equal(shortChange.status, 400);
+const mismatchChange = await accountRequest(auth.db, "/account", {
+  method: "POST",
+  cookie: cookieHeader(viewerBack),
+  body: "current=viewer-pass-2&password=viewer-pass-3&confirm=viewer-pass-9",
+});
+assert.equal(mismatchChange.status, 400);
+const wrongCurrent = await accountRequest(auth.db, "/account", {
+  method: "POST",
+  cookie: cookieHeader(viewerBack),
+  body: "current=not-the-password&password=viewer-pass-3&confirm=viewer-pass-3",
+});
+assert.equal(wrongCurrent.status, 401);
+const secondViewer = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-2",
+});
+assert.equal(secondViewer.status, 303);
+const changed = await accountRequest(auth.db, "/account", {
+  method: "POST",
+  cookie: cookieHeader(viewerBack),
+  body: "current=viewer-pass-2&password=viewer-pass-3&confirm=viewer-pass-3",
+});
+assert.equal(changed.status, 200);
+assert.match(await changed.text(), /Password saved/);
+const oldSession = await accountRequest(auth.db, "/", { cookie: cookieHeader(secondViewer) });
+assert.match(await oldSession.text(), /action="\/login"/);
+const stillHere = await accountRequest(auth.db, "/", { cookie: cookieHeader(viewerBack) });
+assert.equal(await stillHere.text(), "page");
+const oldViewerPass = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-2",
+});
+assert.equal(oldViewerPass.status, 401);
+const newViewerPass = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-3",
+});
+assert.equal(newViewerPass.status, 303);
+const legacySession = await accountRequest(legacy.db, "/session", { cookie: cookieHeader(legacyIn) });
+assert.deepEqual(await legacySession.json(), { email: "heartbeat", role: "admin", account: false });
+const legacyAccount = await accountRequest(legacy.db, "/account", { cookie: cookieHeader(legacyIn) });
+assert.match(await legacyAccount.text(), /does not have its own password/);
+const sessionDenied = await accountRequest(auth.db, "/session");
+assert.equal(sessionDenied.status, 401);
 const nullOrigin = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",

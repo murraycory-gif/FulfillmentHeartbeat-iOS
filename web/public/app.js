@@ -272,12 +272,37 @@ function navIcon(page) {
   return `<svg class="nav-icon ${tone}" viewBox="0 0 20 20" aria-hidden="true">${shape}</svg>`;
 }
 
+let accountSession = null;
+
+function settingsNav() {
+  const links = [];
+  if (accountSession && accountSession.role === "admin") {
+    links.push(`<li><a href="/admin">User management</a></li>`);
+  }
+  if (accountSession && accountSession.account) {
+    links.push(`<li><a href="/account">Account</a></li>`);
+  }
+  if (!links.length) return "";
+  return `<p class="drawer-label">Settings</p><ul class="pages drawer-settings">${links.join("")}</ul>`;
+}
+
 function renderNav() {
   const items = PAGES.map(
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p id="stamp" class="drawer-stamp">${esc(packStamp)}</p><a class="drawer-admin" href="/admin">People</a><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p id="stamp" class="drawer-stamp">${esc(packStamp)}</p>${settingsNav()}<button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+}
+
+function loadAccountSession() {
+  const url = new URL("/session", location.origin);
+  return fetch(url, { credentials: "same-origin", cache: "no-store" })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((payload) => {
+      accountSession = payload;
+      renderNav();
+    })
+    .catch(() => {});
 }
 
 function logout() {
@@ -1519,6 +1544,7 @@ if (location.username || location.password) {
   location.replace(location.origin + location.pathname + location.search + location.hash);
 } else {
   renderNav();
+  loadAccountSession();
   load("home").then(acceptHome).catch((error) => {
     if (error && error.authBlocked) {
       window.location.assign("/login");
