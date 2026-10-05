@@ -136,6 +136,11 @@ def canonical_division(raw: str) -> str:
     return _DIVISION_ALIAS.get(key, text)
 
 
+def is_total_store(store: str) -> bool:
+    """Excel total rows are not stores. Counting them double-counts the company."""
+    return str(store or "").strip().upper() == "TOTAL"
+
+
 def canonical_store(raw: str) -> str:
     text = (raw or "").strip()
     if "|" in text:
@@ -400,7 +405,7 @@ def read_roster_people(path: str) -> dict:
             if not store_raw or store_raw.lower() == "total":
                 continue
             store = canonical_store(store_raw)
-            if not store:
+            if not store or is_total_store(store):
                 continue
             people[store] = {
                 "division": division,
@@ -417,6 +422,8 @@ def apply_roster_people(roster: dict, records: list, people: dict) -> dict:
     named = 0
     for store, ident in people.items():
         person = ident.get("om") or ""
+        if is_total_store(store):
+            continue
         if person:
             named += 1
         current = roster.get(store)
@@ -490,6 +497,8 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
             if section in SKIP:
                 continue
             store = canonical_store(fact["store_number"] or "")
+            if is_total_store(store):
+                continue
             text = loads(fact["text_json"], {})
             if not isinstance(text, dict):
                 text = {}
@@ -585,7 +594,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         "pickerRollups": chrome.get("pickerRollups") or {},
         "preSubItemTabPresent": item_tab,
         "filters": {
-            "stores": sorted(roster.values(), key=lambda item: (len(item["store"]), item["store"])),
+            "stores": sorted(
+                (item for item in roster.values() if not is_total_store(item["store"])),
+                key=lambda item: (len(item["store"]), item["store"]),
+            ),
         },
         "regionLines": region_lines(chrome.get("packs") or {}),
     }

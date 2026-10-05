@@ -462,6 +462,10 @@ const cooked = JSON.parse(readFileSync(join(root, "dist/data/home.json"), "utf8"
 assert.notEqual(cooked.publishedAt, "2026-09-30T18:23:22Z");
 assert.match(cooked.publishedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 assert.ok(cooked.filters.stores.length > 2000);
+assert.equal(
+  cooked.filters.stores.some((row) => String(row.store).toUpperCase() === "TOTAL"),
+  false,
+);
 const bySection = Object.fromEntries(cooked.summaries.map((item) => [item.section, item.headline]));
 assert.ok(bySection.lost_revenue > 0);
 assert.ok(bySection.sales > 1_000_000);

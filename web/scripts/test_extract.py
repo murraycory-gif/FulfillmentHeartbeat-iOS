@@ -121,6 +121,19 @@ def main() -> None:
         db.execute(
             "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
+                "labor",
+                "TOTAL",
+                "",
+                "",
+                "",
+                "2026-09-28",
+                json.dumps({"charged_hrs": 999999}),
+                "{}",
+            ),
+        )
+        db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
                 "picker_scorecard",
                 "117",
                 "Shaws",
@@ -171,6 +184,9 @@ def main() -> None:
         assert "Only 36 of 1,297" in home["summaries"][0]["secondary"]
         assert "packs" not in home and "tables" not in home
         stores = {row["store"]: row for row in home["filters"]["stores"]}
+        assert "TOTAL" not in stores
+        labor = json.loads((out / "section" / "labor.json").read_text())
+        assert all(row["store"].upper() != "TOTAL" for row in labor["rows"])
         assert stores["117"]["district"] == "03"
         assert stores["117"]["division"] == "Shaws"
         assert stores["3436"]["district"] == "39"
