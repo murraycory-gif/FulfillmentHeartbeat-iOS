@@ -313,12 +313,17 @@ def load_markets(table):
             name = "Total"
         else:
             name = canonical_division(label) or label
+        under = percent(row[1] if len(row) > 1 else None)
+        over = percent(row[2] if len(row) > 2 else None)
+        eff = percent(row[3] if len(row) > 3 else None)
+        if under is None and over is None:
+            eff = None
         markets.append(
             {
                 "label": name,
-                "under": percent(row[1] if len(row) > 1 else None),
-                "over": percent(row[2] if len(row) > 2 else None),
-                "eff": percent(row[3] if len(row) > 3 else None),
+                "under": under,
+                "over": over,
+                "eff": eff,
             }
         )
     return markets
@@ -367,6 +372,13 @@ def fill_metric(current, fallback):
     return fallback
 
 
+def measured_schedule(under, over, eff, detail_under=None, detail_over=None):
+    """A blank current-week under and over is not a measured 0%. Eff on that row is not 100%."""
+    if under is None and over is None:
+        return None, None, None
+    return fill_metric(under, detail_under), fill_metric(over, detail_over), eff
+
+
 def cook_workbook(path: str) -> dict:
     import openpyxl
 
@@ -401,6 +413,13 @@ def cook_workbook(path: str) -> dict:
         om = identity.get("om") or ""
         quality_row = quality.get(key, {})
         detail_row = detail.get(key, {})
+        under, over, eff = measured_schedule(
+            percent(row[4]) if len(row) > 4 else None,
+            percent(row[3]) if len(row) > 3 else None,
+            percent(row[5]) if len(row) > 5 else None,
+            detail_row.get("under"),
+            detail_row.get("over"),
+        )
         stores.append(
             {
                 "store": key,
@@ -409,9 +428,9 @@ def cook_workbook(path: str) -> dict:
                 "district": district,
                 "om": om,
                 "sales": sales.get(key),
-                "under": fill_metric(percent(row[4]), detail_row.get("under")),
-                "over": fill_metric(percent(row[3]), detail_row.get("over")),
-                "eff": percent(row[5]),
+                "under": under,
+                "over": over,
+                "eff": eff,
                 "pch": quality_row.get("pch"),
                 "fourUnder": quality_row.get("fourUnder"),
                 "fourOver": quality_row.get("fourOver"),

@@ -340,5 +340,33 @@ def absent_schedule_and_item_tab() -> None:
         print("absent schedule ok")
 
 
+def blank_schedule_ok() -> None:
+    schedule = {
+        "markets": [{"label": "United", "under": None, "over": None, "eff": 100.0}],
+        "stores": [
+            {
+                "store": "22",
+                "under": 0.0,
+                "over": 0.0,
+                "eff": 100.0,
+                "pch": None,
+                "fourUnder": None,
+                "fourOver": None,
+                "dayUnder": [None] * 7,
+                "dayOver": [None] * 7,
+            },
+            {"store": "117", "under": 12.0, "over": 3.0, "eff": 80.0, "pch": 70, "fourUnder": 4, "fourOver": 1, "dayUnder": [1], "dayOver": [None]},
+        ],
+    }
+    module.clear_blank_schedule(schedule)
+    assert schedule["stores"][0]["under"] is None
+    assert schedule["stores"][0]["eff"] is None
+    assert schedule["markets"][0]["eff"] is None
+    assert schedule["stores"][1]["under"] == 12.0
+    assert "eot_capacity" in module.KEEP and "used_capacity" in module.KEEP
+    print("blank schedule ok")
+
+
 if __name__ == "__main__":
     main()
+    blank_schedule_ok()

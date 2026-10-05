@@ -23,6 +23,7 @@ import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
   companyMarketNote,
+  scheduleGapNote,
   actionGroups,
   rankedDivisions,
   rankedRegions,
@@ -82,6 +83,8 @@ const COLUMNS = {
   dynacap: [
     ["Pcs/Hr", ["dynacap_rate", "pieces_per_hour"], (value) => num(value, 1)],
     ["Util %", ["utilization_pct", "pickup_util_pct"], pct],
+    ["EOT", ["eot_capacity"], (value) => num(value, 0)],
+    ["Used", ["used_capacity"], (value) => num(value, 0)],
   ],
   schedule_quality: [
     ["Quality Sch Eff", ["schedule_efficiency_pct"], pct],
@@ -417,7 +420,10 @@ function companyBlock(section, title) {
   const tiles = filtersActive(state.filters) ? "" : cookedTiles(section);
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
   const health = seat.health || "none";
-  const hideEmptyBadge = section === "picker_scorecard" && seat.storeCount > 0 && health === "none";
+  const hideEmptyBadge =
+    seat.storeCount > 0 &&
+    health === "none" &&
+    (section === "picker_scorecard" || (section === "dynacap" && seat.headline == null));
   const name = title ? `<h2>${esc(title)}</h2>` : "";
   const countLabel = !seat.storeCount
     ? ""
@@ -741,7 +747,8 @@ function renderSchedule(pack) {
   const card = scheduleSummary(pack, state.filters, roster());
   const summaryTitle = scheduleVisibleTitle(pack.summaryTitle, pack.week);
   const week = summaryTitle || (pack.week ? `Week ${pack.week}` : "Schedule");
-  const hero = `<article class="scorecard"><div class="score-face"><h2>Schedule Check</h2><p class="sub">${esc(week)}</p><p class="figure">${esc(num(card.actionCount, 0))} to review</p><p class="secondary">Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%. Not scheduled yet and barely scheduled stay off this list.</p><p class="note">Summary “Any under” counts stores above 0% this week. Schedule Quality counts stores under above 5%.</p></div></article>`;
+  const gap = scheduleGapNote(pack, state.filters, roster());
+  const hero = `<article class="scorecard"><div class="score-face"><h2>Schedule Check</h2><p class="sub">${esc(week)}</p><p class="figure">${esc(num(card.actionCount, 0))} to review</p><p class="secondary">Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%. Not scheduled yet and barely scheduled stay off this list.</p>${gap ? `<p class="note">${esc(gap)}</p>` : ""}<p class="note">Summary “Any under” counts stores above 0% this week. Schedule Quality counts stores under above 5%.</p></div></article>`;
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
   else if (state.scheduleTab === "detail") body = scheduleDetailHtml(pack);

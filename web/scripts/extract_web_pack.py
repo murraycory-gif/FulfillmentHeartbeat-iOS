@@ -77,6 +77,8 @@ KEEP = {
     "pieces_per_hour",
     "utilization_pct",
     "pickup_util_pct",
+    "eot_capacity",
+    "used_capacity",
     "schedule_efficiency_pct",
     "staffing_efficiency_pct",
     "under_schedule_pct",
@@ -649,6 +651,34 @@ def read_schedule(db: sqlite3.Connection) -> dict | None:
     }
 
 
+def _blank_schedule_artifact(store: dict) -> bool:
+    """Stores Current Week left under/over blank. Detail INDEX of a blank is 0, and eff 1 is not 100%."""
+    if store.get("under") not in (0, 0.0) or store.get("over") not in (0, 0.0):
+        return False
+    if store.get("eff") not in (100, 100.0):
+        return False
+    if store.get("pch") is not None or store.get("fourUnder") is not None or store.get("fourOver") is not None:
+        return False
+    if any(value is not None for value in (store.get("dayUnder") or [])):
+        return False
+    if any(value is not None for value in (store.get("dayOver") or [])):
+        return False
+    return True
+
+
+def clear_blank_schedule(schedule: dict) -> None:
+    for store in schedule.get("stores") or []:
+        if isinstance(store, dict) and _blank_schedule_artifact(store):
+            store["under"] = None
+            store["over"] = None
+            store["eff"] = None
+    for market in schedule.get("markets") or []:
+        if not isinstance(market, dict):
+            continue
+        if market.get("under") is None and market.get("over") is None and market.get("eff") in (100, 100.0, 1, 1.0):
+            market["eff"] = None
+
+
 def _fill_schedule_roster(schedule: dict, roster: dict) -> None:
     """Schedule rows with a blank OM take the store roster person."""
     for store in schedule.get("stores") or []:
@@ -967,6 +997,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     schedule_path = out / "schedule.json"
     if schedule:
         _fill_schedule_roster(schedule, roster)
+        clear_blank_schedule(schedule)
         _write(schedule_path, schedule)
     else:
         # Keep the URL as JSON. An older file must not keep stores this pack lacks.

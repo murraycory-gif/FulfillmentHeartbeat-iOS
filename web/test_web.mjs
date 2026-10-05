@@ -44,6 +44,7 @@ import {
   qualifies,
   qualifiesStore,
   scheduleVisibleTitle,
+  scheduleGapNote,
   summary,
 } from "./public/schedule-math.js";
 
@@ -237,6 +238,16 @@ const blankDynacap = seatSummary("dynacap", {
 });
 assert.equal(blankDynacap.headline, null);
 assert.equal(blankDynacap.headlineText, null);
+assert.match(blankDynacap.secondary, /No Dynacap rows/);
+const capacityDynacap = seatSummary("dynacap", {
+  company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
+  lines: [],
+  rows: [{ store: "22", division: "United", payload: { eot_capacity: 17200, used_capacity: 1187 } }],
+  filters: filters({ store: "22" }),
+});
+assert.equal(capacityDynacap.headline, null);
+assert.equal(capacityDynacap.storeCount, 1);
+assert.match(capacityDynacap.secondary, /No Pcs\/Hr/);
 assert.match(app, /This pack has no Schedule Check rows/);
 assert.match(app, /data-more/);
 assert.match(app, /data-close-drawer/);
@@ -309,7 +320,7 @@ assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
 assert.match(pageHtml, /app\.css\?v=12/);
-assert.match(pageHtml, /app\.js\?v=14/);
+assert.match(pageHtml, /app\.js\?v=15/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -522,6 +533,25 @@ assert.equal(emptyScopeNote("prep_not_ready", filters({ division: "Haggen" }), p
 assert.equal(emptyScopeNote("prep_not_ready", filters({ district: "A1" }), packRoster, 0), "No Prep data for this scope.");
 assert.equal(emptyScopeNote("prep_not_ready", filters({ district: "U2" }), packRoster, 0), "No Prep data for this scope.");
 assert.equal(emptyScopeNote("sales", filters({ district: "A1" }), packRoster, 0), "");
+assert.equal(
+  emptyScopeNote("schedule_quality", filters({ division: "United" }), packRoster, 0),
+  "No Schedule Quality data for this scope.",
+);
+assert.equal(emptyScopeNote("schedule_quality", filters({ division: "Haggen" }), packRoster, 15), "");
+assert.equal(emptyScopeNote("schedule_quality", filters({ district: "U2" }), packRoster, 0), "No Schedule Quality data for this district.");
+const gapPack = {
+  markets: [{ label: "United", under: null, over: null, eff: null }],
+  stores: [
+    { store: "22", region: "South Region", division: "United", under: null, over: null, eff: null },
+    { store: "117", region: "East Region", division: "Shaws", under: 9, over: 4, eff: 85 },
+  ],
+};
+assert.equal(scheduleGapNote(gapPack, filters({ division: "United" }), []), "No schedule data");
+assert.equal(scheduleGapNote(gapPack, empty, []), "United: No schedule data");
+assert.match(readFileSync(join(root, "public/schedule-math.js"), "utf8"), /No schedule data/);
+assert.match(app, /scheduleGapNote\(/);
+assert.match(app, /\["EOT", \["eot_capacity"\]/);
+assert.match(app, /\["Used", \["used_capacity"\]/);
 assert.match(app, /cooked shoppers/);
 assert.match(app, /Company shoppers is the cooked company total/);
 assert.match(css, /text-overflow:\s*ellipsis/);

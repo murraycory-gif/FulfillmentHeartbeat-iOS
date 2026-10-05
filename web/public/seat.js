@@ -252,6 +252,15 @@ export function summarizeSeat(section, rows) {
     }
     case "dynacap": {
       const scored = latest.filter((row) => field(row, ["dynacap_rate", "pieces_per_hour"]) != null);
+      const capacity = latest.filter((row) => field(row, ["eot_capacity", "used_capacity"]) != null);
+      if (!scored.length && capacity.length) {
+        return {
+          headline: null,
+          secondary: "No Pcs/Hr in this scope. EOT and Used Capacity are on the store rows.",
+          health: "none",
+          storeCount: capacity.length,
+        };
+      }
       if (!scored.length) return empty("No Dynacap rows in this filter");
       const values = scored.map((row) => field(row, ["dynacap_rate", "pieces_per_hour"]));
       const atGoal = values.filter((value) => value >= 65).length;

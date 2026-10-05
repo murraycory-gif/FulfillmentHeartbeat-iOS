@@ -107,6 +107,23 @@ export function summary(pack, filters, roster) {
   };
 }
 
+function scheduleMetricsBlank(store) {
+  return store.under == null && store.over == null && store.eff == null;
+}
+
+// United's current-week under and over are blank. Say so instead of 0% / 100%.
+export function scheduleGapNote(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
+  if (!rows.length || !rows.every(scheduleMetricsBlank)) {
+    const names = rankedDivisions(pack, filters, roster)
+      .filter((row) => row.under == null && row.over == null && row.eff == null)
+      .map((row) => row.division);
+    if (!names.length) return "";
+    return `${names.join(", ")}: No schedule data`;
+  }
+  return "No schedule data";
+}
+
 export function companyMarketNote(card, filters) {
   if (!card.usesMarketLook || filtersActive(filters)) return null;
   if (card.storeUnder == null || card.storeOver == null) return null;

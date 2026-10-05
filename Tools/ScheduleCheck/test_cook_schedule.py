@@ -15,6 +15,10 @@ import cook_schedule as cook
 
 
 class QualifyTests(unittest.TestCase):
+    def test_blank_week_is_not_zero(self):
+        self.assertEqual(cook.measured_schedule(None, None, 100.0, 0.0, 0.0), (None, None, None))
+        self.assertEqual(cook.measured_schedule(4.0, 2.0, 90.0, None, None), (4.0, 2.0, 90.0))
+
     def test_gate(self):
         self.assertFalse(cook.qualifies(None, 20, 20, 20))
         self.assertFalse(cook.qualifies(29999.99, 20, 20, 20))
