@@ -704,7 +704,7 @@ function scheduleSeat(store) {
 
 function seatText(store) {
   const seat = scheduleSeat(store);
-  return `${seat.division} · ${seat.district} · ${seat.om}`;
+  return `${seat.division} · ${seat.district} · OM ${seat.om}`;
 }
 
 function whyFlags(store) {
