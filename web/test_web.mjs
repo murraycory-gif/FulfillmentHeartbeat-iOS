@@ -28,13 +28,15 @@ import {
   sectionGrainRows,
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
-import { chromeSeat, seatSummary } from "./public/seat.js";
+import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
 import {
   bannerMismatch,
   companyMarketNote,
   notScheduled,
+  barelyScheduled,
   percentHealth,
   qualifies,
+  qualifiesStore,
   scheduleVisibleTitle,
   summary,
 } from "./public/schedule-math.js";
@@ -237,6 +239,9 @@ assert.match(app, /Shopper rows open from a division/);
 const css = readFileSync(join(root, "public/app.css"), "utf8");
 assert.equal(/\.brand-lockup\s*\{[^}]*background:\s*#fff/.test(css), false);
 const pageHtml = readFileSync(join(root, "public/index.html"), "utf8");
+assert.match(pageHtml, /src="\/nav-boot\.js"/);
+assert.equal(/<script>\s*try/.test(pageHtml), false);
+assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /nav-collapsed/);
 const lockup = pageHtml.slice(pageHtml.indexOf('class="brand-lockup"'), pageHtml.indexOf("</p>", pageHtml.indexOf('class="brand-lockup"')));
 assert.ok(lockup.indexOf("wordmark") < lockup.indexOf('class="heart"'));
 assert.ok(lockup.indexOf('class="heart"') < lockup.indexOf('class="pulse"'));
@@ -279,8 +284,12 @@ assert.equal(
 assert.equal(scheduleVisibleTitle("Schedule Review Summary — Week 31 (WK31)", 33), "Schedule Review Summary — Week 33 (WK33)");
 assert.match(app, /scheduleVisibleTitle\(pack\.summaryTitle,\s*pack\.week\)/);
 assert.equal(readFileSync(join(root, "public/seat.js"), "utf8").includes("dynacapHealth"), false);
-assert.match(app, /Region results/);
-assert.match(app, /Not Upcoming Weeks Schedule Check/);
+assert.match(app, /class="region-cards"/);
+assert.match(app, /Schedule Check/);
+assert.equal(app.includes("Region results"), false);
+assert.match(app, /regionTables/);
+assert.match(app, /nav-icon/);
+assert.match(app, /NAV_ICON/);
 assert.match(app, /text\/html/);
 
 for (const path of walk(join(root, "public"))) {
@@ -332,6 +341,11 @@ assert.equal(canonicalDivision("INTERMOUNTAIN"), "Mountain West");
 assert.equal(canonicalStore("0117"), "117");
 assert.equal(matchesDistrict("03", "3"), true);
 assert.equal(matchesDistrict("D3", "3"), false);
+assert.equal(matchesDistrict("62", "62 DEN WEST & MTNS"), true);
+assert.equal(matchesDistrict("J1", "J1 NORTH SHORE"), true);
+assert.equal(Number(lossPercentPoints(0.05189747740362091, 4248638.425832152, 81865991.15).toFixed(2)), 5.19);
+assert.equal(lossPercentPoints(5.19, 4248638.425832152, 81865991.15), 5.19);
+assert.equal(lossPercentPoints(4.84, 4.84, 1), 4.84);
 assert.equal(
   includesScope({ division: "Shaws", district: "03", om: "Ada", store: "0117" }, filters({ region: "East Region" })),
   true,
@@ -373,6 +387,13 @@ assert.equal(cut.usesMarketLook, false);
 assert.equal(cut.under, 60);
 assert.equal(bannerMismatch(pack, company, empty), null);
 assert.equal(company.actionCount, 1);
+assert.equal(barelyScheduled({ under: 92.7, eff: 7.3 }), true);
+assert.equal(barelyScheduled({ under: 89.9, eff: 10.1 }), false);
+assert.equal(notScheduled({ under: 97.2, eff: 2.3 }), false);
+assert.equal(
+  qualifiesStore({ sales: 40000, under: 97.2, fourUnder: 0, over: 0, eff: 2.3 }),
+  false,
+);
 
 function b64url(bytes) {
   let binary = "";
@@ -491,6 +512,13 @@ assert.ok(bySection.labor != null);
 const eastLoss = cooked.regionLines.find((line) => line.section === "lost_revenue" && line.region === "East");
 assert.match(eastLoss.value, /^\$/);
 assert.ok(eastLoss.children.some((child) => child.division === "Shaws"));
+const lostTiles = cooked.companyTiles.lost_revenue;
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Lost %")], "5.19%");
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Goal %")], "3.06%");
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Missed")], "$178,705.37");
+const southDyn = cooked.regionLines.find((line) => line.section === "dynacap" && line.region === "South");
+assert.ok(southDyn.children.some((child) => child.division === "United" && child.value === "—"));
+assert.ok(Array.isArray(cooked.regionTables) && cooked.regionTables.some((row) => row.region === "East" && row.title === "Sales"));
 const eastDynacap = cooked.regionLines.find((line) => line.section === "dynacap" && line.region === "East");
 const cookedMidAtlantic = (eastDynacap?.children || []).find((child) => child.division === "Mid-Atlantic");
 assert.ok(cookedMidAtlantic, "cooked dynacap pack includes Mid-Atlantic");

@@ -63,13 +63,25 @@ function salesHealth(yoy) {
   return "risk";
 }
 
+// Lost % in this pack is a fraction of sales (0.0519). Some packs already store percent points (5.19).
+// Return percent points: 5.19 means 5.19%. Scale only when the stored figure matches the dollar ratio.
+export function lossPercentPoints(sample, dollars, sales) {
+  const stored = sample == null || Number.isNaN(Number(sample)) ? null : Number(sample);
+  const salesN = Number(sales);
+  const dollarsN = dollars == null || dollars === "" ? null : Number(dollars);
+  const ratio =
+    salesN > 0 && dollarsN != null && Number.isFinite(dollarsN) && dollarsN !== 0 ? dollarsN / salesN : null;
+  const scaled = ratio == null ? null : ratio * 100;
+  if (stored == null) return scaled;
+  if (ratio != null && Math.abs(stored) <= 1.5 && Math.abs(ratio - stored) <= Math.abs(scaled - stored)) {
+    return scaled;
+  }
+  return stored;
+}
+
 function lossPct(dollars, sales, stored) {
-  const sample = average(stored.filter((value) => Number.isFinite(value)));
-  if (!(sales > 0) || !Number.isFinite(dollars)) return sample;
-  const ratio = dollars / sales;
-  const scaled = ratio * 100;
-  if (sample == null) return scaled;
-  return Math.abs(scaled - sample) < Math.abs(ratio - sample) ? scaled : ratio;
+  const sample = average((stored || []).filter((value) => Number.isFinite(value)));
+  return lossPercentPoints(sample, dollars, sales);
 }
 
 export function rowsInScope(rows, filters, roster) {
@@ -148,7 +160,7 @@ export function summarizeSeat(section, rows) {
         if (pct != null) stored.push(pct);
         const ecomm = field(row, ["ecomm_sales"]);
         if (ecomm != null && ecomm >= 20) sales += ecomm;
-        const rowHealth = band(pct, 3, 5, true);
+        const rowHealth = band(lossPercentPoints(pct, lost, ecomm), 3, 5, true);
         if (rowHealth === "watch") watch += 1;
         if (rowHealth === "risk") risk += 1;
       }
@@ -255,7 +267,7 @@ export function summarizeSeat(section, rows) {
       else health = band(headline, 90, 90);
       return {
         headline,
-        secondary: `${atGoal} of ${scored.length} at 90% · ${under} under · ${over} over`,
+        secondary: `${atGoal} of ${scored.length} at 90% · ${under} stores under above 5% · ${over} stores over above 5%`,
         health,
         storeCount: scored.length,
       };

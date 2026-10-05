@@ -11,9 +11,10 @@ import {
   sectionGrainRows,
   canonicalStore,
   canonicalDivision,
+  regionForDivision,
 } from "./filters.js";
 import { packURL } from "./packs.js";
-import { seatSummary } from "./seat.js";
+import { lossPercentPoints, seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -22,6 +23,7 @@ import {
   rankedDivisions,
   rankedRegions,
   notScheduled,
+  barelyScheduled,
   percentHealth,
   effHealth,
 } from "./schedule-math.js";
@@ -53,8 +55,10 @@ const COLUMNS = {
   ],
   lost_revenue: [
     ["Lost", ["lost_revenue"], money],
-    ["Lost %", ["lost_revenue_pct"], pct],
+    ["Lost %", ["lost_revenue_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue"]), cell(row, ["ecomm_sales"])))],
+    ["Goal %", ["lost_revenue_goal_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue_goal"]), cell(row, ["ecomm_sales"])))],
     ["eComm", ["ecomm_sales"], money],
+    ["Missed", ["missed_sales", "reduced_capacity"], money],
   ],
   missing_items: [["Rate", ["mi_pct"], pct]],
   five_star: [
@@ -179,10 +183,39 @@ async function load(path) {
   return data;
 }
 
+const NAV_ICON = {
+  dashboard: `<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>`,
+  sales: `<path d="M3 14l4.5-4.5 3 3L17 5"/><path d="M12 5h5v5"/>`,
+  lost_revenue: `<path d="M3 6l4.5 4.5 3-3L17 15"/><path d="M12 15h5v-5"/>`,
+  missing_items: `<path d="M4 8l6-3 6 3v7l-6 3-6-3z"/><path d="M4 8l6 3 6-3"/><path d="M10 11v7"/>`,
+  five_star: `<path d="M10 3.2l1.8 3.8 4.2.6-3 3 .7 4.2L10 13.6 6.3 14.8 7 10.6l-3-3 4.2-.6z"/>`,
+  pre_sub_oos: `<circle cx="7" cy="7" r="2.4"/><circle cx="13" cy="13" r="2.4"/><path d="M14.5 5.5l-9 9"/>`,
+  pick_path: `<circle cx="5" cy="5" r="1.6"/><circle cx="15" cy="15" r="1.6"/><path d="M6.4 6.2C8 9 8 11 10 12s4 2 3.6 3.8"/>`,
+  prep_not_ready: `<circle cx="10" cy="10" r="6.5"/><path d="M10 6.5V10l2.5 2"/>`,
+  dynacap: `<path d="M4 13a6.5 6.5 0 0 1 12 0"/><path d="M10 13l3.2-3.2"/><path d="M6 15h8"/>`,
+  schedule_quality: `<rect x="4" y="4" width="12" height="12" rx="2"/><path d="M7 10.2l2 2 4-4.2"/>`,
+  schedule: `<rect x="4" y="3.5" width="12" height="13" rx="2"/><path d="M7 2.5v3M13 2.5v3M4 7.5h12"/>`,
+  picker_scorecard: `<circle cx="10" cy="7" r="2.4"/><path d="M5.5 16.2v-1.1a4.5 4.5 0 0 1 9 0v1.1"/>`,
+  pph: `<path d="M4 15V9M10 15V5M16 15v-4"/>`,
+  labor: `<circle cx="7" cy="7" r="2"/><circle cx="13.5" cy="7.5" r="1.7"/><path d="M3.2 15.5v-.8a3.8 3.8 0 0 1 7.2-1.2M11 15.5v-.6a3 3 0 0 1 5.3-1"/>`,
+};
+
+function pageHealth(page) {
+  if (!page.section) return "none";
+  const health = (summaryFor(page.section) || {}).health;
+  return health === "good" || health === "watch" || health === "risk" ? health : "none";
+}
+
+function navIcon(page) {
+  const shape = NAV_ICON[page.id] || NAV_ICON.dashboard;
+  const tone = pageHealth(page);
+  return `<svg class="nav-icon ${tone}" viewBox="0 0 20 20" aria-hidden="true">${shape}</svg>`;
+}
+
 function renderNav() {
   const items = PAGES.map(
     (page) =>
-      `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${esc(page.title)}</button></li>`,
+      `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
   drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><p class="hint">${esc(STAMP)}</p>`;
 }
@@ -221,12 +254,39 @@ function setUpdated(raw) {
   updated.textContent = updatedLine(raw);
 }
 
+function parseTileNumber(raw) {
+  const number = Number(String(raw ?? "").replace(/[$,%\s]/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+// Cooked Lost % strings are the fraction with a % sign ("0.05%"). Goal % uses the same scale.
+function lostTileValues(labels, values) {
+  const next = (values || []).slice();
+  const index = (name) => labels.indexOf(name);
+  const lostPct = index("Lost %");
+  const goal = index("Goal %");
+  if (lostPct < 0) return next;
+  const parsed = parseTileNumber(next[lostPct]);
+  const dollars = parseTileNumber(next[index("Lost $")]);
+  const sales = parseTileNumber(next[index("eComm $")]);
+  const points = lossPercentPoints(parsed, dollars, sales);
+  const scaled = points != null && parsed != null && Math.abs(points - parsed) > 0.05;
+  if (scaled) next[lostPct] = pct(points);
+  if (scaled && goal >= 0) {
+    const goalNumber = parseTileNumber(next[goal]);
+    if (goalNumber != null && Math.abs(goalNumber) <= 1.5) next[goal] = pct(goalNumber * 100);
+  }
+  return next;
+}
+
 function cookedTiles(section) {
   const tiles = tilesFor(section);
   if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
-  return `<div class="tiles">${tiles.labels
+  const labels = tiles.labels;
+  const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
+  return `<div class="tiles">${labels
     .map((label, index) => {
-      const raw = (tiles.values || [])[index];
+      const raw = values[index];
       const shown = raw == null || raw === "" ? "—" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
       const name = shown.startsWith("$") ? String(label || "").replace(/\s*\$+\s*$/, "") : label;
       return `<div class="chip"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
@@ -243,6 +303,14 @@ function seatFor(section) {
     filters: state.filters,
     roster: roster(),
   });
+}
+
+function shownSecondary(section, text) {
+  if (section !== "schedule_quality" || !text) return text || "";
+  return String(text).replace(
+    /(\d[\d,]*) of (\d[\d,]*) at 90% · (\d[\d,]*) under · (\d[\d,]*) over/,
+    "$1 of $2 at 90% · $3 stores under above 5% · $4 stores over above 5%",
+  );
 }
 
 function companyBlock(section, title) {
@@ -266,7 +334,8 @@ function companyBlock(section, title) {
           ? "—"
           : "";
   const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
-  const secondary = seat.secondary ? `<p class="secondary">${esc(seat.secondary)}</p>` : "";
+  const secondaryText = shownSecondary(section, seat.secondary);
+  const secondary = secondaryText ? `<p class="secondary">${esc(secondaryText)}</p>` : "";
   const scope = filtersActive(state.filters)
     ? `<p class="scope">In this scope: ${esc(countLabel || "no cooked grade")}.</p>`
     : "";
@@ -308,7 +377,7 @@ function table(section, rows) {
   const body = shown
     .map((row) => {
       const metrics = columns
-        .map((column) => `<td>${esc(column[2](cell(row, column[1])))}</td>`)
+        .map((column) => `<td>${esc(column[2](cell(row, column[1]), row))}</td>`)
         .join("");
       const division = displayDivision(row, known);
       return `<tr><td>${esc(canonicalStore(row.store))}</td><td>${esc(division)}</td><td>${esc(row.district || "—")}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
@@ -323,7 +392,7 @@ function table(section, rows) {
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1])))}</strong></div>`,
+            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1]), row))}</strong></div>`,
         )
         .join("");
       const division = displayDivision(row, known);
@@ -348,73 +417,94 @@ function grainBlock(section) {
     )
     .join("");
   const cards = rows
-    .map(
-      (row) =>
-        `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${esc(row.label)}</p></div><div class="line-value"><strong>${esc(row.value)}</strong><span>${esc(row.count)}</span></div></li>`,
-    )
+    .map((row) => {
+      const extra = String(row.value ?? "").replace(/[^\d]/g, "") === String(row.count ?? "") ? "" : `<span>${esc(row.count)}</span>`;
+      return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${esc(row.label)}</p></div><div class="line-value"><strong>${esc(row.value)}</strong>${extra}</div></li>`;
+    })
     .join("");
   const heading = filtersActive(state.filters) ? scopeLabel(state.filters) : "Regions";
   return `<section class="grain"><h2>${esc(heading)}</h2><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul></section>`;
 }
 
-function proofRows() {
-  const filters = state.filters;
-  if (filters.district || filters.om || filters.store) return [];
-  const lines = (state.home && state.home.regionLines) || [];
-  const sections = [];
-  const seen = new Set();
-  for (const line of lines) {
-    if (!line || seen.has(line.section)) continue;
-    seen.add(line.section);
-    sections.push(line.section);
+const REGION_CARD_ORDER = ["East", "South", "California", "West"];
+
+function worstHealth(rows) {
+  const rank = { risk: 3, watch: 2, good: 1, none: 0 };
+  let tone = "none";
+  for (const row of rows) {
+    const health = row.health || "none";
+    if ((rank[health] || 0) > (rank[tone] || 0)) tone = health;
   }
-  const rows = [];
-  for (const section of sections) {
-    let grain = sectionGrainRows(lines, section, filters, roster());
-    if (!filtersActive(filters)) grain = grain.filter((row) => row.grain === "region");
-    const title = (lines.find((line) => line.section === section) || {}).title || section;
-    for (const row of grain) rows.push({ ...row, title });
-  }
-  return rows;
+  return tone;
 }
 
-function regionProof() {
-  const lines = proofRows();
-  const narrowed = filtersActive(state.filters);
+function regionVisible(name) {
+  if (state.filters.district || state.filters.om || state.filters.store) return false;
+  if (state.filters.region) {
+    const wanted = String(state.filters.region).replace(/\s*region$/i, "");
+    if (wanted !== name) return false;
+  }
+  if (state.filters.division) {
+    const home = String(regionForDivision(state.filters.division) || "").replace(/\s*region$/i, "");
+    if (home !== name) return false;
+  }
+  return true;
+}
+
+function regionCardsHtml() {
+  const tables = (state.home && state.home.regionTables) || [];
+  if (!tables.length) return "";
+  const byRegion = new Map();
+  for (const row of tables) {
+    if (!row || !row.region) continue;
+    if (!byRegion.has(row.region)) byRegion.set(row.region, []);
+    byRegion.get(row.region).push(row);
+  }
+  const cards = REGION_CARD_ORDER.filter((name) => byRegion.has(name) && regionVisible(name))
+    .map((name) => {
+      const rows = byRegion.get(name);
+      const sales = rows.find((row) => row.section === "sales");
+      const storeCount = sales && sales.storeCount
+        ? sales.storeCount
+        : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0);
+      const chips = rows
+        .map((row) => {
+          const raw = row.headline;
+          const shown = raw == null || raw === "" ? "—" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
+          return `<div class="chip"><span>${esc(row.title)}</span><strong>${esc(shown)}</strong></div>`;
+        })
+        .join("");
+      const health = worstHealth(rows);
+      return `<article class="scorecard ${health}"><div class="score-face"><h2>${esc(name)}</h2>${badge(health)}${storeCount ? `<p class="sub">${esc(num(storeCount, 0))} stores</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
+    })
+    .join("");
+  if (!cards) return "";
   const note =
     state.filters.district || state.filters.om || state.filters.store
-      ? `<p class="note">District, OM, and store seats stay on the store rows. No averaged grade.</p>`
-      : narrowed && !lines.length
-        ? `<p class="note">No rows in this scope.</p>`
-        : "";
-  if (!lines.length && !narrowed) return "";
-  const rows = lines
-    .map(
-      (line) =>
-        `<tr><td>${esc(line.grain === "division" ? "Division" : "Region")}</td><td>${esc(line.title)}</td><td>${esc(line.label)}</td><td>${esc(line.value)}</td><td>${esc(line.count)}</td></tr>`,
-    )
-    .join("");
-  const cards = lines
-    .map(
-      (line) =>
-        `<li class="line-card"><div><p class="eyebrow">${esc(line.grain === "division" ? "Division" : line.label)}</p><p class="line-title">${esc(line.title)}${line.grain === "division" ? ` · ${esc(line.label)}` : ""}</p></div><div class="line-value"><strong>${esc(line.value)}</strong><span>${esc(line.count)}</span></div></li>`,
-    )
-    .join("");
-  const table = lines.length
-    ? `<div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Metric</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>`
-    : "";
-  // Region results. Not Upcoming Weeks Schedule Check — that page is in Pages.
-  return `<section id="pack-lines"><h2>Region results</h2>${note}${table}</section>`;
+      ? `<p class="note">District, OM, and store seats stay on the store rows.</p>`
+      : "";
+  return `<section class="region-cards" id="pack-lines"><h2>Regions</h2>${note}${cards}</section>`;
+}
+
+function scheduleDashCard(pack) {
+  if (!pack || scheduleIsEmpty(pack)) {
+    return `<article class="scorecard none"><button class="link" type="button" data-page="schedule"><div class="score-face"><h2>Schedule Check</h2><p class="nodata">NO DATA</p></div></button></article>`;
+  }
+  const card = scheduleSummary(pack, state.filters, roster());
+  const week = pack.week ? `Week ${pack.week}` : scheduleVisibleTitle(pack.summaryTitle, pack.week) || "Schedule";
+  return `<article class="scorecard"><button class="link" type="button" data-page="schedule"><div class="score-face"><h2>Schedule Check</h2><p class="sub">${esc(week)}</p><p class="figure">${esc(num(card.actionCount, 0))} to review</p><p class="secondary">Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%.</p></div></button></article>`;
 }
 
 function renderDashboard() {
-  const cards = PAGES.filter((page) => page.section)
+  const schedulePack = state.packs.get("schedule");
+  const cards = PAGES.filter((page) => page.id !== "dashboard")
     .map((page) => {
+      if (page.id === "schedule") return scheduleDashCard(schedulePack);
       const health = (summaryFor(page.section) || {}).health || "none";
       return `<article class="scorecard ${health}"><button class="link" type="button" data-page="${page.id}">${companyBlock(page.section, page.title)}</button></article>`;
     })
     .join("");
-  main.innerHTML = `<div class="cards">${cards}</div>${regionProof()}`;
+  main.innerHTML = `<div class="cards">${cards}</div>${regionCardsHtml()}`;
 }
 
 function shopperSeat(filters) {
@@ -461,7 +551,7 @@ function shopperTable(rows, kind) {
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1])))}</strong></div>`,
+            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1]), row))}</strong></div>`,
         )
         .join("");
       const name = row.shopper || row.shopperId || "—";
@@ -543,12 +633,35 @@ function renderSchedule(pack) {
   }
   const card = scheduleSummary(pack, state.filters, roster());
   const summaryTitle = scheduleVisibleTitle(pack.summaryTitle, pack.week);
-  const week = pack.week ? `Week ${esc(pack.week)}` : summaryTitle || "Schedule";
+  const week = pack.week ? `Week ${pack.week}` : summaryTitle || "Schedule";
+  const hero = `<article class="scorecard"><div class="score-face"><h2>Schedule Check</h2><p class="sub">${esc(week)}</p><p class="figure">${esc(num(card.actionCount, 0))} to review</p><p class="secondary">Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%. Not scheduled yet and barely scheduled stay off this list.</p><p class="note">Summary “Any under” counts stores above 0% this week. Schedule Quality counts stores under above 5%.</p></div></article>`;
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
   else if (state.scheduleTab === "detail") body = scheduleDetailHtml(pack);
   else body = scheduleActionHtml(pack, card);
-  main.innerHTML = `<p class="note">${week}</p>${tabs}${body}`;
+  main.innerHTML = `${hero}${tabs}${body}`;
+}
+
+function scheduleSeat(store) {
+  const known = rosterByStore().get(canonicalStore(store.store)) || {};
+  return {
+    division: canonicalDivision(known.division || store.division) || known.division || store.division || "—",
+    district: known.district || store.district || "—",
+    om: known.om || store.om || "—",
+  };
+}
+
+function seatText(store) {
+  const seat = scheduleSeat(store);
+  return `${seat.division} · ${seat.district} · ${seat.om}`;
+}
+
+function whyFlags(store) {
+  const flags = [];
+  if (Number(store.under) >= 10) flags.push("Under");
+  if (store.fourUnder != null && Number(store.fourUnder) - 9 > 0.0001) flags.push("4-week");
+  if (Number(store.over) >= 15) flags.push("Over");
+  return flags.join(", ") || "—";
 }
 
 function scheduleActionHtml(pack, card) {
@@ -559,29 +672,23 @@ function scheduleActionHtml(pack, card) {
           const rows = group.stores
             .slice(0, 80)
             .map((store) => {
-              const flags = [];
-              if (Number(store.under) >= 10) flags.push("under");
-              if (store.fourUnder != null && Number(store.fourUnder) - 9 > 0.0001) flags.push("4-week");
-              if (Number(store.over) >= 15) flags.push("over");
-              return `<tr><td>${esc(store.store)}</td><td class="${toneClass(percentHealth(store.under, notScheduled(store)))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, notScheduled(store)))}">${esc(pct(store.over))}</td><td>${esc(flags.join(", ") || "—")}</td></tr>`;
+              const seat = scheduleSeat(store);
+              return `<tr><td>${esc(store.store)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td>${esc(pct(store.under))}</td><td>${esc(pct(store.over))}</td><td>${esc(whyFlags(store))}</td></tr>`;
             })
             .join("");
           const cards = group.stores
             .slice(0, 80)
-            .map((store) => {
-              const flags = [];
-              if (Number(store.under) >= 10) flags.push("under");
-              if (store.fourUnder != null && Number(store.fourUnder) - 9 > 0.0001) flags.push("4-week");
-              if (Number(store.over) >= 15) flags.push("over");
-              return `<li class="store-card"><p class="store-id">${esc(store.store)}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(flags.join(", ") || "—")}</strong></div></div></li>`;
-            })
+            .map(
+              (store) =>
+                `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`,
+            )
             .join("");
-          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
+          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
         })
         .join("")
     : `<p class="note">No stores qualify in this scope.</p>`;
-  const countLabel = `${card.actionCount} ${card.actionCount === 1 ? "store" : "stores"}`;
-  return `<p class="note">${countLabel}</p>${groupsHtml}`;
+  const countLabel = `${card.actionCount} to review`;
+  return `<p class="note">${countLabel}. Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%.</p>${groupsHtml}`;
 }
 
 function scheduleSummaryHtml(pack, card) {
@@ -590,8 +697,8 @@ function scheduleSummaryHtml(pack, card) {
     ["Over", pct(card.over), percentHealth(card.over, false)],
     ["Pch vs Sch", pct(card.pch), ""],
     ["Sch Eff", pct(card.eff), effHealth(card.eff, false)],
-    ["# Under", num(card.underCount, 0), ""],
-    ["# Over", num(card.overCount, 0), ""],
+    ["Any under", num(card.underCount, 0), ""],
+    ["Any over", num(card.overCount, 0), ""],
     ["Stores", num(card.scope, 0), ""],
   ]
     .map(
@@ -624,7 +731,7 @@ function scheduleSummaryHtml(pack, card) {
         `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
     )
     .join("");
-  return `<div class="tiles">${kpis}</div>${market ? `<p class="note">${esc(market)}</p>` : ""}<h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
+  return `<div class="tiles">${kpis}</div><p class="note">Any under: stores on this week above 0% under. Not the review list, and not Schedule Quality’s stores under above 5%.</p>${market ? `<p class="note">${esc(market)}</p>` : ""}<h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
 }
 
 function scheduleDetailHtml(pack) {
@@ -638,19 +745,32 @@ function scheduleDetailHtml(pack) {
   const body = rows
     .map((store) => {
       const unscheduled = notScheduled(store);
+      const thin = barelyScheduled(store);
+      const quiet = unscheduled || thin;
       const name = esc(canonicalStore(store.store));
-      const tag = unscheduled ? ` <span class="unscheduled">Not scheduled yet</span>` : "";
-      return `<tr><td>${name}${tag}</td><td>${esc(canonicalDivision(store.division) || store.division || "—")}</td><td class="${toneClass(percentHealth(store.under, unscheduled))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, unscheduled))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, unscheduled))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
+      const tag = unscheduled
+        ? ` <span class="unscheduled">Not scheduled yet</span>`
+        : thin
+          ? ` <span class="unscheduled">Barely scheduled</span>`
+          : "";
+      const seat = scheduleSeat(store);
+      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
   const cards = rows
     .map((store) => {
       const unscheduled = notScheduled(store);
-      const tag = unscheduled ? ` <span class="unscheduled">Not scheduled yet</span>` : "";
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(canonicalDivision(store.division) || store.division || "—")}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(pct(store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+      const thin = barelyScheduled(store);
+      const quiet = unscheduled || thin;
+      const tag = unscheduled
+        ? ` <span class="unscheduled">Not scheduled yet</span>`
+        : thin
+          ? ` <span class="unscheduled">Barely scheduled</span>`
+          : "";
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(pct(store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
-  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
+  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
 let renderToken = 0;
@@ -695,6 +815,13 @@ async function render() {
   }
   if (page.id === "dashboard") {
     renderDashboard();
+    if (!state.packs.has("schedule")) {
+      load("schedule")
+        .then(() => {
+          if (token === renderToken && state.page === "dashboard") renderDashboard();
+        })
+        .catch(() => {});
+    }
     return;
   }
   if (page.section === "picker_scorecard") {

@@ -31,14 +31,21 @@ export function qualifies(sales, under, fourUnder, over) {
   return false;
 }
 
-export function qualifiesStore(store) {
-  if (notScheduled(store)) return false;
-  return qualifies(store.sales, store.under, store.fourUnder, store.over);
-}
-
 export function notScheduled(store) {
   if (store.under == null || store.eff == null) return false;
   return Number(store.under) >= 99.5 && Math.abs(Number(store.eff)) < 0.05;
+}
+
+// High under with almost no efficiency. Same shape as not scheduled, short of that gate.
+export function barelyScheduled(store) {
+  if (notScheduled(store)) return false;
+  if (store.under == null || store.eff == null) return false;
+  return Number(store.under) >= 90 && Number(store.eff) < 10;
+}
+
+export function qualifiesStore(store) {
+  if (notScheduled(store) || barelyScheduled(store)) return false;
+  return qualifies(store.sales, store.under, store.fourUnder, store.over);
 }
 
 export function effHealth(value, unscheduled) {

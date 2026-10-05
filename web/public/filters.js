@@ -182,10 +182,18 @@ export function districtKeys(raw) {
   const compactKey = compact(String(raw || "").replace(/^district\s+/i, ""));
   if (!compactKey) return new Set();
   const keys = new Set([compactKey]);
-  if (/^\d+$/.test(compactKey)) {
-    const value = String(parseInt(compactKey, 10));
+  const addNumeric = (token) => {
+    if (!/^\d+$/.test(token)) return;
+    const value = String(parseInt(token, 10));
     keys.add(value);
     keys.add(value.padStart(2, "0"));
+  };
+  addNumeric(compactKey);
+  // "62 DEN WEST & MTNS" and "J1 NORTH SHORE" share a code with the roster value "62" / "J1".
+  const lead = compactKey.match(/^([a-z]*\d+)/);
+  if (lead && lead[1] !== compactKey) {
+    keys.add(lead[1]);
+    addNumeric(lead[1]);
   }
   return keys;
 }

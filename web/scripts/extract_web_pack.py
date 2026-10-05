@@ -52,10 +52,13 @@ KEEP = {
     "sales_dug_orders",
     "lost_revenue",
     "lost_revenue_pct",
+    "lost_revenue_goal",
+    "lost_revenue_goal_pct",
     "ecomm_sales",
     "post_sub_oos_foregone",
     "refund_lost",
     "missed_sales",
+    "reduced_capacity",
     "cancelled_lost",
     "kill_switch_lost",
     "mi_pct",
@@ -292,6 +295,167 @@ def _money_label(value: float) -> str:
     return f"${value:,.2f}"
 
 
+def percent_points(sample, dollars, sales):
+    """5.19 means 5.19%. Scale a fraction (0.0519) only when it matches dollars/sales."""
+    stored = None if sample is None else float(sample)
+    ratio = None
+    if sales and float(sales) > 0 and dollars is not None and float(dollars) != 0:
+        ratio = float(dollars) / float(sales)
+    scaled = None if ratio is None else ratio * 100
+    if stored is None:
+        return scaled
+    if ratio is not None and abs(stored) <= 1.5 and abs(ratio - stored) <= abs(scaled - stored):
+        return scaled
+    return stored
+
+
+def lost_market_payload(db: sqlite3.Connection) -> dict:
+    if not _table(db, "facts"):
+        return {}
+    for fact in db.execute(
+        "SELECT payload_json, text_json FROM facts WHERE section = 'lost_revenue'"
+    ):
+        text = loads(fact["text_json"], {})
+        if isinstance(text, dict) and text.get("lost_grain") == "market":
+            payload = loads(fact["payload_json"], {})
+            return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
+    """Company Lost % / Goal % are fractions printed with a % sign. Missed is reduced capacity when that is the only dollar."""
+    block = tiles.get("lost_revenue")
+    if not isinstance(block, dict) or not market:
+        return
+    labels = list(block.get("labels") or [])
+    values = list(block.get("values") or [])
+    if not labels:
+        return
+
+    def put(name: str, text: str | None) -> None:
+        if text is None or name not in labels:
+            return
+        index = labels.index(name)
+        if index < len(values):
+            values[index] = text
+
+    lost = market.get("lost_revenue")
+    sales = market.get("ecomm_sales")
+    points = percent_points(market.get("lost_revenue_pct"), lost, sales)
+    if points is not None:
+        put("Lost %", f"{points:.2f}%")
+    goal_points = percent_points(market.get("lost_revenue_goal_pct"), market.get("lost_revenue_goal"), sales)
+    if goal_points is not None:
+        put("Goal %", f"{goal_points:.2f}%")
+    missed = market.get("missed_sales")
+    if missed is None:
+        missed = market.get("reduced_capacity")
+    if missed is not None:
+        put("Missed", _money_label(float(missed)))
+    block["values"] = values
+
+
+CALLOUT_ORDER = (
+    "sales",
+    "lost_revenue",
+    "missing_items",
+    "five_star",
+    "pre_sub_oos",
+    "pick_path",
+    "prep_not_ready",
+    "dynacap",
+    "schedule_quality",
+    "picker_scorecard",
+    "pph",
+    "labor",
+)
+
+CALLOUT_TITLE = {
+    "sales": "Sales",
+    "lost_revenue": "Lost Revenue",
+    "missing_items": "Missing Items",
+    "five_star": "5 Star",
+    "pre_sub_oos": "Pre-Sub",
+    "pick_path": "Pick Path",
+    "prep_not_ready": "Prep",
+    "dynacap": "Dynacap",
+    "schedule_quality": "Schedule Quality",
+    "picker_scorecard": "Picker",
+    "pph": "PPH",
+    "labor": "Labor",
+}
+
+
+def region_tables(tables) -> list:
+    """One headline per callout, grouped later by region. Not the metric-first line list."""
+    if not isinstance(tables, dict):
+        return []
+    rows = []
+    for section in CALLOUT_ORDER:
+        for item in tables.get(section) or []:
+            if not isinstance(item, dict):
+                continue
+            region = short_region(str(item.get("label") or ""))
+            if region not in REGION_RANK:
+                continue
+            values = item.get("values") or []
+            headline = values[0] if values else None
+            if headline is None or str(headline).strip() == "":
+                continue
+            try:
+                count = int(item.get("storeCount") or 0)
+            except (TypeError, ValueError):
+                count = 0
+            rows.append(
+                {
+                    "section": section,
+                    "region": region,
+                    "title": CALLOUT_TITLE[section],
+                    "health": item.get("health") or "none",
+                    "storeCount": count,
+                    "headline": str(headline),
+                }
+            )
+    return rows
+
+
+def include_unrated_dynacap(lines: list, records: list) -> list:
+    """United has store rows and no Pcs/Hr. Show the division with a blank rate. Do not invent one, and do not touch Mid-Atlantic."""
+    counts: dict[str, int] = {}
+    for record in records:
+        if record.get("section") != "dynacap":
+            continue
+        payload = record.get("payload") or {}
+        if payload.get("dynacap_rate") is not None or payload.get("pieces_per_hour") is not None:
+            continue
+        division = canonical_division(record.get("division") or "")
+        region = _DIVISION_REGION.get(division)
+        if not division or not region:
+            continue
+        counts[division] = counts.get(division, 0) + 1
+    if not counts:
+        return lines
+    for line in lines:
+        if line.get("section") != "dynacap":
+            continue
+        present = {child.get("division") for child in line.get("children") or []}
+        for division in OFFICIAL_DIVISIONS:
+            count = counts.get(division)
+            if not count or division in present:
+                continue
+            if _DIVISION_REGION.get(division) != line.get("region"):
+                continue
+            line.setdefault("children", []).append(
+                {
+                    "division": division,
+                    "value": "—",
+                    "count": count,
+                    "health": "none",
+                }
+            )
+    return lines
+
+
 def realign_lost_revenue(lines: list, records: list) -> list:
     """Lost-revenue facts stamp every store as Haggen. Recount from the roster division."""
     buckets: dict[str, dict[str, dict]] = {}
@@ -433,6 +597,23 @@ def read_schedule(db: sqlite3.Connection) -> dict | None:
         "markets": markets,
         "stores": stores,
     }
+
+
+def _fill_schedule_roster(schedule: dict, roster: dict) -> None:
+    """Schedule rows with a blank OM take the store roster person."""
+    for store in schedule.get("stores") or []:
+        if not isinstance(store, dict):
+            continue
+        key = canonical_store(str(store.get("store") or ""))
+        current = roster.get(key)
+        if not current:
+            continue
+        if current.get("om"):
+            store["om"] = current["om"]
+        if not store.get("district") and current.get("district"):
+            store["district"] = current["district"]
+        if current.get("division"):
+            store["division"] = current["division"]
 
 
 def read_schedule_file(path: Path) -> dict | None:
@@ -702,10 +883,12 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "riskCount": item.get("riskCount") or 0,
             }
         )
+    company_tiles = json.loads(json.dumps(chrome.get("companyTiles") or {}))
+    apply_lost_tile_scale(company_tiles, lost_market_payload(db))
     home = {
         "publishedAt": published,
         "summaries": summaries,
-        "companyTiles": chrome.get("companyTiles") or {},
+        "companyTiles": company_tiles,
         "pickerRollups": chrome.get("pickerRollups") or {},
         "preSubItemTabPresent": item_tab,
         "filters": {
@@ -714,12 +897,17 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 key=lambda item: (len(item["store"]), item["store"]),
             ),
         },
-        "regionLines": realign_lost_revenue(region_lines(chrome.get("packs") or {}), records),
+        "regionLines": include_unrated_dynacap(
+            realign_lost_revenue(region_lines(chrome.get("packs") or {}), records),
+            records,
+        ),
+        "regionTables": region_tables(chrome.get("tables") or {}),
     }
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
     schedule_path = out / "schedule.json"
     if schedule:
+        _fill_schedule_roster(schedule, roster)
         _write(schedule_path, schedule)
     else:
         # Keep the URL as JSON. An older file must not keep stores this pack lacks.
