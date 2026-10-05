@@ -586,14 +586,16 @@ td.none, .unscheduled { color: var(--none); }
   position: fixed;
   inset: 0;
   z-index: 40;
-  display: grid;
   place-items: end center;
   padding: 12px;
   background: rgba(0, 20, 40, 0.35);
 }
 
-/* .share { display: grid } beats the browser's [hidden] rule, so the sheet stayed up after Close. */
+/* Closed unless Share adds .is-open. display:grid on .share overrode [hidden], so the sheet painted on every load and Close could not hide it. */
+#share,
 #share[hidden] { display: none !important; }
+
+#share.is-open { display: grid !important; }
 
 .share-card {
   width: min(28rem, 100%);

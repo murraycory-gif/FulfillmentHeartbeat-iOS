@@ -994,23 +994,66 @@ function syncSharePicks() {
 }
 
 function shareOpenOnScreen() {
-  return shareRoot && !shareRoot.hidden;
+  return Boolean(shareRoot && shareRoot.classList.contains("is-open") && !shareRoot.hidden);
 }
 
+function clearSharePersistence() {
+  const keys = ["hb.web.shareOpen", "shareOpen", "hb.share.open", "hb.web.share"];
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      for (const key of keys) store.removeItem(key);
+      for (let i = store.length - 1; i >= 0; i -= 1) {
+        const key = store.key(i);
+        if (key && /share/i.test(key) && /open/i.test(key)) store.removeItem(key);
+      }
+    } catch {
+      /* private mode */
+    }
+  }
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+    for (const key of ["share", "shareOpen", "share-open"]) {
+      if (!url.searchParams.has(key)) continue;
+      url.searchParams.delete(key);
+      changed = true;
+    }
+    const hash = url.hash.replace(/^#/, "").toLowerCase();
+    if (hash === "share" || hash === "share-open" || hash === "shareopen") {
+      url.hash = "";
+      changed = true;
+    }
+    if (changed) history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    /* ignore a bad location */
+  }
+}
+
+function forceShareClosed() {
+  if (!shareRoot) return;
+  shareRoot.classList.remove("is-open");
+  shareRoot.hidden = true;
+  clearSharePersistence();
+}
+
+let shareOpenedByUser = false;
+
 function openShare() {
+  shareOpenedByUser = true;
   shareScope.textContent = `Filters · ${scopeLabel(state.filters)}`;
   const pageRadio = document.querySelector('input[name="share-mode"][value="page"]');
   if (pageRadio) pageRadio.checked = true;
   paintSharePicks();
   syncSharePicks();
+  clearSharePersistence();
   shareRoot.hidden = false;
+  shareRoot.classList.add("is-open");
   shareSend.focus();
 }
 
 function closeShare() {
-  if (!shareRoot) return;
-  shareRoot.hidden = true;
-  shareSend.blur();
+  forceShareClosed();
+  if (shareSend) shareSend.blur();
 }
 
 async function sendShare() {
@@ -1081,6 +1124,10 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     closeShare();
   }
+});
+forceShareClosed();
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted || !shareOpenedByUser) forceShareClosed();
 });
 
 clearFilters.addEventListener("click", () => {
