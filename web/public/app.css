@@ -54,9 +54,6 @@ button, select {
   align-items: center;
   gap: 6px;
   margin: 0 0 4px;
-  padding: 2px 8px 2px 2px;
-  background: #fff;
-  border-radius: 12px;
   max-width: 100%;
 }
 
@@ -100,11 +97,11 @@ button, select {
   bottom: 0;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #003da5, #00a9e0);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.9), #00a9e0);
 }
 
-.fulfill { color: #003da5; }
-.ment { color: #00a9e0; }
+.fulfill { color: #fff; }
+.ment { color: #7fd4f5; }
 
 h1 {
   margin: 0;
@@ -445,7 +442,7 @@ td.none, .unscheduled { color: var(--none); }
   position: fixed;
   inset: 0;
   background: rgba(0, 20, 40, 0.35);
-  z-index: 2;
+  z-index: 20;
 }
 
 .line-cards, .store-cards {
@@ -504,6 +501,8 @@ td.none, .unscheduled { color: var(--none); }
 
 .metric strong { display: block; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
 
+.filter-tools { margin: 0 0 8px; }
+
 #filter-toggle {
   display: none;
   width: 100%;
@@ -514,6 +513,16 @@ td.none, .unscheduled { color: var(--none); }
   color: var(--navy);
   font-weight: 750;
   text-align: left;
+  padding: 0 14px;
+}
+
+#clear-filters {
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--navy);
+  font-weight: 750;
   padding: 0 14px;
 }
 
@@ -534,9 +543,11 @@ td.none, .unscheduled { color: var(--none); }
   .cards { grid-template-columns: 1fr; }
   .filter-bar { top: 86px; }
   .shell, main, .cards, .scorecard, .line-card, .store-card { max-width: 100%; }
+  .filter-tools { display: flex; gap: 8px; align-items: stretch; }
+  #filter-toggle { flex: 1; width: auto; }
   #drawer {
     position: fixed;
-    z-index: 3;
+    z-index: 30;
     top: 0;
     bottom: 0;
     left: 0;

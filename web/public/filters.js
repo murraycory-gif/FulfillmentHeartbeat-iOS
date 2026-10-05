@@ -198,6 +198,35 @@ export function matchesOM(lhs, rhs) {
   return a.length > 0 && a === b;
 }
 
+// Two or more letter tokens, no digits. "Chicago 1" and "NorCal 04" are areas.
+export function isPersonOm(raw) {
+  const name = String(raw || "").trim().replace(/\s+/g, " ");
+  if (!name || /\d/.test(name)) return false;
+  const tokens = name.split(/[\s/]+/).filter((token) => /[A-Za-z]/.test(token));
+  return tokens.length >= 2;
+}
+
+const omStoreCache = new WeakMap();
+
+// Store numbers whose roster row carries this OM. Section rows are not the map.
+export function storesForOm(roster, om) {
+  const list = roster || [];
+  let byOm = omStoreCache.get(list);
+  if (!byOm) {
+    byOm = new Map();
+    omStoreCache.set(list, byOm);
+  }
+  const key = String(om || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (byOm.has(key)) return byOm.get(key);
+  const wanted = new Set();
+  for (const row of list) {
+    if (!row || !row.store || !matchesOM(row.om, om)) continue;
+    wanted.add(canonicalStore(row.store));
+  }
+  byOm.set(key, wanted);
+  return wanted;
+}
+
 export function emptyFilters() {
   return { region: "", division: "", district: "", om: "", store: "" };
 }
@@ -206,7 +235,7 @@ export function filtersActive(filters) {
   return Boolean(filters.region || filters.division || filters.district || filters.om || filters.store);
 }
 
-export function includesScope(row, filters) {
+export function includesScope(row, filters, roster) {
   const division = row.division || "";
   if (filters.division) {
     if (!matchesDivision(division, filters.division)) return false;
@@ -214,7 +243,11 @@ export function includesScope(row, filters) {
     if (regionForDivision(division) !== filters.region) return false;
   }
   if (filters.district && !matchesDistrict(row.district || "", filters.district)) return false;
-  if (filters.om && !matchesOM(row.om || "", filters.om)) return false;
+  if (filters.om) {
+    if (roster) {
+      if (!storesForOm(roster, filters.om).has(canonicalStore(row.store || ""))) return false;
+    } else if (!matchesOM(row.om || "", filters.om)) return false;
+  }
   if (filters.store && canonicalStore(row.store || "") !== canonicalStore(filters.store)) return false;
   return true;
 }
@@ -241,7 +274,9 @@ export function optionValues(roster, filters, field) {
   for (const row of roster || []) {
     if (!includesScope(row, narrowed)) continue;
     const value = row[field] || "";
-    if (value) values.add(field === "store" ? canonicalStore(value) : value);
+    if (!value) continue;
+    if (field === "om" && !isPersonOm(value)) continue;
+    values.add(field === "store" ? canonicalStore(value) : value);
   }
   return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }

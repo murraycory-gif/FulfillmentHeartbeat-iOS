@@ -8,7 +8,6 @@ import {
   optionValues,
   scopeLabel,
   finestScope,
-  scopeStoreCount,
   sectionGrainRows,
   canonicalStore,
 } from "./filters.js";
@@ -110,6 +109,7 @@ const scrim = document.querySelector("#scrim");
 const main = document.querySelector("#main");
 const filtersForm = document.querySelector("#filters");
 const filterToggle = document.querySelector("#filter-toggle");
+const clearFilters = document.querySelector("#clear-filters");
 const title = document.querySelector("#page-title");
 const updated = document.querySelector("#updated");
 const banner = document.querySelector("#banner");
@@ -210,6 +210,10 @@ function renderFilters() {
     .join("");
   const seat = filtersActive(filters) ? scopeLabel(filters) : "Total Company";
   filterToggle.textContent = `Filters · ${seat}`;
+  if (clearFilters) {
+    clearFilters.textContent = "Clear all";
+    clearFilters.hidden = !filtersActive(filters);
+  }
 }
 
 function setUpdated(raw) {
@@ -234,6 +238,7 @@ function seatFor(section) {
     lines: (state.home && state.home.regionLines) || [],
     rows: (pack && pack.rows) || [],
     filters: state.filters,
+    roster: roster(),
   });
 }
 
@@ -274,7 +279,7 @@ function cell(row, keys) {
 
 function table(section, rows) {
   const columns = COLUMNS[section] || [];
-  const matched = rows.filter((row) => row.store && includesScope(row, state.filters));
+  const matched = rows.filter((row) => row.store && includesScope(row, state.filters, roster()));
   if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
   const shown = matched.slice(0, state.tableWindow);
   const head = ["Store", "Division", "District", "OM", ...columns.map((column) => column[0])]
@@ -389,54 +394,73 @@ function renderDashboard() {
   main.innerHTML = `<div class="cards">${cards}</div>${regionProof()}`;
 }
 
-function renderPicker() {
-  const roll = pickerRoll(state.home, state.filters);
-  const summary = summaryFor("picker_scorecard");
-  if (!roll) {
-    if (!summary && !tilesFor("picker_scorecard")) {
-      main.innerHTML = `<p class="nodata">NO DATA</p>`;
-      return;
-    }
-    main.innerHTML = `<article class="scorecard ${(summary.health || "none")}">${companyBlock("picker_scorecard", "Picker ScoreCard")}</article>${grainBlock("picker_scorecard")}<p class="note">Shopper names are not on this site. The count above is the cooked upload.</p>`;
-    return;
-  }
-  const health = roll.risk > 0 ? "risk" : roll.watch > 0 ? "watch" : roll.healthy > 0 ? "good" : "none";
-  const tiles = [
-    ["Shoppers", num(roll.shoppers, 0)],
-    ["Healthy", num(roll.healthy, 0)],
-    ["Watch", num(roll.watch, 0)],
-    ["At Risk", num(roll.risk, 0)],
-  ]
-    .map(([label, value]) => `<div class="tile"><span>${label}</span><strong>${esc(value)}</strong></div>`)
-    .join("");
-  const scope = `<p class="scope">${esc(scopeLabel(state.filters))}${filtersActive(state.filters) ? ` · In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores` : ""}</p>`;
-  main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker ScoreCard")}</article>${scope}<div class="tiles">${tiles}</div>${grainBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
+function shopperSeat(filters) {
+  return Boolean(filters.division || filters.district || filters.om || filters.store);
 }
 
-function pickerRoll(home, filters) {
-  const rolls = (home && home.pickerRollups) || {};
-  if (!filtersActive(filters)) return rolls.company || null;
-  const scope = finestScope(filters);
-  if (scope && rolls[scope]) return rolls[scope];
-  const found = Object.keys(rolls).find((key) => scope && key.toLowerCase() === scope.toLowerCase());
-  if (found) return rolls[found];
-  const stores = roster().filter((row) => includesScope(row, filters));
-  const parts = [];
-  for (const row of stores) {
-    const key = `store:${canonicalStore(row.store)}`;
-    if (rolls[key]) parts.push(rolls[key]);
+function shopperTable(rows, kind) {
+  const matched = (rows || []).filter((row) => row.store && includesScope(row, state.filters, roster()));
+  if (!matched.length) return `<p class="note">No shopper rows in this scope.</p>`;
+  const shown = matched.slice(0, state.tableWindow);
+  const more =
+    matched.length > shown.length
+      ? `<p class="note">${num(shown.length, 0)} of ${num(matched.length, 0)} shoppers</p><button type="button" class="more" data-more="1">Show more</button>`
+      : `<p class="note">${num(matched.length, 0)} shoppers in this scope.</p>`;
+  const columns =
+    kind === "path"
+      ? [
+          ["Path %", ["compliance_pct"], pct],
+          ["PPH", ["pph"], (value) => num(value, 1)],
+          ["Orders", ["orders"], (value) => num(value, 0)],
+        ]
+      : [
+          ["PPH", ["pph"], (value) => num(value, 1)],
+          ["Presub", ["presub_pct"], pct],
+          ["OOS", ["oos_pct"], pct],
+          ["Hours", ["pick_hours"], (value) => num(value, 1)],
+          ["Orders", ["orders"], (value) => num(value, 0)],
+          ["OTT", ["ott_pct"], pct],
+          ["OTH", ["oth5_pct"], pct],
+          ["COE", ["coe_pct"], pct],
+        ];
+  const head = ["Shopper", "Store", ...columns.map((column) => column[0])]
+    .map((label) => `<th>${esc(label)}</th>`)
+    .join("");
+  const body = shown
+    .map((row) => {
+      const metrics = columns.map((column) => `<td>${esc(column[2](cell(row, column[1])))}</td>`).join("");
+      const name = row.shopper || row.shopperId || "—";
+      return `<tr><td>${esc(name)}</td><td>${esc(canonicalStore(row.store))}</td>${metrics}</tr>`;
+    })
+    .join("");
+  const cards = shown
+    .map((row) => {
+      const metrics = columns
+        .map(
+          (column) =>
+            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1])))}</strong></div>`,
+        )
+        .join("");
+      const name = row.shopper || row.shopperId || "—";
+      return `<li class="store-card"><p class="store-id">${esc(name)}</p><p class="sub">Store ${esc(canonicalStore(row.store))}</p><div class="metric-row">${metrics}</div></li>`;
+    })
+    .join("");
+  return `${more}<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
+}
+
+function renderPicker() {
+  const summary = summaryFor("picker_scorecard");
+  const pack = state.packs.get("section/picker_scorecard");
+  const rows = (pack && pack.rows) || [];
+  if (!summary && !tilesFor("picker_scorecard") && !rows.length && !filtersActive(state.filters)) {
+    main.innerHTML = `<p class="nodata">NO DATA</p>`;
+    return;
   }
-  if (!parts.length) return null;
-  return parts.reduce(
-    (sum, roll) => ({
-      shoppers: sum.shoppers + (roll.shoppers || 0),
-      stores: sum.stores + (roll.stores || 0),
-      healthy: sum.healthy + (roll.healthy || 0),
-      watch: sum.watch + (roll.watch || 0),
-      risk: sum.risk + (roll.risk || 0),
-    }),
-    { shoppers: 0, stores: 0, healthy: 0, watch: 0, risk: 0 },
-  );
+  const health = (summary && summary.health) || "none";
+  const note = shopperSeat(state.filters)
+    ? shopperTable(rows, "scorecard")
+    : `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
+  main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker ScoreCard")}</article>${grainBlock("picker_scorecard")}${note}`;
 }
 
 function renderPresub(pack) {
@@ -494,7 +518,7 @@ function renderSchedule(pack) {
     main.innerHTML = `${tabs}<article class="scorecard none"><div class="score-face"><h2>Upcoming Weeks Schedule Check</h2><p class="nodata">NO DATA</p><p class="note">This pack has no Schedule Check rows.</p></div></article>`;
     return;
   }
-  const card = scheduleSummary(pack, state.filters);
+  const card = scheduleSummary(pack, state.filters, roster());
   const week = pack.week ? `Week ${esc(pack.week)}` : "NO DATA";
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
@@ -505,7 +529,7 @@ function renderSchedule(pack) {
 
 function scheduleActionHtml(pack, card) {
   const mismatch = bannerMismatch(pack, card, state.filters);
-  const groups = actionGroups(pack, state.filters);
+  const groups = actionGroups(pack, state.filters, roster());
   const note = mismatch ? `<p class="note">${esc(mismatch)}</p>` : "";
   const groupsHtml = groups.length
     ? groups
@@ -554,25 +578,25 @@ function scheduleSummaryHtml(pack, card) {
     )
     .join("");
   const market = companyMarketNote(card, state.filters);
-  const divisions = rankedDivisions(pack, state.filters)
+  const divisions = rankedDivisions(pack, state.filters, roster())
     .map(
       (row) =>
         `<tr><td>${esc(row.division)}</td><td>${esc(pct(row.under))}</td><td>${esc(pct(row.over))}</td><td>${esc(pct(row.eff))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
     )
     .join("");
-  const regionRows = rankedRegions(pack, state.filters)
+  const regionRows = rankedRegions(pack, state.filters, roster())
     .map(
       (row) =>
         `<tr><td>${esc(row.region)}</td><td>${esc(pct(row.under))}</td><td>${esc(pct(row.over))}</td><td>${esc(pct(row.eff))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
     )
     .join("");
-  const regionCards = rankedRegions(pack, state.filters)
+  const regionCards = rankedRegions(pack, state.filters, roster())
     .map(
       (row) =>
         `<li class="line-card"><div><p class="eyebrow">Region</p><p class="line-title">${esc(row.region)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
     )
     .join("");
-  const divisionCards = rankedDivisions(pack, state.filters)
+  const divisionCards = rankedDivisions(pack, state.filters, roster())
     .map(
       (row) =>
         `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
@@ -582,7 +606,7 @@ function scheduleSummaryHtml(pack, card) {
 }
 
 function scheduleDetailHtml(pack) {
-  const matched = (pack.stores || []).filter((store) => includesScope(store, state.filters));
+  const matched = (pack.stores || []).filter((store) => includesScope(store, state.filters, roster()));
   if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
   const rows = matched.slice(0, state.tableWindow);
   const more =
@@ -647,6 +671,12 @@ async function render() {
     return;
   }
   if (page.section === "picker_scorecard") {
+    try {
+      await load("section/picker_scorecard");
+    } catch {
+      /* company chrome still paints when the shopper file is missing */
+    }
+    if (token !== renderToken) return;
     renderPicker();
     return;
   }
@@ -674,12 +704,22 @@ async function render() {
         : `<p class="note">NO DATA</p>`;
     }
   }
+  let shoppers = "";
+  if (page.section === "pick_path" && shopperSeat(state.filters)) {
+    try {
+      const pathShoppers = await load("section/pick_path_picker");
+      if (token !== renderToken) return;
+      shoppers = `<h2>Shoppers</h2>${shopperTable((pathShoppers && pathShoppers.rows) || [], "path")}`;
+    } catch {
+      shoppers = "";
+    }
+  }
   if (token !== renderToken) return;
   const storeTable = missing
     ? `<p class="note">Store rows are not in this upload.</p>`
     : table(page.section, rows);
   const health = (summaryFor(page.section) || {}).health || "none";
-  main.innerHTML = `<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}`;
+  main.innerHTML = `<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
 }
 
 function desktopNav() {
@@ -707,6 +747,12 @@ async function ensureSeatRows() {
     PAGES.filter((page) => page.section).map((page) => load(`section/${page.section}`).catch(() => null)),
   );
 }
+
+clearFilters.addEventListener("click", () => {
+  state.filters = emptyFilters();
+  state.tableWindow = ROW_PAGE;
+  render();
+});
 
 filterToggle.addEventListener("click", () => {
   const open = filtersForm.classList.toggle("open");

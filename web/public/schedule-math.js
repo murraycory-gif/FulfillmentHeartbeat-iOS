@@ -64,12 +64,12 @@ function marketLabeled(pack, name) {
   );
 }
 
-export function scopedStores(pack, filters) {
-  return (pack.stores || []).filter((store) => includesScope(store, filters));
+export function scopedStores(pack, filters, roster) {
+  return (pack.stores || []).filter((store) => includesScope(store, filters, roster));
 }
 
-export function summary(pack, filters) {
-  const rows = scopedStores(pack, filters);
+export function summary(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
   const storeUnder = average(rows.map((row) => row.under));
   const storeOver = average(rows.map((row) => row.over));
   const cutInside = Boolean(filters.district || filters.om || filters.store);
@@ -105,8 +105,8 @@ export function bannerMismatch(pack, card, filters) {
   return `Workbook banner said ${pack.workbookActionBanner} stores. This cook qualifies ${card.actionCount}.`;
 }
 
-export function actionGroups(pack, filters) {
-  const rows = scopedStores(pack, filters).filter(qualifiesStore);
+export function actionGroups(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster).filter(qualifiesStore);
   const grouped = new Map();
   for (const row of rows) {
     const name = row.division || "";
@@ -128,8 +128,8 @@ export function actionGroups(pack, filters) {
   }));
 }
 
-export function rankedRegions(pack, filters) {
-  const rows = scopedStores(pack, filters);
+export function rankedRegions(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
   const names = [...new Set(rows.map((row) => row.region).filter(Boolean))];
   return names
     .map((name) => {
@@ -151,8 +151,8 @@ export function rankedRegions(pack, filters) {
     });
 }
 
-export function rankedDivisions(pack, filters) {
-  const rows = scopedStores(pack, filters);
+export function rankedDivisions(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
   const cutInside = Boolean(filters.district || filters.om || filters.store);
   const names = [...new Set(rows.map((row) => row.division).filter(Boolean))];
   return names

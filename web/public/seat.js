@@ -72,8 +72,8 @@ function lossPct(dollars, sales, stored) {
   return Math.abs(scaled - sample) < Math.abs(ratio - sample) ? scaled : ratio;
 }
 
-export function rowsInScope(rows, filters) {
-  return (rows || []).filter((row) => row && row.store && includesScope(row, filters));
+export function rowsInScope(rows, filters, roster) {
+  return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster));
 }
 
 // Cooked region or division line. District / OM / Store have no chrome grade.
@@ -293,14 +293,29 @@ export function summarizeSeat(section, rows) {
         storeCount: scored.length,
       };
     }
-    case "picker_scorecard":
-      return empty("Shopper names are not on this site.");
+    case "picker_scorecard": {
+      if (!latest.length) return empty("No shopper rows in this filter");
+      const stores = new Set(latest.map((row) => row.store).filter(Boolean));
+      return {
+        headline: latest.length,
+        secondary: `${stores.size} ${stores.size === 1 ? "store" : "stores"}`,
+        health: "none",
+        storeCount: latest.length,
+      };
+    }
     default:
       return empty("No rows in this filter");
   }
 }
 
-export function seatSummary(section, { company, lines, rows, filters }) {
+function dynacapHealth(raw) {
+  if (raw == null || raw === "") return null;
+  const number = Number(String(raw).replace(/,/g, "").replace(/%/g, "").trim());
+  if (!Number.isFinite(number)) return null;
+  return band(number, 65, 60);
+}
+
+export function seatSummary(section, { company, lines, rows, filters, roster }) {
   if (!filtersActive(filters)) {
     return {
       fixedCompany: true,
@@ -311,16 +326,21 @@ export function seatSummary(section, { company, lines, rows, filters }) {
       storeCount: (company && company.storeCount) || 0,
     };
   }
-  const scoped = rowsInScope(rows, filters);
+  const scoped = rowsInScope(rows, filters, roster);
   const built = summarizeSeat(section, scoped);
   const chrome = chromeSeat(lines, section, filters);
   if (chrome) {
+    let health = chrome.health && chrome.health !== "none" ? chrome.health : built.health;
+    if (section === "dynacap") {
+      const next = dynacapHealth(chrome.value);
+      if (next) health = next;
+    }
     return {
       fixedCompany: false,
       headline: null,
       headlineText: chrome.value,
       secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
-      health: chrome.health && chrome.health !== "none" ? chrome.health : built.health,
+      health,
       storeCount: chrome.count || built.storeCount,
     };
   }

@@ -15,6 +15,7 @@ Writes:
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -33,8 +34,9 @@ SECTIONS = (
     "labor",
 )
 
-# Shopper tape and item tape stay out of the phone browser.
-SKIP = {"picker_scorecard", "pre_sub_oos_item", "pick_path_picker", "aisle_mapper"}
+# Item tape stays out of the phone browser. Shopper rows are exported.
+SKIP = {"pre_sub_oos_item", "aisle_mapper"}
+SHOPPER_SECTIONS = {"picker_scorecard", "pick_path_picker"}
 
 KEEP = {
     "sales_dollars",
@@ -84,6 +86,9 @@ KEEP = {
     "uplh_impact_pct",
     "wage_impact_pct",
     "aiv_impact_pct",
+    "pick_hours",
+    "orders",
+    "subs",
 }
 
 
@@ -354,7 +359,100 @@ def slim_payload(raw: str | None) -> dict:
     return out
 
 
-def extract(sqlite_path: str, out_dir: str) -> None:
+def is_person_om(raw: str) -> bool:
+    name = " ".join(str(raw or "").split())
+    if not name or any(ch.isdigit() for ch in name):
+        return False
+    tokens = [token for token in re.split(r"[\s/]+", name) if any(ch.isalpha() for ch in token)]
+    return len(tokens) >= 2
+
+
+def read_roster_people(path: str) -> dict:
+    """Daily Roster: OM_ID is the person. OM_AREA is the area and is not the OM."""
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if "Roster" not in workbook.sheetnames:
+            return {}
+        sheet = workbook["Roster"]
+        people: dict[str, dict] = {}
+        division = ""
+        district = ""
+        om = ""
+        started = False
+        for row in sheet.iter_rows(values_only=True):
+            cells = [("" if value is None else str(value).strip()) for value in list(row)[:5]]
+            while len(cells) < 5:
+                cells.append("")
+            if not started:
+                header = [cell.lower().replace(" ", "").replace("_", "") for cell in cells]
+                if "omid" in header:
+                    started = True
+                continue
+            div, dist, _area, om_raw, store_raw = cells
+            if div and div.lower() != "total" and div.upper() != "WEEK_ID":
+                division = canonical_division(div)
+            if dist and dist.lower() != "total":
+                district = dist
+            if om_raw and om_raw.lower() != "total":
+                om = om_raw if is_person_om(om_raw) else ""
+            if not store_raw or store_raw.lower() == "total":
+                continue
+            store = canonical_store(store_raw)
+            if not store:
+                continue
+            people[store] = {
+                "division": division,
+                "district": district,
+                "om": om if is_person_om(om) else "",
+            }
+        return people
+    finally:
+        workbook.close()
+
+
+def apply_roster_people(roster: dict, records: list, people: dict) -> dict:
+    """Stamp person OM names onto the store list and every fact for that store."""
+    named = 0
+    for store, ident in people.items():
+        person = ident.get("om") or ""
+        if person:
+            named += 1
+        current = roster.get(store)
+        if current is None:
+            roster[store] = {
+                "store": store,
+                "division": ident.get("division") or "",
+                "district": ident.get("district") or "",
+                "om": person,
+                "name": "",
+            }
+        else:
+            if ident.get("division"):
+                current["division"] = ident["division"]
+            if ident.get("district"):
+                current["district"] = ident["district"]
+            current["om"] = person
+    known = set(people)
+    for record in records:
+        ident = people.get(record["store"])
+        if ident:
+            if ident.get("division"):
+                record["division"] = ident["division"]
+            if ident.get("district"):
+                record["district"] = ident["district"]
+            record["om"] = ident.get("om") or ""
+        else:
+            # The Daily roster is the OM source. A stray section name is not a seat.
+            record["om"] = ""
+    for current in roster.values():
+        if current["store"] not in known:
+            current["om"] = ""
+    return {"stores": len(people), "named": named}
+
+
+def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> None:
     source = Path(sqlite_path)
     if not source.is_file():
         raise SystemExit(f"sqlite not found: {source}")
@@ -379,6 +477,7 @@ def extract(sqlite_path: str, out_dir: str) -> None:
         written_at = meta["written_at"]
 
     latest: dict[tuple[str, str], dict] = {}
+    shoppers: dict[tuple[str, str, str], dict] = {}
     roster: dict[str, dict] = {}
     if _table(db, "facts"):
         query = """
@@ -405,6 +504,22 @@ def extract(sqlite_path: str, out_dir: str) -> None:
                 "payload": slim_payload(fact["payload_json"]),
                 "section": section,
             }
+            if section in SHOPPER_SECTIONS:
+                if not store:
+                    continue
+                shopper_id = str(text.get("shopper_id") or "").strip()
+                shopper_name = str(text.get("shopper_name") or shopper_id).strip()
+                record["shopper"] = shopper_name
+                record["shopperId"] = shopper_id
+                _merge_roster(roster, record, prefer_roster=False)
+                identity = shopper_id or shopper_name
+                if not identity:
+                    continue
+                key = (section, store, identity)
+                previous = shoppers.get(key)
+                if previous is None or record["recorded"] >= previous["recorded"]:
+                    shoppers[key] = record
+                continue
             if store:
                 _merge_roster(roster, record, prefer_roster=section == "store_roster")
             if section not in SECTIONS or not store:
@@ -413,6 +528,22 @@ def extract(sqlite_path: str, out_dir: str) -> None:
             previous = latest.get(key)
             if previous is None or record["recorded"] >= previous["recorded"]:
                 latest[key] = record
+    records = list(latest.values()) + list(shoppers.values())
+    people = read_roster_people(roster_xlsx) if roster_xlsx else {}
+    if people:
+        stats = apply_roster_people(roster, records, people)
+        print(
+            f"roster people: {stats['named']} named of {stats['stores']} stores"
+            f" ({len({item['om'] for item in people.values() if item.get('om')})} names)"
+        )
+    # A section row with a blank seat inherits the store list. It does not invent one.
+    for record in records:
+        current = roster.get(record["store"])
+        if not current:
+            continue
+        for field in ("division", "district", "om"):
+            if not record.get(field) and current.get(field):
+                record[field] = current[field]
 
     presub = {}
     if _table(db, "presub_top"):
@@ -473,8 +604,23 @@ def extract(sqlite_path: str, out_dir: str) -> None:
     for section, rows in grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"]))
         _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
-    # Shopper tape stays out of the browser. The route is still JSON, not the HTML shell.
-    _write(section_dir / "picker_scorecard.json", {"section": "picker_scorecard", "rows": []})
+    shopper_grouped: dict[str, list] = {section: [] for section in SHOPPER_SECTIONS}
+    for record in shoppers.values():
+        shopper_grouped[record["section"]].append(
+            {
+                "store": record["store"],
+                "name": record["name"],
+                "division": record["division"],
+                "district": record["district"],
+                "om": record["om"],
+                "shopper": record.get("shopper") or "",
+                "shopperId": record.get("shopperId") or "",
+                "payload": record["payload"],
+            }
+        )
+    for section, rows in shopper_grouped.items():
+        rows.sort(key=lambda item: (len(item["store"]), item["store"], item.get("shopper") or ""))
+        _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
     _write(out / "presub.json", {"scopes": presub})
     db.close()
 
@@ -541,9 +687,9 @@ def _write(path: Path, payload: dict) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: extract_web_pack.py <company-seat.sqlite> <out-dir>")
-    extract(sys.argv[1], sys.argv[2])
+    if len(sys.argv) not in (3, 4):
+        raise SystemExit("usage: extract_web_pack.py <company-seat.sqlite> <out-dir> [daily-roster.xlsx]")
+    extract(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
 
 
 if __name__ == "__main__":

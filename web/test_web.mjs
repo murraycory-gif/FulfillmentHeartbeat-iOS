@@ -19,7 +19,9 @@ import {
   canonicalStore,
   countStores,
   includesScope,
+  isPersonOm,
   matchesDistrict,
+  optionValues,
   matchesDivision,
   regionLineInScope,
   scopeStoreCount,
@@ -224,7 +226,41 @@ assert.equal(blankDynacap.headline, null);
 assert.equal(blankDynacap.headlineText, null);
 assert.match(app, /This pack has no Schedule Check rows/);
 assert.match(app, /data-more/);
-assert.match(app, /Shopper names are not on this site/);
+assert.match(app, /Clear all/);
+assert.equal(app.includes("Shopper names are not on this site"), false);
+assert.match(app, /Shopper rows open from a division/);
+const css = readFileSync(join(root, "public/app.css"), "utf8");
+assert.equal(/\.brand-lockup\s*\{[^}]*background:\s*#fff/.test(css), false);
+assert.match(css, /z-index:\s*30/);
+const quinnRoster = [
+  { store: "210", division: "United", district: "U5", om: "Andrew Quinn" },
+  { store: "1", division: "Jewel Osco", district: "J1", om: "Chicago 1" },
+  { store: "22", division: "United", district: "U5", om: "Andrew Quinn" },
+];
+const quinnSales = { store: "210", division: "United", district: "U5", om: "" };
+assert.equal(includesScope(quinnSales, filters({ om: "Andrew Quinn" })), false);
+assert.equal(includesScope(quinnSales, filters({ om: "Andrew Quinn" }), quinnRoster), true);
+assert.equal(includesScope({ store: "22", division: "United", om: "Southwest 1" }, filters({ om: "Andrew Quinn" }), quinnRoster), true);
+assert.equal(isPersonOm("Andrew Quinn"), true);
+assert.equal(isPersonOm("Chicago 1"), false);
+assert.deepEqual(optionValues(quinnRoster, filters({}), "om"), ["Andrew Quinn"]);
+const midAtlantic = seatSummary("dynacap", {
+  company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
+  lines: [
+    {
+      section: "dynacap",
+      region: "East",
+      value: "81.3",
+      count: 612,
+      health: "risk",
+      children: [{ division: "Mid-Atlantic", value: "100.0", count: 286, health: "watch" }],
+    },
+  ],
+  rows: [],
+  filters: filters({ division: "Mid-Atlantic" }),
+});
+assert.equal(midAtlantic.headlineText, "100.0");
+assert.equal(midAtlantic.health, "good");
 assert.match(app, /Region results/);
 assert.match(app, /Not Upcoming Weeks Schedule Check/);
 assert.match(app, /text\/html/);
@@ -431,9 +467,16 @@ assert.equal(eastLoss.value, "$566,667.32");
 assert.ok(eastLoss.children.some((child) => child.division === "Shaws"));
 const schedule = JSON.parse(readFileSync(join(root, "dist/data/schedule.json"), "utf8"));
 const pickerFile = JSON.parse(readFileSync(join(root, "dist/data/section/picker_scorecard.json"), "utf8"));
-assert.deepEqual(pickerFile.rows, []);
-assert.equal(schedule.empty, true);
-assert.equal(schedule.stores.length, 0);
+assert.ok(pickerFile.rows.length > 1000);
+assert.ok(pickerFile.rows.some((row) => row.shopper));
+const pathPickers = JSON.parse(readFileSync(join(root, "dist/data/section/pick_path_picker.json"), "utf8"));
+assert.ok(pathPickers.rows.length > 1000);
+assert.equal(schedule.empty, undefined);
+assert.ok(schedule.stores.length > 1000);
+const storeOne = cooked.filters.stores.find((row) => row.store === "1");
+assert.equal(storeOne.om, "Shelly Selof");
+const quinnStores = cooked.filters.stores.filter((row) => row.om === "Andrew Quinn");
+assert.ok(quinnStores.length > 1);
 assert.equal(countStores(cooked.filters.stores, filters({ region: "East Region" })), 615);
 
 console.log("web ok");

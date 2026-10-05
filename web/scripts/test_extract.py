@@ -194,12 +194,35 @@ def main() -> None:
         assert schedule["markets"][0]["label"] == "Total"
         assert sales["rows"][0]["payload"] == {"sales_dollars": 1200}
         picker = json.loads((out / "section" / "picker_scorecard.json").read_text())
-        assert picker["rows"] == []
-        assert "Secret Shopper" not in blob
+        assert picker["rows"][0]["shopper"] == "Secret Shopper"
+        assert picker["rows"][0]["store"] == "117"
         assert "current.sqlite" not in blob
         assert not (out / "presub.json").read_text().startswith("http")
         print("extract ok")
         absent_schedule_and_item_tab()
+        roster_people_stamp()
+
+
+def roster_people_stamp() -> None:
+    roster = {
+        "210": {"store": "210", "division": "", "district": "", "om": "", "name": ""},
+        "1": {"store": "1", "division": "Jewel Osco", "district": "J1", "om": "Chicago 1", "name": ""},
+    }
+    sales = {"store": "210", "division": "", "district": "", "om": ""}
+    people = {
+        "210": {"division": "United", "district": "U5", "om": "Andrew Quinn"},
+        "1": {"division": "Jewel Osco", "district": "J1", "om": "Shelly Selof"},
+    }
+    module.apply_roster_people(roster, [sales], people)
+    assert sales["om"] == "Andrew Quinn"
+    assert sales["division"] == "United"
+    assert roster["1"]["om"] == "Shelly Selof"
+    assert roster["210"]["om"] == "Andrew Quinn"
+    assert "Chicago" not in roster["1"]["om"]
+    stray = {"store": "9", "division": "United", "district": "U5", "om": "Andrew Quinn"}
+    module.apply_roster_people(roster, [stray], people)
+    assert stray["om"] == ""
+    assert roster["9"]["om"] == "" if "9" in roster else True
 
 
 def absent_schedule_and_item_tab() -> None:
