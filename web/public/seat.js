@@ -88,15 +88,6 @@ export function rowsInScope(rows, filters, roster, section) {
   return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster, section));
 }
 
-// Company Total AIV arrives as a fraction (0.00261). One ×100 makes percent points (~0.26%).
-// Store rows are already percent points and do not use this helper.
-export function formatCompanyAiv(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-  const percent = number !== 0 && Math.abs(number) < 0.05 ? number * 100 : number;
-  return `${percent.toFixed(2)}%`;
-}
-
 // Cooked region or division line. District / OM / Store have no chrome grade.
 export function chromeSeat(lines, section, filters) {
   if (!filters || filters.district || filters.om || filters.store) return null;

@@ -45,7 +45,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./public/seat.js";
+import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -127,7 +127,8 @@ assert.equal(
   packURL("section/sales", "https://fulfillment-heartbeat-web.pages.dev"),
   "https://fulfillment-heartbeat-web.pages.dev/data/section/sales.json",
 );
-assert.match(app, /packURL\(path,\s*location\.origin\)/);
+assert.match(app, /new URL\(relative, location\.origin\)/);
+assert.match(app, /console\.error\("pack fetch failed"/);
 assert.equal(packURL("presub"), "/data/presub.json");
 assert.equal(packURL("schedule"), "/data/schedule.json");
 assert.equal(packURL("packs/seat/company/all/current.sqlite"), null);
@@ -343,12 +344,13 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=16/);
+assert.match(pageHtml, /app\.css\?v=17/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=20/);
+assert.match(pageHtml, /app\.js\?v=21/);
+assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -356,15 +358,20 @@ assert.match(pageHtml, /<script src="\/nav-boot\.js\?v=2"><\/script>/);
 assert.match(app, /· OM \$\{seat\.om\}/);
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
-assert.equal(formatCompanyAiv(0.002610916545167652), "0.26%");
-assert.equal(formatCompanyAiv(0.2610916545167652), "0.26%");
-assert.equal(formatCompanyAiv(-0.38645958215580284), "-0.39%");
-assert.equal(formatCompanyAiv(0), "0.00%");
-assert.equal(formatCompanyAiv(88.22231683849824), "88.22%");
+assert.equal(readFileSync(join(root, "public/seat.js"), "utf8").includes("formatCompanyAiv"), false);
+assert.equal(app.includes("formatCompanyAiv"), false);
+assert.equal(app.includes("laborMarket"), false);
 assert.match(css, /\.share\[hidden\]/);
 assert.match(app, /tileUsesSectionTone/);
 assert.match(app, /tone-\$\{tone\}/);
+const phoneCss = css.slice(css.indexOf("@media (max-width: 800px)"), css.indexOf("@media (min-width: 801px)"));
 const deskCss = css.slice(css.indexOf("@media (min-width: 801px)"));
+assert.match(phoneCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
+assert.match(phoneCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
+assert.match(deskCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
+assert.match(deskCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
+assert.equal(phoneCss.includes("min-height: 32px"), false);
+assert.equal(deskCss.includes("min-height: 22px"), false);
 assert.match(css, /grid-template-areas:\s*"lockup"\s*"title"\s*"foot"/);
 assert.match(css, /\.header-foot/);
 assert.match(css, /\.brand-lockup \{[^}]*position: static/);
@@ -678,14 +685,14 @@ assert.equal(company.under, 41.07);
 assert.equal(company.over, 4.03);
 assert.equal(company.eff, 25);
 assert.equal(company.usesMarketLook, true);
-assert.match(companyMarketNote(company, empty), /Under 60\.00% \/ Over 0\.50%/);
+assert.match(companyMarketNote(company, empty), /Under 20\.00% \/ Over 1\.00%/);
 const united = summary(pack, filters({ division: "United" }));
 assert.equal(united.usesMarketLook, true);
 assert.equal(united.under, null);
 assert.equal(united.over, null);
 const cut = summary(pack, filters({ division: "United", district: "U1" }));
 assert.equal(cut.usesMarketLook, false);
-assert.equal(cut.under, 60);
+assert.equal(cut.under, 20);
 assert.equal(bannerMismatch(pack, company, empty), null);
 assert.equal(company.actionCount, 1);
 assert.equal(barelyScheduled({ under: 92.7, eff: 7.3 }), true);
@@ -852,7 +859,8 @@ assert.match(middleware, /SameSite=Lax/);
 assert.match(app, /authBlocked/);
 assert.match(app, /retryHomeAfterAuth/);
 assert.match(app, /location\.assign\("\/login"\)/);
-assert.match(app, /location\.assign\("\/logout"\)/);
+assert.match(app, /new URL\("\/logout", location\.origin\)/);
+assert.equal(app.includes('location.assign("/logout")'), false);
 assert.equal(app.includes("logout:logout"), false);
 assert.equal(app.includes("state.homeError = \"NO DATA\""), false);
 assert.match(app, /data-logout>Logout/);
@@ -870,6 +878,7 @@ assert.match(loginHTML, /type="password"/);
 assert.match(loginHTML, /autocomplete="current-password"/);
 assert.match(loginHTML, /<span class="fulfill">Fulfill<\/span><span class="ment">ment<\/span>/);
 assert.match(loginHTML, /src="\/nav-boot\.js\?v=2"/);
+assert.match(loginHTML, /href="\/favicon\.svg"/);
 let bootServed = false;
 const boot = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/nav-boot.js?v=2"),
@@ -882,6 +891,17 @@ const boot = await basicGate({
 assert.equal(boot.status, 200);
 assert.equal(bootServed, true);
 assert.equal(await boot.text(), "boot");
+let iconServed = false;
+const icon = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/favicon.svg"),
+  env: gateEnv,
+  next: async () => {
+    iconServed = true;
+    return new Response("<svg></svg>", { status: 200, headers: { "content-type": "image/svg+xml" } });
+  },
+});
+assert.equal(icon.status, 200);
+assert.equal(iconServed, true);
 assert.equal(loginHTML.includes("NO DATA"), false);
 const dataDenied = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json"),
@@ -977,9 +997,16 @@ const loggedOut = await basicGate({
   env: gateEnv,
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(loggedOut.status, 303);
+assert.equal(loggedOut.status, 302);
 assert.match(loggedOut.headers.get("location"), /\/login$/);
 assert.match(loggedOut.headers.get("set-cookie") || "", /Max-Age=0/);
+const iconRedirect = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/favicon.ico"),
+  env: gateEnv,
+  next: async () => new Response("missing", { status: 404 }),
+});
+assert.equal(iconRedirect.status, 302);
+assert.match(iconRedirect.headers.get("location") || "", /\/favicon\.svg$/);
 
 const dataFiles = [
   "data/home.json",
@@ -1047,6 +1074,16 @@ assert.equal(pct(liveCompany.eff), "88.44%");
 const southSched = rankedRegions(schedule, empty, []).find((row) => row.region === "South Region");
 assert.equal(pct(southSched.eff), "91.04%");
 assert.notEqual(pct(southSched.eff), "92.64%");
+assert.equal(southSched.scope, 395);
+assert.equal(pct(southSched.under), "3.07%");
+assert.equal(pct(southSched.over), "5.90%");
+assert.notEqual(pct(southSched.under), "34.28%");
+const eastSched = rankedRegions(schedule, empty, []).find((row) => row.region === "East Region");
+assert.notEqual(pct(eastSched.under), "29.40%");
+const southOnly = summary(schedule, filters({ region: "South Region" }), []);
+assert.equal(southOnly.scope, 395);
+assert.equal(pct(southOnly.under), "3.07%");
+assert.equal(pct(southOnly.eff), "91.04%");
 const liveUnited = summary(schedule, filters({ division: "United" }), []);
 assert.equal(liveUnited.under, null);
 assert.equal(liveUnited.over, null);
@@ -1057,6 +1094,8 @@ assert.equal(unitedDivision.over, null);
 assert.equal(unitedDivision.eff, null);
 assert.equal(scheduleGapNote(schedule, filters({ division: "United" }), []), "No data");
 assert.match(scheduleGapNote(schedule, empty, []), /United: No data/);
+assert.match(schedule.summaryTitle, new RegExp(`Week ${schedule.week}`));
+assert.equal(schedule.summaryTitle.includes("Week 31"), false);
 assert.match(scheduleVisibleTitle(schedule.summaryTitle, schedule.week), new RegExp(`Week ${schedule.week}`));
 const storeOne = cooked.filters.stores.find((row) => row.store === "1");
 assert.equal(isPersonOm(storeOne.om), true);

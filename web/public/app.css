@@ -920,7 +920,8 @@ td.none, .unscheduled { color: var(--none); }
   .top { padding: max(2px, env(safe-area-inset-top)) 14px 6px; }
   .brand-lockup { gap: 8px; margin: 0 0 2px; }
   #nav-toggle {
-    min-height: 32px;
+    min-height: 44px;
+    min-width: 44px;
     color: rgba(255, 255, 255, 0.62);
     font-size: 0.8rem;
     font-weight: 650;
@@ -980,7 +981,9 @@ td.none, .unscheduled { color: var(--none); }
   #nav-toggle {
     display: inline-flex;
     align-items: center;
-    min-height: 22px;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
     font-size: 0.86rem;
     font-weight: 650;
   }

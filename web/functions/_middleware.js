@@ -199,6 +199,7 @@ function loginHTML(message, username) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · Fulfillment Heartbeat</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/login.css">
   <script src="/nav-boot.js?v=2"></script>
 </head>
@@ -261,12 +262,12 @@ function unauthorizedJSON() {
   });
 }
 
-function redirect(request, path, cookie) {
+function redirect(request, path, cookie, status = 303) {
   const headers = new Headers();
   headers.set("Location", new URL(path, request.url).toString());
   headers.set("Cache-Control", "no-store");
   if (cookie) headers.set("Set-Cookie", cookie);
-  return new Response(null, { status: 303, headers });
+  return new Response(null, { status, headers });
 }
 
 async function submitLogin(request, env) {
@@ -295,10 +296,13 @@ export async function onRequest(context) {
   const pathname = url.pathname;
 
   if (request.method === "POST" && pathname === "/login") return submitLogin(request, env);
-  if ((request.method === "GET" || request.method === "POST") && pathname === "/logout") {
-    return redirect(request, "/login", clearCookie());
+  if ((request.method === "GET" || request.method === "HEAD" || request.method === "POST") && pathname === "/logout") {
+    return redirect(request, "/login", clearCookie(), 302);
   }
-  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js")) {
+  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {
+    return redirect(request, "/favicon.svg", "", 302);
+  }
+  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js" || pathname === "/favicon.svg")) {
     return context.next();
   }
 

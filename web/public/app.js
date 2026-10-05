@@ -20,7 +20,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { formatCompanyAiv, lossPercentPoints, seatSummary } from "./seat.js";
+import { lossPercentPoints, seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -224,8 +224,9 @@ async function readPack(url) {
 
 async function load(path) {
   if (state.packs.has(path)) return state.packs.get(path);
-  const url = packURL(path, location.origin);
-  if (!url) throw new Error("NO DATA");
+  const relative = packURL(path);
+  if (!relative) throw new Error("NO DATA");
+  const url = new URL(relative, location.origin).href;
   let last = new Error("NO DATA");
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
@@ -234,6 +235,7 @@ async function load(path) {
       return data;
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
+      console.error("pack fetch failed", url, last);
       if (last.authBlocked || attempt === 7) break;
       await packWait(400 * (attempt + 1));
     }
@@ -279,7 +281,7 @@ function renderNav() {
 }
 
 function logout() {
-  window.location.assign("/logout");
+  window.location.assign(new URL("/logout", location.origin).href);
 }
 
 let searchHits = [];
@@ -461,11 +463,6 @@ function shownTileLabel(section, label) {
 }
 
 function shownTileValue(section, label, raw) {
-  if (section === "labor" && label === "AIV") {
-    const market = state.home && state.home.laborMarket;
-    const aiv = market && market.aiv_impact_pct;
-    if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
-  }
   if (raw == null || raw === "") return "—";
   const text = String(raw).trim();
   return text.startsWith("$") ? money(raw) : text;

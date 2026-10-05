@@ -204,6 +204,8 @@ def main() -> None:
         assert all(line["region"] != "Shaws" for line in lines)
         assert not any(line["title"] == "5 Star" for line in lines)
         schedule = json.loads((out / "schedule.json").read_text())
+        assert schedule["summaryTitle"] == "Week 32"
+        assert "Week 31" not in schedule["summaryTitle"]
         assert schedule["stores"][0]["store"] == "117"
         assert schedule["stores"][0]["fourUnder"] == 12
         assert schedule["workbookActionBanner"] == 468

@@ -165,6 +165,14 @@ def is_total_store(store: str) -> bool:
     return str(store or "").strip().upper() == "TOTAL"
 
 
+# Device roster omits these. Counting them makes South 397 against the roster's 395.
+ROSTER_OMIT = {"210", "239"}
+
+
+def roster_omits(store: str) -> bool:
+    return canonical_store(store) in ROSTER_OMIT
+
+
 def canonical_store(raw: str) -> str:
     text = (raw or "").strip()
     if "|" in text:
@@ -338,15 +346,15 @@ def labor_market_payload(db: sqlite3.Connection) -> dict:
 
 
 def company_aiv_percent(value: float) -> float:
-    """Total AIV is a fraction. Store rows are already percent points, so only the Total is scaled."""
+    """The only ×100. Total AIV is a fraction. Store rows are already percent points."""
     if value != 0 and abs(value) < 0.05:
         return value * 100
     return value
 
 
 def format_company_aiv(value: float) -> str:
-    """Percent points after company_aiv_percent. 0.261 prints as 0.26%."""
-    return f"{company_aiv_percent(value):.2f}%"
+    """Print percent points. Scaling stays in company_aiv_percent."""
+    return f"{float(value):.2f}%"
 
 
 def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
@@ -588,6 +596,19 @@ def realign_lost_revenue(lines: list, records: list) -> list:
     return out
 
 
+def schedule_summary_title(title: str, week) -> str:
+    """The workbook title can lag a week. The pack week is the one on the file."""
+    text = title or ""
+    try:
+        cooked = int(week)
+    except (TypeError, ValueError):
+        return text
+    if cooked <= 0:
+        return text
+    text = re.sub(r"Week\s*\d+", f"Week {cooked}", text, flags=re.I)
+    return re.sub(r"WK\s*\d+", f"WK{cooked}", text, flags=re.I)
+
+
 def read_schedule(db: sqlite3.Connection) -> dict | None:
     if not _table(db, "schedule_pack"):
         return None
@@ -644,7 +665,7 @@ def read_schedule(db: sqlite3.Connection) -> dict | None:
         "publishedAt": row["published_at"] or "",
         "week": row["week"] or 0,
         "filename": row["filename"] or "",
-        "summaryTitle": row["summary_title"] or "",
+        "summaryTitle": schedule_summary_title(row["summary_title"] or "", row["week"] or 0),
         "workbookActionBanner": row["workbook_action_banner"],
         "markets": markets,
         "stores": stores,
@@ -982,7 +1003,11 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         "preSubItemTabPresent": item_tab,
         "filters": {
             "stores": sorted(
-                (item for item in roster.values() if not is_total_store(item["store"])),
+                (
+                    item
+                    for item in roster.values()
+                    if not is_total_store(item["store"]) and not roster_omits(item["store"])
+                ),
                 key=lambda item: (len(item["store"]), item["store"]),
             ),
         },
@@ -998,6 +1023,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     if schedule:
         _fill_schedule_roster(schedule, roster)
         clear_blank_schedule(schedule)
+        schedule["summaryTitle"] = schedule_summary_title(schedule.get("summaryTitle") or "", schedule.get("week") or 0)
+        stores = schedule.get("stores")
+        if isinstance(stores, list):
+            schedule["stores"] = [store for store in stores if not roster_omits(store.get("store"))]
         _write(schedule_path, schedule)
     else:
         # Keep the URL as JSON. An older file must not keep stores this pack lacks.
