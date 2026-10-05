@@ -313,3 +313,35 @@ export function scopeStoreCount(roster, filters, lines) {
   }
   return max;
 }
+
+// Company: cooked regions and their division children.
+// Region: that region and its children. Division: that child only.
+// District, OM, and store stay on the store rows. No averaged grade.
+export function sectionGrainRows(lines, section, filters, roster) {
+  if (filters.district || filters.om || filters.store) return [];
+  const visible = (lines || []).filter(
+    (line) => line && line.section === section && regionLineInScope(line, filters, roster),
+  );
+  const rows = [];
+  for (const line of visible) {
+    if (!filters.division) {
+      rows.push({
+        grain: "region",
+        label: line.region,
+        value: line.value,
+        count: line.count,
+      });
+    }
+    for (const child of line.children || []) {
+      if (filters.division && !matchesDivision(child.division, filters.division)) continue;
+      rows.push({
+        grain: "division",
+        label: child.division,
+        value: child.value,
+        count: child.count,
+        region: line.region,
+      });
+    }
+  }
+  return rows;
+}

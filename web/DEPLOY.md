@@ -65,7 +65,7 @@ npm run build
 npx wrangler pages deploy dist --project-name fulfillment-heartbeat-web
 ```
 
-Wrangler will ask you to log in. That upload is the site. Re-run step 3 when the seat pack changes, then step 4. Do not deploy to `heartbeat-web.pages.dev`.
+This environment has no Wrangler login. Set `CLOUDFLARE_API_TOKEN` to an account token with Cloudflare Pages Edit, then run the command. Do not pass `--project-name heartbeat-web`. That upload is the site. Re-run step 3 when the seat pack changes, then step 4. Do not deploy to `heartbeat-web.pages.dev`.
 
 ### 5. Public bucket URL — read this before you click
 

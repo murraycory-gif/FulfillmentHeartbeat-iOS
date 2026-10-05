@@ -17,11 +17,13 @@ import { bannerText, considerPublished, formatHeadline, publishClock, updatedLin
 import {
   canonicalDivision,
   canonicalStore,
+  countStores,
   includesScope,
   matchesDistrict,
   matchesDivision,
   regionLineInScope,
   scopeStoreCount,
+  sectionGrainRows,
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import {
@@ -123,6 +125,34 @@ assert.equal(regionLineInScope(seatLines[1], filters({ region: "East Region" }),
 assert.equal(scopeStoreCount([], filters({ region: "East Region" }), seatLines), 615);
 const eastRoster = [{ store: "117", division: "Shaws", district: "03", om: "Ada" }];
 assert.equal(scopeStoreCount(eastRoster, filters({ region: "East Region" }), seatLines), 1);
+
+const grainLines = [
+  {
+    section: "lost_revenue",
+    region: "East",
+    value: "$566,667.32",
+    count: 613,
+    children: [
+      { division: "Jewel Osco", value: "$187,589.93", count: 180 },
+      { division: "Shaws", value: "$232,438.89", count: 147 },
+    ],
+  },
+  { section: "lost_revenue", region: "South", value: "$232,961.93", count: 395, children: [] },
+];
+const eastGrain = sectionGrainRows(grainLines, "lost_revenue", filters({ region: "East Region" }), []);
+assert.equal(eastGrain.length, 3);
+assert.equal(eastGrain[0].label, "East");
+assert.equal(eastGrain[0].value, "$566,667.32");
+assert.equal(eastGrain[2].label, "Shaws");
+const shawsGrain = sectionGrainRows(grainLines, "lost_revenue", filters({ division: "Shaws" }), []);
+assert.equal(shawsGrain.length, 1);
+assert.equal(shawsGrain[0].value, "$232,438.89");
+assert.equal(
+  sectionGrainRows(grainLines, "lost_revenue", filters({ district: "03" }), eastRoster).length,
+  0,
+);
+assert.match(app, /This pack has no Schedule Check rows/);
+assert.match(app, /text\/html/);
 
 for (const path of walk(join(root, "public"))) {
   const text = readFileSync(path, "utf8");
@@ -287,5 +317,42 @@ const distIndex = readFileSync(join(root, "dist/index.html"), "utf8");
 assert.match(distIndex, /HB-0828\.494/);
 assert.equal(distIndex.includes("pages.dev"), false);
 assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
+
+const dataFiles = [
+  "data/home.json",
+  "data/presub.json",
+  "data/schedule.json",
+  "data/section/lost_revenue.json",
+  "data/section/sales.json",
+  "data/section/five_star.json",
+  "data/section/pick_path.json",
+  "data/section/dynacap.json",
+  "data/section/schedule_quality.json",
+  "data/section/labor.json",
+];
+for (const file of dataFiles) {
+  const text = readFileSync(join(root, "dist", file), "utf8").trim();
+  assert.equal(text.startsWith("<"), false, file);
+  JSON.parse(text);
+}
+const cooked = JSON.parse(readFileSync(join(root, "dist/data/home.json"), "utf8"));
+assert.equal(cooked.publishedAt, "2026-09-30T18:23:22Z");
+assert.ok(cooked.filters.stores.length > 2000);
+const bySection = Object.fromEntries(cooked.summaries.map((item) => [item.section, item.headline]));
+assert.ok(Math.abs(bySection.lost_revenue - 1395864.04) < 1);
+assert.ok(Math.abs(bySection.sales - 37065336.17) < 1);
+assert.equal(bySection.picker_scorecard, 24548);
+assert.ok(bySection.five_star > 0);
+assert.ok(bySection.pick_path > 0);
+assert.ok(bySection.dynacap > 0);
+assert.ok(bySection.schedule_quality > 0);
+assert.ok(bySection.labor != null);
+const eastLoss = cooked.regionLines.find((line) => line.section === "lost_revenue" && line.region === "East");
+assert.equal(eastLoss.value, "$566,667.32");
+assert.ok(eastLoss.children.some((child) => child.division === "Shaws"));
+const schedule = JSON.parse(readFileSync(join(root, "dist/data/schedule.json"), "utf8"));
+assert.equal(schedule.empty, true);
+assert.equal(schedule.stores.length, 0);
+assert.equal(countStores(cooked.filters.stores, filters({ region: "East Region" })), 615);
 
 console.log("web ok");

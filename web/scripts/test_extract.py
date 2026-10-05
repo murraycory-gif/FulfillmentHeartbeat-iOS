@@ -182,6 +182,8 @@ def main() -> None:
         assert loss["headline"] == 869751.99
         lines = home["regionLines"]
         assert lines[0]["region"] == "East" and lines[0]["value"] == "$393,334.12" and lines[0]["count"] == 610
+        assert lines[0]["children"][0]["division"] == "Shaws"
+        assert lines[0]["children"][0]["value"] == "$1.00"
         assert lines[1]["region"] == "South"
         assert all(line["region"] != "Shaws" for line in lines)
         assert not any(line["title"] == "5 Star" for line in lines)
@@ -266,7 +268,11 @@ def absent_schedule_and_item_tab() -> None:
         sales = json.loads((out / "section" / "sales.json").read_text())
         assert home["publishedAt"] == "2026-09-30T18:23:22Z"
         assert home["preSubItemTabPresent"] is False
-        assert not (out / "schedule.json").exists()
+        schedule = json.loads((out / "schedule.json").read_text())
+        assert schedule["empty"] is True
+        assert schedule["stores"] == []
+        assert schedule["markets"] == []
+        assert "9999" not in (out / "schedule.json").read_text()
         loss = next(item for item in home["summaries"] if item["section"] == "lost_revenue")
         company = next(item for item in home["summaries"] if item["section"] == "sales")
         assert loss["headline"] == 1395864.04

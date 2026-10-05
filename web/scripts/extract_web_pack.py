@@ -223,6 +223,26 @@ def region_lines(packs) -> list:
                 count = int(line.get("count") or 0)
             except (TypeError, ValueError):
                 count = 0
+            children = []
+            for child in item.get("children") or []:
+                if not isinstance(child, dict):
+                    continue
+                label = str(child.get("label") or "").strip()
+                child_value = child.get("value")
+                if not label or child_value is None or str(child_value).strip() in {"", "—", "-", "–"}:
+                    continue
+                try:
+                    child_count = int(child.get("count") or 0)
+                except (TypeError, ValueError):
+                    child_count = 0
+                children.append(
+                    {
+                        "division": label,
+                        "value": str(child_value),
+                        "count": child_count,
+                        "health": child.get("health") or "none",
+                    }
+                )
             found.append(
                 {
                     "section": section,
@@ -231,6 +251,7 @@ def region_lines(packs) -> list:
                     "value": str(value),
                     "count": count,
                     "health": line.get("health") or "none",
+                    "children": children,
                 }
             )
         found.sort(key=lambda item: REGION_RANK[item["region"]])
@@ -434,9 +455,9 @@ def extract(sqlite_path: str, out_dir: str) -> None:
     schedule_path = out / "schedule.json"
     if schedule:
         _write(schedule_path, schedule)
-    elif schedule_path.is_file():
-        # A previous extract must not keep stores this pack does not have.
-        schedule_path.unlink()
+    else:
+        # Keep the URL as JSON. An older file must not keep stores this pack lacks.
+        _write(schedule_path, empty_schedule())
     grouped: dict[str, list] = {section: [] for section in SECTIONS}
     for record in latest.values():
         grouped[record["section"]].append(
@@ -475,6 +496,19 @@ def _merge_roster(roster: dict, record: dict, prefer_roster: bool) -> None:
     for field in ("division", "district", "om", "name"):
         if not current[field] and record[field]:
             current[field] = record[field]
+
+
+def empty_schedule() -> dict:
+    return {
+        "publishedAt": "",
+        "week": 0,
+        "filename": "",
+        "summaryTitle": "",
+        "workbookActionBanner": None,
+        "markets": [],
+        "stores": [],
+        "empty": True,
+    }
 
 
 def _item_tab_present(db: sqlite3.Connection, chrome: dict) -> bool:

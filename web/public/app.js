@@ -10,6 +10,7 @@ import {
   finestScope,
   scopeStoreCount,
   regionLineInScope,
+  sectionGrainRows,
   canonicalStore,
 } from "./filters.js";
 import { FIGURE_SECTIONS, packURL } from "./packs.js";
@@ -157,11 +158,14 @@ async function load(path) {
   const url = packURL(path);
   if (!url) throw new Error("NO DATA");
   const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
-  if (!response.ok) throw new Error("NO DATA");
+  const type = (response.headers.get("content-type") || "").toLowerCase();
+  if (!response.ok || type.includes("text/html")) throw new Error("NO DATA");
   const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith("<")) throw new Error("NO DATA");
   let data;
   try {
-    data = JSON.parse(text);
+    data = JSON.parse(trimmed);
   } catch {
     throw new Error("NO DATA");
   }
@@ -212,7 +216,7 @@ function companyBlock(section) {
   if (!summary && !tiles) return `<p class="nodata">NO DATA</p>`;
   const health = summary ? summary.health : "none";
   const figure =
-    summary && FIGURE_SECTIONS.has(section)
+    summary && summary.headline != null && summary.headline !== ""
       ? `<p class="figure">${esc(formatHeadline(section, summary.headline))}</p>`
       : "";
   const secondary = summary && summary.secondary ? `<p class="note">${esc(summary.secondary)}</p>` : "";
@@ -263,6 +267,23 @@ function visibleRegionLines() {
   return lines.filter((line) => regionLineInScope(line, state.filters, roster()));
 }
 
+function grainBlock(section) {
+  const rows = sectionGrainRows(
+    (state.home && state.home.regionLines) || [],
+    section,
+    state.filters,
+    roster(),
+  );
+  if (!rows.length) return "";
+  const body = rows
+    .map(
+      (row) =>
+        `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${esc(row.label)}</td><td>${esc(row.value)}</td><td>${esc(row.count)}</td></tr>`,
+    )
+    .join("");
+  return `<section class="grain"><h2>${filtersActive(state.filters) ? esc(scopeLabel(state.filters)) : "Regions"}</h2><div class="scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div></section>`;
+}
+
 function regionProof() {
   const lines = visibleRegionLines();
   const note = filtersActive(state.filters) && !lines.length ? `<p class="note">No rows in this scope.</p>` : "";
@@ -294,7 +315,7 @@ function renderPicker() {
       main.innerHTML = `<p class="nodata">NO DATA</p>`;
       return;
     }
-    main.innerHTML = `${companyBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
+    main.innerHTML = `${companyBlock("picker_scorecard")}${grainBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
     return;
   }
   const health = roll.risk > 0 ? "risk" : roll.watch > 0 ? "watch" : roll.healthy > 0 ? "good" : "none";
@@ -307,7 +328,7 @@ function renderPicker() {
     .map(([label, value]) => `<div class="tile"><span>${label}</span><strong>${esc(value)}</strong></div>`)
     .join("");
   const scope = `<p class="scope">${esc(scopeLabel(state.filters))}${filtersActive(state.filters) ? ` · In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores` : ""}</p>`;
-  main.innerHTML = `${badge(health)}${note}${scope}<div class="tiles">${tiles}</div><p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
+  main.innerHTML = `${badge(health)}${companyBlock("picker_scorecard")}${scope}<div class="tiles">${tiles}</div>${grainBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
 }
 
 function pickerRoll(home, filters) {
@@ -372,16 +393,17 @@ function scheduleTabs() {
     .join("");
 }
 
+function scheduleIsEmpty(pack) {
+  if (!pack || pack.empty) return true;
+  const stores = Array.isArray(pack.stores) ? pack.stores : [];
+  const markets = Array.isArray(pack.markets) ? pack.markets : [];
+  return stores.length === 0 && markets.length === 0;
+}
+
 function renderSchedule(pack) {
   const tabs = `<div class="seg">${scheduleTabs()}</div>`;
-  if (!pack) {
-    const empty =
-      state.scheduleTab === "summary"
-        ? "No market rows in this upload."
-        : state.scheduleTab === "detail"
-          ? "No stores in this scope."
-          : "No stores qualify in this scope.";
-    main.innerHTML = `${tabs}<p class="note">${empty}</p>`;
+  if (scheduleIsEmpty(pack)) {
+    main.innerHTML = `${tabs}<p class="note">This pack has no Schedule Check rows.</p>`;
     return;
   }
   const card = scheduleSummary(pack, state.filters);
@@ -527,7 +549,7 @@ async function render() {
   const storeTable = missing
     ? `<p class="note">Store rows are not in this upload.</p>`
     : table(page.section, rows);
-  main.innerHTML = `${companyBlock(page.section)}${extra}${storeTable}`;
+  main.innerHTML = `${companyBlock(page.section)}${grainBlock(page.section)}${extra}${storeTable}`;
 }
 
 function closeDrawer() {
