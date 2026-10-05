@@ -79,17 +79,8 @@ export function scheduleVisibleTitle(title, week) {
   return text.replace(/Week\s*\d+/gi, `Week ${cooked}`).replace(/WK\s*\d+/gi, `WK${cooked}`);
 }
 
-// Device roster omits these. Leaving them in makes South 397 against the roster's 395.
-const ROSTER_OMIT = new Set(["210", "239"]);
-
-function rosterOmitsStore(store) {
-  const digits = String((store && store.store) || "").replace(/\D/g, "");
-  if (!digits) return false;
-  return ROSTER_OMIT.has(String(Number(digits)));
-}
-
 export function scopedStores(pack, filters, roster) {
-  return (pack.stores || []).filter((store) => !rosterOmitsStore(store) && includesScope(store, filters, roster));
+  return (pack.stores || []).filter((store) => includesScope(store, filters, roster));
 }
 
 function measuredStores(rows) {

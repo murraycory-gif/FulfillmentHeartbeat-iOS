@@ -165,7 +165,9 @@ def is_total_store(store: str) -> bool:
     return str(store or "").strip().upper() == "TOTAL"
 
 
-# Device roster omits these. Counting them makes South 397 against the roster's 395.
+# The site roster follows the device list (South 395). The WK32 schedule workbook
+# also has store 210 (United, U5) and store 239 (Southwest, N0). Those stay on
+# the schedule pack and are not added to the roster.
 ROSTER_OMIT = {"210", "239"}
 
 
@@ -1024,9 +1026,6 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         _fill_schedule_roster(schedule, roster)
         clear_blank_schedule(schedule)
         schedule["summaryTitle"] = schedule_summary_title(schedule.get("summaryTitle") or "", schedule.get("week") or 0)
-        stores = schedule.get("stores")
-        if isinstance(stores, list):
-            schedule["stores"] = [store for store in stores if not roster_omits(store.get("store"))]
         _write(schedule_path, schedule)
     else:
         # Keep the URL as JSON. An older file must not keep stores this pack lacks.

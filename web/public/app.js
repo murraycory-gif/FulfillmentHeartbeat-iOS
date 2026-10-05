@@ -904,7 +904,7 @@ function scheduleSummaryHtml(pack, card) {
     ["Sch Eff", schedulePct(card.eff, blankCard), blankCard ? "" : effHealth(card.eff, false)],
     ["Any under", num(card.underCount, 0), ""],
     ["Any over", num(card.overCount, 0), ""],
-    ["Stores", num(card.scope, 0), ""],
+    ["Schedule stores", num(card.scope, 0), ""],
   ]
     .map(
       ([label, value, health]) =>
@@ -927,25 +927,25 @@ function scheduleSummaryHtml(pack, card) {
   const regionCards = rankedRegions(pack, state.filters, roster())
     .map(
       (row) =>
-        `<li class="line-card"><div><p class="eyebrow">Region</p><p class="line-title">${esc(row.region)}</p></div><div class="line-value"><strong>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))} eff</strong><span>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))} under · ${esc(schedulePct(row.over, scheduleMetricsBlank(row)))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
+        `<li class="line-card"><div><p class="eyebrow">Region</p><p class="line-title">${esc(row.region)}</p></div><div class="line-value"><strong>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))} eff</strong><span>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))} under · ${esc(schedulePct(row.over, scheduleMetricsBlank(row)))} over · ${esc(num(row.scope, 0))} schedule stores</span></div></li>`,
     )
     .join("");
   const divisionCards = rankedDivisions(pack, state.filters, roster())
     .map(
       (row) =>
-        `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))} eff</strong><span>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))} under · ${esc(schedulePct(row.over, scheduleMetricsBlank(row)))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
+        `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))} eff</strong><span>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))} under · ${esc(schedulePct(row.over, scheduleMetricsBlank(row)))} over · ${esc(num(row.scope, 0))} schedule stores</span></div></li>`,
     )
     .join("");
-  return `<div class="tiles">${kpis}</div><p class="note">Any under: stores on this week above 0% under. Not the review list, and not Schedule Quality’s stores under above 5%.</p>${market ? `<p class="note">${esc(market)}</p>` : ""}<h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
+  return `<div class="tiles">${kpis}</div><p class="note">Any under: stores on this week above 0% under. Not the review list, and not Schedule Quality’s stores under above 5%. Schedule stores follow the workbook, not the site roster.</p>${market ? `<p class="note">${esc(market)}</p>` : ""}<h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Schedule stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Schedule stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
 }
 
 function scheduleDetailHtml(pack) {
   const matched = (pack.stores || []).filter((store) => includesScope(store, state.filters, roster()));
-  if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
+  if (!matched.length) return `<p class="note">No schedule stores in this scope.</p>`;
   const rows = matched.slice(0, state.tableWindow);
   const more =
     matched.length > rows.length
-      ? `<p class="note">${num(rows.length, 0)} of ${num(matched.length, 0)} stores</p><button type="button" class="more" data-more="1">Show more</button>`
+      ? `<p class="note">${num(rows.length, 0)} of ${num(matched.length, 0)} schedule stores</p><button type="button" class="more" data-more="1">Show more</button>`
       : "";
   const body = rows
     .map((store) => {
