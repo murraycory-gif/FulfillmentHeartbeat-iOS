@@ -3805,6 +3805,11 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(untouched.first?.values.first, "$393,334.12")
         XCTAssertEqual(untouched.first?.storeCount, 610)
+        let one = store("117", "Shaws", 200, 4.0, 5_000)
+        let reported = HeartbeatMath.lostRevenueReportedPct([one])
+        XCTAssertEqual(reported ?? 0, 4, accuracy: 0.05)
+        XCTAssertGreaterThan(reported ?? 0, 1, "Lost % stays in sheet percent units, not dollars/sales")
+        XCTAssertNotEqual(reported ?? 0, 0.04, accuracy: 0.0001)
     }
 
     /// Sales keeps the cooked dollar and 615 stores, and fills YoY and orders
@@ -3859,6 +3864,21 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertTrue(loss.contains("fillingDashCellsKeepingCount"))
         XCTAssertTrue(loss.contains("dashFillRows(for: .lostRevenue)"))
+        XCTAssertTrue(loss.contains("lostRevenueReportedPct"))
+        let storeSrc = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSrc.contains("func ensureDashFill"))
+        XCTAssertTrue(storeSrc.contains("packGrainStamp"))
+        XCTAssertTrue(storeSrc.contains(#"textNeedle: "\"sales_grain\":\"company\"""#))
+        XCTAssertFalse(storeSrc.contains("func grainFacts"))
+        let labor = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/WorkbookParser.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(labor.contains("SheetXML.colLetter(idxStore)"))
+        XCTAssertFalse(labor.contains("colLetter(max(idxStore, 4))"))
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {

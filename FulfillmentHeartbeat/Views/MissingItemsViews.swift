@@ -1075,6 +1075,7 @@ struct MissingItemsRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
         .onChange(of: depts.count) { _, _ in rebuild() }
         .onChange(of: section) { _, _ in rebuild() }
     }
@@ -1177,7 +1178,11 @@ struct MissingItemsRollupTable: View {
             applyCurrentSort()
             return
         }
-        let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
+        let pack = store.scopedPackRows(for: section)
+        let source = MissingItemsRollupBuilder.source(
+            from: pack.isEmpty ? store.rollupStores(for: section) : pack,
+            filters: store.filters
+        )
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .region {

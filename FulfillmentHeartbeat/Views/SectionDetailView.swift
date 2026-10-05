@@ -1111,7 +1111,7 @@ struct PhoneSectionPage: View {
 
     private var heavyToken: String {
         let cats = miCategories.map(\.rawValue).sorted().joined(separator: ",")
-        return "\(section.rawValue)|\(store.phonePaintToken)|\(storeLimit)|\(pickerLimit)|\(itemLimit)|\(openShopper ?? "")|\(cats)"
+        return "\(section.rawValue)|\(store.phonePaintToken)|\(store.packGrainStamp)|\(storeLimit)|\(pickerLimit)|\(itemLimit)|\(openShopper ?? "")|\(cats)"
     }
 
     var body: some View {
@@ -1306,7 +1306,8 @@ struct PhoneSectionPage: View {
 
     @ViewBuilder
     private var salesWeekAndDays: some View {
-        let stores = store.salesStores()
+        let pack = store.scopedPackRows(for: .sales)
+        let stores = pack.isEmpty ? store.salesStores() : pack
         let company = store.filters.isActive ? nil : store.salesCompanyFact()
         let total = SalesPack(company: company, stores: stores)
         PhoneSectionHeading(title: "This week")
@@ -1433,10 +1434,20 @@ struct PhoneSectionPage: View {
     }
 
     private func salesGrainRows(for grain: DashScopeGrain) -> [SalesRollupRow] {
-        var rows = SalesRollupBuilder.rows(
-            from: store.rollupStores(for: .sales),
-            grain: LaborRollupGrain(grain)
+        let pack = store.scopedPackRows(for: .sales)
+        let source = pack.isEmpty ? store.rollupStores(for: .sales) : pack
+        var rows = SalesRollupBuilder.dashboardRows(
+            from: source,
+            grain: grain,
+            chrome: store.dashboardGrainRows(for: .sales, grain: grain)
         )
+        let chrome = SalesRollupBuilder.rowsFromChrome(
+            store.dashboardGrainRows(for: .sales, grain: grain),
+            grain: grain
+        )
+        if !chrome.isEmpty {
+            rows = SalesRollupBuilder.keepingChromeHeadline(chrome, filling: rows, grain: grain)
+        }
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         return rows
     }

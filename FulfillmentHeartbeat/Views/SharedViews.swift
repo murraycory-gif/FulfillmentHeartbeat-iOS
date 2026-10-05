@@ -7836,11 +7836,6 @@ private enum LostRevenueMath {
         return values.isEmpty ? nil : values.reduce(0, +)
     }
 
-    static func ratio(_ dollars: Double?, _ sales: Double?) -> Double? {
-        guard let dollars, let sales, sales > 0 else { return nil }
-        return dollars / sales
-    }
-
     static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {
         let stores = HeartbeatMath.lostRevenueStoreRows(rows)
         let sales = optionalTO(rows, "ecomm_sales")
@@ -7851,9 +7846,7 @@ private enum LostRevenueMath {
             label: "",
             storeCount: stores.count,
             lost: lost,
-            pct: market?.number("lost_revenue_pct")
-                ?? ratio(lost, sales)
-                ?? HeartbeatMath.average(stores.compactMap { $0.number("lost_revenue_pct") }),
+            pct: HeartbeatMath.lostRevenueReportedPct(rows),
             goal: HeartbeatMath.lostRevenueInheritedGoalPct(rows: rows, fallback: fallbackGoal),
             sales: sales,
             post: optionalTO(rows, "post_sub_oos_foregone"),
@@ -8293,18 +8286,25 @@ struct LostRevenueRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
         let next = forcedGrain ?? LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
+        let packFacts = LostRevenueRollupBuilder.source(
+            from: store.scopedPackRows(for: .lostRevenue),
+            filters: store.filters
+        )
         if var chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
             if HeartbeatMath.grainTableNeedsColumnFill(chrome, section: .lostRevenue) {
-                let facts = LostRevenueRollupBuilder.source(
-                    from: store.dashFillRows(for: .lostRevenue),
-                    filters: store.filters
-                )
+                let facts = packFacts.isEmpty
+                    ? LostRevenueRollupBuilder.source(
+                        from: store.dashFillRows(for: .lostRevenue),
+                        filters: store.filters
+                    )
+                    : packFacts
                 let goal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
                 chrome = HeartbeatMath.fillingDashCellsKeepingCount(
                     chrome,
@@ -8331,7 +8331,9 @@ struct LostRevenueRollupTable: View {
             applyCurrentSort()
             return
         }
-        let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
+        let source = packFacts.isEmpty
+            ? LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
+            : packFacts
         let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }

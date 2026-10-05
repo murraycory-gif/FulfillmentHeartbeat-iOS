@@ -158,15 +158,13 @@ final class HeartbeatStore: ObservableObject {
     /// Scope key → cooked top 10. Filled one card at a time. Never the item plane.
     /// Prep reported vs in-scope from the open pack. Nil until chrome is applied.
     private(set) var prepUploadedCoverage: HeartbeatMath.PrepCoverage?
-    /// Section payloads for region columns. Not `latestBySection`. Cleared with chrome.
-    private var grainFactCache: [MetricSection: [PulseSQLite.GrainFact]] = [:]
-    private var grainFactPackPath: String = ""
-    /// Department keys only, keyed by store. Not the fact plane.
-    private var deptPayloadCache: [MetricSection: [String: (division: String, numbers: [String: Double])]] = [:]
-    private var deptPayloadPackPath: String = ""
     /// Section facts used only to fill dash cells beside a cooked headline. Not the fact plane.
     private var dashFillCache: [MetricSection: [MetricRow]] = [:]
     private var dashFillPackPath: String = ""
+    /// One `sales_grain=company` row. Not the store plane.
+    private var companySalesPackRow: MetricRow?
+    /// Bumps once when a section's pack rows land, so open pages repaint.
+    @Published private(set) var packGrainStamp: Int = 0
     private var preSubTopCache: [String: [PreSubTopItems.Item]] = [:]
     private var preSubTopCacheURL: String = ""
     private var companySeatChrome: PulseDashChrome?
@@ -205,7 +203,10 @@ final class HeartbeatStore: ObservableObject {
         ]
         for url in candidates {
             guard seen.insert(url.path).inserted else { continue }
-            if let pack = PulseSQLite.readSchedule(from: url) {
+            let pack = await Task.detached(priority: .userInitiated) { () -> ScheduleCheckPack? in
+                PulseSQLite.readSchedule(from: url)
+            }.value
+            if let pack {
                 scheduleCheck = pack
                 return
             }
@@ -671,14 +672,27 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func salesCompanyFact() -> MetricRow? {
+        if let pack = companySalesPackRow, HeartbeatMath.salesHeadlineDollars(pack) > 0 {
+            return pack
+        }
+        if let hit = dashFillRows(for: .sales).first(where: {
+            $0.textPayload["sales_grain"] == "company" && HeartbeatMath.salesHeadlineDollars($0) > 0
+        }) {
+            return hit
+        }
         if let pinned = companyRollupFact(.sales),
-           HeartbeatMath.salesHeadlineDollars(pinned) > 0 {
+           HeartbeatMath.salesHeadlineDollars(pinned) > 0,
+           pinned.number("sales_yoy_pct") != nil {
             return pinned
         }
         touchResidentFacts()
         let pool = (latestBySection[.sales] ?? []) + rows.filter { $0.section == .sales }
         if let hit = pool.first(where: { $0.textPayload["sales_grain"] == "company" }) {
             return hit
+        }
+        if let pinned = companyRollupFact(.sales),
+           HeartbeatMath.salesHeadlineDollars(pinned) > 0 {
+            return pinned
         }
         return pool.first {
             HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
@@ -863,33 +877,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func grainMetricRows(for section: MetricSection) -> [MetricRow] {
-        let rows = grainFacts(for: section).map { fact in
-            MetricRow(
-                section: section,
-                division: fact.division,
-                operationsOM: "",
-                storeNumber: fact.store,
-                payload: fact.numbers,
-                textPayload: fact.text
-            )
-        }
-        return HeartbeatMath.rowsFillingRoster(rows, roster: roster)
-    }
-
-    private func grainFacts(for section: MetricSection) -> [PulseSQLite.GrainFact] {
-        if companyChromeAlreadyHasSection(section) {
-            grainFactCache[section] = nil
-            return []
-        }
-        let path = activePackURL.path
-        if grainFactPackPath != path {
-            grainFactPackPath = path
-            grainFactCache = [:]
-        }
-        if let hit = grainFactCache[section] { return hit }
-        let rows = PulseSQLite.readGrainFacts(from: activePackURL, section: section)
-        grainFactCache[section] = rows
-        return rows
+        if companyChromeAlreadyHasSection(section) { return [] }
+        return dashFillRows(for: section)
     }
 
     /// Region and division department cells. Chrome keeps the rate. This fills
@@ -898,18 +887,15 @@ final class HeartbeatStore: ObservableObject {
         section: MetricSection,
         grain: DashScopeGrain
     ) -> [String: [String: Double]] {
-        let facts = departmentPayloads(section: section)
+        let facts = scopedPackRows(for: section)
         guard !facts.isEmpty else { return [:] }
-        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
         var sums: [String: [String: Double]] = [:]
         var counts: [String: [String: Int]] = [:]
-        for (store, fact) in facts {
-            let number = HeartbeatMath.canonicalStore(store)
-            guard !number.isEmpty, !HeartbeatMath.isIgnoredStore(number) else { continue }
-            if let allowed, !allowed.contains(number) { continue }
-            let identity = roster[number]
-            let divisionName = (identity?.division.isEmpty == false ? identity?.division : nil) ?? fact.division
-            let district = identity?.district ?? ""
+        for row in facts {
+            let number = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !number.isEmpty else { continue }
+            let divisionName = row.division
+            let district = row.textPayload["district"] ?? row.district
             let label: String?
             switch grain {
             case .region:
@@ -926,7 +912,7 @@ final class HeartbeatStore: ObservableObject {
             guard let label else { continue }
             var rowSums = sums[label] ?? [:]
             var rowCounts = counts[label] ?? [:]
-            for (key, value) in fact.numbers {
+            for (key, value) in row.payload {
                 rowSums[key, default: 0] += value
                 rowCounts[key, default: 0] += 1
             }
@@ -945,52 +931,158 @@ final class HeartbeatStore: ObservableObject {
         return averages
     }
 
-    /// Store rows for one section, even when chrome already has the headline.
-    /// `grainFacts` stays empty in that case so the company card does not keep a second plane.
-    /// Loss and Sales call this to fill the dash cells next to a passing dollar.
+    /// Store rows already read for this pack. Empty until `ensureDashFill` finishes.
+    /// Never opens sqlite on the caller — that read stays off the main thread.
     func dashFillRows(for section: MetricSection) -> [MetricRow] {
         let path = activePackURL.path
         if dashFillPackPath != path {
             dashFillPackPath = path
             dashFillCache = [:]
+            companySalesPackRow = nil
         }
-        if let hit = dashFillCache[section] { return hit }
-        let facts = PulseSQLite.readGrainFacts(from: activePackURL, section: section)
-        let rows = facts.map { fact in
-            MetricRow(
+        return dashFillCache[section] ?? []
+    }
+
+    /// Pack rows for the open filter. Company and market totals stay out of a region rollup.
+    func scopedPackRows(for section: MetricSection) -> [MetricRow] {
+        let cached = dashFillRows(for: section)
+        guard !cached.isEmpty else { return [] }
+        if section == .sales {
+            return SalesRollupBuilder.source(from: cached, filters: filters, roster: roster)
+        }
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        return cached.filter { row in
+            if section == .lostRevenue, row.textPayload["lost_grain"] == "market" { return false }
+            if section == .labor, row.textPayload["labor_grain"] == "market" { return false }
+            if row.textPayload["sales_grain"] == "company" || row.textPayload["sales_grain"] == "day" { return false }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { return false }
+            if let allowed { return allowed.contains(store) }
+            return true
+        }
+    }
+
+    /// One section's fact rows from the open sqlite. Company pages call this instead of
+    /// leaving the body blank when chrome has no grain table.
+    func ensureDashFill(for section: MetricSection) async {
+        let path = activePackURL.path
+        if dashFillPackPath == path, dashFillCache[section] != nil { return }
+        let url = activePackURL
+        let rows = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+            PulseSQLite.readGrainFacts(from: url, section: section).map { fact in
+                MetricRow(
+                    section: section,
+                    division: fact.division,
+                    operationsOM: "",
+                    storeNumber: fact.store,
+                    payload: fact.numbers,
+                    textPayload: fact.text
+                )
+            }
+        }.value
+        guard !Task.isCancelled, activePackURL.path == path else { return }
+        if dashFillPackPath != path {
+            dashFillPackPath = path
+            dashFillCache = [:]
+            companySalesPackRow = nil
+        }
+        let filled = HeartbeatMath.rowsFillingRoster(rows, roster: roster)
+        dashFillCache[section] = filled
+        if section == .sales,
+           let company = filled.first(where: {
+               $0.textPayload["sales_grain"] == "company" && HeartbeatMath.salesHeadlineDollars($0) > 0
+           }) {
+            companySalesPackRow = company
+            if !filters.isActive { pinCompanyCommandCenterChrome() }
+        }
+        if section == .missingItems || section == .preSubOOS || section == .lostRevenue {
+            await installPackGrainTable(section: section, rows: scopedPackRows(for: section))
+        }
+        packGrainStamp &+= 1
+    }
+
+    /// Dashboard expand reads `cachedGrainTables`. When chrome already has the
+    /// headline, keep that cell and the store count and fill the dashed columns
+    /// from these rows. Sales stays on the chrome dollar merge. A pack with no
+    /// grain line is built from the rows.
+    private func installPackGrainTable(section: MetricSection, rows: [MetricRow]) async {
+        guard section == .missingItems || section == .preSubOOS || section == .lostRevenue else { return }
+        guard !rows.isEmpty else { return }
+        let grain = effectiveDashboardGrain
+        if let cached = cachedGrainTables[section],
+           HeartbeatMath.grainRowsAreLive(cached),
+           PulseLaunch.grainMatchesSeat(cached, filters: filters, grain: grain),
+           !HeartbeatMath.grainTableNeedsColumnFill(cached, section: section) {
+            return
+        }
+        let chrome = chromeGrainRows(section: section, grain: grain) ?? []
+        if HeartbeatMath.grainRowsAreLive(chrome),
+           !HeartbeatMath.grainTableNeedsColumnFill(chrome, section: section) {
+            return
+        }
+        let goal = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
+        let table = await Task.detached(priority: .userInitiated) {
+            if HeartbeatMath.grainRowsAreLive(chrome),
+               HeartbeatMath.grainTableNeedsColumnFill(chrome, section: section) {
+                return HeartbeatMath.fillingDashCellsKeepingCount(
+                    chrome,
+                    section: section,
+                    metricRows: rows,
+                    grain: grain,
+                    goalFallback: goal
+                )
+            }
+            let order: [String]
+            switch grain {
+            case .region:
+                order = MarketRegion.allCases.map(\.rawValue)
+            case .division:
+                order = MarketRegion.officialDivisions
+            case .district, .store:
+                order = []
+            }
+            return HeartbeatMath.dashboardGrainTable(
                 section: section,
+                rows: rows,
+                grain: grain,
+                order: order,
+                goalFallback: goal
+            )
+        }.value
+        guard !Task.isCancelled, HeartbeatMath.grainRowsAreLive(table) else { return }
+        cachedGrainTables[section] = cappedGrainTable(table)
+    }
+
+    /// Company Sales dollars and YoY from the one pack total row. Does not decode store facts.
+    func ensureCompanySalesYoY() async {
+        if companySalesPackRow != nil { return }
+        if salesCompanyFact()?.number("sales_yoy_pct") != nil { return }
+        let url = activePackURL
+        let path = url.path
+        let row = await Task.detached(priority: .userInitiated) { () -> MetricRow? in
+            guard let fact = PulseSQLite.readGrainFact(
+                from: url,
+                section: .sales,
+                textNeedle: "\"sales_grain\":\"company\""
+            ) else { return nil }
+            return MetricRow(
+                section: .sales,
                 division: fact.division,
                 operationsOM: "",
                 storeNumber: fact.store,
                 payload: fact.numbers,
                 textPayload: fact.text
             )
-        }
-        let filled = HeartbeatMath.rowsFillingRoster(rows, roster: roster)
-        dashFillCache[section] = filled
-        return filled
+        }.value
+        guard !Task.isCancelled, activePackURL.path == path, let row else { return }
+        guard HeartbeatMath.salesHeadlineDollars(row) > 0 else { return }
+        companySalesPackRow = row
+        if !filters.isActive { pinCompanyCommandCenterChrome() }
+        packGrainStamp &+= 1
     }
 
     func chromeScopePacks(for section: MetricSection) -> [DashScopePack] {
         packChrome?.packs[section.rawValue] ?? cachedGrainPacks[section] ?? []
-    }
-
-    private func departmentPayloads(
-        section: MetricSection
-    ) -> [String: (division: String, numbers: [String: Double])] {
-        let path = activePackURL.path
-        if deptPayloadPackPath != path {
-            deptPayloadPackPath = path
-            deptPayloadCache = [:]
-        }
-        if let hit = deptPayloadCache[section] { return hit }
-        let rows = PulseSQLite.departmentPayloads(
-            from: activePackURL,
-            section: section,
-            keys: MissingItemDept.allCases.map(\.rawValue) + [MissingItemDept.totalKey]
-        )
-        deptPayloadCache[section] = rows
-        return rows
     }
 
     /// Company pages already have the section number in chrome. Do not decode
@@ -1557,21 +1649,33 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func salesExpandRows() -> [SalesRollupRow] {
-        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
+        if salesScopeHasSideMetrics(cachedSalesScopeRows) {
             return cachedSalesScopeRows
         }
-        let chrome = dashboardGrainRows(for: .sales)
-        let built = SalesRollupBuilder.dashboardRows(
-            from: SalesRollupBuilder.source(
-                from: rollupStores(for: .sales),
-                filters: filters,
-                roster: roster
-            ),
-            grain: effectiveDashboardGrain,
-            chrome: chrome
-        )
+        let grain = effectiveDashboardGrain
+        let chrome = dashboardGrainRows(for: .sales, grain: grain)
+        let pack = scopedPackRows(for: .sales)
+        let source = pack.isEmpty
+            ? SalesRollupBuilder.source(from: rollupStores(for: .sales), filters: filters, roster: roster)
+            : pack
+        var built = SalesRollupBuilder.dashboardRows(from: source, grain: grain, chrome: chrome)
+        let chromeRows = SalesRollupBuilder.rowsFromChrome(chrome, grain: grain)
+        if !chromeRows.isEmpty {
+            built = SalesRollupBuilder.keepingChromeHeadline(
+                chromeRows,
+                filling: built,
+                grain: grain
+            )
+        }
+        if salesScopeHasSideMetrics(built) {
+            cachedSalesScopeRows = built
+        }
         if PulseLaunch.salesExpandIsLive(built) { return built }
         return cachedSalesScopeRows
+    }
+
+    private func salesScopeHasSideMetrics(_ rows: [SalesRollupRow]) -> Bool {
+        rows.contains { ($0.pack.sales ?? 0) > 0 && ($0.pack.yoy != nil || ($0.pack.orders ?? 0) > 0) }
     }
 
     func salesExpandIsLive() -> Bool {
@@ -6843,12 +6947,9 @@ final class HeartbeatStore: ObservableObject {
     private func applyDashChrome(_ chrome: PulseDashChrome, packURL: URL? = nil) {
         preSubTopCache = [:]
         preSubTopCacheURL = ""
-        grainFactCache = [:]
-        grainFactPackPath = ""
-        deptPayloadCache = [:]
-        deptPayloadPackPath = ""
         dashFillCache = [:]
         dashFillPackPath = ""
+        companySalesPackRow = nil
         let coverageURL = packURL ?? activePackURL
         prepUploadedCoverage = PulseSQLite.prepCoverage(from: coverageURL)
         packChrome = chrome
@@ -6933,6 +7034,9 @@ final class HeartbeatStore: ObservableObject {
                 cachedSummaries[index].salesYoyPct = company.number("sales_yoy_pct")
                     ?? cachedSummaries[index].salesYoyPct
             }
+        }
+        if companySalesPackRow == nil, salesCompanyFact()?.number("sales_yoy_pct") == nil {
+            Task { await ensureCompanySalesYoY() }
         }
         applyPrepCoverageGate()
     }
@@ -7647,6 +7751,7 @@ final class HeartbeatStore: ObservableObject {
     private func ensureSectionWarehouse(_ section: MetricSection) async {
         if Task.isCancelled { return }
         if PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: filters.isActive) == .chromeRollup {
+            await ensureDashFill(for: section)
             noteResidentMemory(section.rawValue)
             return
         }

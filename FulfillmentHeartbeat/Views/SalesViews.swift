@@ -777,6 +777,7 @@ struct SalesRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func applySort(_ key: String) {
@@ -795,21 +796,20 @@ struct SalesRollupTable: View {
         case .district: dashGrain = .district
         case .store: dashGrain = .store
         }
-        var rows = SalesRollupBuilder.dashboardRows(
-            from: SalesRollupBuilder.source(from: store.rollupStores(for: .sales), filters: store.filters),
-            grain: dashGrain,
-            chrome: store.dashboardGrainRows(for: .sales, grain: dashGrain)
+        let cached = store.dashFillRows(for: .sales)
+        let sourceRows = SalesRollupBuilder.source(
+            from: cached.isEmpty ? store.rollupStores(for: .sales) : cached,
+            filters: store.filters
         )
-        let sparse = rows.contains { ($0.pack.sales ?? 0) > 0 && $0.pack.yoy == nil && $0.pack.orders == nil }
-        if sparse {
-            let facts = SalesRollupBuilder.source(
-                from: store.dashFillRows(for: .sales),
-                filters: store.filters
-            )
-            let built = SalesRollupBuilder.dashboardRows(from: facts, grain: dashGrain)
-            if PulseLaunch.salesExpandIsLive(built) {
-                rows = SalesRollupBuilder.keepingChromeHeadline(rows, filling: built, grain: dashGrain)
-            }
+        let chromeTable = store.dashboardGrainRows(for: .sales, grain: dashGrain)
+        var rows = SalesRollupBuilder.dashboardRows(
+            from: sourceRows,
+            grain: dashGrain,
+            chrome: chromeTable
+        )
+        let chromeRows = SalesRollupBuilder.rowsFromChrome(chromeTable, grain: dashGrain)
+        if !chromeRows.isEmpty {
+            rows = SalesRollupBuilder.keepingChromeHeadline(chromeRows, filling: rows, grain: dashGrain)
         }
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         rows.sort { lhs, rhs in

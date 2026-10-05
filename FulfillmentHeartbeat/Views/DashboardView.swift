@@ -479,23 +479,48 @@ struct DashScopeStrip: View {
     let packs: [DashScopePack]
     @State private var expanded = false
 
+    /// Missing, Pre-Sub, Loss, and Sales chrome can be dollars-only or empty.
+    /// A tap reads that section from sqlite. Other cards stay inert until live.
+    private var canFillFromPack: Bool {
+        switch section {
+        case .sales, .missingItems, .preSubOOS, .lostRevenue: return true
+        default: return false
+        }
+    }
+
     private var expandLive: Bool { store.dashboardExpandIsLive(section) }
-    private var salesRows: [SalesRollupRow] { store.salesExpandRows() }
+    private var salesRows: [SalesRollupRow] {
+        _ = store.packGrainStamp
+        return store.salesExpandRows()
+    }
     private var dayRows: [SalesRollupRow] { store.cachedSalesDayRows }
     private var grainRows: [HeartbeatMath.DashboardGrainTableRow] {
-        store.dashboardGrainRows(for: section)
+        _ = store.packGrainStamp
+        return store.dashboardGrainRows(for: section)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded && expandLive ? 10 : 8) {
             Button {
-                // Inert until live caches exist. Toggle only — never cook on
-                // the gesture thread and never bump filterStamp.
-                guard expandLive else { return }
-                var txn = Transaction()
-                txn.animation = nil
-                withTransaction(txn) {
-                    expanded.toggle()
+                // Toggle only — never cook on the gesture thread and never bump filterStamp.
+                // A pack section that is still dashes loads sqlite, then opens.
+                if expandLive {
+                    var txn = Transaction()
+                    txn.animation = nil
+                    withTransaction(txn) {
+                        expanded.toggle()
+                    }
+                    if expanded {
+                        Task { await store.ensureDashFill(for: section) }
+                    }
+                    return
+                }
+                guard canFillFromPack, !expanded else { return }
+                Task {
+                    await store.ensureDashFill(for: section)
+                    if store.dashboardExpandIsLive(section) {
+                        expanded = true
+                    }
                 }
             } label: {
                 HStack(spacing: 8) {
@@ -513,7 +538,7 @@ struct DashScopeStrip: View {
                     Spacer(minLength: 8)
                     Image(systemName: expandLive && expanded ? "chevron.up" : "chevron.down")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.white.opacity(expandLive ? 1 : 0.45))
+                        .foregroundStyle(Color.white.opacity(expandLive || canFillFromPack ? 1 : 0.45))
                 }
                 .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 10 : 14)
                 .padding(.vertical, HubLayout.isPhone(sizeClass) ? 8 : 10)
@@ -521,8 +546,8 @@ struct DashScopeStrip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!expandLive)
-            .allowsHitTesting(expandLive)
+            .disabled(!expandLive && !canFillFromPack)
+            .allowsHitTesting(expandLive || canFillFromPack)
             if expanded && expandLive {
                 expandedTables
             }
