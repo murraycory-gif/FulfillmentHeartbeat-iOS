@@ -198,11 +198,34 @@ export function districtKeys(raw) {
   return keys;
 }
 
-// Schedule Quality rows keep the sheet label (H1…). The column shows the roster district (A1).
+// Schedule Quality keeps a sheet code (H1, or 88 for A9). The column uses the
+// roster code plus the sheet's district name: A1 NE PHILA SUBURB, not H1….
+function sheetLead(label) {
+  return String(label || "").trim().split(/\s+/)[0] || "";
+}
+
+function sheetDistrictName(label) {
+  const parts = String(label || "").trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(" ") : "";
+}
+
+function sameRosterDistrict(roster, lead) {
+  if (!roster || !lead || roster === lead) return roster === lead;
+  const rosterCode = roster.toUpperCase();
+  const sheetCode = lead.toUpperCase();
+  const rosterAcme = rosterCode.match(/^A(\d)$/);
+  const sheetAcme = sheetCode.match(/^H(\d)$/);
+  if (rosterAcme && sheetAcme && rosterAcme[1] === sheetAcme[1]) return true;
+  return rosterCode === "A9" && sheetCode === "88";
+}
+
 export function shownDistrict(section, rowDistrict, rosterDistrict) {
   const roster = String(rosterDistrict || "").trim();
-  if (section === "schedule_quality" && roster) return roster;
-  return rowDistrict || "—";
+  const row = String(rowDistrict || "").trim();
+  if (section !== "schedule_quality" || !roster) return row || "—";
+  const name = sheetDistrictName(row);
+  if (name && sameRosterDistrict(roster, sheetLead(row))) return `${roster} ${name}`;
+  return roster;
 }
 
 export function matchesDistrict(lhs, rhs) {
