@@ -691,7 +691,11 @@ td.none, .unscheduled { color: var(--none); }
   letter-spacing: 0.01em;
 }
 
+.drawer-admin,
 .drawer-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 44px;
   border: 0;
@@ -699,7 +703,10 @@ td.none, .unscheduled { color: var(--none); }
   background: var(--table);
   color: var(--navy);
   font-weight: 750;
+  text-decoration: none;
 }
+
+.drawer-admin { margin-bottom: 8px; }
 
 .drawer-title { padding: 16px 16px 0; }
 

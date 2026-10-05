@@ -76,18 +76,35 @@ fi
 cd "$WEB"
 npm test
 
-# The session cookie is signed with SESSION_SECRET. Create it once.
-# A later deploy must not rotate it, or every saved login stops working.
-SECRET_FILE="${HEARTBEAT_SESSION_SECRET_FILE:-$HOME/.config/heartbeat/session-secret}"
+# Session and setup secrets are created once. A later deploy must not rotate them.
 SECRET_LIST="$(npx wrangler pages secret list --project-name "$PROJECT" 2>/dev/null || true)"
-if ! grep -q "SESSION_SECRET" <<<"$SECRET_LIST"; then
-  if [[ ! -s "$SECRET_FILE" ]]; then
-    mkdir -p "$(dirname "$SECRET_FILE")"
-    umask 077
-    openssl rand -base64 32 > "$SECRET_FILE"
+put_secret_if_missing() {
+  local name="$1"
+  local file="$2"
+  if grep -q "$name" <<<"$SECRET_LIST"; then
+    return
   fi
-  npx wrangler pages secret put SESSION_SECRET --project-name "$PROJECT" < "$SECRET_FILE"
+  if [[ ! -s "$file" ]]; then
+    echo "publish-web: ${file} is missing, so ${name} was not uploaded" >&2
+    return
+  fi
+  npx wrangler pages secret put "$name" --project-name "$PROJECT" < "$file"
+}
+CONFIG_DIR="${HOME}/.config/heartbeat"
+mkdir -p "$CONFIG_DIR"
+umask 077
+SESSION_FILE="${HEARTBEAT_SESSION_SECRET_FILE:-$CONFIG_DIR/session-secret}"
+SETUP_FILE="${HEARTBEAT_SETUP_SECRET_FILE:-$CONFIG_DIR/setup-secret}"
+ADMIN_FILE="${HEARTBEAT_ADMIN_EMAIL_FILE:-$CONFIG_DIR/admin-email}"
+if [[ ! -s "$SESSION_FILE" ]]; then
+  openssl rand -base64 32 > "$SESSION_FILE"
 fi
+if [[ ! -s "$SETUP_FILE" ]]; then
+  openssl rand -base64 32 > "$SETUP_FILE"
+fi
+put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
+put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
+put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \

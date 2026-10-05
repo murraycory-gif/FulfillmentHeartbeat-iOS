@@ -9,3 +9,11 @@ pages_build_output_dir = "dist"
 [[r2_buckets]]
 binding = "HEARTBEAT_PACKS"
 bucket_name = "heartbeat-packs"
+
+# Account store. Created in this account as fulfillment-heartbeat-auth.
+# Pages deploy reads this binding. Local `pages dev` uses its own sqlite copy.
+[[d1_databases]]
+binding = "HB_AUTH"
+database_name = "fulfillment-heartbeat-auth"
+database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"
+preview_database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"

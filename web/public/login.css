@@ -98,3 +98,67 @@ h1 {
   color: #dc2626;
   font-weight: 700;
 }
+
+.hint {
+  margin: 0 0 12px;
+  color: #5c6b80;
+  font-size: 0.82rem;
+}
+
+.login-card select {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d9e1ee;
+  border-radius: 12px;
+  background: white;
+  color: #102033;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 550;
+}
+
+.login-card a {
+  color: #00285c;
+  font-weight: 750;
+}
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 24rem;
+  margin: 16px auto 0;
+}
+
+.user-card {
+  padding: 16px;
+  background: white;
+  border: 1px solid #d9e1ee;
+  border-radius: 16px;
+}
+
+.user-card h2 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.row-actions button {
+  flex: 1 1 8rem;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d9e1ee;
+  border-radius: 12px;
+  background: white;
+  color: #00285c;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 750;
+}

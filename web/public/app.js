@@ -277,7 +277,7 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p id="stamp" class="drawer-stamp">${esc(packStamp)}</p><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p id="stamp" class="drawer-stamp">${esc(packStamp)}</p><a class="drawer-admin" href="/admin">People</a><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
 }
 
 function logout() {

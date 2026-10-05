@@ -1,8 +1,30 @@
 // Session gate for every Pages request, including static files.
-// Master: BASIC_USER + BASIC_PASS. Testers: user "tester" + BASIC_PASS_TESTER.
-// BASIC_USER_TESTER, when set, is an extra accepted tester name for the same tester password.
-// A signed cookie replaces the Basic Auth prompt so browsers can save the password.
-// Nothing here is a password. A missing secret or password fails closed.
+// Accounts live in HB_AUTH (D1): email, PBKDF2 password, role, invite, revocable session.
+// The shared BASIC_PASS login stays until AUTH_CUTOVER=1, after the account sign-in is verified.
+// Nothing here is a password. A missing secret fails closed.
+
+import {
+  acceptInvite,
+  adminAct,
+  adminHTML,
+  authCutover,
+  authDb,
+  deniedHTML,
+  emailInvitesEnabled,
+  ensureAdminSeed,
+  ensureSchema,
+  inviteHTML,
+  listUsers,
+  loginHTML,
+  clearLoginFailures,
+  loginThrottled,
+  openInvite,
+  readAccountSession,
+  recordLoginFailure,
+  revokeSession,
+  setupText,
+  authenticateAccount,
+} from "./accounts.js";
 
 const COOKIE = "hb_session";
 const MAX_AGE = 30 * 24 * 60 * 60;
@@ -181,63 +203,8 @@ function clearCookie() {
   return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => {
-    if (char === "&") return "&amp;";
-    if (char === "<") return "&lt;";
-    if (char === ">") return "&gt;";
-    if (char === '"') return "&quot;";
-    return "&#39;";
-  });
-}
-
-function loginHTML(message, username) {
-  const alert = message ? `<p class="login-error" role="alert">${escapeHtml(message)}</p>` : "";
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · Fulfillment Heartbeat</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/login.css">
-  <script src="/nav-boot.js?v=2"></script>
-</head>
-<body>
-  <header class="top">
-    <p class="brand-lockup">
-      <span class="wordmark" aria-label="Fulfillment Heartbeat"><span class="fulfill">Fulfill</span><span class="ment">ment</span></span>
-      <svg class="heart" viewBox="0 0 36 33" aria-hidden="true">
-        <defs>
-          <linearGradient id="hb-heart" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#9fd4ff"/>
-            <stop offset="48%" stop-color="#3d8dff"/>
-            <stop offset="100%" stop-color="#00a9e0"/>
-          </linearGradient>
-        </defs>
-        <path fill="url(#hb-heart)" d="M18 32.4C18 27.36 0 20.88 1.8 12.96C3.6 1.44 13.68 1.44 18 7.92C22.32 1.44 32.4 1.44 34.2 12.96C36 20.88 18 27.36 18 32.4Z"/>
-      </svg>
-      <svg class="pulse" viewBox="0 0 52 22" aria-hidden="true">
-        <path fill="none" stroke="#00A9E0" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="M0 14.5L5.1 14.5L8.2 17.5L15.3 1.5L21.4 20.5L25.5 14.5Q30.6 7.5 35.7 14.5L51 14.5"/>
-      </svg>
-    </p>
-    <h1>Sign in</h1>
-  </header>
-  <main class="login-main">
-    <form class="login-card" method="POST" action="/login" autocomplete="on">
-      <h2>Fulfillment Heartbeat</h2>
-      ${alert}
-      <label>Username<input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required value="${escapeHtml(username)}"></label>
-      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
-      <button type="submit">Sign in</button>
-    </form>
-  </main>
-</body>
-</html>`;
-}
-
-function loginResponse(message, username, status) {
-  return new Response(loginHTML(message, username), {
+function htmlResponse(html, status = 200) {
+  return new Response(html, {
     status,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -246,9 +213,13 @@ function loginResponse(message, username, status) {
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "no-referrer",
       "Content-Security-Policy":
-        "default-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
+        "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
     },
   });
+}
+
+function loginResponse(message, email, status) {
+  return htmlResponse(loginHTML(message, email), status);
 }
 
 function unauthorizedJSON() {
@@ -270,23 +241,103 @@ function redirect(request, path, cookie, status = 303) {
   return new Response(null, { status, headers });
 }
 
-async function submitLogin(request, env) {
-  if (!sessionSecret(env)) return loginResponse("Sign-in is unavailable.", "", 503);
+function sameOrigin(request) {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === new URL(request.url).host;
+  } catch {
+    return false;
+  }
+}
+
+async function readForm(request) {
   let text = "";
   try {
     text = await request.text();
   } catch {
     text = "";
   }
-  if (text.length > 4096) return loginResponse("That username or password is wrong.", "", 401);
-  const params = new URLSearchParams(text);
-  const username = params.get("username") || "";
+  if (text.length > 8192) return null;
+  return new URLSearchParams(text);
+}
+
+function sessionIsAdmin(session, env) {
+  if (!session) return false;
+  if (session.account) return session.role === "admin";
+  if (authCutover(env)) return false;
+  const master = envSecret(env, "BASIC_USER");
+  return Boolean(master) && session.user === master;
+}
+
+async function submitLogin(request, env, db, now) {
+  if (!sessionSecret(env)) return loginResponse("Sign-in is unavailable.", "", 503);
+  if (!sameOrigin(request)) return loginResponse("That email or password is wrong.", "", 403);
+  const params = await readForm(request);
+  if (!params) return loginResponse("That email or password is wrong.", "", 401);
+  const email = params.get("email") || params.get("username") || "";
   const password = params.get("password") || "";
-  const account = matchedAccount(username, password, env);
-  if (!account) return loginResponse("That username or password is wrong.", username, 401);
-  const token = await createSessionToken(env, account.user, account.pass);
-  if (!token) return loginResponse("Sign-in is unavailable.", "", 503);
-  return redirect(request, "/", sessionCookie(token));
+  if (db) {
+    if (await loginThrottled(db, request, email, now)) {
+      return loginResponse("Too many sign-in attempts. Try again later.", email, 429);
+    }
+    const result = await authenticateAccount(db, env, request, email, password, now);
+    if (result.throttled) return loginResponse("Too many sign-in attempts. Try again later.", email, 429);
+    if (result.invited) return loginResponse("Use the invite link to set a password.", email, 401);
+    if (result.unavailable) return loginResponse("Sign-in is unavailable.", email, 503);
+    if (result.session) return redirect(request, "/", sessionCookie(result.session));
+  }
+  if (!authCutover(env)) {
+    const account = matchedAccount(email, password, env);
+    if (account) {
+      const token = await createSessionToken(env, account.user, account.pass, now);
+      if (!token) return loginResponse("Sign-in is unavailable.", "", 503);
+      if (db) {
+        try {
+          await clearLoginFailures(db, request, email);
+        } catch {
+          // A shared-password sign-in still succeeds if the attempt log cannot be cleared.
+        }
+      }
+      return redirect(request, "/", sessionCookie(token));
+    }
+  }
+  if (db) await recordLoginFailure(db, request, email, now);
+  return loginResponse("That email or password is wrong.", email, 401);
+}
+
+async function inviteResponse(request, env, db, token, now) {
+  if (!db) return loginResponse("Sign-in is unavailable.", "", 503);
+  if (request.method === "POST") {
+    if (!sameOrigin(request)) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 403);
+    const params = await readForm(request);
+    if (!params) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 400);
+    const result = await acceptInvite(db, env, token, params.get("password") || "", params.get("confirm") || "", now);
+    if (result.session) return redirect(request, "/", sessionCookie(result.session));
+    return htmlResponse(inviteHTML(result.email || "", token, result.error), 400);
+  }
+  const invite = await openInvite(db, token, now);
+  if (!invite) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 400);
+  return htmlResponse(inviteHTML(invite.email, token, ""));
+}
+
+async function adminResponse(request, env, db, session, now) {
+  if (!sessionIsAdmin(session, env)) return htmlResponse(deniedHTML(), 403);
+  if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", emailOn: false }), 503);
+  let notice = "";
+  let error = "";
+  let link = "";
+  if (request.method === "POST") {
+    if (!sameOrigin(request)) return htmlResponse(deniedHTML(), 403);
+    const params = await readForm(request);
+    if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", emailOn: emailInvitesEnabled(env) }), 400);
+    const fields = Object.fromEntries(params.entries());
+    const result = await adminAct(db, env, request, fields, now);
+    notice = result.notice || "";
+    error = result.error || "";
+    link = result.link || "";
+  }
+  return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env) }));
 }
 
 export async function onRequest(context) {
@@ -294,19 +345,47 @@ export async function onRequest(context) {
   const env = (context && context.env) || {};
   const url = new URL(request.url || "https://fulfillment-heartbeat-web.pages.dev/");
   const pathname = url.pathname;
+  const now = Math.floor(Date.now() / 1000);
+  const db = authDb(env);
+  let accountsReady = false;
+  if (db) {
+    try {
+      await ensureSchema(db);
+      await ensureAdminSeed(db, env, now);
+      accountsReady = true;
+    } catch {
+      accountsReady = false;
+    }
+  }
+  const readyDb = accountsReady ? db : null;
 
-  if (request.method === "POST" && pathname === "/login") return submitLogin(request, env);
+  if (request.method === "GET" && pathname === "/setup") {
+    if (!readyDb) return new Response("Not found", { status: 404 });
+    const text = await setupText(readyDb, env, request, now);
+    if (text == null) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+    return new Response(text, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  }
+  if (pathname.startsWith("/invite/")) {
+    return inviteResponse(request, env, readyDb, decodeURIComponent(pathname.slice("/invite/".length)), now);
+  }
+  if (request.method === "POST" && pathname === "/login") return submitLogin(request, env, readyDb, now);
   if ((request.method === "GET" || request.method === "HEAD" || request.method === "POST") && pathname === "/logout") {
+    if (readyDb) {
+      const current = await readAccountSession(readyDb, request, env, now);
+      if (current) await revokeSession(readyDb, current.sessionId, now);
+    }
     return redirect(request, "/login", clearCookie(), 302);
   }
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {
     return redirect(request, "/favicon.svg", "", 302);
   }
-  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js" || pathname === "/favicon.svg")) {
+  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js" || pathname === "/favicon.svg" || pathname === "/auth-copy.js")) {
     return context.next();
   }
 
-  const session = await readSession(request, env);
+  let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
+  if (!session && !authCutover(env)) session = await readSession(request, env, now);
+  if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (!session) {
     if (pathname.startsWith("/data/")) return unauthorizedJSON();
     return loginResponse("", "", 200);

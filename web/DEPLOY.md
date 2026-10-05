@@ -19,7 +19,7 @@ That writes `web/dist/` (`pages_build_output_dir`). Functions stay in `web/funct
 
 ## What Cory sets up
 
-Do these in order. Free tier only: Pages and one existing R2 bucket binding. No Access PIN, no D1, no paid add-on, no custom domain, no DNS change.
+Do these in order. Pages, the existing R2 bucket, and one D1 database for accounts. No Access PIN, no paid add-on, no custom domain, no DNS change.
 
 ### 1. Allowlist
 
@@ -33,9 +33,15 @@ Do these in order. Free tier only: Pages and one existing R2 bucket binding. No 
    - Variable name: `HEARTBEAT_PACKS`
    - Bucket: the existing bucket `heartbeat-packs`
    - Do not create a new bucket. Do not turn on public access here.
-4. Do **not** set `HEARTBEAT_WEB_DEV`. That flag only bypasses an old localhost check.
-5. Do **not** add a custom domain. Leave the `*.pages.dev` hostname. Do not change DNS.
-6. Do **not** attach Cloudflare Access to this hostname. A PIN in front of the HTML, or a 401 on `/api/section`, is what left every scorecard on "Sign in with the email PIN".
+4. **Settings** → **Bindings** → **Add** → **D1 database**, if the deploy did not attach it from `wrangler.toml`.
+   - Variable name: `HB_AUTH`
+   - Database: `fulfillment-heartbeat-auth`
+   - Production and Preview both use that database
+5. Pages secrets, set once and not rotated on later deploys: `SESSION_SECRET` (signs the cookie), `ADMIN_EMAIL` (the first admin's address), `SETUP_SECRET` (bearer token for the one-time `GET /setup` link). Do not put a password in the repo. Optional mail is off unless `INVITE_EMAIL` is `1` and `INVITE_EMAIL_URL` is a webhook. Copying the invite link works without mail.
+6. Do **not** set `HEARTBEAT_WEB_DEV`. That flag only bypasses an old localhost check.
+7. Do **not** set `AUTH_CUTOVER` until an account sign-in has been verified. Until then the shared `BASIC_PASS` login still works.
+8. Do **not** add a custom domain. Leave the `*.pages.dev` hostname. Do not change DNS.
+9. Do **not** attach Cloudflare Access to this hostname. A PIN in front of the HTML, or a 401 on `/api/section`, is what left every scorecard on "Sign in with the email PIN".
 
 ### 3. Cook the pack into the site
 

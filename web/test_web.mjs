@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hashPassword, verifyPassword } from "./functions/accounts.js";
 import {
   basicAuthOk,
   createSessionToken,
@@ -344,12 +346,12 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=17/);
+assert.match(pageHtml, /app\.css\?v=18/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=22/);
+assert.match(pageHtml, /app\.js\?v=23/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
@@ -772,6 +774,9 @@ assert.equal(locked.ok, false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
 assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
 assert.match(wrangler, /pages_build_output_dir = "dist"/);
+assert.match(wrangler, /binding = "HB_AUTH"/);
+assert.match(wrangler, /database_name = "fulfillment-heartbeat-auth"/);
+assert.match(wrangler, /646c017a-802f-4395-b635-d4b5bd66c1cb/);
 assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
 const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
 assert.equal(built.status, 0, built.stderr.toString());
@@ -851,12 +856,18 @@ assert.equal(
 );
 assert.match(middleware, /BASIC_PASS_TESTER/);
 assert.match(middleware, /"tester"/);
-assert.match(middleware, /autocomplete="current-password"/);
-assert.match(middleware, /autocomplete="username"/);
-assert.match(middleware, /method="POST"/);
-assert.match(middleware, /action="\/login"/);
+assert.match(middleware, /AUTH_CUTOVER/);
 assert.match(middleware, /HttpOnly/);
 assert.match(middleware, /SameSite=Lax/);
+const accountsSrc = readFileSync(join(root, "functions/accounts.js"), "utf8");
+assert.match(accountsSrc, /autocomplete="current-password"/);
+assert.match(accountsSrc, /autocomplete="username"/);
+assert.match(accountsSrc, /autocomplete="new-password"/);
+assert.match(accountsSrc, /name="email"/);
+assert.match(accountsSrc, /minlength="10"/);
+assert.match(accountsSrc, /PBKDF2/);
+assert.match(app, /href="\/admin"/);
+assert.match(css, /\.drawer-admin/);
 assert.match(app, /authBlocked/);
 assert.match(app, /retryHomeAfterAuth/);
 assert.match(app, /location\.assign\("\/login"\)/);
@@ -875,7 +886,10 @@ assert.equal(gateDenied.status, 200);
 assert.equal(gateDenied.headers.get("WWW-Authenticate"), null);
 const loginHTML = await gateDenied.text();
 assert.match(loginHTML, /action="\/login"/);
+assert.match(loginHTML, /type="email"/);
+assert.match(loginHTML, /name="email"/);
 assert.match(loginHTML, /type="password"/);
+assert.match(loginHTML, /autocomplete="username"/);
 assert.match(loginHTML, /autocomplete="current-password"/);
 assert.match(loginHTML, /<span class="fulfill">Fulfill<\/span><span class="ment">ment<\/span>/);
 assert.match(loginHTML, /src="\/nav-boot\.js\?v=2"/);
@@ -958,7 +972,7 @@ const wrong = await basicGate({
 });
 assert.equal(wrong.status, 401);
 assert.equal(wrong.headers.get("set-cookie"), null);
-assert.match(await wrong.text(), /That username or password is wrong/);
+assert.match(await wrong.text(), /That email or password is wrong/);
 const rotated = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: sessionCookie } }),
   env: { ...gateEnv, BASIC_PASS: "rotated-secret" },
@@ -1108,5 +1122,253 @@ assert.equal(isPersonOm(storeOne.om), true);
 const quinnStores = cooked.filters.stores.filter((row) => row.om === "Andrew Quinn");
 assert.ok(quinnStores.length > 1);
 assert.ok(countStores(cooked.filters.stores, filters({ region: "East Region" })) > 400);
+
+function d1From(raw) {
+  return {
+    prepare(sql) {
+      const prepared = raw.prepare(sql);
+      const bound = (params) => ({
+        first: async () => prepared.get(...params) ?? null,
+        all: async () => ({ results: prepared.all(...params) }),
+        run: async () => {
+          const info = prepared.run(...params);
+          return { success: true, meta: { changes: info.changes ?? 0 } };
+        },
+      });
+      return { bind: (...params) => bound(params), ...bound([]) };
+    },
+  };
+}
+
+function openAuth() {
+  const raw = new DatabaseSync(":memory:");
+  return { raw, db: d1From(raw) };
+}
+
+function accountEnv(db, extra = {}) {
+  return {
+    ...gateEnv,
+    ADMIN_EMAIL: "admin@example.com",
+    SETUP_SECRET: "setup-secret-value",
+    HB_AUTH: db,
+    ...extra,
+  };
+}
+
+async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null } = {}) {
+  const requestHeaders = { ...headers };
+  if (body) requestHeaders["content-type"] = "application/x-www-form-urlencoded";
+  if (cookie) requestHeaders.cookie = cookie;
+  return basicGate({
+    request: new Request(`https://fulfillment-heartbeat-web.pages.dev${path}`, {
+      method,
+      headers: requestHeaders,
+      body: body || undefined,
+    }),
+    env: env || accountEnv(db),
+    next: async () => new Response("page", { status: 200 }),
+  });
+}
+
+function cookieHeader(response) {
+  return (response.headers.get("set-cookie") || "").split(";")[0];
+}
+
+function inviteToken(text) {
+  const match = String(text).match(/\/invite\/([A-Za-z0-9_-]+)/);
+  assert.ok(match, "expected an invite link");
+  return match[1];
+}
+
+const passwordHash = await hashPassword("correct-horse");
+assert.equal(await verifyPassword("correct-horse", passwordHash.salt, passwordHash.hash, passwordHash.iterations), true);
+assert.equal(await verifyPassword("other-horse!!", passwordHash.salt, passwordHash.hash, passwordHash.iterations), false);
+assert.equal(passwordHash.iterations, 100000);
+
+const auth = openAuth();
+const setupDenied = await accountRequest(auth.db, "/setup");
+assert.equal(setupDenied.status, 404);
+assert.equal(setupDenied.headers.get("cache-control"), "no-store");
+const setupWrong = await accountRequest(auth.db, "/setup", { headers: { authorization: "Bearer not-the-secret-value" } });
+assert.equal(setupWrong.status, 404);
+const setupOk = await accountRequest(auth.db, "/setup", { headers: { authorization: "Bearer setup-secret-value" } });
+assert.equal(setupOk.status, 200);
+const setupBody = await setupOk.text();
+assert.match(setupBody, /^email: admin@example.com/);
+const adminInvite = inviteToken(setupBody);
+const inviteForm = await accountRequest(auth.db, `/invite/${adminInvite}`);
+const inviteHtml = await inviteForm.text();
+assert.match(inviteHtml, /name="confirm"/);
+assert.match(inviteHtml, /minlength="10"/);
+assert.match(inviteHtml, /autocomplete="new-password"/);
+const tooShort = await accountRequest(auth.db, `/invite/${adminInvite}`, {
+  method: "POST",
+  body: "password=short&confirm=short",
+});
+assert.equal(tooShort.status, 400);
+assert.match(await tooShort.text(), /at least 10 characters/);
+const mismatch = await accountRequest(auth.db, `/invite/${adminInvite}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-2",
+});
+assert.equal(mismatch.status, 400);
+assert.match(await mismatch.text(), /do not match/);
+const joined = await accountRequest(auth.db, `/invite/${adminInvite}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-1",
+});
+assert.equal(joined.status, 303);
+const adminCookie = cookieHeader(joined);
+assert.match(adminCookie, /^hb_session=[a-f0-9]{64}\.[a-f0-9]{64}$/);
+const signedHome = await accountRequest(auth.db, "/", { cookie: adminCookie });
+assert.equal(await signedHome.text(), "page");
+const people = await accountRequest(auth.db, "/admin", { cookie: adminCookie });
+assert.equal(people.status, 200);
+const peopleHtml = await people.text();
+assert.match(peopleHtml, /Email is off\. Copy the invite link\./);
+assert.match(peopleHtml, /admin@example.com/);
+assert.match(peopleHtml, /src="\/auth-copy\.js"/);
+const added = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: "action=add&email=Viewer@Example.com&role=viewer",
+});
+const addedHtml = await added.text();
+assert.match(addedHtml, /viewer@example.com/);
+assert.equal(addedHtml.includes("Email sent"), false);
+const viewerInvite = inviteToken(addedHtml);
+const viewerJoined = await accountRequest(auth.db, `/invite/${viewerInvite}`, {
+  method: "POST",
+  body: "password=viewer-pass-1&confirm=viewer-pass-1",
+});
+assert.equal(viewerJoined.status, 303);
+const viewerCookie = cookieHeader(viewerJoined);
+const viewerDenied = await accountRequest(auth.db, "/admin", { cookie: viewerCookie });
+assert.equal(viewerDenied.status, 403);
+assert.match(await viewerDenied.text(), /Admins only/);
+const inviteReuse = await accountRequest(auth.db, `/invite/${viewerInvite}`, {
+  method: "POST",
+  body: "password=viewer-pass-9&confirm=viewer-pass-9",
+});
+assert.equal(inviteReuse.status, 400);
+const pending = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: "action=add&email=pending@example.com&role=viewer",
+});
+const pendingToken = inviteToken(await pending.text());
+const pendingId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get("pending@example.com").id;
+const copied = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=copy&user=${encodeURIComponent(pendingId)}`,
+});
+const copiedHtml = await copied.text();
+assert.match(copiedHtml, /Copy this invite link/);
+assert.match(copiedHtml, new RegExp(`/invite/${pendingToken}`));
+const viewerId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get("viewer@example.com").id;
+const disabled = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=disable&user=${encodeURIComponent(viewerId)}`,
+});
+assert.match(await disabled.text(), /viewer@example.com is disabled/);
+const viewerClosed = await accountRequest(auth.db, "/", { cookie: viewerCookie });
+assert.match(await viewerClosed.text(), /action="\/login"/);
+const viewerBlocked = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-1",
+});
+assert.equal(viewerBlocked.status, 401);
+const enabled = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=enable&user=${encodeURIComponent(viewerId)}`,
+});
+assert.match(await enabled.text(), /viewer@example.com is active/);
+const viewerAgain = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-1",
+});
+assert.equal(viewerAgain.status, 303);
+const reset = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=reset&user=${encodeURIComponent(viewerId)}`,
+});
+const resetHtml = await reset.text();
+assert.match(resetHtml, /set-password link/);
+const resetToken = inviteToken(resetHtml);
+const oldPassword = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=viewer@example.com&password=viewer-pass-1",
+});
+assert.equal(oldPassword.status, 401);
+assert.match(await oldPassword.text(), /invite link/);
+const resetJoin = await accountRequest(auth.db, `/invite/${resetToken}`, {
+  method: "POST",
+  body: "password=viewer-pass-2&confirm=viewer-pass-2",
+});
+assert.equal(resetJoin.status, 303);
+const adminId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get("admin@example.com").id;
+const keepAdmin = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=disable&user=${encodeURIComponent(adminId)}`,
+});
+assert.match(await keepAdmin.text(), /at least one admin/);
+const removed = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=remove&user=${encodeURIComponent(pendingId)}`,
+});
+assert.match(await removed.text(), /pending@example.com was removed/);
+const accountLoggedOut = await accountRequest(auth.db, "/logout", { cookie: adminCookie });
+assert.equal(accountLoggedOut.status, 302);
+assert.match(accountLoggedOut.headers.get("set-cookie") || "", /Max-Age=0/);
+const afterLogout = await accountRequest(auth.db, "/", { cookie: adminCookie });
+assert.match(await afterLogout.text(), /action="\/login"/);
+const privateData = await accountRequest(auth.db, "/data/home.json");
+assert.equal(privateData.status, 401);
+assert.equal(privateData.headers.get("cache-control"), "private, no-store");
+assert.equal(privateData.headers.get("WWW-Authenticate"), null);
+assert.equal(privateData.headers.get("set-cookie"), null);
+
+const throttle = openAuth();
+let throttleStatus = 0;
+for (let attempt = 0; attempt < 8; attempt += 1) {
+  const failed = await accountRequest(throttle.db, "/login", {
+    method: "POST",
+    body: "email=nobody@example.com&password=not-a-real-password",
+  });
+  throttleStatus = failed.status;
+}
+assert.equal(throttleStatus, 401);
+const throttled = await accountRequest(throttle.db, "/login", {
+  method: "POST",
+  body: "email=nobody@example.com&password=not-a-real-password",
+});
+assert.equal(throttled.status, 429);
+
+const legacy = openAuth();
+const legacyIn = await accountRequest(legacy.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+});
+assert.equal(legacyIn.status, 303);
+assert.equal(legacy.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+const cutover = openAuth();
+const cutoverDenied = await accountRequest(cutover.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  env: accountEnv(cutover.db, { AUTH_CUTOVER: "1" }),
+});
+assert.equal(cutoverDenied.status, 401);
+const crossSite = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=admin@example.com&password=long-enough-1",
+  headers: { origin: "https://evil.example" },
+});
+assert.equal(crossSite.status, 403);
 
 console.log("web ok");
