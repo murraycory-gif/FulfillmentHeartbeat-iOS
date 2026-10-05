@@ -78,5 +78,14 @@ function challenge() {
 export async function onRequest(context) {
   const env = (context && context.env) || {};
   if (!basicAuthOk(context.request, env)) return challenge();
-  return context.next();
+  const response = await context.next();
+  const url = new URL((context.request && context.request.url) || "https://fulfillment-heartbeat-web.pages.dev/");
+  if (!url.pathname.startsWith("/data/")) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "private, no-store");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }

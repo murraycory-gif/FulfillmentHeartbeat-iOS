@@ -4,6 +4,7 @@ import {
   filtersActive,
   includesScope,
   scheduleDistrictNote,
+  emptyScopeNote,
   shownDistrict,
   regions,
   divisionsFor,
@@ -345,6 +346,8 @@ const METRIC_NOTES = {
     "Labor Sch Eff is schedule efficiency from the Labor workbook company total. It is not Schedule Quality’s average schedule efficiency.",
   schedule_quality:
     "Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet. It is not Labor Sch Eff.",
+  picker_scorecard:
+    "Company shoppers is the cooked company total. Region and division counts are cooked for that grain. The shopper table counts rows in the file. Those counts are not one list.",
 };
 
 function shownTileLabel(section, label) {
@@ -411,7 +414,7 @@ function companyBlock(section, title) {
   const countLabel = !seat.storeCount
     ? ""
     : !seat.fixedCompany && section === "picker_scorecard"
-      ? `${num(seat.storeCount, 0)} shoppers`
+      ? `${num(seat.storeCount, 0)} cooked shoppers`
       : `${num(seat.storeCount, 0)} stores`;
   const figureText =
     seat.headlineText != null && seat.headlineText !== ""
@@ -460,7 +463,7 @@ function table(section, rows) {
   const knownRoster = roster();
   const matched = rows.filter((row) => row.store && includesScope(row, state.filters, knownRoster, section));
   if (!matched.length) {
-    const honest = scheduleDistrictNote(section, state.filters, knownRoster, matched.length);
+    const honest = emptyScopeNote(section, state.filters, knownRoster, matched.length);
     return `<p class="note">${esc(honest || "No stores in this scope.")}</p>`;
   }
   const shown = matched.slice(0, state.tableWindow);
@@ -610,10 +613,11 @@ function shopperTable(rows, kind) {
   const matched = (rows || []).filter((row) => row.store && includesScope(row, state.filters, roster()));
   if (!matched.length) return `<p class="note">No shopper rows in this scope.</p>`;
   const shown = matched.slice(0, state.tableWindow);
+  const shopperNoun = kind === "scorecard" ? "shopper rows" : "shoppers";
   const more =
     matched.length > shown.length
-      ? `<p class="note">${num(shown.length, 0)} of ${num(matched.length, 0)} shoppers</p><button type="button" class="more" data-more="1">Show more</button>`
-      : `<p class="note">${num(matched.length, 0)} shoppers in this scope.</p>`;
+      ? `<p class="note">${num(shown.length, 0)} of ${num(matched.length, 0)} ${shopperNoun}</p><button type="button" class="more" data-more="1">Show more</button>`
+      : `<p class="note">${num(matched.length, 0)} ${shopperNoun} in this scope.</p>`;
   const columns =
     kind === "path"
       ? [

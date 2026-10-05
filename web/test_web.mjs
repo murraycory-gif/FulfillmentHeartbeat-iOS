@@ -23,6 +23,7 @@ import {
   isPersonOm,
   matchesDistrict,
   scheduleDistrictNote,
+  emptyScopeNote,
   storesForDistrict,
   shownDistrict,
   optionValues,
@@ -305,8 +306,8 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=10/);
-assert.match(pageHtml, /app\.js\?v=10/);
+assert.match(pageHtml, /app\.css\?v=11/);
+assert.match(pageHtml, /app\.js\?v=11/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -508,6 +509,14 @@ assert.equal(
   "No Schedule Quality data for this district.",
 );
 assert.equal(scheduleDistrictNote("schedule_quality", filters({ district: "A1" }), packRoster, sqCount("A1")), "");
+assert.equal(emptyScopeNote("prep_not_ready", filters({ division: "Haggen" }), packRoster, 0), "No Prep data for this scope.");
+assert.equal(emptyScopeNote("prep_not_ready", filters({ district: "A1" }), packRoster, 0), "No Prep data for this scope.");
+assert.equal(emptyScopeNote("prep_not_ready", filters({ district: "U2" }), packRoster, 0), "No Prep data for this scope.");
+assert.equal(emptyScopeNote("sales", filters({ district: "A1" }), packRoster, 0), "");
+assert.match(app, /cooked shoppers/);
+assert.match(app, /Company shoppers is the cooked company total/);
+assert.match(css, /text-overflow:\s*ellipsis/);
+assert.match(readFileSync(join(root, "public/_headers"), "utf8"), /\/data\/\*[\s\S]*private, no-store/);
 assert.equal(storesForDistrict(packRoster, "62").size, 23);
 assert.equal(shownDistrict("schedule_quality", "H1 NE PHILA SUBURB", "A1"), "A1");
 assert.equal(shownDistrict("schedule_quality", "62 DEN WEST & MTNS", "62"), "62");
@@ -731,6 +740,15 @@ const opened = await basicGate({
 });
 assert.equal(opened.status, 200);
 assert.equal(await opened.text(), "page");
+const dataOpened = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
+    headers: { Authorization: `Basic ${Buffer.from("heartbeat:test-only-secret").toString("base64")}` },
+  }),
+  env: gateEnv,
+  next: async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(dataOpened.status, 200);
+assert.equal(dataOpened.headers.get("cache-control"), "private, no-store");
 
 const dataFiles = [
   "data/home.json",

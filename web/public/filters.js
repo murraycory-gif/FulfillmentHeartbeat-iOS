@@ -261,6 +261,15 @@ export function scheduleDistrictNote(section, filters, roster, matchedCount) {
   return "No Schedule Quality data for this district.";
 }
 
+// Roster stores with no cooked rows. Prep is the same hole as Schedule Quality:
+// the stores exist, the section file does not have them.
+export function emptyScopeNote(section, filters, roster, matchedCount) {
+  if (matchedCount > 0 || !filters || !filtersActive(filters)) return "";
+  if (countStores(roster, filters) === 0) return "";
+  if (section === "prep_not_ready") return "No Prep data for this scope.";
+  return scheduleDistrictNote(section, filters, roster, matchedCount);
+}
+
 // Store numbers whose roster row carries this OM. Section rows are not the map.
 export function storesForOm(roster, om) {
   const list = roster || [];

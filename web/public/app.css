@@ -751,7 +751,13 @@ td.none, .unscheduled { color: var(--none); }
   .score-face .figure { font-size: 1.35rem; }
   .cards { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .chip strong, .kpi strong, .metric strong { font-size: 0.95rem; }
+  .chip, .kpi, .metric { min-width: 0; max-width: 100%; }
+  .chip strong, .kpi strong, .metric strong {
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
   .seg { flex-wrap: nowrap; gap: 4px; }
   .seg button {
     flex: 1 1 0;
