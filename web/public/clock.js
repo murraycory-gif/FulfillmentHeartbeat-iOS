@@ -27,6 +27,17 @@ export function updatedLine(raw) {
   return `Updated ${publishClock(date)}`;
 }
 
+// Header stamp from the pack publish time, UTC. HB-1005.1839 is 2026-10-05 18:39Z.
+export function publishStamp(raw) {
+  const date = parsePackTime(raw);
+  if (!date) return "";
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `HB-${month}${day}.${hour}${minute}`;
+}
+
 export function bannerText(onScreen, incoming) {
   const previous = parsePackTime(onScreen);
   const next = parsePackTime(incoming);

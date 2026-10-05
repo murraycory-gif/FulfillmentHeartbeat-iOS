@@ -1,4 +1,4 @@
-import { updatedLine, considerPublished, pct, money, num, formatHeadline } from "./clock.js";
+import { updatedLine, considerPublished, pct, money, num, formatHeadline, publishStamp } from "./clock.js";
 import {
   emptyFilters,
   filtersActive,
@@ -32,7 +32,7 @@ import {
   effHealth,
 } from "./schedule-math.js";
 
-const STAMP = "HB-0828.494";
+let packStamp = "";
 
 const PAGES = [
   { id: "dashboard", title: "Dashboard" },
@@ -121,6 +121,7 @@ const filterToggle = document.querySelector("#filter-toggle");
 const clearFilters = document.querySelector("#clear-filters");
 const title = document.querySelector("#page-title");
 const updated = document.querySelector("#updated");
+const stamp = document.querySelector("#stamp");
 const banner = document.querySelector("#banner");
 const navToggle = document.querySelector("#nav-toggle");
 const shareRoot = document.querySelector("#share");
@@ -261,7 +262,7 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p class="hint">${esc(STAMP)}</p><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p class="hint">${esc(packStamp)}</p><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
 }
 
 function logout() {
@@ -305,6 +306,13 @@ function renderFilters() {
 
 function setUpdated(raw) {
   updated.textContent = updatedLine(raw);
+}
+
+function applyPackStamp(raw) {
+  const next = publishStamp(raw);
+  if (!next) return;
+  packStamp = next;
+  if (stamp) stamp.textContent = next;
 }
 
 function parseTileNumber(raw) {
@@ -732,7 +740,7 @@ function renderSchedule(pack) {
   }
   const card = scheduleSummary(pack, state.filters, roster());
   const summaryTitle = scheduleVisibleTitle(pack.summaryTitle, pack.week);
-  const week = pack.week ? `Week ${pack.week}` : summaryTitle || "Schedule";
+  const week = summaryTitle || (pack.week ? `Week ${pack.week}` : "Schedule");
   const hero = `<article class="scorecard"><div class="score-face"><h2>Schedule Check</h2><p class="sub">${esc(week)}</p><p class="figure">${esc(num(card.actionCount, 0))} to review</p><p class="secondary">Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%. Not scheduled yet and barely scheduled stay off this list.</p><p class="note">Summary “Any under” counts stores above 0% this week. Schedule Quality counts stores under above 5%.</p></div></article>`;
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
@@ -1042,7 +1050,7 @@ function scheduleShareBlock() {
   const card = scheduleSummary(pack, state.filters, roster());
   return {
     title: "Schedule Check",
-    status: pack.week ? `Week ${pack.week}` : "Schedule",
+    status: scheduleVisibleTitle(pack.summaryTitle, pack.week) || (pack.week ? `Week ${pack.week}` : "Schedule"),
     figure: `${num(card.actionCount, 0)} to review`,
     note: "Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%.",
   };
@@ -1173,16 +1181,16 @@ async function sendShare() {
       blocks: shareBlocksFor(page, withTiles),
     }));
     const scope = scopeLabel(state.filters);
-    const subject = shareSubject(scope, STAMP);
+    const subject = shareSubject(scope, packStamp);
     const plain = shareBrief({
       scope,
-      stamp: STAMP,
+      stamp: packStamp,
       updated: updated.textContent,
       pages: detailed,
     });
     const html = shareHtml({
       scope,
-      stamp: STAMP,
+      stamp: packStamp,
       updated: updated.textContent,
       pages: detailed,
     });
@@ -1333,6 +1341,7 @@ filtersForm.addEventListener("change", (event) => {
 function acceptHome(home) {
   state.home = home;
   state.homeError = "";
+  applyPackStamp(home && home.publishedAt);
   raiseBanner(considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt));
   render();
 }

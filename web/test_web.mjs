@@ -14,7 +14,7 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { bannerText, considerPublished, formatHeadline, money, publishClock, updatedLine } from "./public/clock.js";
+import { bannerText, considerPublished, formatHeadline, money, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -95,7 +95,9 @@ assert.equal(accessCertsURL("https://evil.example/cdn-cgi/access/certs"), null);
 const stamp = readFileSync(join(root, "../FulfillmentHeartbeat/BuildStamp.swift"), "utf8");
 const app = readFileSync(join(root, "public/app.js"), "utf8");
 assert.match(stamp, /HB-0828\.494/);
-assert.match(app, /HB-0828\.494/);
+assert.equal(app.includes("HB-0828.494"), false);
+assert.match(app, /applyPackStamp\(home && home\.publishedAt\)/);
+assert.match(app, /publishStamp\(raw\)/);
 assert.equal((stamp.match(/HB-0828\.494/g) || []).length, 1);
 assert.equal(app.includes("Sign in with the email PIN"), false);
 assert.equal(app.includes("/api/"), false);
@@ -307,7 +309,7 @@ assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
 assert.match(pageHtml, /app\.css\?v=12/);
-assert.match(pageHtml, /app\.js\?v=13/);
+assert.match(pageHtml, /app\.js\?v=14/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -437,6 +439,9 @@ assert.match(fn, /HEARTBEAT_PACKS/);
 
 assert.equal(updatedLine(""), "Updated —");
 assert.equal(updatedLine(null), "Updated —");
+assert.equal(publishStamp("2026-10-05T18:39:32Z"), "HB-1005.1839");
+assert.equal(publishStamp(""), "");
+assert.equal(publishStamp(null), "");
 const noon = new Date(2026, 8, 28, 15, 10, 0);
 assert.equal(publishClock(noon), "Mon 9/28 3:10 PM");
 assert.equal(bannerText(null, "2026-09-28T16:00:00Z"), null);
@@ -654,7 +659,8 @@ assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
 const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
 assert.equal(built.status, 0, built.stderr.toString());
 const distIndex = readFileSync(join(root, "dist/index.html"), "utf8");
-assert.match(distIndex, /HB-0828\.494/);
+assert.equal(distIndex.includes("HB-0828.494"), false);
+assert.match(distIndex, /id="stamp"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
