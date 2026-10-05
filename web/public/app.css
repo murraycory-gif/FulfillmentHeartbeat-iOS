@@ -782,13 +782,4 @@ td.none, .unscheduled { color: var(--none); }
   .titles { padding-top: 52px; }
   h1 { font-size: 1.65rem; }
   #updated { font-size: 1.05rem; }
-  .stamp { font-size: 0.95rem; }
-  .filter-label { font-size: 0.84rem; }
-  .filters label, .filter-bar label { font-size: 0.95rem; }
-  select { font-size: 1.05rem; }
-  .score-face h2, .region-cards > h2, .grain h2 { font-size: 1.35rem; }
-  .score-face .figure { font-size: 2.15rem; }
-  .chip span { font-size: 0.8rem; }
-  .chip strong, .kpi strong { font-size: 1.55rem; }
-  .sub { font-size: 1.02rem; }
 }
