@@ -9,11 +9,11 @@ import {
   scopeLabel,
   finestScope,
   scopeStoreCount,
-  regionLineInScope,
   sectionGrainRows,
   canonicalStore,
 } from "./filters.js";
-import { FIGURE_SECTIONS, packURL } from "./packs.js";
+import { packURL } from "./packs.js";
+import { seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
   companyMarketNote,
@@ -227,24 +227,41 @@ function cookedTiles(section) {
     .join("")}</div>`;
 }
 
+function seatFor(section) {
+  const pack = state.packs.get(`section/${section}`);
+  return seatSummary(section, {
+    company: summaryFor(section),
+    lines: (state.home && state.home.regionLines) || [],
+    rows: (pack && pack.rows) || [],
+    filters: state.filters,
+  });
+}
+
 function companyBlock(section, title) {
-  const summary = summaryFor(section);
-  const tiles = cookedTiles(section);
-  if (!summary && !tiles) return `<p class="nodata">NO DATA</p>`;
-  const health = summary ? summary.health : "none";
-  const stores = summary && summary.storeCount ? `${num(summary.storeCount, 0)} stores` : "";
-  const head = title
-    ? `<div class="score-top"><div><h2>${esc(title)}</h2>${stores ? `<p class="sub">${esc(stores)}</p>` : ""}</div><div class="status-col"><span class="eyebrow">Status</span>${badge(health)}</div></div>`
-    : `<div class="score-top"><div>${stores ? `<p class="sub">${esc(stores)}</p>` : ""}</div><div class="status-col"><span class="eyebrow">Status</span>${badge(health)}</div></div>`;
-  const figure =
-    !tiles && summary && summary.headline != null && summary.headline !== ""
-      ? `<div class="chip ${health}"><span>Result</span><strong>${esc(formatHeadline(section, summary.headline))}</strong></div>`
-      : "";
-  const secondary = summary && summary.secondary ? `<p class="note">${esc(summary.secondary)}</p>` : "";
+  const seat = seatFor(section);
+  const tiles = filtersActive(state.filters) ? "" : cookedTiles(section);
+  if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
+  const health = seat.health || "none";
+  const name = title ? `<h2>${esc(title)}</h2>` : "";
+  const countLabel = !seat.storeCount
+    ? ""
+    : !seat.fixedCompany && section === "picker_scorecard"
+      ? `${num(seat.storeCount, 0)} shoppers`
+      : `${num(seat.storeCount, 0)} stores`;
+  const figureText =
+    seat.headlineText != null && seat.headlineText !== ""
+      ? seat.headlineText
+      : seat.headline != null && seat.headline !== ""
+        ? formatHeadline(section, seat.headline)
+        : filtersActive(state.filters)
+          ? "—"
+          : "";
+  const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
+  const secondary = seat.secondary ? `<p class="secondary">${esc(seat.secondary)}</p>` : "";
   const scope = filtersActive(state.filters)
-    ? `<p class="scope">In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores. Company figures stay the cooked upload.</p>`
+    ? `<p class="scope">In this scope: ${esc(countLabel || "no cooked grade")}.</p>`
     : "";
-  return `<div class="score-face">${head}${figure}${tiles}${secondary}${scope}</div>`;
+  return `<div class="score-face">${name}${badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figure}${tiles}${secondary}${scope}</div>`;
 }
 
 function cell(row, keys) {
@@ -289,11 +306,6 @@ function table(section, rows) {
   return `${more}<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
 }
 
-function visibleRegionLines() {
-  const lines = (state.home && state.home.regionLines) || [];
-  return lines.filter((line) => regionLineInScope(line, state.filters, roster()));
-}
-
 function grainBlock(section) {
   const rows = sectionGrainRows(
     (state.home && state.home.regionLines) || [],
@@ -318,21 +330,51 @@ function grainBlock(section) {
   return `<section class="grain"><h2>${esc(heading)}</h2><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul></section>`;
 }
 
+function proofRows() {
+  const filters = state.filters;
+  if (filters.district || filters.om || filters.store) return [];
+  const lines = (state.home && state.home.regionLines) || [];
+  const sections = [];
+  const seen = new Set();
+  for (const line of lines) {
+    if (!line || seen.has(line.section)) continue;
+    seen.add(line.section);
+    sections.push(line.section);
+  }
+  const rows = [];
+  for (const section of sections) {
+    let grain = sectionGrainRows(lines, section, filters, roster());
+    if (!filtersActive(filters)) grain = grain.filter((row) => row.grain === "region");
+    const title = (lines.find((line) => line.section === section) || {}).title || section;
+    for (const row of grain) rows.push({ ...row, title });
+  }
+  return rows;
+}
+
 function regionProof() {
-  const lines = visibleRegionLines();
-  const note = filtersActive(state.filters) && !lines.length ? `<p class="note">No rows in this scope.</p>` : "";
-  if (!lines.length && !filtersActive(state.filters)) return "";
+  const lines = proofRows();
+  const narrowed = filtersActive(state.filters);
+  const note =
+    state.filters.district || state.filters.om || state.filters.store
+      ? `<p class="note">District, OM, and store seats stay on the store rows. No averaged grade.</p>`
+      : narrowed && !lines.length
+        ? `<p class="note">No rows in this scope.</p>`
+        : "";
+  if (!lines.length && !narrowed) return "";
   const rows = lines
-    .map((line) => `<tr><td>${esc(line.region)}</td><td>${esc(line.title)}</td><td>${esc(line.value)}</td><td>${esc(line.count)}</td></tr>`)
+    .map(
+      (line) =>
+        `<tr><td>${esc(line.grain === "division" ? "Division" : "Region")}</td><td>${esc(line.title)}</td><td>${esc(line.label)}</td><td>${esc(line.value)}</td><td>${esc(line.count)}</td></tr>`,
+    )
     .join("");
   const cards = lines
     .map(
       (line) =>
-        `<li class="line-card"><div><p class="eyebrow">${esc(line.region)}</p><p class="line-title">${esc(line.title)}</p></div><div class="line-value"><strong>${esc(line.value)}</strong><span>${esc(line.count)}</span></div></li>`,
+        `<li class="line-card"><div><p class="eyebrow">${esc(line.grain === "division" ? "Division" : line.label)}</p><p class="line-title">${esc(line.title)}${line.grain === "division" ? ` · ${esc(line.label)}` : ""}</p></div><div class="line-value"><strong>${esc(line.value)}</strong><span>${esc(line.count)}</span></div></li>`,
     )
     .join("");
   const table = lines.length
-    ? `<div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Metric</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>`
+    ? `<div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Metric</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>`
     : "";
   return `<section id="pack-lines"><h2>Region results</h2><p class="note">Cooked region lines for each scorecard. Not Upcoming Weeks Schedule Check — that page is in Pages, and it stays empty when this pack has no schedule rows.</p>${note}${table}</section>`;
 }
@@ -344,8 +386,7 @@ function renderDashboard() {
       return `<article class="scorecard ${health}"><button class="link" type="button" data-page="${page.id}">${companyBlock(page.section, page.title)}</button></article>`;
     })
     .join("");
-  const schedule = `<article class="scorecard"><button class="link" type="button" data-page="schedule"><div class="score-face"><div class="score-top"><div><h2>Upcoming Weeks Schedule Check</h2><p class="sub">Its own page</p></div></div><p class="note">Not the region results. This page stays empty when the pack has no schedule rows.</p></div></button></article>`;
-  main.innerHTML = `<div class="cards">${cards}${schedule}</div>${regionProof()}`;
+  main.innerHTML = `<div class="cards">${cards}</div>${regionProof()}`;
 }
 
 function renderPicker() {
@@ -369,7 +410,7 @@ function renderPicker() {
     .map(([label, value]) => `<div class="tile"><span>${label}</span><strong>${esc(value)}</strong></div>`)
     .join("");
   const scope = `<p class="scope">${esc(scopeLabel(state.filters))}${filtersActive(state.filters) ? ` · In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores` : ""}</p>`;
-  main.innerHTML = `${badge(health)}${companyBlock("picker_scorecard")}${scope}<div class="tiles">${tiles}</div>${grainBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
+  main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker ScoreCard")}</article>${scope}<div class="tiles">${tiles}</div>${grainBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
 }
 
 function pickerRoll(home, filters) {
@@ -411,14 +452,20 @@ function renderPresub(pack) {
   const items = direct || (foundKey ? scopes[foundKey] : null);
   if (!items) return `<h2>Top 10 Pre-Sub OOS items</h2><p class="note">No cooked list for this scope.</p>`;
   if (!items.length) return `<h2>Top 10 Pre-Sub OOS items</h2><p class="note">No items in this scope.</p>`;
-  const body = items
-    .slice(0, 10)
+  const shown = items.slice(0, 10);
+  const body = shown
     .map(
       (item) =>
         `<tr><td>${esc(item.name || "—")}</td><td>${esc(item.code || "—")}</td><td>${esc(pct(item.percent))}</td><td>${esc(num(item.count, 0))}</td></tr>`,
     )
     .join("");
-  return `<h2>Top 10 Pre-Sub OOS items</h2><div class="scroll"><table><thead><tr><th>Item</th><th>Code</th><th>Pre-Sub OOS %</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  const cards = shown
+    .map(
+      (item) =>
+        `<li class="line-card"><div><p class="eyebrow">${esc(item.code || "Item")}</p><p class="line-title">${esc(item.name || "—")}</p></div><div class="line-value"><strong>${esc(pct(item.percent))}</strong><span>${esc(num(item.count, 0))}</span></div></li>`,
+    )
+    .join("");
+  return `<h2>Top 10 Pre-Sub OOS items</h2><div class="desk-only scroll"><table><thead><tr><th>Item</th><th>Code</th><th>Pre-Sub OOS %</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>`;
 }
 
 function toneClass(health) {
@@ -444,7 +491,7 @@ function scheduleIsEmpty(pack) {
 function renderSchedule(pack) {
   const tabs = `<div class="seg">${scheduleTabs()}</div>`;
   if (scheduleIsEmpty(pack)) {
-    main.innerHTML = `${tabs}<article class="scorecard none"><p class="nodata">NO DATA</p><p class="note">This pack has no Schedule Check rows.</p></article>`;
+    main.innerHTML = `${tabs}<article class="scorecard none"><div class="score-face"><h2>Upcoming Weeks Schedule Check</h2><p class="nodata">NO DATA</p><p class="note">This pack has no Schedule Check rows.</p></div></article>`;
     return;
   }
   const card = scheduleSummary(pack, state.filters);
@@ -473,7 +520,17 @@ function scheduleActionHtml(pack, card) {
               return `<tr><td>${esc(store.store)}</td><td class="${toneClass(percentHealth(store.under, notScheduled(store)))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, notScheduled(store)))}">${esc(pct(store.over))}</td><td>${esc(flags.join(", ") || "—")}</td></tr>`;
             })
             .join("");
-          return `<section class="group"><h3>${esc(group.division || "—")} · ${esc(group.region || "—")} · ${group.stores.length}</h3><div class="scroll"><table><thead><tr><th>Store</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+          const cards = group.stores
+            .slice(0, 80)
+            .map((store) => {
+              const flags = [];
+              if (Number(store.under) >= 10) flags.push("under");
+              if (store.fourUnder != null && Number(store.fourUnder) - 9 > 0.0001) flags.push("4-week");
+              if (Number(store.over) >= 15) flags.push("over");
+              return `<li class="store-card"><p class="store-id">${esc(store.store)}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(flags.join(", ") || "—")}</strong></div></div></li>`;
+            })
+            .join("");
+          return `<section class="group"><h3>${esc(group.division || "—")} · ${esc(group.region || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
         })
         .join("")
     : `<p class="note">No stores qualify in this scope.</p>`;
@@ -509,7 +566,19 @@ function scheduleSummaryHtml(pack, card) {
         `<tr><td>${esc(row.region)}</td><td>${esc(pct(row.under))}</td><td>${esc(pct(row.over))}</td><td>${esc(pct(row.eff))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
     )
     .join("");
-  return `<div class="tiles">${kpis}</div>${market ? `<p class="note">${esc(market)}</p>` : ""}<p class="note">Eff at or above 90% is green. 0% under or over is green. Not scheduled stays gray.</p><h2>Regions</h2><div class="scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><h2>Divisions</h2><div class="scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div>`;
+  const regionCards = rankedRegions(pack, state.filters)
+    .map(
+      (row) =>
+        `<li class="line-card"><div><p class="eyebrow">Region</p><p class="line-title">${esc(row.region)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
+    )
+    .join("");
+  const divisionCards = rankedDivisions(pack, state.filters)
+    .map(
+      (row) =>
+        `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
+    )
+    .join("");
+  return `<div class="tiles">${kpis}</div>${market ? `<p class="note">${esc(market)}</p>` : ""}<p class="note">Eff at or above 90% is green. 0% under or over is green. Not scheduled stays gray.</p><h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
 }
 
 function scheduleDetailHtml(pack) {
@@ -528,7 +597,14 @@ function scheduleDetailHtml(pack) {
       return `<tr><td>${name}${tag}</td><td>${esc(store.division || "—")}</td><td class="${toneClass(percentHealth(store.under, unscheduled))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, unscheduled))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, unscheduled))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
-  return `${more}<div class="scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  const cards = rows
+    .map((store) => {
+      const unscheduled = notScheduled(store);
+      const tag = unscheduled ? ` <span class="unscheduled">Not scheduled yet</span>` : "";
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(store.division || "—")}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(pct(store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+    })
+    .join("");
+  return `${more}<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
 }
 
 let renderToken = 0;
@@ -561,6 +637,11 @@ async function render() {
     return;
   }
   setUpdated(state.home.publishedAt);
+  if (filtersActive(state.filters)) {
+    main.innerHTML = `<p class="note">Loading…</p>`;
+    await ensureSeatRows();
+    if (token !== renderToken) return;
+  }
   if (page.id === "dashboard") {
     renderDashboard();
     return;
@@ -569,7 +650,9 @@ async function render() {
     renderPicker();
     return;
   }
-  main.innerHTML = `${companyBlock(page.section)}<p class="note">Loading…</p>`;
+  if (!filtersActive(state.filters)) {
+    main.innerHTML = `${companyBlock(page.section)}<p class="note">Loading…</p>`;
+  }
   let rows = [];
   let missing = false;
   try {
@@ -596,13 +679,33 @@ async function render() {
     ? `<p class="note">Store rows are not in this upload.</p>`
     : table(page.section, rows);
   const health = (summaryFor(page.section) || {}).health || "none";
-  main.innerHTML = `<article class="scorecard ${health}">${companyBlock(page.section)}</article>${grainBlock(page.section)}${extra}${storeTable}`;
+  main.innerHTML = `<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}`;
+}
+
+function desktopNav() {
+  return window.matchMedia("(min-width: 801px)").matches;
+}
+
+function syncNavToggle() {
+  if (!desktopNav()) {
+    navToggle.textContent = "Pages";
+    return;
+  }
+  const collapsed = document.documentElement.classList.contains("nav-collapsed");
+  navToggle.textContent = collapsed ? "Pages" : "Hide pages";
+  navToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
 
 function closeDrawer() {
   drawer.classList.remove("open");
   scrim.hidden = true;
-  navToggle.setAttribute("aria-expanded", "false");
+  if (!desktopNav()) navToggle.setAttribute("aria-expanded", "false");
+}
+
+async function ensureSeatRows() {
+  await Promise.all(
+    PAGES.filter((page) => page.section).map((page) => load(`section/${page.section}`).catch(() => null)),
+  );
 }
 
 filterToggle.addEventListener("click", () => {
@@ -611,11 +714,24 @@ filterToggle.addEventListener("click", () => {
 });
 
 navToggle.addEventListener("click", () => {
+  if (desktopNav()) {
+    const collapsed = !document.documentElement.classList.contains("nav-collapsed");
+    document.documentElement.classList.toggle("nav-collapsed", collapsed);
+    try {
+      sessionStorage.setItem("hb.web.navCollapsed", collapsed ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
+    syncNavToggle();
+    return;
+  }
   const open = !drawer.classList.contains("open");
   drawer.classList.toggle("open", open);
   scrim.hidden = !open;
   navToggle.setAttribute("aria-expanded", open ? "true" : "false");
 });
+window.addEventListener("resize", syncNavToggle);
+syncNavToggle();
 scrim.addEventListener("click", closeDrawer);
 
 document.body.addEventListener("click", (event) => {

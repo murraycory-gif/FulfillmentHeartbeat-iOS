@@ -26,6 +26,7 @@ import {
   sectionGrainRows,
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
+import { chromeSeat, seatSummary } from "./public/seat.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -151,6 +152,76 @@ assert.equal(
   sectionGrainRows(grainLines, "lost_revenue", filters({ district: "03" }), eastRoster).length,
   0,
 );
+assert.equal(app.includes("Company figures stay the cooked upload"), false);
+assert.match(app, /nav-collapsed/);
+assert.match(app, /seatSummary/);
+const companySales = {
+  headline: 37065336.17,
+  secondary: "785 up · 172 flat · 1208 down",
+  health: "risk",
+  storeCount: 2179,
+};
+const eastLines = [
+  {
+    section: "sales",
+    region: "East",
+    value: "$10,706,607.64",
+    count: 615,
+    health: "risk",
+    children: [{ division: "Shaws", value: "$1.00", count: 147, health: "watch" }],
+  },
+];
+const eastStores = [
+  { store: "117", division: "Shaws", district: "03", om: "Ada", payload: { sales_dollars: 10, sales_yoy_pct: 4 } },
+  { store: "118", division: "Jewel Osco", district: "04", om: "Bea", payload: { sales_dollars: 20, sales_yoy_pct: -10 } },
+  { store: "200", division: "United", district: "03", om: "Ada", payload: { sales_dollars: 999, sales_yoy_pct: 8 } },
+];
+const companySeat = seatSummary("sales", {
+  company: companySales,
+  lines: eastLines,
+  rows: eastStores,
+  filters: filters({}),
+});
+assert.equal(companySeat.fixedCompany, true);
+assert.equal(companySeat.headline, 37065336.17);
+assert.equal(companySeat.secondary, "785 up · 172 flat · 1208 down");
+const eastSeat = seatSummary("sales", {
+  company: companySales,
+  lines: eastLines,
+  rows: eastStores,
+  filters: filters({ region: "East Region" }),
+});
+assert.equal(eastSeat.fixedCompany, false);
+assert.equal(eastSeat.headlineText, "$10,706,607.64");
+assert.equal(eastSeat.headline, null);
+assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
+assert.equal(eastSeat.storeCount, 615);
+const shawsSeat = seatSummary("sales", {
+  company: companySales,
+  lines: eastLines,
+  rows: eastStores,
+  filters: filters({ region: "East Region", division: "Shaws" }),
+});
+assert.equal(shawsSeat.headlineText, "$1.00");
+assert.equal(shawsSeat.secondary, "1 up · 0 flat · 0 down");
+assert.equal(chromeSeat(eastLines, "sales", filters({ district: "03" })), null);
+const districtSeat = seatSummary("sales", {
+  company: companySales,
+  lines: eastLines,
+  rows: eastStores,
+  filters: filters({ region: "East Region", district: "03" }),
+});
+assert.equal(districtSeat.headlineText, null);
+assert.equal(districtSeat.headline, 10);
+assert.equal(districtSeat.secondary, "1 up · 0 flat · 0 down");
+const blankDynacap = seatSummary("dynacap", {
+  company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
+  lines: [],
+  rows: [{ store: "117", division: "Shaws", district: "03", payload: {} }],
+  filters: filters({ store: "117" }),
+});
+assert.equal(blankDynacap.headline, null);
+assert.equal(blankDynacap.headlineText, null);
 assert.match(app, /This pack has no Schedule Check rows/);
 assert.match(app, /data-more/);
 assert.match(app, /Shopper names are not on this site/);
@@ -319,7 +390,10 @@ const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: ro
 assert.equal(built.status, 0, built.stderr.toString());
 const distIndex = readFileSync(join(root, "dist/index.html"), "utf8");
 assert.match(distIndex, /HB-0828\.494/);
+assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
+assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
+assert.match(app, /class="figure"/);
 assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
 
 const dataFiles = [
