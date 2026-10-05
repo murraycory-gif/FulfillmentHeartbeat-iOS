@@ -119,6 +119,15 @@ assert.match(app, /packURL/);
 
 assert.equal(packURL("home"), "/data/home.json");
 assert.equal(packURL("section/sales"), "/data/section/sales.json");
+assert.equal(
+  packURL("home", "https://user:pass@fulfillment-heartbeat-web.pages.dev/app"),
+  "https://fulfillment-heartbeat-web.pages.dev/data/home.json",
+);
+assert.equal(
+  packURL("section/sales", "https://fulfillment-heartbeat-web.pages.dev"),
+  "https://fulfillment-heartbeat-web.pages.dev/data/section/sales.json",
+);
+assert.match(app, /packURL\(path,\s*location\.origin\)/);
 assert.equal(packURL("presub"), "/data/presub.json");
 assert.equal(packURL("schedule"), "/data/schedule.json");
 assert.equal(packURL("packs/seat/company/all/current.sqlite"), null);
@@ -271,9 +280,11 @@ assert.match(app, /Shopper rows open from a division/);
 const css = readFileSync(join(root, "public/app.css"), "utf8");
 assert.equal(/\.brand-lockup\s*\{[^}]*background:\s*#fff/.test(css), false);
 const pageHtml = readFileSync(join(root, "public/index.html"), "utf8");
-assert.match(pageHtml, /src="\/nav-boot\.js"/);
+assert.match(pageHtml, /src="\/nav-boot\.js\?v=2"/);
 assert.equal(/<script>\s*try/.test(pageHtml), false);
 assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /nav-collapsed/);
+assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /location\.username/);
+assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /location\.replace\(location\.origin/);
 const lockup = pageHtml.slice(pageHtml.indexOf('class="brand-lockup"'), pageHtml.indexOf("</p>", pageHtml.indexOf('class="brand-lockup"')));
 assert.ok(lockup.indexOf("wordmark") < lockup.indexOf('class="heart"'));
 assert.ok(lockup.indexOf('class="heart"') < lockup.indexOf('class="pulse"'));
@@ -337,11 +348,11 @@ assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filter
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=19/);
+assert.match(pageHtml, /app\.js\?v=20/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
-assert.match(pageHtml, /<script src="\/nav-boot\.js"><\/script>/);
+assert.match(pageHtml, /<script src="\/nav-boot\.js\?v=2"><\/script>/);
 assert.match(app, /· OM \$\{seat\.om\}/);
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
@@ -858,6 +869,19 @@ assert.match(loginHTML, /action="\/login"/);
 assert.match(loginHTML, /type="password"/);
 assert.match(loginHTML, /autocomplete="current-password"/);
 assert.match(loginHTML, /<span class="fulfill">Fulfill<\/span><span class="ment">ment<\/span>/);
+assert.match(loginHTML, /src="\/nav-boot\.js\?v=2"/);
+let bootServed = false;
+const boot = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/nav-boot.js?v=2"),
+  env: gateEnv,
+  next: async () => {
+    bootServed = true;
+    return new Response("boot", { status: 200 });
+  },
+});
+assert.equal(boot.status, 200);
+assert.equal(bootServed, true);
+assert.equal(await boot.text(), "boot");
 assert.equal(loginHTML.includes("NO DATA"), false);
 const dataDenied = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json"),

@@ -224,7 +224,7 @@ async function readPack(url) {
 
 async function load(path) {
   if (state.packs.has(path)) return state.packs.get(path);
-  const url = packURL(path);
+  const url = packURL(path, location.origin);
   if (!url) throw new Error("NO DATA");
   let last = new Error("NO DATA");
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -1518,17 +1518,21 @@ function retryHomeAfterAuth() {
   });
 }
 
-renderNav();
-load("home").then(acceptHome).catch((error) => {
-  if (error && error.authBlocked) {
-    window.location.assign("/login");
-    return;
-  }
-  state.home = null;
-  state.homeError = "";
-  render();
-  window.addEventListener("focus", retryHomeAfterAuth);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") retryHomeAfterAuth();
+if (location.username || location.password) {
+  location.replace(location.origin + location.pathname + location.search + location.hash);
+} else {
+  renderNav();
+  load("home").then(acceptHome).catch((error) => {
+    if (error && error.authBlocked) {
+      window.location.assign("/login");
+      return;
+    }
+    state.home = null;
+    state.homeError = "";
+    render();
+    window.addEventListener("focus", retryHomeAfterAuth);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") retryHomeAfterAuth();
+    });
   });
-});
+}

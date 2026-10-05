@@ -200,6 +200,7 @@ function loginHTML(message, username) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · Fulfillment Heartbeat</title>
   <link rel="stylesheet" href="/login.css">
+  <script src="/nav-boot.js?v=2"></script>
 </head>
 <body>
   <header class="top">
@@ -297,7 +298,7 @@ export async function onRequest(context) {
   if ((request.method === "GET" || request.method === "POST") && pathname === "/logout") {
     return redirect(request, "/login", clearCookie());
   }
-  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/login.css") {
+  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js")) {
     return context.next();
   }
 
