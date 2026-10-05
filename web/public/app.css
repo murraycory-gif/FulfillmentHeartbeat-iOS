@@ -776,11 +776,12 @@ td.none, .unscheduled { color: var(--none); }
   .filters { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .brand-lockup { top: 14px; gap: 12px; }
-  .wordmark { font-size: 1.85rem; }
-  .heart { width: 40px; height: 36px; }
-  .pulse { width: 100px; height: 38px; margin-left: -36px; }
-  .titles { padding-top: 52px; }
-  h1 { font-size: 1.65rem; }
-  #updated { font-size: 1.05rem; }
+  .top { padding: 4px 16px 6px; }
+  .brand-lockup { top: 4px; gap: 10px; }
+  .wordmark { font-size: 1.35rem; }
+  .heart { width: 26px; height: 23px; }
+  .pulse { width: 64px; height: 24px; margin-left: -26px; }
+  .titles { padding-top: 30px; }
+  h1 { font-size: 1.15rem; line-height: 1.15; }
+  #updated { font-size: 0.86rem; margin-top: 1px; }
 }
