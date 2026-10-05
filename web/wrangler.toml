@@ -9,9 +9,3 @@ pages_build_output_dir = "dist"
 [[r2_buckets]]
 binding = "HEARTBEAT_PACKS"
 bucket_name = "heartbeat-packs"
-
-# Lets functions/api import functions/allowlist.txt as text.
-[[rules]]
-type = "Text"
-globs = ["**/*.txt"]
-fallthrough = true
