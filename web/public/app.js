@@ -981,12 +981,9 @@ function desktopNav() {
 }
 
 function syncNavToggle() {
-  if (!desktopNav()) {
-    navToggle.textContent = "Pages";
-    return;
-  }
+  navToggle.textContent = "Pages";
+  if (!desktopNav()) return;
   const collapsed = document.documentElement.classList.contains("nav-collapsed");
-  navToggle.textContent = collapsed ? "Pages" : "Hide pages";
   navToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
 
