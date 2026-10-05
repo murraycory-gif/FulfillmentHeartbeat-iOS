@@ -619,30 +619,36 @@ td.none, .unscheduled { color: var(--none); }
   white-space: nowrap;
 }
 
-.filter-tools { margin: 0 0 8px; }
+.filter-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+
+#filter-toggle,
+#share-open,
+#clear-filters {
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--navy);
+  font-weight: 750;
+  padding: 0 14px;
+}
 
 #filter-toggle {
   display: none;
-  width: 100%;
-  min-height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: white;
-  color: var(--navy);
-  font-weight: 750;
+  flex: 1;
+  width: auto;
   text-align: left;
-  padding: 0 14px;
 }
 
-#clear-filters, #share-open {
-  min-height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: white;
-  color: var(--navy);
-  font-weight: 750;
-  padding: 0 14px;
-}
+#share-open,
+#clear-filters { flex: 0 0 auto; }
 
 .share {
   position: fixed;
@@ -730,7 +736,7 @@ td.none, .unscheduled { color: var(--none); }
   .desk-only { display: none !important; }
   .phone-only.line-cards,
   .phone-only.store-cards { display: grid; gap: 10px; }
-  #filter-toggle { display: block; margin-bottom: 8px; }
+  #filter-toggle { display: block; }
   .filters { display: none; }
   .filters.open { display: grid; }
   .top { padding: max(2px, env(safe-area-inset-top)) 14px 6px; }
@@ -774,9 +780,7 @@ td.none, .unscheduled { color: var(--none); }
     white-space: nowrap;
   }
   .shell, main, .cards, .scorecard, .line-card, .store-card { max-width: 100%; }
-  .filter-tools { display: flex; gap: 8px; align-items: stretch; }
-  #filter-toggle { flex: 1; width: auto; }
-  #share-open, #clear-filters { flex: 0 0 auto; }
+  .filter-tools { margin: 0 0 8px; }
   #drawer {
     position: fixed;
     z-index: 30;
@@ -813,7 +817,13 @@ td.none, .unscheduled { color: var(--none); }
     overflow: hidden;
     visibility: hidden;
   }
-  .filters { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .filter-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .filter-tools { order: 1; margin: 0 0 0 auto; }
+  .filters { order: 0; flex: 1; grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .top { padding: max(2px, env(safe-area-inset-top)) 20px 6px; }
