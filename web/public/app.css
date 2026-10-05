@@ -35,6 +35,7 @@ button, select {
 .shell { min-width: 0; }
 
 .top {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -51,22 +52,28 @@ button, select {
   background: var(--canvas);
 }
 
-.titles { min-width: 0; }
+.titles { min-width: 0; padding-top: 32px; }
 
 .brand-lockup {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin: 0 0 4px;
-  max-width: 100%;
+  gap: 8px;
+  margin: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 
-.mark {
+.heart, .pulse {
   display: block;
-  width: 58px;
-  height: 25px;
   flex: none;
 }
+
+.heart { width: 22px; height: 20px; }
+.pulse { width: 52px; height: 22px; }
 
 .ecg {
   stroke-dasharray: 18 90;
@@ -569,8 +576,11 @@ td.none, .unscheduled { color: var(--none); }
   .filters.open { display: grid; }
   .stamp { font-size: 0.68rem; }
   h1 { font-size: 1.12rem; }
-  .wordmark { font-size: 0.86rem; }
-  .mark { width: 50px; height: 22px; }
+  .wordmark { font-size: 0.92rem; }
+  .heart { width: 18px; height: 17px; }
+  .pulse { width: 42px; height: 18px; }
+  .brand-lockup { top: 10px; gap: 6px; }
+  .titles { padding-top: 28px; }
   .score-face .figure { font-size: 1.35rem; }
   .cards { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }

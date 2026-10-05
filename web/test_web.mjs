@@ -236,6 +236,11 @@ assert.equal(app.includes("Shopper names are not on this site"), false);
 assert.match(app, /Shopper rows open from a division/);
 const css = readFileSync(join(root, "public/app.css"), "utf8");
 assert.equal(/\.brand-lockup\s*\{[^}]*background:\s*#fff/.test(css), false);
+const pageHtml = readFileSync(join(root, "public/index.html"), "utf8");
+const lockup = pageHtml.slice(pageHtml.indexOf('class="brand-lockup"'), pageHtml.indexOf("</p>", pageHtml.indexOf('class="brand-lockup"')));
+assert.ok(lockup.indexOf("wordmark") < lockup.indexOf('class="heart"'));
+assert.ok(lockup.indexOf('class="heart"') < lockup.indexOf('class="pulse"'));
+assert.match(css, /left:\s*50%/);
 assert.match(css, /z-index:\s*30/);
 const quinnRoster = [
   { store: "210", division: "United", district: "U5", om: "Andrew Quinn" },
