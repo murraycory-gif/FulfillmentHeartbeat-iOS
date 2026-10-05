@@ -572,7 +572,7 @@ td.none, .unscheduled { color: var(--none); }
   padding: 0 14px;
 }
 
-#clear-filters {
+#clear-filters, #share-open {
   min-height: 44px;
   border-radius: 12px;
   border: 1px solid var(--line);
@@ -580,6 +580,80 @@ td.none, .unscheduled { color: var(--none); }
   color: var(--navy);
   font-weight: 750;
   padding: 0 14px;
+}
+
+.share {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: end center;
+  padding: 12px;
+  background: rgba(0, 20, 40, 0.35);
+}
+
+.share-card {
+  width: min(28rem, 100%);
+  max-height: min(80vh, 640px);
+  overflow: auto;
+  background: white;
+  border-radius: 16px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 12px 32px rgba(16, 32, 51, 0.18);
+}
+
+.share-card h2 { margin: 0 0 4px; }
+
+.share [hidden] { display: none !important; }
+
+.share-modes, .share-picks {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.share-picks { max-height: 11.5rem; overflow: auto; }
+
+.share-modes label, .share-picks label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.share-to input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 12px;
+  font: inherit;
+}
+
+.share-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.share-actions button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 12px;
+  font-weight: 750;
+}
+
+#share-send {
+  border: 0;
+  background: var(--navy);
+  color: white;
+}
+
+#share-close {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--navy);
 }
 
 .phone-only { display: none; }
@@ -657,6 +731,7 @@ td.none, .unscheduled { color: var(--none); }
   .shell, main, .cards, .scorecard, .line-card, .store-card { max-width: 100%; }
   .filter-tools { display: flex; gap: 8px; align-items: stretch; }
   #filter-toggle { flex: 1; width: auto; }
+  #share-open, #clear-filters { flex: 0 0 auto; }
   #drawer {
     position: fixed;
     z-index: 30;

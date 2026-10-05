@@ -28,6 +28,7 @@ import {
   sectionGrainRows,
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
+import { healthWord, mailtoURL, shareBrief, sharePages, shareSubject } from "./public/share.js";
 import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
 import {
   bannerMismatch,
@@ -291,6 +292,44 @@ assert.match(app, /regionTables/);
 assert.match(app, /nav-icon/);
 assert.match(app, /NAV_ICON/);
 assert.match(app, /text\/html/);
+assert.match(app, /mailtoURL/);
+assert.match(app, /share-open/);
+assert.match(css, /\.share \[hidden\]/);
+assert.match(pageHtml, /id="share-open"/);
+assert.match(pageHtml, /name="share-mode" value="all"/);
+assert.match(pageHtml, /name="share-mode" value="pick"/);
+const catalog = [
+  { id: "dashboard", title: "Dashboard" },
+  { id: "lost_revenue", title: "Lost Revenue" },
+  { id: "labor", title: "Labor" },
+];
+assert.deepEqual(
+  sharePages("page", "lost_revenue", [], catalog).map((page) => page.id),
+  ["lost_revenue"],
+);
+assert.equal(sharePages("all", "lost_revenue", [], catalog).length, 3);
+assert.deepEqual(
+  sharePages("pick", "lost_revenue", ["labor", "dashboard"], catalog).map((page) => page.id),
+  ["dashboard", "labor"],
+);
+assert.equal(sharePages("pick", "lost_revenue", [], catalog).length, 0);
+assert.equal(shareSubject("Total Company", "HB-0828.494"), "Fulfillment Heartbeat — Total Company — HB-0828.494");
+assert.equal(shareSubject("East Region · Jewel Osco", "HB-0828.494"), "Fulfillment Heartbeat — East Region · Jewel Osco — HB-0828.494");
+assert.equal(healthWord("risk"), "At risk");
+const brief = shareBrief({
+  scope: "Total Company",
+  stamp: "HB-0828.494",
+  updated: "Updated Mon 10/5 1:39 PM",
+  pages: [{ title: "Lost Revenue", detail: "At risk · 2,165 stores · $4,248,638.43\nLost % 5.19% · Missed $178,705.37" }],
+});
+assert.match(brief, /Filters|Total Company/);
+assert.match(brief, /Lost % 5.19%/);
+assert.match(brief, /Missed \$178,705\.37/);
+assert.match(brief, /Sent from Fulfillment Heartbeat/);
+const mail = mailtoURL({ to: "ops@example.com", subject: shareSubject("Total Company", "HB-0828.494"), body: brief });
+assert.match(mail, /^mailto:ops@example.com\?subject=/);
+assert.match(decodeURIComponent(mail), /Lost % 5.19%/);
+assert.match(decodeURIComponent(mail), /Total Company/);
 
 for (const path of walk(join(root, "public"))) {
   const text = readFileSync(path, "utf8");

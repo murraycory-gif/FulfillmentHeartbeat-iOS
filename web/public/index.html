@@ -50,6 +50,7 @@
     <div class="filter-bar">
       <div class="filter-tools">
         <button id="filter-toggle" type="button" aria-expanded="false" aria-controls="filters">Filters</button>
+        <button id="share-open" type="button">Share</button>
         <button id="clear-filters" type="button" hidden>Clear all</button>
       </div>
       <form id="filters" class="filters"></form>
@@ -58,6 +59,24 @@
     <main id="main">
       <p class="nodata">Loading…</p>
     </main>
+  </div>
+  <div id="share" class="share" hidden>
+    <div class="share-card" role="dialog" aria-modal="true" aria-labelledby="share-title">
+      <h2 id="share-title">Share</h2>
+      <p id="share-scope" class="note"></p>
+      <div class="share-modes">
+        <label><input type="radio" name="share-mode" value="page" checked> This page</label>
+        <label><input type="radio" name="share-mode" value="all"> All pages</label>
+        <label><input type="radio" name="share-mode" value="pick"> Pick pages</label>
+      </div>
+      <div id="share-picks" class="share-picks" hidden></div>
+      <label class="share-to">To<input id="share-to" type="text" inputmode="email" autocomplete="email" placeholder="Optional. name@company.com"></label>
+      <p id="share-error" class="note" hidden>Pick at least one page.</p>
+      <div class="share-actions">
+        <button id="share-send" type="button">Email this page</button>
+        <button id="share-close" type="button">Close</button>
+      </div>
+    </div>
   </div>
   <script type="module" src="/app.js"></script>
 </body>

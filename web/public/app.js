@@ -14,6 +14,7 @@ import {
   regionForDivision,
 } from "./filters.js";
 import { packURL } from "./packs.js";
+import { healthWord, mailtoURL, shareBrief, sharePages, shareSubject } from "./share.js";
 import { lossPercentPoints, seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
@@ -119,6 +120,14 @@ const title = document.querySelector("#page-title");
 const updated = document.querySelector("#updated");
 const banner = document.querySelector("#banner");
 const navToggle = document.querySelector("#nav-toggle");
+const shareRoot = document.querySelector("#share");
+const shareOpen = document.querySelector("#share-open");
+const shareClose = document.querySelector("#share-close");
+const shareSend = document.querySelector("#share-send");
+const shareScope = document.querySelector("#share-scope");
+const sharePicks = document.querySelector("#share-picks");
+const shareError = document.querySelector("#share-error");
+const shareTo = document.querySelector("#share-to");
 
 function esc(value) {
   return String(value ?? "")
@@ -903,6 +912,162 @@ async function ensureSeatRows() {
   );
 }
 
+function seatFigure(section, seat) {
+  if (seat.headlineText != null && seat.headlineText !== "") return String(seat.headlineText);
+  if (seat.headline != null && seat.headline !== "") return formatHeadline(section, seat.headline);
+  return "";
+}
+
+function shareCount(section, seat) {
+  if (!seat || !seat.storeCount) return "";
+  const label = section === "picker_scorecard" ? "shoppers" : "stores";
+  return `${num(seat.storeCount, 0)} ${label}`;
+}
+
+function companyTileLine(section) {
+  if (filtersActive(state.filters)) return "";
+  const tiles = tilesFor(section);
+  if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
+  const labels = tiles.labels;
+  const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
+  return labels
+    .map((label, index) => {
+      const raw = values[index];
+      const shown = raw == null || raw === "" ? "—" : String(raw);
+      return `${label} ${shown}`;
+    })
+    .join(" · ");
+}
+
+function metricShareDetail(page, withTiles) {
+  const seat = seatFor(page.section);
+  const health = healthWord(seat.health || (summaryFor(page.section) || {}).health);
+  const head = [health, shareCount(page.section, seat), seatFigure(page.section, seat)].filter(Boolean).join(" · ");
+  const secondary = shownSecondary(page.section, seat.secondary);
+  const tiles = withTiles ? companyTileLine(page.section) : "";
+  return [head, secondary, tiles].filter(Boolean).join("\n");
+}
+
+function scheduleShareDetail() {
+  const pack = state.packs.get("schedule");
+  if (!pack || scheduleIsEmpty(pack)) return "NO DATA";
+  const card = scheduleSummary(pack, state.filters, roster());
+  const week = pack.week ? `Week ${pack.week}` : "Schedule";
+  return `${week} · ${num(card.actionCount, 0)} to review`;
+}
+
+function dashboardShareDetail(withTiles) {
+  return PAGES.filter((page) => page.id !== "dashboard")
+    .map((page) => {
+      if (page.id === "schedule") return `Schedule Check · ${scheduleShareDetail()}`;
+      const line = metricShareDetail(page, withTiles).split("\n")[0];
+      return `${page.title} · ${line}`;
+    })
+    .join("\n");
+}
+
+function shareMode() {
+  const picked = document.querySelector('input[name="share-mode"]:checked');
+  return picked ? picked.value : "page";
+}
+
+function paintSharePicks() {
+  sharePicks.innerHTML = PAGES.map(
+    (page) =>
+      `<label><input type="checkbox" value="${esc(page.id)}"${page.id === state.page ? " checked" : ""}> ${esc(page.title)}</label>`,
+  ).join("");
+}
+
+function shareActionLabel() {
+  const mode = shareMode();
+  if (mode === "all") return "Email all pages";
+  if (mode === "page") return "Email this page";
+  const count = sharePicks.querySelectorAll("input:checked").length;
+  if (!count) return "Email";
+  return count === 1 ? "Email 1 page" : `Email ${count} pages`;
+}
+
+function syncSharePicks() {
+  sharePicks.hidden = shareMode() !== "pick";
+  shareError.hidden = true;
+  shareSend.textContent = shareActionLabel();
+}
+
+function openShare() {
+  shareScope.textContent = `Filters · ${scopeLabel(state.filters)}`;
+  const pageRadio = document.querySelector('input[name="share-mode"][value="page"]');
+  if (pageRadio) pageRadio.checked = true;
+  paintSharePicks();
+  syncSharePicks();
+  shareRoot.hidden = false;
+  shareSend.focus();
+}
+
+function closeShare() {
+  shareRoot.hidden = true;
+}
+
+async function sendShare() {
+  const mode = shareMode();
+  const picked = [...sharePicks.querySelectorAll("input:checked")].map((input) => input.value);
+  const pages = sharePages(mode, state.page, picked, PAGES);
+  if (!pages.length) {
+    shareError.hidden = false;
+    return;
+  }
+  shareError.hidden = true;
+  shareSend.disabled = true;
+  try {
+    if (filtersActive(state.filters) && pages.some((page) => page.section || page.id === "dashboard")) {
+      await ensureSeatRows();
+    }
+    if (pages.some((page) => page.id === "schedule" || page.id === "dashboard")) {
+      await load("schedule").catch(() => null);
+    }
+    const withTiles = pages.length === 1;
+    const detailed = pages.map((page) => ({
+      title: page.title,
+      detail:
+        page.id === "dashboard"
+          ? dashboardShareDetail(false)
+          : page.id === "schedule"
+            ? scheduleShareDetail()
+            : metricShareDetail(page, withTiles),
+    }));
+    const scope = scopeLabel(state.filters);
+    const url = mailtoURL({
+      to: shareTo.value,
+      subject: shareSubject(scope, STAMP),
+      body: shareBrief({
+        scope,
+        stamp: STAMP,
+        updated: updated.textContent,
+        pages: detailed,
+      }),
+    });
+    shareRoot.dataset.lastMailto = url;
+    closeShare();
+    window.location.href = url;
+  } finally {
+    shareSend.disabled = false;
+  }
+}
+
+shareOpen.addEventListener("click", openShare);
+shareClose.addEventListener("click", closeShare);
+shareSend.addEventListener("click", () => {
+  sendShare();
+});
+shareRoot.addEventListener("click", (event) => {
+  if (event.target === shareRoot) closeShare();
+});
+shareRoot.addEventListener("change", (event) => {
+  if (event.target.name === "share-mode" || event.target.closest("#share-picks")) syncSharePicks();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && shareRoot && !shareRoot.hidden) closeShare();
+});
+
 clearFilters.addEventListener("click", () => {
   state.filters = emptyFilters();
   state.tableWindow = ROW_PAGE;
@@ -991,6 +1156,7 @@ filtersForm.addEventListener("change", (event) => {
   }
   state.filters = next;
   state.tableWindow = ROW_PAGE;
+  if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(next)}`;
   render();
 });
 
