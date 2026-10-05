@@ -221,6 +221,38 @@ export function isPersonOm(raw) {
 }
 
 const omStoreCache = new WeakMap();
+const districtStoreCache = new WeakMap();
+
+// Roster stores in this district. Schedule Quality rows often use a different
+// code (roster A1, sheet H1) for the same store number.
+export function storesForDistrict(roster, district) {
+  const list = roster || [];
+  let byDistrict = districtStoreCache.get(list);
+  if (!byDistrict) {
+    byDistrict = new Map();
+    districtStoreCache.set(list, byDistrict);
+  }
+  const key = String(district || "").trim();
+  if (byDistrict.has(key)) return byDistrict.get(key);
+  const wanted = new Set();
+  if (key) {
+    for (const row of list) {
+      if (!row || !row.store || !matchesDistrict(row.district || "", key)) continue;
+      wanted.add(canonicalStore(row.store));
+    }
+  }
+  byDistrict.set(key, wanted);
+  return wanted;
+}
+
+// United U2–U7 have roster stores and no Schedule Quality facts. Say so.
+// A matched district, including A1 joined onto H1 rows, stays quiet.
+export function scheduleDistrictNote(section, filters, roster, matchedCount) {
+  if (section !== "schedule_quality" || matchedCount > 0) return "";
+  if (!filters || !filters.district) return "";
+  if (storesForDistrict(roster, filters.district).size === 0) return "";
+  return "No Schedule Quality data for this district.";
+}
 
 // Store numbers whose roster row carries this OM. Section rows are not the map.
 export function storesForOm(roster, om) {
@@ -249,14 +281,21 @@ export function filtersActive(filters) {
   return Boolean(filters.region || filters.division || filters.district || filters.om || filters.store);
 }
 
-export function includesScope(row, filters, roster) {
+export function includesScope(row, filters, roster, section) {
   const division = row.division || "";
   if (filters.division) {
     if (!matchesDivision(division, filters.division)) return false;
   } else if (filters.region) {
     if (regionForDivision(division) !== filters.region) return false;
   }
-  if (filters.district && !matchesDistrict(row.district || "", filters.district)) return false;
+  if (filters.district && !matchesDistrict(row.district || "", filters.district)) {
+    const store = canonicalStore(row.store || "");
+    const joined =
+      section === "schedule_quality" &&
+      store &&
+      storesForDistrict(roster, filters.district).has(store);
+    if (!joined) return false;
+  }
   if (filters.om) {
     if (roster) {
       if (!storesForOm(roster, filters.om).has(canonicalStore(row.store || ""))) return false;

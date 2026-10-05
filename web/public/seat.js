@@ -84,8 +84,18 @@ function lossPct(dollars, sales, stored) {
   return lossPercentPoints(sample, dollars, sales);
 }
 
-export function rowsInScope(rows, filters, roster) {
-  return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster));
+export function rowsInScope(rows, filters, roster, section) {
+  return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster, section));
+}
+
+// Labor workbook Total AIV is already percent points (Excel fraction × 100).
+// 0.0026109 is the company total and completes UPLH + Wage + AIV = TVA.
+// Two decimals print that as 0.00%.
+export function formatCompanyAiv(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  if (number !== 0 && Math.abs(number) < 0.005) return `${number.toFixed(4)}%`;
+  return `${number.toFixed(2)}%`;
 }
 
 // Cooked region or division line. District / OM / Store have no chrome grade.
@@ -331,7 +341,7 @@ export function seatSummary(section, { company, lines, rows, filters, roster }) 
       storeCount: (company && company.storeCount) || 0,
     };
   }
-  const scoped = rowsInScope(rows, filters, roster);
+  const scoped = rowsInScope(rows, filters, roster, section);
   const built = summarizeSeat(section, scoped);
   const chrome = chromeSeat(lines, section, filters);
   if (chrome) {

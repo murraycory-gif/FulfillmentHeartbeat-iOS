@@ -21,6 +21,8 @@ import {
   includesScope,
   isPersonOm,
   matchesDistrict,
+  scheduleDistrictNote,
+  storesForDistrict,
   optionValues,
   matchesDivision,
   regionLineInScope,
@@ -29,7 +31,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
+import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./public/seat.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -301,8 +303,14 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=5/);
-assert.match(pageHtml, /app\.js\?v=5/);
+assert.match(pageHtml, /app\.css\?v=6/);
+assert.match(pageHtml, /app\.js\?v=6/);
+assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
+assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
+assert.equal(formatCompanyAiv(0.002610916545167652), "0.0026%");
+assert.equal(formatCompanyAiv(-0.38645958215580284), "-0.39%");
+assert.equal(formatCompanyAiv(0), "0.00%");
+assert.equal(formatCompanyAiv(88.22231683849824), "88.22%");
 assert.match(css, /\.share\[hidden\]/);
 assert.match(app, /tileUsesSectionTone/);
 assert.match(app, /tone-\$\{tone\}/);
@@ -451,6 +459,46 @@ assert.equal(matchesDistrict("03", "3"), true);
 assert.equal(matchesDistrict("D3", "3"), false);
 assert.equal(matchesDistrict("62", "62 DEN WEST & MTNS"), true);
 assert.equal(matchesDistrict("J1", "J1 NORTH SHORE"), true);
+assert.equal(matchesDistrict("A1", "H1 NE PHILA SUBURB"), false);
+
+const packHome = JSON.parse(readFileSync(join(root, "public/data/home.json"), "utf8"));
+const packRoster = packHome.filters.stores;
+const packSq = JSON.parse(readFileSync(join(root, "public/data/section/schedule_quality.json"), "utf8")).rows;
+function sqCount(district) {
+  return packSq.filter((row) => includesScope(row, filters({ district }), packRoster, "schedule_quality")).length;
+}
+const a1Store = packRoster.find((row) => row.district === "A1").store;
+assert.equal(sqCount("A1"), 20);
+assert.equal(sqCount("A9"), 23);
+assert.equal(sqCount("U2"), 0);
+assert.equal(sqCount("U7"), 0);
+assert.equal(sqCount("62"), 23);
+assert.equal(
+  includesScope(
+    { store: a1Store, division: "Mid-Atlantic", district: "H1 NE PHILA SUBURB" },
+    filters({ district: "A1" }),
+    packRoster,
+    "schedule_quality",
+  ),
+  true,
+);
+assert.equal(
+  includesScope(
+    { store: a1Store, division: "Mid-Atlantic", district: "H1 NE PHILA SUBURB" },
+    filters({ district: "A1" }),
+    packRoster,
+    "sales",
+  ),
+  false,
+);
+assert.equal(
+  scheduleDistrictNote("schedule_quality", filters({ district: "U2" }), packRoster, sqCount("U2")),
+  "No Schedule Quality data for this district.",
+);
+assert.equal(scheduleDistrictNote("schedule_quality", filters({ district: "A1" }), packRoster, sqCount("A1")), "");
+assert.equal(storesForDistrict(packRoster, "62").size, 23);
+assert.equal(packHome.laborMarket.aiv_impact_pct, 0.002610916545167652);
+assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.0026%");
 assert.equal(Number(lossPercentPoints(0.05189747740362091, 4248638.425832152, 81865991.15).toFixed(2)), 5.19);
 assert.equal(lossPercentPoints(5.19, 4248638.425832152, 81865991.15), 5.19);
 assert.equal(lossPercentPoints(4.84, 4.84, 1), 4.84);

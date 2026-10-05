@@ -322,6 +322,52 @@ def lost_market_payload(db: sqlite3.Connection) -> dict:
     return {}
 
 
+def labor_market_payload(db: sqlite3.Connection) -> dict:
+    if not _table(db, "facts"):
+        return {}
+    for fact in db.execute(
+        "SELECT payload_json, text_json FROM facts WHERE section = 'labor' AND store_number = 'TOTAL'"
+    ):
+        text = loads(fact["text_json"], {})
+        if isinstance(text, dict) and text.get("labor_grain") == "market":
+            payload = loads(fact["payload_json"], {})
+            return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+def format_company_aiv(value: float) -> str:
+    """Percent points. Values under 0.005% need four decimals or they print as 0.00%."""
+    if value != 0 and abs(value) < 0.005:
+        return f"{value:.4f}%"
+    return f"{value:.2f}%"
+
+
+def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
+    """Company AIV is the Labor workbook Total (UPLH + Wage + AIV = TVA), not a store average.
+
+    The Total cell is 0.000026109, stored as 0.0026109 percent points. Two-decimal
+    formatting hid that nonzero total as 0.00%.
+    """
+    block = tiles.get("labor")
+    if not isinstance(block, dict) or not market:
+        return
+    raw = market.get("aiv_impact_pct")
+    if raw is None:
+        return
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return
+    labels = list(block.get("labels") or [])
+    values = list(block.get("values") or [])
+    if "AIV" not in labels:
+        return
+    index = labels.index("AIV")
+    if index < len(values):
+        values[index] = format_company_aiv(number)
+        block["values"] = values
+
+
 def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
     """Company Lost % / Goal % are fractions printed with a % sign. Missed is reduced capacity when that is the only dollar."""
     block = tiles.get("lost_revenue")
@@ -885,10 +931,14 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         )
     company_tiles = json.loads(json.dumps(chrome.get("companyTiles") or {}))
     apply_lost_tile_scale(company_tiles, lost_market_payload(db))
+    labor_market = labor_market_payload(db)
+    apply_labor_aiv_tile(company_tiles, labor_market)
+    labor_aiv = labor_market.get("aiv_impact_pct")
     home = {
         "publishedAt": published,
         "summaries": summaries,
         "companyTiles": company_tiles,
+        "laborMarket": {"aiv_impact_pct": labor_aiv} if labor_aiv is not None else {},
         "pickerRollups": chrome.get("pickerRollups") or {},
         "preSubItemTabPresent": item_tab,
         "filters": {

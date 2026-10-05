@@ -3,6 +3,7 @@ import {
   emptyFilters,
   filtersActive,
   includesScope,
+  scheduleDistrictNote,
   regions,
   divisionsFor,
   optionValues,
@@ -15,7 +16,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { lossPercentPoints, seatSummary } from "./seat.js";
+import { formatCompanyAiv, lossPercentPoints, seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -81,7 +82,7 @@ const COLUMNS = {
     ["Util %", ["utilization_pct", "pickup_util_pct"], pct],
   ],
   schedule_quality: [
-    ["Sch Eff", ["schedule_efficiency_pct"], pct],
+    ["Quality Sch Eff", ["schedule_efficiency_pct"], pct],
     ["Under", ["under_schedule_pct", "under_scheduled"], pct],
     ["Over", ["over_schedule_pct", "over_scheduled"], pct],
   ],
@@ -90,7 +91,7 @@ const COLUMNS = {
     ["Vs Target", ["target_vs_actual_pct"], pct],
     ["Act Cost", ["act_cost_pct"], pct],
     ["Cost Tgt", ["cost_trgt_pct"], pct],
-    ["Sch Eff", ["schedule_efficiency_pct"], pct],
+    ["Labor Sch Eff", ["schedule_efficiency_pct"], pct],
     ["UPLH", ["uplh_impact_pct"], pct],
     ["Wage", ["wage_impact_pct"], pct],
     ["AIV", ["aiv_impact_pct"], pct],
@@ -297,6 +298,30 @@ function tileUsesSectionTone(label) {
   return /yoy/i.test(String(label || ""));
 }
 
+const METRIC_NOTES = {
+  labor:
+    "Labor Sch Eff is schedule efficiency from the Labor workbook company total. It is not Schedule Quality’s average schedule efficiency.",
+  schedule_quality:
+    "Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet. It is not Labor Sch Eff.",
+};
+
+function shownTileLabel(section, label) {
+  if (section === "labor" && label === "Sch Eff") return "Labor Sch Eff";
+  if (section === "schedule_quality" && label === "Sch Eff") return "Quality Sch Eff";
+  return label;
+}
+
+function shownTileValue(section, label, raw) {
+  if (section === "labor" && label === "AIV") {
+    const market = state.home && state.home.laborMarket;
+    const aiv = market && market.aiv_impact_pct;
+    if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
+  }
+  if (raw == null || raw === "") return "—";
+  const text = String(raw).trim();
+  return text.startsWith("$") ? money(raw) : text;
+}
+
 function cookedTiles(section) {
   const tiles = tilesFor(section);
   if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
@@ -306,10 +331,11 @@ function cookedTiles(section) {
   return `<div class="tiles">${labels
     .map((label, index) => {
       const raw = values[index];
-      const shown = raw == null || raw === "" ? "—" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
-      const name = shown.startsWith("$") ? String(label || "").replace(/\s*\$+\s*$/, "") : label;
+      const name = shownTileLabel(section, label);
+      const shown = shownTileValue(section, label, raw);
+      const title = shown.startsWith("$") ? String(name || "").replace(/\s*\$+\s*$/, "") : name;
       const toneClass = tone && tileUsesSectionTone(label) ? ` tone-${tone}` : "";
-      return `<div class="chip${toneClass}"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
+      return `<div class="chip${toneClass}"><span>${esc(title)}</span><strong>${esc(shown)}</strong></div>`;
     })
     .join("")}</div>`;
 }
@@ -356,10 +382,11 @@ function companyBlock(section, title) {
   const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
   const secondaryText = shownSecondary(section, seat.secondary);
   const secondary = secondaryText ? `<p class="secondary">${esc(secondaryText)}</p>` : "";
+  const definition = METRIC_NOTES[section] ? `<p class="note">${esc(METRIC_NOTES[section])}</p>` : "";
   const scope = filtersActive(state.filters)
     ? `<p class="scope">In this scope: ${esc(countLabel || "no cooked grade")}.</p>`
     : "";
-  return `<div class="score-face">${name}${hideEmptyBadge ? "" : badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figure}${tiles}${secondary}${scope}</div>`;
+  return `<div class="score-face">${name}${hideEmptyBadge ? "" : badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figure}${tiles}${secondary}${definition}${scope}</div>`;
 }
 
 function cell(row, keys) {
@@ -388,8 +415,12 @@ function displayDivision(row, known) {
 function table(section, rows) {
   const columns = COLUMNS[section] || [];
   const known = rosterByStore();
-  const matched = rows.filter((row) => row.store && includesScope(row, state.filters, roster()));
-  if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
+  const knownRoster = roster();
+  const matched = rows.filter((row) => row.store && includesScope(row, state.filters, knownRoster, section));
+  if (!matched.length) {
+    const honest = scheduleDistrictNote(section, state.filters, knownRoster, matched.length);
+    return `<p class="note">${esc(honest || "No stores in this scope.")}</p>`;
+  }
   const shown = matched.slice(0, state.tableWindow);
   const head = ["Store", "Division", "District", "OM", ...columns.map((column) => column[0])]
     .map((label) => `<th>${esc(label)}</th>`)
@@ -943,8 +974,7 @@ function companyTilePairs(section) {
   const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
   return labels.map((label, index) => {
     const raw = values[index];
-    const value = raw == null || raw === "" ? "—" : String(raw);
-    return { label, value };
+    return { label: shownTileLabel(section, label), value: shownTileValue(section, label, raw) };
   });
 }
 
@@ -956,7 +986,7 @@ function metricShareBlock(page, withTiles) {
     status: healthWord(seat.health || (summaryFor(page.section) || {}).health),
     count: shareCount(page.section, seat),
     figure: seatFigure(page.section, seat),
-    note: secondary || "",
+    note: [secondary, METRIC_NOTES[page.section]].filter(Boolean).join(" "),
     metrics: withTiles ? companyTilePairs(page.section) : [],
   };
 }
