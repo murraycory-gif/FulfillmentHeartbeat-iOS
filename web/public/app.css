@@ -592,6 +592,9 @@ td.none, .unscheduled { color: var(--none); }
   background: rgba(0, 20, 40, 0.35);
 }
 
+/* .share { display: grid } beats the browser's [hidden] rule, so the sheet stayed up after Close. */
+#share[hidden] { display: none !important; }
+
 .share-card {
   width: min(28rem, 100%);
   max-height: min(80vh, 640px);

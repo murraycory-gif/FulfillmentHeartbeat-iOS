@@ -993,6 +993,10 @@ function syncSharePicks() {
   shareSend.textContent = shareActionLabel();
 }
 
+function shareOpenOnScreen() {
+  return shareRoot && !shareRoot.hidden;
+}
+
 function openShare() {
   shareScope.textContent = `Filters · ${scopeLabel(state.filters)}`;
   const pageRadio = document.querySelector('input[name="share-mode"][value="page"]');
@@ -1004,7 +1008,9 @@ function openShare() {
 }
 
 function closeShare() {
+  if (!shareRoot) return;
   shareRoot.hidden = true;
+  shareSend.blur();
 }
 
 async function sendShare() {
@@ -1054,18 +1060,27 @@ async function sendShare() {
 }
 
 shareOpen.addEventListener("click", openShare);
-shareClose.addEventListener("click", closeShare);
-shareSend.addEventListener("click", () => {
+shareClose.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  closeShare();
+});
+shareSend.addEventListener("click", (event) => {
+  event.stopPropagation();
   sendShare();
 });
 shareRoot.addEventListener("click", (event) => {
-  if (event.target === shareRoot) closeShare();
+  if (event.target.closest(".share-card")) return;
+  closeShare();
 });
 shareRoot.addEventListener("change", (event) => {
   if (event.target.name === "share-mode" || event.target.closest("#share-picks")) syncSharePicks();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && shareRoot && !shareRoot.hidden) closeShare();
+  if (event.key === "Escape" && shareOpenOnScreen()) {
+    event.preventDefault();
+    closeShare();
+  }
 });
 
 clearFilters.addEventListener("click", () => {
