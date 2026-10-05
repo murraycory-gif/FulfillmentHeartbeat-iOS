@@ -4,6 +4,7 @@ import {
   filtersActive,
   includesScope,
   scheduleDistrictNote,
+  shownDistrict,
   regions,
   divisionsFor,
   optionValues,
@@ -172,25 +173,57 @@ function raiseBanner(text) {
   }, 5000);
 }
 
-async function load(path) {
-  if (state.packs.has(path)) return state.packs.get(path);
-  const url = packURL(path);
-  if (!url) throw new Error("NO DATA");
-  const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+function packWait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function authBlocked(response, text) {
+  if (!response) return true;
+  if (response.status === 401 || response.status === 403) return true;
   const type = (response.headers.get("content-type") || "").toLowerCase();
-  if (!response.ok || type.includes("text/html")) throw new Error("NO DATA");
+  if (type.includes("text/html")) return true;
+  return String(text || "").trim().startsWith("<");
+}
+
+async function readPack(url) {
+  const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
   const text = await response.text();
   const trimmed = text.trim();
-  if (!trimmed || trimmed.startsWith("<")) throw new Error("NO DATA");
+  if (authBlocked(response, trimmed) || !response.ok) {
+    const error = new Error("NO DATA");
+    error.authBlocked = authBlocked(response, trimmed);
+    throw error;
+  }
+  if (!trimmed) throw new Error("NO DATA");
   let data;
   try {
     data = JSON.parse(trimmed);
   } catch {
-    throw new Error("NO DATA");
+    const error = new Error("NO DATA");
+    error.authBlocked = trimmed.startsWith("<");
+    throw error;
   }
   if (!data || typeof data !== "object") throw new Error("NO DATA");
-  state.packs.set(path, data);
   return data;
+}
+
+async function load(path) {
+  if (state.packs.has(path)) return state.packs.get(path);
+  const url = packURL(path);
+  if (!url) throw new Error("NO DATA");
+  let last = new Error("NO DATA");
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      const data = await readPack(url);
+      state.packs.set(path, data);
+      return data;
+    } catch (error) {
+      last = error instanceof Error ? error : new Error("NO DATA");
+      if (!last.authBlocked || attempt === 7) break;
+      await packWait(400 * (attempt + 1));
+    }
+  }
+  throw last;
 }
 
 const NAV_ICON = {
@@ -227,7 +260,16 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><p class="hint">${esc(STAMP)}</p>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p class="hint">${esc(STAMP)}</p><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+}
+
+function logout() {
+  const retry = () => window.location.reload();
+  fetch("/?logout=1", {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { Authorization: `Basic ${btoa("logout:logout")}` },
+  }).then(retry, retry);
 }
 
 function renderFilters() {
@@ -431,7 +473,8 @@ function table(section, rows) {
         .map((column) => `<td>${esc(column[2](cell(row, column[1]), row))}</td>`)
         .join("");
       const division = displayDivision(row, known);
-      return `<tr><td>${esc(canonicalStore(row.store))}</td><td>${esc(division)}</td><td>${esc(row.district || "—")}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
+      const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
+      return `<tr><td>${esc(canonicalStore(row.store))}</td><td>${esc(division)}</td><td>${esc(district)}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
     })
     .join("");
   const more =
@@ -447,7 +490,8 @@ function table(section, rows) {
         )
         .join("");
       const division = displayDivision(row, known);
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${esc(division)} · ${esc(row.district || "—")} · ${esc(row.om || "—")}</p><div class="metric-row">${metrics}</div></li>`;
+      const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${esc(division)} · ${esc(district)} · ${esc(row.om || "—")}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
@@ -1228,6 +1272,10 @@ syncNavToggle();
 scrim.addEventListener("click", closeDrawer);
 
 document.body.addEventListener("click", (event) => {
+  if (event.target.closest("[data-logout]")) {
+    logout();
+    return;
+  }
   if (event.target.closest("[data-close-drawer]")) {
     closeDrawer();
     return;
@@ -1281,13 +1329,28 @@ filtersForm.addEventListener("change", (event) => {
   render();
 });
 
+function acceptHome(home) {
+  state.home = home;
+  state.homeError = "";
+  raiseBanner(considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt));
+  render();
+}
+
+function retryHomeAfterAuth() {
+  if (state.home) return;
+  state.homeError = "";
+  load("home").then(acceptHome).catch(() => {
+    if (!state.home) state.homeError = "";
+  });
+}
+
 renderNav();
-load("home")
-  .then((home) => {
-    state.home = home;
-    raiseBanner(considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt));
-  })
-  .catch(() => {
-    state.homeError = "NO DATA";
-  })
-  .finally(render);
+load("home").then(acceptHome).catch(() => {
+  state.home = null;
+  state.homeError = "";
+  render();
+  window.addEventListener("focus", retryHomeAfterAuth);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") retryHomeAfterAuth();
+  });
+});

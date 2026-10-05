@@ -198,6 +198,13 @@ export function districtKeys(raw) {
   return keys;
 }
 
+// Schedule Quality rows keep the sheet label (H1…). The column shows the roster district (A1).
+export function shownDistrict(section, rowDistrict, rosterDistrict) {
+  const roster = String(rosterDistrict || "").trim();
+  if (section === "schedule_quality" && roster) return roster;
+  return rowDistrict || "—";
+}
+
 export function matchesDistrict(lhs, rhs) {
   const left = districtKeys(lhs);
   const right = districtKeys(rhs);

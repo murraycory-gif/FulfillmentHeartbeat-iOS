@@ -88,14 +88,13 @@ export function rowsInScope(rows, filters, roster, section) {
   return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster, section));
 }
 
-// Labor workbook Total AIV is already percent points (Excel fraction × 100).
-// 0.0026109 is the company total and completes UPLH + Wage + AIV = TVA.
-// Two decimals print that as 0.00%.
+// Company Total AIV arrives as a fraction (0.00261). One ×100 makes percent points (~0.26%).
+// Store rows are already percent points and do not use this helper.
 export function formatCompanyAiv(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
-  if (number !== 0 && Math.abs(number) < 0.005) return `${number.toFixed(4)}%`;
-  return `${number.toFixed(2)}%`;
+  const percent = number !== 0 && Math.abs(number) < 0.05 ? number * 100 : number;
+  return `${percent.toFixed(2)}%`;
 }
 
 // Cooked region or division line. District / OM / Store have no chrome grade.

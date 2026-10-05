@@ -24,6 +24,7 @@ import {
   matchesDistrict,
   scheduleDistrictNote,
   storesForDistrict,
+  shownDistrict,
   optionValues,
   matchesDivision,
   regionLineInScope,
@@ -304,8 +305,8 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=9/);
-assert.match(pageHtml, /app\.js\?v=9/);
+assert.match(pageHtml, /app\.css\?v=10/);
+assert.match(pageHtml, /app\.js\?v=10/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -313,7 +314,8 @@ assert.match(pageHtml, /<script src="\/nav-boot\.js"><\/script>/);
 assert.match(app, /· OM \$\{seat\.om\}/);
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
-assert.equal(formatCompanyAiv(0.002610916545167652), "0.0026%");
+assert.equal(formatCompanyAiv(0.002610916545167652), "0.26%");
+assert.equal(formatCompanyAiv(0.2610916545167652), "0.26%");
 assert.equal(formatCompanyAiv(-0.38645958215580284), "-0.39%");
 assert.equal(formatCompanyAiv(0), "0.00%");
 assert.equal(formatCompanyAiv(88.22231683849824), "88.22%");
@@ -321,7 +323,9 @@ assert.match(css, /\.share\[hidden\]/);
 assert.match(app, /tileUsesSectionTone/);
 assert.match(app, /tone-\$\{tone\}/);
 const deskCss = css.slice(css.indexOf("@media (min-width: 801px)"));
-assert.match(deskCss, /\.top \{ padding: 4px 16px 6px/);
+assert.match(deskCss, /nav lockup stamp/);
+assert.match(deskCss, /\.titles \{[^}]*text-align: center/);
+assert.match(deskCss, /\.brand-lockup \{[^}]*position: static/);
 assert.match(deskCss, /\.wordmark \{ font-size: 1\.35rem/);
 assert.match(deskCss, /h1 \{ font-size: 1\.15rem/);
 assert.match(deskCss, /#updated \{ font-size: 0\.86rem/);
@@ -505,8 +509,12 @@ assert.equal(
 );
 assert.equal(scheduleDistrictNote("schedule_quality", filters({ district: "A1" }), packRoster, sqCount("A1")), "");
 assert.equal(storesForDistrict(packRoster, "62").size, 23);
-assert.equal(packHome.laborMarket.aiv_impact_pct, 0.002610916545167652);
-assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.0026%");
+assert.equal(shownDistrict("schedule_quality", "H1 NE PHILA SUBURB", "A1"), "A1");
+assert.equal(shownDistrict("schedule_quality", "62 DEN WEST & MTNS", "62"), "62");
+assert.equal(shownDistrict("sales", "62 DEN WEST & MTNS", "62"), "62 DEN WEST & MTNS");
+assert.equal(shownDistrict("schedule_quality", "H1 NE PHILA SUBURB", ""), "H1 NE PHILA SUBURB");
+assert.equal(packHome.laborMarket.aiv_impact_pct, 0.2610916545167652);
+assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.26%");
 assert.equal(Number(lossPercentPoints(0.05189747740362091, 4248638.425832152, 81865991.15).toFixed(2)), 5.19);
 assert.equal(lossPercentPoints(5.19, 4248638.425832152, 81865991.15), 5.19);
 assert.equal(lossPercentPoints(4.84, 4.84, 1), 4.84);
@@ -645,13 +653,40 @@ assert.equal(middleware.includes("BASIC_PASS="), false);
 assert.equal(timingSafeEqualString("heartbeat", "heartbeat"), true);
 assert.equal(timingSafeEqualString("heartbeat", "Heartbeat"), false);
 assert.equal(timingSafeEqualString("a", "ab"), false);
-const gateEnv = { BASIC_USER: "heartbeat", BASIC_PASS: "test-only-secret" };
+const gateEnv = {
+  BASIC_USER: "heartbeat",
+  BASIC_PASS: "test-only-secret",
+  BASIC_PASS_TESTER: "tester-only-secret",
+};
 const authed = new Request("https://fulfillment-heartbeat-web.pages.dev/", {
   headers: { Authorization: `Basic ${Buffer.from("heartbeat:test-only-secret").toString("base64")}` },
 });
+const tester = new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+  headers: { Authorization: `Basic ${Buffer.from("tester:tester-only-secret").toString("base64")}` },
+});
 assert.equal(basicAuthOk(authed, gateEnv), true);
+assert.equal(basicAuthOk(tester, gateEnv), true);
 assert.equal(basicAuthOk(new Request("https://fulfillment-heartbeat-web.pages.dev/"), gateEnv), false);
 assert.equal(basicAuthOk(authed, {}), false);
+assert.equal(basicAuthOk(tester, { BASIC_USER: "heartbeat", BASIC_PASS: "test-only-secret" }), false);
+assert.equal(
+  basicAuthOk(
+    new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+      headers: { Authorization: `Basic ${Buffer.from("heartbeat:tester-only-secret").toString("base64")}` },
+    }),
+    gateEnv,
+  ),
+  false,
+);
+assert.equal(
+  basicAuthOk(
+    new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+      headers: { Authorization: `Basic ${Buffer.from("tester:test-only-secret").toString("base64")}` },
+    }),
+    gateEnv,
+  ),
+  false,
+);
 assert.equal(
   basicAuthOk(
     new Request("https://fulfillment-heartbeat-web.pages.dev/", {
@@ -661,6 +696,14 @@ assert.equal(
   ),
   false,
 );
+assert.match(middleware, /BASIC_PASS_TESTER/);
+assert.match(middleware, /"tester"/);
+assert.match(app, /authBlocked/);
+assert.match(app, /retryHomeAfterAuth/);
+assert.equal(app.includes("state.homeError = \"NO DATA\""), false);
+assert.match(app, /data-logout>Logout/);
+assert.match(app, /logout:logout/);
+assert.match(css, /\.drawer-logout/);
 const gateDenied = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/"),
   env: gateEnv,

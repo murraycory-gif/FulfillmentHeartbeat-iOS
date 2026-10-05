@@ -1,6 +1,6 @@
 // Shared team gate for every Pages request, including static files.
-// Credentials live in Pages secrets BASIC_USER and BASIC_PASS. Nothing here
-// is a password. Missing secrets fail closed.
+// Master: BASIC_USER + BASIC_PASS. Testers: user "tester" + BASIC_PASS_TESTER.
+// Nothing here is a password. A missing pair fails closed; the other pair can still match.
 
 const REALM = 'Basic realm="HeartBeat", charset="UTF-8"';
 
@@ -38,15 +38,26 @@ export function basicCredentials(header) {
   return { user: text.slice(0, split), pass: text.slice(split + 1) };
 }
 
+function envSecret(env, key) {
+  const value = env && env[key];
+  return typeof value === "string" ? value : "";
+}
+
 export function basicAuthOk(request, env) {
-  const expectedUser = env && typeof env.BASIC_USER === "string" ? env.BASIC_USER : "";
-  const expectedPass = env && typeof env.BASIC_PASS === "string" ? env.BASIC_PASS : "";
-  if (!expectedUser || !expectedPass) return false;
-  const got = basicCredentials(request.headers.get("authorization") || "");
-  if (!got) return false;
-  const userOk = timingSafeEqualString(got.user, expectedUser);
-  const passOk = timingSafeEqualString(got.pass, expectedPass);
-  return userOk && passOk;
+  const got = basicCredentials((request && request.headers && request.headers.get("authorization")) || "");
+  const presentedUser = got ? got.user : "";
+  const presentedPass = got ? got.pass : "";
+  const masterUser = envSecret(env, "BASIC_USER");
+  const masterPass = envSecret(env, "BASIC_PASS");
+  const testerUser = envSecret(env, "BASIC_USER_TESTER") || "tester";
+  const testerPass = envSecret(env, "BASIC_PASS_TESTER");
+  const masterUserOk = timingSafeEqualString(presentedUser, masterUser);
+  const masterPassOk = timingSafeEqualString(presentedPass, masterPass);
+  const testerUserOk = timingSafeEqualString(presentedUser, testerUser);
+  const testerPassOk = timingSafeEqualString(presentedPass, testerPass);
+  const masterOk = Boolean(masterUser && masterPass && masterUserOk && masterPassOk);
+  const testerOk = Boolean(testerPass && testerUserOk && testerPassOk);
+  return Boolean(got) && (masterOk || testerOk);
 }
 
 function challenge() {

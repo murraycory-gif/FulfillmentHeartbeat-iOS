@@ -335,18 +335,22 @@ def labor_market_payload(db: sqlite3.Connection) -> dict:
     return {}
 
 
+def company_aiv_percent(value: float) -> float:
+    """Total AIV is a fraction. Store rows are already percent points, so only the Total is scaled."""
+    if value != 0 and abs(value) < 0.05:
+        return value * 100
+    return value
+
+
 def format_company_aiv(value: float) -> str:
-    """Percent points. Values under 0.005% need four decimals or they print as 0.00%."""
-    if value != 0 and abs(value) < 0.005:
-        return f"{value:.4f}%"
-    return f"{value:.2f}%"
+    """Percent points after company_aiv_percent. 0.261 prints as 0.26%."""
+    return f"{company_aiv_percent(value):.2f}%"
 
 
 def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
-    """Company AIV is the Labor workbook Total (UPLH + Wage + AIV = TVA), not a store average.
+    """Company AIV is the Labor workbook Total scaled once from a fraction to percent points.
 
-    The Total cell is 0.000026109, stored as 0.0026109 percent points. Two-decimal
-    formatting hid that nonzero total as 0.00%.
+    The stored Total 0.0026109 is a fraction. ×100 once is about 0.26%. Store rows stay as cooked.
     """
     block = tiles.get("labor")
     if not isinstance(block, dict) or not market:
@@ -355,7 +359,7 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
     if raw is None:
         return
     try:
-        number = float(raw)
+        number = company_aiv_percent(float(raw))
     except (TypeError, ValueError):
         return
     labels = list(block.get("labels") or [])
@@ -934,6 +938,11 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     labor_market = labor_market_payload(db)
     apply_labor_aiv_tile(company_tiles, labor_market)
     labor_aiv = labor_market.get("aiv_impact_pct")
+    if labor_aiv is not None:
+        try:
+            labor_aiv = company_aiv_percent(float(labor_aiv))
+        except (TypeError, ValueError):
+            labor_aiv = None
     home = {
         "publishedAt": published,
         "summaries": summaries,
