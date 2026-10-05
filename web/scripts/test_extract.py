@@ -195,6 +195,84 @@ def main() -> None:
         assert "current.sqlite" not in blob
         assert not (out / "presub.json").read_text().startswith("http")
         print("extract ok")
+        absent_schedule_and_item_tab()
+
+
+def absent_schedule_and_item_tab() -> None:
+    """No schedule tables and no item tab stay empty. Chrome dollars stay put."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "current.sqlite"
+        out = Path(tmp) / "out"
+        out.mkdir()
+        (out / "schedule.json").write_text(
+            json.dumps({"stores": [{"store": "9999", "under": 1}]}),
+            encoding="utf-8",
+        )
+        db = sqlite3.connect(db_path)
+        db.executescript(
+            """
+            CREATE TABLE pack_meta (id INTEGER PRIMARY KEY, written_at TEXT);
+            CREATE TABLE dash_chrome (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE facts (
+              section TEXT, store_number TEXT, division TEXT, operations_om TEXT,
+              store_name TEXT, recorded_on TEXT, payload_json TEXT, text_json TEXT
+            );
+            """
+        )
+        chrome = {
+            "summaries": [
+                {
+                    "section": "sales",
+                    "storeCount": 1,
+                    "headline": 37065336.17,
+                    "headlineLabel": "eComm sales",
+                    "secondary": "",
+                    "health": "risk",
+                    "watchCount": 0,
+                    "riskCount": 1,
+                },
+                {
+                    "section": "lost_revenue",
+                    "storeCount": 1,
+                    "headline": 1395864.04,
+                    "headlineLabel": "Total lost revenue",
+                    "secondary": "",
+                    "health": "risk",
+                    "watchCount": 0,
+                    "riskCount": 1,
+                },
+            ],
+            "packs": {},
+        }
+        db.execute("INSERT INTO pack_meta VALUES (1, '2026-09-30T18:23:22Z')")
+        db.execute("INSERT INTO dash_chrome VALUES (1, ?)", (json.dumps(chrome),))
+        db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "sales",
+                "",
+                "",
+                "",
+                "",
+                "2026-09-30",
+                json.dumps({"sales_dollars": 1, "sales_yoy_pct": -99}),
+                json.dumps({"sales_grain": "company"}),
+            ),
+        )
+        db.commit()
+        db.close()
+        module.extract(str(db_path), str(out))
+        home = json.loads((out / "home.json").read_text())
+        sales = json.loads((out / "section" / "sales.json").read_text())
+        assert home["publishedAt"] == "2026-09-30T18:23:22Z"
+        assert home["preSubItemTabPresent"] is False
+        assert not (out / "schedule.json").exists()
+        loss = next(item for item in home["summaries"] if item["section"] == "lost_revenue")
+        company = next(item for item in home["summaries"] if item["section"] == "sales")
+        assert loss["headline"] == 1395864.04
+        assert company["headline"] == 37065336.17
+        assert sales["rows"] == []
+        print("absent schedule ok")
 
 
 if __name__ == "__main__":

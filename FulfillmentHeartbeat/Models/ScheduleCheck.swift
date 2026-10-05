@@ -293,7 +293,7 @@ enum ScheduleCheckMath {
                 seat,
                 "",
                 "NO DATA",
-                "The Schedule Review workbook is not on this device.",
+                "This pack has no Schedule Check rows.",
             ].joined(separator: "\n")
         }
         let card = summary(pack: pack, filters: filters)

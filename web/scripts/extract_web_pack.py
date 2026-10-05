@@ -401,6 +401,7 @@ def extract(sqlite_path: str, out_dir: str) -> None:
                 presub[scope] = items
 
     published = chrome.get("publishedAt") or written_at or None
+    item_tab = _item_tab_present(db, chrome)
     summaries = []
     for item in chrome.get("summaries") or []:
         if not isinstance(item, dict):
@@ -422,7 +423,7 @@ def extract(sqlite_path: str, out_dir: str) -> None:
         "summaries": summaries,
         "companyTiles": chrome.get("companyTiles") or {},
         "pickerRollups": chrome.get("pickerRollups") or {},
-        "preSubItemTabPresent": chrome.get("preSubItemTabPresent"),
+        "preSubItemTabPresent": item_tab,
         "filters": {
             "stores": sorted(roster.values(), key=lambda item: (len(item["store"]), item["store"])),
         },
@@ -430,8 +431,12 @@ def extract(sqlite_path: str, out_dir: str) -> None:
     }
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
+    schedule_path = out / "schedule.json"
     if schedule:
-        _write(out / "schedule.json", schedule)
+        _write(schedule_path, schedule)
+    elif schedule_path.is_file():
+        # A previous extract must not keep stores this pack does not have.
+        schedule_path.unlink()
     grouped: dict[str, list] = {section: [] for section in SECTIONS}
     for record in latest.values():
         grouped[record["section"]].append(
@@ -470,6 +475,21 @@ def _merge_roster(roster: dict, record: dict, prefer_roster: bool) -> None:
     for field in ("division", "district", "om", "name"):
         if not current[field] and record[field]:
             current[field] = record[field]
+
+
+def _item_tab_present(db: sqlite3.Connection, chrome: dict) -> bool:
+    """Cooked chrome wins when it says so. Otherwise only a real item tab counts."""
+    explicit = chrome.get("preSubItemTabPresent")
+    if isinstance(explicit, bool):
+        return explicit
+    if _table(db, "presub_top") and db.execute("SELECT 1 FROM presub_top LIMIT 1").fetchone():
+        return True
+    if _table(db, "facts") and db.execute(
+        "SELECT 1 FROM facts WHERE section = ? LIMIT 1",
+        ("pre_sub_oos_item",),
+    ).fetchone():
+        return True
+    return False
 
 
 def _table(db: sqlite3.Connection, name: str) -> bool:

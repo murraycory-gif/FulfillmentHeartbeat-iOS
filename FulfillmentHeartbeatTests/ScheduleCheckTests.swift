@@ -340,7 +340,10 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertEqual(pages[schedule + 1], .scheduleCheck)
         XCTAssertEqual(PulseEmail.SharePage.from(destination: .scheduleCheck), .dashboard)
         XCTAssertFalse(HeartbeatAssist.pagePrompts(.scheduleCheck).isEmpty)
-        XCTAssertTrue(ScheduleCheckMath.assistText(pack: nil, filters: DashboardFilters()).contains("NO DATA"))
+        let emptyAssist = ScheduleCheckMath.assistText(pack: nil, filters: DashboardFilters())
+        XCTAssertTrue(emptyAssist.contains("NO DATA"))
+        XCTAssertTrue(emptyAssist.contains("This pack has no Schedule Check rows."))
+        XCTAssertFalse(emptyAssist.contains("not on this device"))
     }
 
     private func sourceSpan(_ text: String, from start: String, until end: String) -> String {
