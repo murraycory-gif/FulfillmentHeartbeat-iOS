@@ -1370,5 +1370,17 @@ const crossSite = await accountRequest(auth.db, "/login", {
   headers: { origin: "https://evil.example" },
 });
 assert.equal(crossSite.status, 403);
+const nullOrigin = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null" },
+});
+assert.equal(nullOrigin.status, 403);
+const sameOriginLogin = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "https://fulfillment-heartbeat-web.pages.dev" },
+});
+assert.equal(sameOriginLogin.status, 303);
 
 console.log("web ok");

@@ -244,8 +244,16 @@ function redirect(request, path, cookie, status = 303) {
 function sameOrigin(request) {
   const origin = request.headers.get("origin");
   if (!origin) return true;
+  let originHost = "";
   try {
-    return new URL(origin).host === new URL(request.url).host;
+    originHost = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(",")[0].trim();
+  if (host && originHost === host) return true;
+  try {
+    return originHost === new URL(request.url).host;
   } catch {
     return false;
   }
@@ -353,7 +361,8 @@ export async function onRequest(context) {
       await ensureSchema(db);
       await ensureAdminSeed(db, env, now);
       accountsReady = true;
-    } catch {
+    } catch (error) {
+      console.error("accounts setup failed", error instanceof Error ? error.message : "unknown");
       accountsReady = false;
     }
   }
