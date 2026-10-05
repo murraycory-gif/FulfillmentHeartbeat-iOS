@@ -124,7 +124,6 @@ const filterToggle = document.querySelector("#filter-toggle");
 const clearFilters = document.querySelector("#clear-filters");
 const title = document.querySelector("#page-title");
 const updated = document.querySelector("#updated");
-const stamp = document.querySelector("#stamp");
 const banner = document.querySelector("#banner");
 const navToggle = document.querySelector("#nav-toggle");
 const shareRoot = document.querySelector("#share");
@@ -265,7 +264,7 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p class="hint">${esc(packStamp)}</p><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p id="stamp" class="drawer-stamp">${esc(packStamp)}</p><button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
 }
 
 function logout() {
@@ -315,7 +314,8 @@ function applyPackStamp(raw) {
   const next = publishStamp(raw);
   if (!next) return;
   packStamp = next;
-  if (stamp) stamp.textContent = next;
+  const node = document.querySelector("#stamp");
+  if (node) node.textContent = next;
 }
 
 function parseTileNumber(raw) {
@@ -540,16 +540,6 @@ function grainBlock(section) {
 
 const REGION_CARD_ORDER = ["East", "South", "California", "West"];
 
-function worstHealth(rows) {
-  const rank = { risk: 3, watch: 2, good: 1, none: 0 };
-  let tone = "none";
-  for (const row of rows) {
-    const health = row.health || "none";
-    if ((rank[health] || 0) > (rank[tone] || 0)) tone = health;
-  }
-  return tone;
-}
-
 function regionVisible(name) {
   if (state.filters.district || state.filters.om || state.filters.store) return false;
   if (state.filters.region) {
@@ -582,12 +572,13 @@ function regionCardsHtml() {
       const chips = rows
         .map((row) => {
           const raw = row.headline;
-          const shown = raw == null || raw === "" ? "—" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
-          return `<div class="chip"><span>${esc(row.title)}</span><strong>${esc(shown)}</strong></div>`;
+          const missing = raw == null || String(raw).trim() === "" || String(raw).trim() === "—" || row.health === "none";
+          const tone = missing ? "none" : row.health === "good" || row.health === "watch" || row.health === "risk" ? row.health : "none";
+          const shown = missing ? "No data" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
+          return `<div class="chip bar-${tone}"><span>${esc(row.title)}</span><strong>${esc(shown)}</strong></div>`;
         })
         .join("");
-      const health = worstHealth(rows);
-      return `<article class="scorecard ${health}"><div class="score-face"><h2>${esc(name)}</h2>${badge(health)}${storeCount ? `<p class="sub">${esc(num(storeCount, 0))} stores</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
+      return `<article class="scorecard"><div class="score-face"><h2>${esc(name)}</h2>${storeCount ? `<p class="sub">${esc(num(storeCount, 0))} stores</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
     })
     .join("");
   if (!cards) return "";
@@ -595,7 +586,8 @@ function regionCardsHtml() {
     state.filters.district || state.filters.om || state.filters.store
       ? `<p class="note">District, OM, and store seats stay on the store rows.</p>`
       : "";
-  return `<section class="region-cards" id="pack-lines"><h2>Regions</h2>${note}${cards}</section>`;
+  const legend = `<p class="region-legend" aria-label="Red is at risk, amber is watch, green is healthy, gray is no data"><i class="risk"></i><i class="watch"></i><i class="good"></i><i class="none"></i></p>`;
+  return `<section class="region-cards" id="pack-lines"><h2>Regions</h2>${legend}${note}${cards}</section>`;
 }
 
 function scheduleDashCard(pack) {
