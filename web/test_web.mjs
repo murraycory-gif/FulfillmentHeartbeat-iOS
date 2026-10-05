@@ -28,7 +28,7 @@ import {
   sectionGrainRows,
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
-import { healthWord, mailtoURL, shareBrief, sharePages, shareSubject } from "./public/share.js";
+import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
 import {
   bannerMismatch,
@@ -301,8 +301,19 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=3/);
-assert.match(pageHtml, /app\.js\?v=3/);
+assert.match(pageHtml, /app\.css\?v=4/);
+assert.match(pageHtml, /app\.js\?v=4/);
+assert.match(css, /\.share\[hidden\]/);
+assert.match(app, /tileUsesSectionTone/);
+assert.match(app, /tone-\$\{tone\}/);
+assert.match(css, /@media \(min-width: 801px\)[\s\S]*\.wordmark \{ font-size: 1\.85rem/);
+assert.match(css, /@media \(max-width: 800px\)[\s\S]*\.wordmark \{ font-size: 1\.48rem/);
+assert.match(css, /\.chip\.tone-good strong \{ color: var\(--good\)/);
+assert.match(css, /\.chip\.tone-watch strong \{ color: var\(--watch\)/);
+assert.match(css, /\.chip\.tone-risk strong \{ color: var\(--risk\)/);
+assert.match(app, /scheduleTab: "summary"/);
+assert.match(app, /\["summary", "action", "detail"\]/);
+assert.match(app, /nextPage === "schedule"\) state\.scheduleTab = "summary"/);
 assert.match(pageHtml, /id="share" class="share" hidden/);
 assert.equal(pageHtml.includes('id="share" class="share is-open"'), false);
 assert.match(app, /closest\("\.share-card"\)/);
@@ -341,6 +352,47 @@ const mail = mailtoURL({ to: "ops@example.com", subject: shareSubject("Total Com
 assert.match(mail, /^mailto:ops@example.com\?subject=/);
 assert.match(decodeURIComponent(mail), /Lost % 5.19%/);
 assert.match(decodeURIComponent(mail), /Total Company/);
+const structured = shareBrief({
+  scope: "Total Company",
+  stamp: "HB-0828.494",
+  updated: "Updated Mon 10/5 1:39 PM",
+  pages: [
+    {
+      title: "Dashboard",
+      blocks: [
+        { title: "Sales", status: "Healthy", count: "2,181 stores", figure: "$81,833,890.57" },
+        {
+          title: "Lost Revenue",
+          status: "At risk",
+          count: "2,165 stores",
+          figure: "$4,248,638.43",
+          metrics: [{ label: "Lost %", value: "5.19%" }],
+        },
+      ],
+    },
+  ],
+});
+assert.match(structured, /FULFILLMENT HEARTBEAT/);
+assert.match(structured, /SALES\nHealthy · 2,181 stores\n\$81,833,890\.57/);
+assert.match(structured, /LOST REVENUE\nAt risk · 2,165 stores\n\$4,248,638\.43\nLost %    5\.19%/);
+assert.ok(structured.indexOf("SALES") < structured.indexOf("LOST REVENUE"));
+const html = shareHtml({
+  scope: "Total Company",
+  stamp: "HB-0828.494",
+  updated: "Updated Mon 10/5 1:39 PM",
+  pages: structured && [
+    { title: "Lost Revenue", blocks: [{ title: "Lost Revenue", status: "At risk", figure: "$4,248,638.43", metrics: [{ label: "Lost %", value: "5.19%" }, { label: "Missed", value: "$178,705.37" }] }] },
+  ],
+});
+assert.match(html, /<table/);
+assert.match(html, /Lost %/);
+assert.match(html, /5\.19%/);
+assert.match(html, /\$178,705\.37/);
+const eml = shareEml({ to: "ops@example.com", subject: "Fulfillment Heartbeat — Total Company — HB-0828.494", plain: structured, html });
+assert.match(eml, /multipart\/alternative/);
+assert.match(eml, /X-Unsent: 1/);
+assert.match(eml, /text\/html/);
+assert.match(eml, /5\.19%/);
 
 for (const path of walk(join(root, "public"))) {
   const text = readFileSync(path, "utf8");

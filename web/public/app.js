@@ -14,7 +14,7 @@ import {
   regionForDivision,
 } from "./filters.js";
 import { packURL } from "./packs.js";
-import { healthWord, mailtoURL, shareBrief, sharePages, shareSubject } from "./share.js";
+import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
 import { lossPercentPoints, seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
@@ -105,7 +105,7 @@ const state = {
   home: null,
   homeError: "",
   packs: new Map(),
-  scheduleTab: "action",
+  scheduleTab: "summary",
   bannerTimer: 0,
   tableWindow: ROW_PAGE,
 };
@@ -288,17 +288,28 @@ function lostTileValues(labels, values) {
   return next;
 }
 
+function sectionTone(section) {
+  const health = (summaryFor(section) || {}).health;
+  return health === "good" || health === "watch" || health === "risk" ? health : "";
+}
+
+function tileUsesSectionTone(label) {
+  return /yoy/i.test(String(label || ""));
+}
+
 function cookedTiles(section) {
   const tiles = tilesFor(section);
   if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
   const labels = tiles.labels;
   const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
+  const tone = sectionTone(section);
   return `<div class="tiles">${labels
     .map((label, index) => {
       const raw = values[index];
       const shown = raw == null || raw === "" ? "—" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
       const name = shown.startsWith("$") ? String(label || "").replace(/\s*\$+\s*$/, "") : label;
-      return `<div class="chip"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
+      const toneClass = tone && tileUsesSectionTone(label) ? ` tone-${tone}` : "";
+      return `<div class="chip${toneClass}"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
     })
     .join("")}</div>`;
 }
@@ -619,7 +630,7 @@ function toneClass(health) {
 }
 
 function scheduleTabs() {
-  return ["action", "summary", "detail"]
+  return ["summary", "action", "detail"]
     .map((id) => {
       const label = id === "action" ? "Action Needed" : id === "summary" ? "Summary" : "Store Detail";
       return `<button type="button" data-tab="${id}" aria-pressed="${state.scheduleTab === id ? "true" : "false"}">${label}</button>`;
@@ -924,46 +935,54 @@ function shareCount(section, seat) {
   return `${num(seat.storeCount, 0)} ${label}`;
 }
 
-function companyTileLine(section) {
-  if (filtersActive(state.filters)) return "";
+function companyTilePairs(section) {
+  if (filtersActive(state.filters)) return [];
   const tiles = tilesFor(section);
-  if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
+  if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return [];
   const labels = tiles.labels;
   const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
-  return labels
-    .map((label, index) => {
-      const raw = values[index];
-      const shown = raw == null || raw === "" ? "—" : String(raw);
-      return `${label} ${shown}`;
-    })
-    .join(" · ");
+  return labels.map((label, index) => {
+    const raw = values[index];
+    const value = raw == null || raw === "" ? "—" : String(raw);
+    return { label, value };
+  });
 }
 
-function metricShareDetail(page, withTiles) {
+function metricShareBlock(page, withTiles) {
   const seat = seatFor(page.section);
-  const health = healthWord(seat.health || (summaryFor(page.section) || {}).health);
-  const head = [health, shareCount(page.section, seat), seatFigure(page.section, seat)].filter(Boolean).join(" · ");
   const secondary = shownSecondary(page.section, seat.secondary);
-  const tiles = withTiles ? companyTileLine(page.section) : "";
-  return [head, secondary, tiles].filter(Boolean).join("\n");
+  return {
+    title: page.title,
+    status: healthWord(seat.health || (summaryFor(page.section) || {}).health),
+    count: shareCount(page.section, seat),
+    figure: seatFigure(page.section, seat),
+    note: secondary || "",
+    metrics: withTiles ? companyTilePairs(page.section) : [],
+  };
 }
 
-function scheduleShareDetail() {
+function scheduleShareBlock() {
   const pack = state.packs.get("schedule");
-  if (!pack || scheduleIsEmpty(pack)) return "NO DATA";
+  if (!pack || scheduleIsEmpty(pack)) return { title: "Schedule Check", note: "NO DATA" };
   const card = scheduleSummary(pack, state.filters, roster());
-  const week = pack.week ? `Week ${pack.week}` : "Schedule";
-  return `${week} · ${num(card.actionCount, 0)} to review`;
+  return {
+    title: "Schedule Check",
+    status: pack.week ? `Week ${pack.week}` : "Schedule",
+    figure: `${num(card.actionCount, 0)} to review`,
+    note: "Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%.",
+  };
 }
 
-function dashboardShareDetail(withTiles) {
-  return PAGES.filter((page) => page.id !== "dashboard")
-    .map((page) => {
-      if (page.id === "schedule") return `Schedule Check · ${scheduleShareDetail()}`;
-      const line = metricShareDetail(page, withTiles).split("\n")[0];
-      return `${page.title} · ${line}`;
-    })
-    .join("\n");
+function dashboardShareBlocks() {
+  return PAGES.filter((page) => page.id !== "dashboard").map((page) =>
+    page.id === "schedule" ? scheduleShareBlock() : metricShareBlock(page, false),
+  );
+}
+
+function shareBlocksFor(page, withTiles) {
+  if (page.id === "dashboard") return dashboardShareBlocks();
+  if (page.id === "schedule") return [scheduleShareBlock()];
+  return [metricShareBlock(page, withTiles)];
 }
 
 function shareMode() {
@@ -1076,26 +1095,34 @@ async function sendShare() {
     const withTiles = pages.length === 1;
     const detailed = pages.map((page) => ({
       title: page.title,
-      detail:
-        page.id === "dashboard"
-          ? dashboardShareDetail(false)
-          : page.id === "schedule"
-            ? scheduleShareDetail()
-            : metricShareDetail(page, withTiles),
+      blocks: shareBlocksFor(page, withTiles),
     }));
     const scope = scopeLabel(state.filters);
-    const url = mailtoURL({
-      to: shareTo.value,
-      subject: shareSubject(scope, STAMP),
-      body: shareBrief({
-        scope,
-        stamp: STAMP,
-        updated: updated.textContent,
-        pages: detailed,
-      }),
+    const subject = shareSubject(scope, STAMP);
+    const plain = shareBrief({
+      scope,
+      stamp: STAMP,
+      updated: updated.textContent,
+      pages: detailed,
     });
+    const html = shareHtml({
+      scope,
+      stamp: STAMP,
+      updated: updated.textContent,
+      pages: detailed,
+    });
+    const url = mailtoURL({ to: shareTo.value, subject, body: plain });
     shareRoot.dataset.lastMailto = url;
+    shareRoot.dataset.lastEml = shareEml({ to: shareTo.value.trim(), subject, plain, html });
     closeShare();
+    const file = new Blob([shareRoot.dataset.lastEml], { type: "message/rfc822" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(file);
+    link.download = "Fulfillment Heartbeat.eml";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     window.location.href = url;
   } finally {
     shareSend.disabled = false;
@@ -1183,7 +1210,9 @@ document.body.addEventListener("click", (event) => {
   }
   const pageButton = event.target.closest("[data-page]");
   if (pageButton) {
-    state.page = pageButton.getAttribute("data-page");
+    const nextPage = pageButton.getAttribute("data-page");
+    if (nextPage === "schedule") state.scheduleTab = "summary";
+    state.page = nextPage;
     state.tableWindow = ROW_PAGE;
     closeDrawer();
     render();
