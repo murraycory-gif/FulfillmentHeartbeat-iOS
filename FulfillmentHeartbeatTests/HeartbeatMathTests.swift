@@ -14575,5 +14575,118 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertNil(HeartbeatMath.lostRevenueReportedValue([missing], key: "lost_revenue"))
         XCTAssertEqual(HeartbeatMath.lostRevenueReportedValue([zero], key: "kill_switch_lost") ?? -1, 0, accuracy: 0.001)
     }
+
+    /// Shopper chip lists pack shoppers on Store / Ops / District / Division only.
+    /// Company and Region return no choices, even when the tape is full.
+    func testShopperFilterStaysOnSeatAndSkipsCompanyRegion() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(
+            FilterFocus.allCases.map(\.rawValue),
+            ["region", "division", "district", "om", "store"]
+        )
+
+        let jewel = shopperFact(store: "3407", division: "Jewel Osco", district: "J2", om: "Pat Lee", id: "A1", name: "Ada")
+        let shaws = shopperFact(store: "2219", division: "Shaws", district: "S1", om: "Sam", id: "B2", name: "Bea")
+        let path = MetricRow(
+            section: .pickPathPicker,
+            division: "Jewel Osco",
+            operationsOM: "Pat Lee",
+            storeNumber: "3407",
+            textPayload: ["shopper_id": "A1", "shopper_name": "Ada", "district": "J2"]
+        )
+        let sales = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "Pat Lee",
+            storeNumber: "3407",
+            payload: ["sales_dollars": 100],
+            textPayload: ["district": "J2"]
+        )
+        let tape = [jewel, shaws, path, sales]
+
+        var company = DashboardFilters()
+        company.shopper = "3407|a1"
+        company.sanitize()
+        XCTAssertFalse(PulseLaunch.shouldListFilterShoppers(filters: company))
+        XCTAssertEqual(company.shopper, "")
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: company).count, 0)
+        XCTAssertFalse(FilterFocus.sheetChips(filters: company).contains(.shopper))
+
+        var region = DashboardFilters()
+        region.region = "East Region"
+        XCTAssertFalse(PulseLaunch.shouldListFilterShoppers(filters: region))
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: region).count, 0)
+        XCTAssertFalse(FilterFocus.sheetChips(filters: region).contains(.shopper))
+
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertTrue(PulseLaunch.shouldListFilterShoppers(filters: division))
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: division), .division)
+        let divisionChoices = PulseLaunch.filterShopperChoices(rows: tape, filters: division)
+        XCTAssertEqual(divisionChoices.map(\.id), ["3407|a1"])
+        XCTAssertEqual(divisionChoices.map(\.label), ["A1 · 3407"])
+        XCTAssertTrue(FilterFocus.sheetChips(filters: division).contains(.shopper))
+
+        var district = DashboardFilters()
+        district.district = "J2"
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: district).map(\.id), ["3407|a1"])
+
+        var om = DashboardFilters()
+        om.om = "Pat Lee"
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: om).map(\.id), ["3407|a1"])
+
+        var store = DashboardFilters()
+        store.store = "3407"
+        let storeChoices = PulseLaunch.filterShopperChoices(rows: tape, filters: store)
+        XCTAssertEqual(storeChoices.map(\.id), ["3407|a1"])
+        XCTAssertEqual(storeChoices.map(\.label), ["A1"])
+
+        store.shopper = "3407|a1"
+        XCTAssertTrue(PulseLaunch.shouldBindShopperFilterFacts(filters: store))
+        XCTAssertTrue(PulseLaunch.shopperSelectionChangedInPlace(
+            from: DashboardFilters(region: "", division: "", district: "", om: "", store: "3407"),
+            to: store
+        ))
+        var moved = store
+        moved.store = "2219"
+        XCTAssertFalse(PulseLaunch.shopperSelectionChangedInPlace(from: store, to: moved))
+
+        let narrowed = HeartbeatMath.filtered(tape, filters: store)
+        XCTAssertEqual(narrowed.filter { $0.section == .pickerScorecard }.count, 1)
+        XCTAssertEqual(narrowed.filter { $0.section == .sales }.count, 1)
+        XCTAssertFalse(narrowed.contains { $0.storeNumber == "2219" })
+
+        let oldJSON = #"{"region":"","division":"Jewel Osco","district":"","om":"","store":""}"#.data(using: .utf8)!
+        let decoded = try? JSONDecoder().decode(DashboardFilters.self, from: oldJSON)
+        XCTAssertEqual(decoded?.division, "Jewel Osco")
+        XCTAssertEqual(decoded?.shopper, "")
+
+        store.shopper = "3407|a1\n3407|a1"
+        store.sanitize()
+        XCTAssertEqual(store.shopper, "3407|a1")
+        XCTAssertEqual(store.chipTitle(for: .shopper), "A1")
+        XCTAssertEqual(CommandCenterLayout.overviewSeatLabel(store), "A1 Shopper")
+    }
+
+    private func shopperFact(
+        store: String,
+        division: String,
+        district: String,
+        om: String,
+        id: String,
+        name: String
+    ) -> MetricRow {
+        MetricRow(
+            section: .pickerScorecard,
+            division: division,
+            operationsOM: om,
+            storeNumber: store,
+            textPayload: [
+                "shopper_id": id,
+                "shopper_name": name,
+                "district": district,
+            ]
+        )
+    }
 }
 

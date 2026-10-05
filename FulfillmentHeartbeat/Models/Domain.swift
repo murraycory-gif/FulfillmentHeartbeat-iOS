@@ -2151,7 +2151,8 @@ enum HeartbeatMath {
             store: filters.store,
             relaxUnknown: relaxUnknown,
             universe: universe,
-            region: filters.region
+            region: filters.region,
+            shopper: filters.shopper
         )
     }
 
@@ -2163,7 +2164,8 @@ enum HeartbeatMath {
         store: String,
         relaxUnknown: Bool,
         universe: [MetricRow]? = nil,
-        region: String = ""
+        region: String = "",
+        shopper: String = ""
     ) -> [MetricRow] {
         let pool = universe ?? rows
         let roster = storeRoster(pool)
@@ -2181,6 +2183,7 @@ enum HeartbeatMath {
         let districtValues = DashboardFilters.parts(district)
         let omValues = DashboardFilters.parts(om)
         let storeValues = DashboardFilters.parts(store)
+        let shopperValues = DashboardFilters.parts(shopper)
         let divisionStores = storeSet(in: pool, roster: roster, values: divisionValues, relax: relaxUnknown) { $0.division }
         let districtStores = storeSet(in: pool, roster: roster, values: districtValues, relax: relaxUnknown) { $0.district }
         let omStores = storeSet(in: pool, roster: roster, values: omValues, relax: relaxUnknown) { $0.om }
@@ -2196,8 +2199,13 @@ enum HeartbeatMath {
             if let omStores, !belongs(row.storeNumber, to: omStores, identity: identity.om, values: omValues) {
                 return false
             }
-            if storeValues.isEmpty { return true }
-            return storeValues.contains { matches(row.storeNumber, $0) } || relaxUnknown
+            let storeOK = storeValues.isEmpty
+                || storeValues.contains { matches(row.storeNumber, $0) }
+                || relaxUnknown
+            if !storeOK { return false }
+            guard !shopperValues.isEmpty else { return true }
+            guard row.section == .pickerScorecard || row.section == .pickPathPicker else { return true }
+            return PulseLaunch.rowMatchesShopperFilter(row, selected: shopperValues)
         }
     }
 
@@ -5614,9 +5622,11 @@ struct DashboardFilters: Equatable, Codable {
     var district = ""
     var om = ""
     var store = ""
+    /// Store-scoped shopper ids (`store|key`). Empty on Company / Region.
+    var shopper = ""
 
     var isActive: Bool {
-        !region.isEmpty || !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty
+        !region.isEmpty || !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty || !shopper.isEmpty
     }
 
     var summary: String {
@@ -5630,7 +5640,13 @@ struct DashboardFilters: Equatable, Codable {
             (Self.display(district, empty: "All districts", prefix: "District "), !district.isEmpty),
             (Self.display(om, empty: "All OMs"), !om.isEmpty),
             (Self.display(store, empty: "All stores"), !store.isEmpty),
-        ]
+        ] + shopperSummary
+    }
+
+    /// Only after a shopper is chosen. An unselected seat keeps the existing summary.
+    private var shopperSummary: [(text: String, active: Bool)] {
+        guard !shopper.isEmpty else { return [] }
+        return [(PulseLaunch.shopperFilterSummary(shopper), true)]
     }
 
     func includesDivision(_ value: String) -> Bool {
@@ -5678,6 +5694,7 @@ struct DashboardFilters: Equatable, Codable {
     var districts: [String] { Self.parts(district) }
     var oms: [String] { Self.parts(om) }
     var stores: [String] { Self.parts(store) }
+    var shoppers: [String] { Self.parts(shopper) }
 
     static func parts(_ raw: String) -> [String] {
         raw.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -5691,7 +5708,7 @@ struct DashboardFilters: Equatable, Codable {
         return prefix + values[0] + " + \(values.count - 1) more"
     }
 
-    enum CodingKeys: String, CodingKey { case region, division, district, om, store }
+    enum CodingKeys: String, CodingKey { case region, division, district, om, store, shopper }
 
     init() {}
 
@@ -5710,6 +5727,7 @@ struct DashboardFilters: Equatable, Codable {
         district = try c.decodeIfPresent(String.self, forKey: .district) ?? ""
         om = try c.decodeIfPresent(String.self, forKey: .om) ?? ""
         store = try c.decodeIfPresent(String.self, forKey: .store) ?? ""
+        shopper = try c.decodeIfPresent(String.self, forKey: .shopper) ?? ""
         sanitize()
     }
 
@@ -5718,6 +5736,11 @@ struct DashboardFilters: Equatable, Codable {
         district = Self.uniqueNormalized(districts.map(HeartbeatMath.canonicalDistrict))
         om = Self.uniqueNormalized(oms.map(HeartbeatMath.canonicalOM))
         store = Self.uniqueNormalized(stores.map(HeartbeatMath.canonicalStore))
+        if PulseLaunch.shouldListFilterShoppers(filters: self) {
+            shopper = Self.uniqueNormalized(shoppers)
+        } else {
+            shopper = ""
+        }
     }
 
     private static func uniqueNormalized(_ values: [String]) -> String {
@@ -6008,6 +6031,21 @@ enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
     case district
     case om
     case store
+    case shopper
+
+    /// Hub pills stay Region → Store. Shopper is a sheet chip on
+    /// Store / Ops / District / Division only.
+    static var allCases: [FilterFocus] {
+        [.region, .division, .district, .om, .store]
+    }
+
+    static func sheetChips(filters: DashboardFilters) -> [FilterFocus] {
+        var chips = allCases
+        if PulseLaunch.shouldListFilterShoppers(filters: filters) {
+            chips.append(.shopper)
+        }
+        return chips
+    }
 
     var id: String { rawValue }
 
@@ -6018,6 +6056,7 @@ enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
         case .district: return "square.grid.2x2.fill"
         case .om: return "person.2.fill"
         case .store: return "storefront.fill"
+        case .shopper: return "person.fill"
         }
     }
 
@@ -6028,6 +6067,7 @@ enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
         case .district: return "District"
         case .om: return "Operations manager"
         case .store: return "Store #"
+        case .shopper: return "Shopper"
         }
     }
 
@@ -6038,6 +6078,7 @@ enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
         case .district: return "District"
         case .om: return "OM"
         case .store: return "Store"
+        case .shopper: return "Shopper"
         }
     }
 
@@ -6048,6 +6089,7 @@ enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
         case .district: return "Type a district"
         case .om: return "Type an OM name"
         case .store: return "Type a store number"
+        case .shopper: return "Type a shopper"
         }
     }
 
@@ -6058,6 +6100,7 @@ enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
         case .district: return "All districts"
         case .om: return "All operations managers"
         case .store: return "All stores"
+        case .shopper: return "All shoppers"
         }
     }
 }
@@ -6070,6 +6113,7 @@ extension DashboardFilters {
         case .district: return Self.parts(district)
         case .om: return Self.parts(om)
         case .store: return Self.parts(store)
+        case .shopper: return Self.parts(shopper)
         }
     }
 
@@ -6077,6 +6121,10 @@ extension DashboardFilters {
     func chipTitle(for focus: FilterFocus) -> String {
         let selected = values(for: focus)
         if selected.isEmpty { return focus.chipTitle }
+        if focus == .shopper {
+            if selected.count == 1 { return PulseLaunch.shopperFilterChipLabel(selected[0]) }
+            return "\(PulseLaunch.shopperFilterChipLabel(selected[0])) +\(selected.count - 1)"
+        }
         if selected.count == 1 { return HeartbeatMath.displayGrainLabel(selected[0]) }
         return "\(HeartbeatMath.displayGrainLabel(selected[0])) +\(selected.count - 1)"
     }
@@ -6089,7 +6137,9 @@ extension DashboardFilters {
             case .district: district = ""
             case .om: om = ""
             case .store: store = ""
+            case .shopper: shopper = ""
             }
+            if focus != .shopper { shopper = "" }
             return
         }
         var current = values(for: focus)
@@ -6111,6 +6161,7 @@ extension DashboardFilters {
                 om = ""
                 store = ""
             }
+            shopper = ""
             return
         }
         if current.contains(where: matches) {
@@ -6128,10 +6179,21 @@ extension DashboardFilters {
                     allowed.contains { MarketRegion.matchesDivision(name, $0) }
                 }.joined(separator: "\n")
             }
-        case .division: division = joined
-        case .district: district = joined
-        case .om: om = joined
-        case .store: store = joined
+            shopper = ""
+        case .division:
+            division = joined
+            shopper = ""
+        case .district:
+            district = joined
+            shopper = ""
+        case .om:
+            om = joined
+            shopper = ""
+        case .store:
+            store = joined
+            shopper = ""
+        case .shopper:
+            shopper = joined
         }
     }
 }
