@@ -14,7 +14,7 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { bannerText, considerPublished, formatHeadline, money, publishClock, publishStamp, updatedLine } from "./public/clock.js";
+import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -44,6 +44,8 @@ import {
   qualifies,
   qualifiesStore,
   scheduleVisibleTitle,
+  rankedDivisions,
+  rankedRegions,
   scheduleGapNote,
   summary,
 } from "./public/schedule-math.js";
@@ -320,7 +322,7 @@ assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
 assert.match(pageHtml, /app\.css\?v=12/);
-assert.match(pageHtml, /app\.js\?v=15/);
+assert.match(pageHtml, /app\.js\?v=16/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -546,10 +548,21 @@ const gapPack = {
     { store: "117", region: "East Region", division: "Shaws", under: 9, over: 4, eff: 85 },
   ],
 };
-assert.equal(scheduleGapNote(gapPack, filters({ division: "United" }), []), "No schedule data");
-assert.equal(scheduleGapNote(gapPack, empty, []), "United: No schedule data");
-assert.match(readFileSync(join(root, "public/schedule-math.js"), "utf8"), /No schedule data/);
+assert.equal(scheduleGapNote(gapPack, filters({ division: "United" }), []), "No data");
+assert.equal(scheduleGapNote(gapPack, empty, []), "United: No data");
+assert.match(readFileSync(join(root, "public/schedule-math.js"), "utf8"), /No data/);
 assert.match(app, /scheduleGapNote\(/);
+assert.match(app, /blank \? "No data"/);
+const blankUnited = summary(
+  {
+    markets: [{ label: "United", under: null, over: null, eff: null }],
+    stores: [{ store: "22", region: "South Region", division: "United", under: null, over: null, eff: null }],
+  },
+  filters({ division: "United" }),
+);
+assert.equal(blankUnited.under, null);
+assert.equal(blankUnited.over, null);
+assert.equal(blankUnited.eff, null);
 assert.match(app, /\["EOT", \["eot_capacity"\]/);
 assert.match(app, /\["Used", \["used_capacity"\]/);
 assert.match(app, /cooked shoppers/);
@@ -598,6 +611,7 @@ const pack = {
 const company = summary(pack, empty);
 assert.equal(company.under, 41.07);
 assert.equal(company.over, 4.03);
+assert.equal(company.eff, 25);
 assert.equal(company.usesMarketLook, true);
 assert.match(companyMarketNote(company, empty), /Under 60\.00% \/ Over 0\.50%/);
 const united = summary(pack, filters({ division: "United" }));
@@ -853,6 +867,21 @@ assert.ok(pathPickers.rows.length > 1000);
 assert.equal(schedule.empty, undefined);
 assert.ok(schedule.week >= 32);
 assert.ok(schedule.stores.length > 1000);
+const liveCompany = summary(schedule, empty, []);
+assert.equal(pct(liveCompany.eff), "88.44%");
+const southSched = rankedRegions(schedule, empty, []).find((row) => row.region === "South Region");
+assert.equal(pct(southSched.eff), "91.04%");
+assert.notEqual(pct(southSched.eff), "92.64%");
+const liveUnited = summary(schedule, filters({ division: "United" }), []);
+assert.equal(liveUnited.under, null);
+assert.equal(liveUnited.over, null);
+assert.equal(liveUnited.eff, null);
+const unitedDivision = rankedDivisions(schedule, empty, []).find((row) => row.division === "United");
+assert.equal(unitedDivision.under, null);
+assert.equal(unitedDivision.over, null);
+assert.equal(unitedDivision.eff, null);
+assert.equal(scheduleGapNote(schedule, filters({ division: "United" }), []), "No data");
+assert.match(scheduleGapNote(schedule, empty, []), /United: No data/);
 assert.match(scheduleVisibleTitle(schedule.summaryTitle, schedule.week), new RegExp(`Week ${schedule.week}`));
 const storeOne = cooked.filters.stores.find((row) => row.store === "1");
 assert.equal(isPersonOm(storeOne.om), true);

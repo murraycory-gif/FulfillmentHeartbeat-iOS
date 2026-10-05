@@ -805,12 +805,21 @@ function scheduleActionHtml(pack, card) {
   return `<p class="note">${countLabel}. Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%.</p>${groupsHtml}`;
 }
 
+function scheduleMetricsBlank(row) {
+  return row.under == null && row.over == null && row.eff == null;
+}
+
+function schedulePct(value, blank) {
+  return blank ? "No data" : pct(value);
+}
+
 function scheduleSummaryHtml(pack, card) {
+  const blankCard = scheduleMetricsBlank(card);
   const kpis = [
-    ["Under", pct(card.under), percentHealth(card.under, false)],
-    ["Over", pct(card.over), percentHealth(card.over, false)],
+    ["Under", schedulePct(card.under, blankCard), blankCard ? "" : percentHealth(card.under, false)],
+    ["Over", schedulePct(card.over, blankCard), blankCard ? "" : percentHealth(card.over, false)],
     ["Pch vs Sch", pct(card.pch), ""],
-    ["Sch Eff", pct(card.eff), effHealth(card.eff, false)],
+    ["Sch Eff", schedulePct(card.eff, blankCard), blankCard ? "" : effHealth(card.eff, false)],
     ["Any under", num(card.underCount, 0), ""],
     ["Any over", num(card.overCount, 0), ""],
     ["Stores", num(card.scope, 0), ""],
@@ -824,25 +833,25 @@ function scheduleSummaryHtml(pack, card) {
   const divisions = rankedDivisions(pack, state.filters, roster())
     .map(
       (row) =>
-        `<tr><td>${esc(row.division)}</td><td>${esc(pct(row.under))}</td><td>${esc(pct(row.over))}</td><td>${esc(pct(row.eff))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
+        `<tr><td>${esc(row.division)}</td><td>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))}</td><td>${esc(schedulePct(row.over, scheduleMetricsBlank(row)))}</td><td>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
     )
     .join("");
   const regionRows = rankedRegions(pack, state.filters, roster())
     .map(
       (row) =>
-        `<tr><td>${esc(row.region)}</td><td>${esc(pct(row.under))}</td><td>${esc(pct(row.over))}</td><td>${esc(pct(row.eff))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
+        `<tr><td>${esc(row.region)}</td><td>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))}</td><td>${esc(schedulePct(row.over, scheduleMetricsBlank(row)))}</td><td>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))}</td><td>${esc(num(row.scope, 0))}</td></tr>`,
     )
     .join("");
   const regionCards = rankedRegions(pack, state.filters, roster())
     .map(
       (row) =>
-        `<li class="line-card"><div><p class="eyebrow">Region</p><p class="line-title">${esc(row.region)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
+        `<li class="line-card"><div><p class="eyebrow">Region</p><p class="line-title">${esc(row.region)}</p></div><div class="line-value"><strong>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))} eff</strong><span>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))} under · ${esc(schedulePct(row.over, scheduleMetricsBlank(row)))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
     )
     .join("");
   const divisionCards = rankedDivisions(pack, state.filters, roster())
     .map(
       (row) =>
-        `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
+        `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(schedulePct(row.eff, scheduleMetricsBlank(row)))} eff</strong><span>${esc(schedulePct(row.under, scheduleMetricsBlank(row)))} under · ${esc(schedulePct(row.over, scheduleMetricsBlank(row)))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
     )
     .join("");
   return `<div class="tiles">${kpis}</div><p class="note">Any under: stores on this week above 0% under. Not the review list, and not Schedule Quality’s stores under above 5%.</p>${market ? `<p class="note">${esc(market)}</p>` : ""}<h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
@@ -868,7 +877,8 @@ function scheduleDetailHtml(pack) {
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
       const seat = scheduleSeat(store);
-      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
+      const blank = scheduleMetricsBlank(store);
+      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(schedulePct(store.under, blank))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(schedulePct(store.over, blank))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(schedulePct(store.eff, blank))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
   const cards = rows
@@ -881,7 +891,8 @@ function scheduleDetailHtml(pack) {
         : thin
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(pct(store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+      const blank = scheduleMetricsBlank(store);
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(schedulePct(store.under, blank))}</strong></div><div class="metric"><span>Over</span><strong>${esc(schedulePct(store.over, blank))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(schedulePct(store.eff, blank))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;

@@ -92,11 +92,19 @@ export function summary(pack, filters, roster) {
   if (!filtersActive(filters)) market = marketLabeled(pack, "Total") || null;
   else if (!cutInside && filters.division) market = marketLabeled(pack, filters.division) || null;
   const usesMarket = market != null;
+  let eff = average(rows.map((row) => row.eff));
+  if (!cutInside && usesMarket) {
+    const fromMarket = explicitMarketEff(market);
+    if (fromMarket !== undefined) eff = fromMarket;
+  } else if (!cutInside && filters.region) {
+    const regional = regionMarketEff(pack, rows);
+    if (regional != null) eff = regional;
+  }
   return {
     under: usesMarket ? (market.under ?? null) : storeUnder,
     over: usesMarket ? (market.over ?? null) : storeOver,
     pch: average(rows.map((row) => row.pch)),
-    eff: average(rows.map((row) => row.eff)),
+    eff,
     underCount: rows.filter((row) => Number(row.under) > 0).length,
     overCount: rows.filter((row) => Number(row.over) > 0).length,
     scope: rows.length,
@@ -111,7 +119,30 @@ function scheduleMetricsBlank(store) {
   return store.under == null && store.over == null && store.eff == null;
 }
 
-// United's current-week under and over are blank. Say so instead of 0% / 100%.
+function explicitMarketEff(market) {
+  if (!market || !Object.hasOwn(market, "eff")) return undefined;
+  // Number(null) is 0. A blank Market Look eff is missing, not a real zero.
+  if (market.eff == null || market.eff === "") return null;
+  const value = Number(market.eff);
+  return Number.isFinite(value) ? value : null;
+}
+
+// South blends division Market Look eff by store count. United's eff is blank, so it drops out.
+function regionMarketEff(pack, rows) {
+  const divisions = [...new Set(rows.map((row) => row.division).filter(Boolean))];
+  let weight = 0;
+  let sum = 0;
+  for (const division of divisions) {
+    const eff = explicitMarketEff(marketLabeled(pack, division));
+    if (eff == null) continue;
+    const count = rows.filter((row) => row.division === division).length;
+    weight += count;
+    sum += eff * count;
+  }
+  return weight ? sum / weight : null;
+}
+
+// United's current-week under and over are blank. Eff 1 on that row is not a measurement.
 export function scheduleGapNote(pack, filters, roster) {
   const rows = scopedStores(pack, filters, roster);
   if (!rows.length || !rows.every(scheduleMetricsBlank)) {
@@ -119,9 +150,9 @@ export function scheduleGapNote(pack, filters, roster) {
       .filter((row) => row.under == null && row.over == null && row.eff == null)
       .map((row) => row.division);
     if (!names.length) return "";
-    return `${names.join(", ")}: No schedule data`;
+    return `${names.join(", ")}: No data`;
   }
-  return "No schedule data";
+  return "No data";
 }
 
 export function companyMarketNote(card, filters) {
@@ -163,12 +194,14 @@ export function rankedRegions(pack, filters, roster) {
   return names
     .map((name) => {
       const group = rows.filter((row) => row.region === name);
+      const measured = !filters || !(filters.district || filters.om || filters.store);
+      const marketEff = measured ? regionMarketEff(pack, group) : null;
       return {
         region: name,
         under: average(group.map((row) => row.under)),
         over: average(group.map((row) => row.over)),
         pch: average(group.map((row) => row.pch)),
-        eff: average(group.map((row) => row.eff)),
+        eff: marketEff != null ? marketEff : average(group.map((row) => row.eff)),
         scope: group.length,
       };
     })
@@ -188,13 +221,14 @@ export function rankedDivisions(pack, filters, roster) {
     .map((name) => {
       const group = rows.filter((row) => row.division === name);
       const market = cutInside ? null : marketLabeled(pack, name);
+      const fromMarket = market ? explicitMarketEff(market) : undefined;
       return {
         division: name,
         region: (group[0] && group[0].region) || "",
         under: market ? (market.under ?? null) : average(group.map((row) => row.under)),
         over: market ? (market.over ?? null) : average(group.map((row) => row.over)),
         pch: average(group.map((row) => row.pch)),
-        eff: average(group.map((row) => row.eff)),
+        eff: fromMarket !== undefined ? fromMarket : average(group.map((row) => row.eff)),
         scope: group.length,
       };
     })
