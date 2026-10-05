@@ -13,7 +13,7 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { bannerText, considerPublished, formatHeadline, publishClock, updatedLine } from "./public/clock.js";
+import { bannerText, considerPublished, formatHeadline, money, publishClock, updatedLine } from "./public/clock.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -112,6 +112,8 @@ assert.equal(FIGURE_SECTIONS.has("pre_sub_oos"), false);
 assert.equal(FIGURE_SECTIONS.has("prep_not_ready"), false);
 assert.equal(FIGURE_SECTIONS.has("pph"), false);
 assert.equal(formatHeadline("lost_revenue", 393334.12), "$393,334.12");
+assert.equal(formatHeadline("lost_revenue", 4248638.426), "$4,248,638.43");
+assert.equal(money("$81,833,890.57"), "$81,833,890.57");
 assert.equal(formatHeadline("five_star", 3.400277), "3.40");
 assert.equal(formatHeadline("labor", 0.24972986261229743), "0.25%");
 assert.equal(formatHeadline("pick_path", 79.8251044108846), "79.8%");
@@ -227,7 +229,9 @@ assert.equal(blankDynacap.headline, null);
 assert.equal(blankDynacap.headlineText, null);
 assert.match(app, /This pack has no Schedule Check rows/);
 assert.match(app, /data-more/);
-assert.match(app, /Clear all/);
+assert.match(app, /data-close-drawer/);
+assert.equal(app.includes("Workbook banner said"), false);
+assert.match(app, /scrollTo\(0, 0\)/);
 assert.equal(app.includes("Shopper names are not on this site"), false);
 assert.match(app, /Shopper rows open from a division/);
 const css = readFileSync(join(root, "public/app.css"), "utf8");
@@ -245,6 +249,7 @@ assert.equal(includesScope({ store: "22", division: "United", om: "Southwest 1" 
 assert.equal(isPersonOm("Andrew Quinn"), true);
 assert.equal(isPersonOm("Chicago 1"), false);
 assert.deepEqual(optionValues(quinnRoster, filters({}), "om"), ["Andrew Quinn"]);
+assert.deepEqual(optionValues(quinnRoster, filters({ om: "Andrew Quinn" }), "district"), ["U5"]);
 const midAtlantic = seatSummary("dynacap", {
   company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
   lines: [
@@ -316,6 +321,9 @@ assert.equal(matchesDivision("MID-ATLANTIC", "Mid Atlantic"), true);
 assert.equal(matchesDivision("Shaws", "United"), false);
 assert.equal(canonicalDivision("NOR. CALIFORNIA"), "NorCal");
 assert.equal(canonicalDivision("SO CALIFORNIA"), "SoCal");
+assert.equal(canonicalDivision("JEWEL"), "Jewel Osco");
+assert.equal(canonicalDivision("DENVER"), "Mountain West");
+assert.equal(canonicalDivision("INTERMOUNTAIN"), "Mountain West");
 assert.equal(canonicalStore("0117"), "117");
 assert.equal(matchesDistrict("03", "3"), true);
 assert.equal(matchesDistrict("D3", "3"), false);
@@ -358,8 +366,8 @@ assert.equal(united.over, null);
 const cut = summary(pack, filters({ division: "United", district: "U1" }));
 assert.equal(cut.usesMarketLook, false);
 assert.equal(cut.under, 60);
-assert.match(bannerMismatch(pack, company, empty), /468/);
-assert.match(bannerMismatch(pack, company, empty), /qualifies 2/);
+assert.equal(bannerMismatch(pack, company, empty), null);
+assert.equal(company.actionCount, 1);
 
 function b64url(bytes) {
   let binary = "";

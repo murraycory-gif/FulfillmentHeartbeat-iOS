@@ -41,14 +41,20 @@ const MARKET_TO_REGION = {
   socalifornia: "California Region",
   southerncal: "California Region",
   mountainwest: "West Region",
+  denver: "West Region",
+  intermountain: "West Region",
   seattle: "West Region",
   haggen: "West Region",
   portland: "West Region",
+  jewel: "East Region",
 };
 
 const OFFICIAL_BY_KEY = {
   midatlantic: "Mid-Atlantic",
+  jewel: "Jewel Osco",
   jewelosco: "Jewel Osco",
+  denver: "Mountain West",
+  intermountain: "Mountain West",
   nocal: "NorCal",
   northerncalifornia: "NorCal",
   norcalifornia: "NorCal",
@@ -113,7 +119,7 @@ export function canonicalDivision(raw) {
   if (key.startsWith("united")) return "United";
   if (key.includes("jewel")) return "Jewel Osco";
   if (key.startsWith("shaw")) return "Shaws";
-  if (key.includes("mountainwest")) return "Mountain West";
+  if (key.includes("mountainwest") || key === "denver" || key === "intermountain") return "Mountain West";
   if (key.startsWith("haggen")) return "Haggen";
   if (key.startsWith("portland")) return "Portland";
   if (key.startsWith("seattle")) return "Seattle";
@@ -267,12 +273,12 @@ export function optionValues(roster, filters, field) {
     region: field === "region" ? "" : filters.region,
     division: field === "division" || field === "region" ? "" : filters.division,
     district: field === "district" || field === "division" || field === "region" ? "" : filters.district,
-    om: field === "om" || field === "district" || field === "division" || field === "region" ? "" : filters.om,
+    om: field === "om" || field === "division" || field === "region" ? "" : filters.om,
     store: "",
   };
   const values = new Set();
   for (const row of roster || []) {
-    if (!includesScope(row, narrowed)) continue;
+    if (!includesScope(row, narrowed, roster)) continue;
     const value = row[field] || "";
     if (!value) continue;
     if (field === "om" && !isPersonOm(value)) continue;
@@ -371,7 +377,7 @@ export function sectionGrainRows(lines, section, filters, roster) {
       if (filters.division && !matchesDivision(child.division, filters.division)) continue;
       rows.push({
         grain: "division",
-        label: child.division,
+        label: canonicalDivision(child.division) || child.division,
         value: child.value,
         count: child.count,
         region: line.region,

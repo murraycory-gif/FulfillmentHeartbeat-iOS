@@ -10,6 +10,7 @@ import {
   finestScope,
   sectionGrainRows,
   canonicalStore,
+  canonicalDivision,
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { seatSummary } from "./seat.js";
@@ -17,7 +18,6 @@ import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
   companyMarketNote,
-  bannerMismatch,
   actionGroups,
   rankedDivisions,
   rankedRegions,
@@ -30,31 +30,31 @@ const STAMP = "HB-0828.494";
 
 const PAGES = [
   { id: "dashboard", title: "Dashboard" },
-  { id: "sales", title: "Sales ScoreCard", section: "sales" },
-  { id: "lost_revenue", title: "Loss Revenue ScoreCard", section: "lost_revenue" },
-  { id: "missing_items", title: "Missing Items ScoreCard", section: "missing_items" },
-  { id: "five_star", title: "5 Star ScoreCard", section: "five_star" },
-  { id: "pre_sub_oos", title: "Pre-Sub OOS ScoreCard", section: "pre_sub_oos" },
-  { id: "pick_path", title: "Pick Path Compliance ScoreCard", section: "pick_path" },
-  { id: "prep_not_ready", title: "Prep Not Ready ScoreCard", section: "prep_not_ready" },
-  { id: "dynacap", title: "Dynacap Settings ScoreCard", section: "dynacap" },
-  { id: "schedule_quality", title: "Schedule Quality ScoreCard", section: "schedule_quality" },
-  { id: "schedule", title: "Upcoming Weeks Schedule Check" },
-  { id: "picker_scorecard", title: "Picker ScoreCard", section: "picker_scorecard" },
-  { id: "pph", title: "PPH Pure Picks Per Hour", section: "pph" },
-  { id: "labor", title: "Labor ScoreCard", section: "labor" },
+  { id: "sales", title: "Sales", section: "sales" },
+  { id: "lost_revenue", title: "Lost Revenue", section: "lost_revenue" },
+  { id: "missing_items", title: "Missing Items", section: "missing_items" },
+  { id: "five_star", title: "5 Star", section: "five_star" },
+  { id: "pre_sub_oos", title: "Pre-Sub", section: "pre_sub_oos" },
+  { id: "pick_path", title: "Pick Path", section: "pick_path" },
+  { id: "prep_not_ready", title: "Prep", section: "prep_not_ready" },
+  { id: "dynacap", title: "Dynacap", section: "dynacap" },
+  { id: "schedule_quality", title: "Schedule Quality", section: "schedule_quality" },
+  { id: "schedule", title: "Schedule Check" },
+  { id: "picker_scorecard", title: "Picker", section: "picker_scorecard" },
+  { id: "pph", title: "PPH", section: "pph" },
+  { id: "labor", title: "Labor", section: "labor" },
 ];
 
 const COLUMNS = {
   sales: [
-    ["Sales $", ["sales_dollars"], money],
+    ["Sales", ["sales_dollars"], money],
     ["YoY %", ["sales_yoy_pct"], pct],
     ["Orders", ["sales_orders"], (value) => num(value, 0)],
   ],
   lost_revenue: [
-    ["Lost $", ["lost_revenue"], money],
+    ["Lost", ["lost_revenue"], money],
     ["Lost %", ["lost_revenue_pct"], pct],
-    ["eComm $", ["ecomm_sales"], money],
+    ["eComm", ["ecomm_sales"], money],
   ],
   missing_items: [["Rate", ["mi_pct"], pct]],
   five_star: [
@@ -82,7 +82,7 @@ const COLUMNS = {
   ],
   pph: [["PPH", ["pph"], (value) => num(value, 1)]],
   labor: [
-    ["Target Vs Actual", ["target_vs_actual_pct"], pct],
+    ["Vs Target", ["target_vs_actual_pct"], pct],
     ["Act Cost", ["act_cost_pct"], pct],
     ["Cost Tgt", ["cost_trgt_pct"], pct],
     ["Sch Eff", ["schedule_efficiency_pct"], pct],
@@ -184,7 +184,7 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${esc(page.title)}</button></li>`,
   ).join("");
-  drawer.innerHTML = `<p class="drawer-title">Pages</p><ul class="pages">${items}</ul><p class="hint">${esc(STAMP)}</p>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><p class="hint">${esc(STAMP)}</p>`;
 }
 
 function renderFilters() {
@@ -226,8 +226,10 @@ function cookedTiles(section) {
   if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
   return `<div class="tiles">${tiles.labels
     .map((label, index) => {
-      const value = (tiles.values || [])[index];
-      return `<div class="chip"><span>${esc(label)}</span><strong>${esc(value == null || value === "" ? "—" : value)}</strong></div>`;
+      const raw = (tiles.values || [])[index];
+      const shown = raw == null || raw === "" ? "—" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
+      const name = shown.startsWith("$") ? String(label || "").replace(/\s*\$+\s*$/, "") : label;
+      return `<div class="chip"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
     })
     .join("")}</div>`;
 }
@@ -248,6 +250,7 @@ function companyBlock(section, title) {
   const tiles = filtersActive(state.filters) ? "" : cookedTiles(section);
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
   const health = seat.health || "none";
+  const hideEmptyBadge = section === "picker_scorecard" && seat.storeCount > 0 && health === "none";
   const name = title ? `<h2>${esc(title)}</h2>` : "";
   const countLabel = !seat.storeCount
     ? ""
@@ -267,7 +270,7 @@ function companyBlock(section, title) {
   const scope = filtersActive(state.filters)
     ? `<p class="scope">In this scope: ${esc(countLabel || "no cooked grade")}.</p>`
     : "";
-  return `<div class="score-face">${name}${badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figure}${tiles}${secondary}${scope}</div>`;
+  return `<div class="score-face">${name}${hideEmptyBadge ? "" : badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figure}${tiles}${secondary}${scope}</div>`;
 }
 
 function cell(row, keys) {
@@ -278,8 +281,24 @@ function cell(row, keys) {
   return null;
 }
 
+function rosterByStore() {
+  const map = new Map();
+  for (const row of roster()) {
+    if (row && row.store) map.set(canonicalStore(row.store), row);
+  }
+  return map;
+}
+
+function displayDivision(row, known) {
+  const match = known.get(canonicalStore(row.store));
+  const fromRoster = match && canonicalDivision(match.division);
+  if (fromRoster) return fromRoster;
+  return canonicalDivision(row.division) || row.division || "—";
+}
+
 function table(section, rows) {
   const columns = COLUMNS[section] || [];
+  const known = rosterByStore();
   const matched = rows.filter((row) => row.store && includesScope(row, state.filters, roster()));
   if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
   const shown = matched.slice(0, state.tableWindow);
@@ -291,7 +310,8 @@ function table(section, rows) {
       const metrics = columns
         .map((column) => `<td>${esc(column[2](cell(row, column[1])))}</td>`)
         .join("");
-      return `<tr><td>${esc(canonicalStore(row.store))}</td><td>${esc(row.division || "—")}</td><td>${esc(row.district || "—")}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
+      const division = displayDivision(row, known);
+      return `<tr><td>${esc(canonicalStore(row.store))}</td><td>${esc(division)}</td><td>${esc(row.district || "—")}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
     })
     .join("");
   const more =
@@ -306,10 +326,11 @@ function table(section, rows) {
             `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1])))}</strong></div>`,
         )
         .join("");
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${esc(row.division || "—")} · ${esc(row.district || "—")} · ${esc(row.om || "—")}</p><div class="metric-row">${metrics}</div></li>`;
+      const division = displayDivision(row, known);
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${esc(division)} · ${esc(row.district || "—")} · ${esc(row.om || "—")}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
-  return `${more}<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
+  return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
 function grainBlock(section) {
@@ -382,7 +403,8 @@ function regionProof() {
   const table = lines.length
     ? `<div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Metric</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>`
     : "";
-  return `<section id="pack-lines"><h2>Region results</h2><p class="note">Cooked region lines for each scorecard. Not Upcoming Weeks Schedule Check — that page is in Pages, and it stays empty when this pack has no schedule rows.</p>${note}${table}</section>`;
+  // Region results. Not Upcoming Weeks Schedule Check — that page is in Pages.
+  return `<section id="pack-lines"><h2>Region results</h2>${note}${table}</section>`;
 }
 
 function renderDashboard() {
@@ -446,7 +468,7 @@ function shopperTable(rows, kind) {
       return `<li class="store-card"><p class="store-id">${esc(name)}</p><p class="sub">Store ${esc(canonicalStore(row.store))}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
-  return `${more}<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
+  return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
 function renderPicker() {
@@ -457,11 +479,11 @@ function renderPicker() {
     main.innerHTML = `<p class="nodata">NO DATA</p>`;
     return;
   }
-  const health = (summary && summary.health) || "none";
+  const health = rows.length && ((summary && summary.health) || "none") === "none" ? "" : (summary && summary.health) || "none";
   const note = shopperSeat(state.filters)
     ? shopperTable(rows, "scorecard")
     : `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
-  main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker ScoreCard")}</article>${grainBlock("picker_scorecard")}${note}`;
+  main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${grainBlock("picker_scorecard")}${note}`;
 }
 
 function renderPresub(pack) {
@@ -516,23 +538,21 @@ function scheduleIsEmpty(pack) {
 function renderSchedule(pack) {
   const tabs = `<div class="seg">${scheduleTabs()}</div>`;
   if (scheduleIsEmpty(pack)) {
-    main.innerHTML = `${tabs}<article class="scorecard none"><div class="score-face"><h2>Upcoming Weeks Schedule Check</h2><p class="nodata">NO DATA</p><p class="note">This pack has no Schedule Check rows.</p></div></article>`;
+    main.innerHTML = `${tabs}<article class="scorecard none"><div class="score-face"><h2>Schedule Check</h2><p class="nodata">NO DATA</p><p class="note">This pack has no Schedule Check rows.</p></div></article>`;
     return;
   }
   const card = scheduleSummary(pack, state.filters, roster());
-  const week = pack.week ? `Week ${esc(pack.week)}` : "NO DATA";
   const summaryTitle = scheduleVisibleTitle(pack.summaryTitle, pack.week);
+  const week = pack.week ? `Week ${esc(pack.week)}` : summaryTitle || "Schedule";
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
   else if (state.scheduleTab === "detail") body = scheduleDetailHtml(pack);
   else body = scheduleActionHtml(pack, card);
-  main.innerHTML = `<p class="note">${week}${summaryTitle ? ` · ${esc(summaryTitle)}` : ""}</p>${tabs}${body}`;
+  main.innerHTML = `<p class="note">${week}</p>${tabs}${body}`;
 }
 
 function scheduleActionHtml(pack, card) {
-  const mismatch = bannerMismatch(pack, card, state.filters);
   const groups = actionGroups(pack, state.filters, roster());
-  const note = mismatch ? `<p class="note">${esc(mismatch)}</p>` : "";
   const groupsHtml = groups.length
     ? groups
         .map((group) => {
@@ -556,12 +576,12 @@ function scheduleActionHtml(pack, card) {
               return `<li class="store-card"><p class="store-id">${esc(store.store)}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(flags.join(", ") || "—")}</strong></div></div></li>`;
             })
             .join("");
-          return `<section class="group"><h3>${esc(group.division || "—")} · ${esc(group.region || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
+          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
         })
         .join("")
     : `<p class="note">No stores qualify in this scope.</p>`;
   const countLabel = `${card.actionCount} ${card.actionCount === 1 ? "store" : "stores"}`;
-  return `${note}<p class="note">${countLabel} · sales ≥ $30,000 and (under ≥ 10% or 4-wk under &gt; 9% or over ≥ 15%)</p>${groupsHtml}`;
+  return `<p class="note">${countLabel}</p>${groupsHtml}`;
 }
 
 function scheduleSummaryHtml(pack, card) {
@@ -572,7 +592,7 @@ function scheduleSummaryHtml(pack, card) {
     ["Sch Eff", pct(card.eff), effHealth(card.eff, false)],
     ["# Under", num(card.underCount, 0), ""],
     ["# Over", num(card.overCount, 0), ""],
-    ["Stores in scope", num(card.scope, 0), ""],
+    ["Stores", num(card.scope, 0), ""],
   ]
     .map(
       ([label, value, health]) =>
@@ -604,7 +624,7 @@ function scheduleSummaryHtml(pack, card) {
         `<li class="line-card"><div><p class="eyebrow">Division</p><p class="line-title">${esc(row.division)}</p></div><div class="line-value"><strong>${esc(pct(row.under))} under</strong><span>${esc(pct(row.over))} over · ${esc(num(row.scope, 0))} stores</span></div></li>`,
     )
     .join("");
-  return `<div class="tiles">${kpis}</div>${market ? `<p class="note">${esc(market)}</p>` : ""}<p class="note">Eff at or above 90% is green. 0% under or over is green. Not scheduled stays gray.</p><h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
+  return `<div class="tiles">${kpis}</div>${market ? `<p class="note">${esc(market)}</p>` : ""}<h2>Regions</h2><div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${regionRows}</tbody></table></div><ul class="phone-only line-cards">${regionCards}</ul><h2>Divisions</h2><div class="desk-only scroll"><table><thead><tr><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Stores</th></tr></thead><tbody>${divisions}</tbody></table></div><ul class="phone-only line-cards">${divisionCards}</ul>`;
 }
 
 function scheduleDetailHtml(pack) {
@@ -620,24 +640,29 @@ function scheduleDetailHtml(pack) {
       const unscheduled = notScheduled(store);
       const name = esc(canonicalStore(store.store));
       const tag = unscheduled ? ` <span class="unscheduled">Not scheduled yet</span>` : "";
-      return `<tr><td>${name}${tag}</td><td>${esc(store.division || "—")}</td><td class="${toneClass(percentHealth(store.under, unscheduled))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, unscheduled))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, unscheduled))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
+      return `<tr><td>${name}${tag}</td><td>${esc(canonicalDivision(store.division) || store.division || "—")}</td><td class="${toneClass(percentHealth(store.under, unscheduled))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, unscheduled))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, unscheduled))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
   const cards = rows
     .map((store) => {
       const unscheduled = notScheduled(store);
       const tag = unscheduled ? ` <span class="unscheduled">Not scheduled yet</span>` : "";
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(store.division || "—")}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(pct(store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(canonicalDivision(store.division) || store.division || "—")}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(pct(store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
-  return `${more}<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
+  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
 let renderToken = 0;
+let paintedPage = "";
 
 async function render() {
   const token = ++renderToken;
   const page = pageById(state.page);
+  if (paintedPage !== page.id) {
+    paintedPage = page.id;
+    window.scrollTo(0, 0);
+  }
   title.textContent = page.title;
   renderNav();
   renderFilters();
@@ -673,6 +698,7 @@ async function render() {
     return;
   }
   if (page.section === "picker_scorecard") {
+    main.innerHTML = `<p class="note">Loading…</p>`;
     try {
       await load("section/picker_scorecard");
     } catch {
@@ -761,7 +787,8 @@ filterToggle.addEventListener("click", () => {
   filterToggle.setAttribute("aria-expanded", open ? "true" : "false");
 });
 
-navToggle.addEventListener("click", () => {
+navToggle.addEventListener("click", (event) => {
+  event.stopPropagation();
   if (desktopNav()) {
     const collapsed = !document.documentElement.classList.contains("nav-collapsed");
     document.documentElement.classList.toggle("nav-collapsed", collapsed);
@@ -775,14 +802,25 @@ navToggle.addEventListener("click", () => {
   }
   const open = !drawer.classList.contains("open");
   drawer.classList.toggle("open", open);
-  scrim.hidden = !open;
   navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) {
+    scrim.hidden = true;
+    return;
+  }
+  // The scrim covers the button. Showing it on this same click closes the drawer immediately.
+  window.setTimeout(() => {
+    if (drawer.classList.contains("open")) scrim.hidden = false;
+  }, 0);
 });
 window.addEventListener("resize", syncNavToggle);
 syncNavToggle();
 scrim.addEventListener("click", closeDrawer);
 
 document.body.addEventListener("click", (event) => {
+  if (event.target.closest("[data-close-drawer]")) {
+    closeDrawer();
+    return;
+  }
   const more = event.target.closest("[data-more]");
   if (more) {
     state.tableWindow += ROW_PAGE;

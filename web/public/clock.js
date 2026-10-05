@@ -48,14 +48,15 @@ export function pct(value) {
 }
 
 export function money(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
-  const number = Number(value);
-  const digits = Math.abs(number - Math.round(number)) < 0.005 ? 0 : 2;
+  if (value == null || value === "") return "—";
+  const cleaned = typeof value === "string" ? value.replace(/[$,\s]/g, "") : value;
+  const number = Number(cleaned);
+  if (!Number.isFinite(number)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
   }).format(number);
 }
 

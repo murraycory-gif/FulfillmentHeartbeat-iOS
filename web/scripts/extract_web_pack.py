@@ -109,6 +109,7 @@ OFFICIAL_DIVISIONS = (
 
 _DIVISION_ALIAS = {
     "midatlantic": "Mid-Atlantic",
+    "jewel": "Jewel Osco",
     "jewelosco": "Jewel Osco",
     "nocal": "NorCal",
     "northerncalifornia": "NorCal",
@@ -117,8 +118,26 @@ _DIVISION_ALIAS = {
     "socalifornia": "SoCal",
     "southerncal": "SoCal",
     "mountainwest": "Mountain West",
+    "denver": "Mountain West",
+    "intermountain": "Mountain West",
     "unitedtexas": "United",
     "unitedsupermarkets": "United",
+}
+
+# Short region names used on the cooked region lines.
+_DIVISION_REGION = {
+    "Shaws": "East",
+    "Mid-Atlantic": "East",
+    "Jewel Osco": "East",
+    "Southern": "South",
+    "United": "South",
+    "Southwest": "South",
+    "NorCal": "California",
+    "SoCal": "California",
+    "Mountain West": "West",
+    "Seattle": "West",
+    "Haggen": "West",
+    "Portland": "West",
 }
 for _name in OFFICIAL_DIVISIONS:
     _DIVISION_ALIAS["".join(ch for ch in _name.lower() if ch.isalnum())] = _name
@@ -267,6 +286,90 @@ def region_lines(packs) -> list:
         found.sort(key=lambda item: REGION_RANK[item["region"]])
         lines.extend(found)
     return lines
+
+
+def _money_label(value: float) -> str:
+    return f"${value:,.2f}"
+
+
+def realign_lost_revenue(lines: list, records: list) -> list:
+    """Lost-revenue facts stamp every store as Haggen. Recount from the roster division."""
+    buckets: dict[str, dict[str, dict]] = {}
+    for record in records:
+        if record.get("section") != "lost_revenue":
+            continue
+        store = record.get("store") or ""
+        if is_total_store(store):
+            continue
+        division = canonical_division(record.get("division") or "")
+        region = _DIVISION_REGION.get(division)
+        if not region:
+            continue
+        payload = record.get("payload") or {}
+        try:
+            amount = float(payload.get("lost_revenue") or 0)
+        except (TypeError, ValueError):
+            amount = 0.0
+        slot = buckets.setdefault(region, {}).setdefault(division, {"sum": 0.0, "count": 0})
+        slot["sum"] += amount
+        slot["count"] += 1
+    if not buckets:
+        return lines
+    previous = {item.get("region"): item for item in lines if item.get("section") == "lost_revenue"}
+    rebuilt = []
+    for region in ("East", "South", "California", "West"):
+        divisions = buckets.get(region)
+        if not divisions:
+            continue
+        prior = previous.get(region) or {}
+        old_health = {
+            child.get("division"): child.get("health") or "none" for child in prior.get("children") or []
+        }
+        children = []
+        total = 0.0
+        count = 0
+        for division in OFFICIAL_DIVISIONS:
+            slot = divisions.get(division)
+            if not slot:
+                continue
+            total += slot["sum"]
+            count += slot["count"]
+            children.append(
+                {
+                    "division": division,
+                    "value": _money_label(slot["sum"]),
+                    "count": slot["count"],
+                    "health": old_health.get(division) or "none",
+                }
+            )
+        rebuilt.append(
+            {
+                "section": "lost_revenue",
+                "region": region,
+                "title": prior.get("title") or LINE_TITLE["lost_revenue"],
+                "value": _money_label(total),
+                "count": count,
+                "health": prior.get("health") or "none",
+                "children": children,
+            }
+        )
+    if not rebuilt:
+        return lines
+    out = []
+    seen = set()
+    by_region = {item["region"]: item for item in rebuilt}
+    for item in lines:
+        if item.get("section") != "lost_revenue":
+            out.append(item)
+            continue
+        region = item.get("region")
+        if region in by_region and region not in seen:
+            out.append(by_region[region])
+            seen.add(region)
+    for item in rebuilt:
+        if item["region"] not in seen:
+            out.append(item)
+    return out
 
 
 def read_schedule(db: sqlite3.Connection) -> dict | None:
@@ -532,7 +635,13 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                     shoppers[key] = record
                 continue
             if store:
-                _merge_roster(roster, record, prefer_roster=section == "store_roster")
+                # Lost-revenue facts tag every store Haggen. Keep the store, not that division.
+                if section == "lost_revenue":
+                    seeded = dict(record)
+                    seeded["division"] = ""
+                    _merge_roster(roster, seeded, prefer_roster=False)
+                else:
+                    _merge_roster(roster, record, prefer_roster=section == "store_roster")
             if section not in SECTIONS or not store:
                 continue
             key = (section, store)
@@ -553,12 +662,18 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
             f"roster people: {stats['named']} named of {stats['stores']} stores"
             f" ({len({item['om'] for item in people.values() if item.get('om')})} names)"
         )
-    # A section row with a blank seat inherits the store list. It does not invent one.
+    for item in roster.values():
+        item["division"] = canonical_division(item.get("division") or "")
+    # Division belongs to the store. The roster wins over a sheet that mis-tags the row.
     for record in records:
         current = roster.get(record["store"])
+        if current and current.get("division"):
+            record["division"] = current["division"]
+        elif record.get("division"):
+            record["division"] = canonical_division(record["division"])
         if not current:
             continue
-        for field in ("division", "district", "om"):
+        for field in ("district", "om"):
             if not record.get(field) and current.get(field):
                 record[field] = current[field]
 
@@ -599,7 +714,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 key=lambda item: (len(item["store"]), item["store"]),
             ),
         },
-        "regionLines": region_lines(chrome.get("packs") or {}),
+        "regionLines": realign_lost_revenue(region_lines(chrome.get("packs") or {}), records),
     }
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")

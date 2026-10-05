@@ -56,6 +56,8 @@ DIVISION_ALIASES = {
     "SOCAL": "SoCal",
     "MOUNTAINWEST": "Mountain West",
     "MOUNTAIN WEST": "Mountain West",
+    "DENVER": "Mountain West",
+    "INTERMOUNTAIN": "Mountain West",
     "SEATTLE": "Seattle",
     "HAGGEN": "Haggen",
     "PORTLAND": "Portland",
@@ -343,6 +345,28 @@ def summary_title(table):
     return ""
 
 
+def load_store_detail(table):
+    """Store Detail has the under/over cells Stores Current Week leaves blank."""
+    detail = {}
+    for row in table[1:]:
+        if len(row) < 7:
+            continue
+        key = store_key(row[3] if len(row) > 3 else None)
+        if not key:
+            continue
+        detail[key] = {
+            "under": percent(row[5]) if len(row) > 5 else None,
+            "over": percent(row[6]) if len(row) > 6 else None,
+        }
+    return detail
+
+
+def fill_metric(current, fallback):
+    if current is not None:
+        return current
+    return fallback
+
+
 def cook_workbook(path: str) -> dict:
     import openpyxl
 
@@ -355,6 +379,7 @@ def cook_workbook(path: str) -> dict:
         day_under, day_over = load_days(workbook)
         stars = load_stars(rows_of(workbook, "5 Star Last 5 Weeks"))
         roster = load_roster(rows_of(workbook, "Roster"))
+        detail = load_store_detail(rows_of(workbook, "Store Detail")) if "Store Detail" in workbook.sheetnames else {}
         markets = load_markets(rows_of(workbook, f"Market Look WK{week}"))
         banner = banner_count(rows_of(workbook, "ACTION NEEDED"))
         title = summary_title(rows_of(workbook, "Summary"))
@@ -375,6 +400,7 @@ def cook_workbook(path: str) -> dict:
             district = ""
         om = identity.get("om") or ""
         quality_row = quality.get(key, {})
+        detail_row = detail.get(key, {})
         stores.append(
             {
                 "store": key,
@@ -383,8 +409,8 @@ def cook_workbook(path: str) -> dict:
                 "district": district,
                 "om": om,
                 "sales": sales.get(key),
-                "under": percent(row[4]),
-                "over": percent(row[3]),
+                "under": fill_metric(percent(row[4]), detail_row.get("under")),
+                "over": fill_metric(percent(row[3]), detail_row.get("over")),
                 "eff": percent(row[5]),
                 "pch": quality_row.get("pch"),
                 "fourUnder": quality_row.get("fourUnder"),

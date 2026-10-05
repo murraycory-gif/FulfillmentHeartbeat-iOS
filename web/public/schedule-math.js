@@ -32,6 +32,7 @@ export function qualifies(sales, under, fourUnder, over) {
 }
 
 export function qualifiesStore(store) {
+  if (notScheduled(store)) return false;
   return qualifies(store.sales, store.under, store.fourUnder, store.over);
 }
 
@@ -105,11 +106,8 @@ export function companyMarketNote(card, filters) {
   return `Market Look Total under/over. Stores Current Week average is Under ${pct(card.storeUnder)} / Over ${pct(card.storeOver)}.`;
 }
 
-export function bannerMismatch(pack, card, filters) {
-  if (filtersActive(filters)) return null;
-  if (pack.workbookActionBanner == null) return null;
-  if (Number(pack.workbookActionBanner) === card.actionCount) return null;
-  return `Workbook banner said ${pack.workbookActionBanner} stores. This cook qualifies ${card.actionCount}.`;
+export function bannerMismatch() {
+  return null;
 }
 
 export function actionGroups(pack, filters, roster) {
