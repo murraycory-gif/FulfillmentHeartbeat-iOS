@@ -234,7 +234,7 @@ async function load(path) {
       return data;
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
-      if (!last.authBlocked || attempt === 7) break;
+      if (last.authBlocked || attempt === 7) break;
       await packWait(400 * (attempt + 1));
     }
   }
@@ -279,12 +279,7 @@ function renderNav() {
 }
 
 function logout() {
-  const retry = () => window.location.reload();
-  fetch("/?logout=1", {
-    cache: "no-store",
-    credentials: "same-origin",
-    headers: { Authorization: `Basic ${btoa("logout:logout")}` },
-  }).then(retry, retry);
+  window.location.assign("/logout");
 }
 
 let searchHits = [];
@@ -1514,13 +1509,21 @@ function acceptHome(home) {
 function retryHomeAfterAuth() {
   if (state.home) return;
   state.homeError = "";
-  load("home").then(acceptHome).catch(() => {
+  load("home").then(acceptHome).catch((error) => {
+    if (error && error.authBlocked) {
+      window.location.assign("/login");
+      return;
+    }
     if (!state.home) state.homeError = "";
   });
 }
 
 renderNav();
-load("home").then(acceptHome).catch(() => {
+load("home").then(acceptHome).catch((error) => {
+  if (error && error.authBlocked) {
+    window.location.assign("/login");
+    return;
+  }
   state.home = null;
   state.homeError = "";
   render();

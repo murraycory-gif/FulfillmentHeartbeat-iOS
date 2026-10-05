@@ -3,7 +3,12 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { basicAuthOk, onRequest as basicGate, timingSafeEqualString } from "./functions/_middleware.js";
+import {
+  basicAuthOk,
+  createSessionToken,
+  onRequest as basicGate,
+  timingSafeEqualString,
+} from "./functions/_middleware.js";
 import {
   accessCertsURL,
   authorize,
@@ -332,7 +337,7 @@ assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filter
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=18/);
+assert.match(pageHtml, /app\.js\?v=19/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -763,7 +768,7 @@ assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
 assert.equal(statSync(join(root, "functions/_middleware.js")).isFile(), true);
 const middleware = readFileSync(join(root, "functions/_middleware.js"), "utf8");
 assert.match(middleware, /timingSafeEqual/);
-assert.match(middleware, /realm="HeartBeat"/);
+assert.equal(middleware.includes("WWW-Authenticate"), false);
 assert.equal(middleware.includes("BASIC_PASS="), false);
 assert.equal(timingSafeEqualString("heartbeat", "heartbeat"), true);
 assert.equal(timingSafeEqualString("heartbeat", "Heartbeat"), false);
@@ -772,6 +777,7 @@ const gateEnv = {
   BASIC_USER: "heartbeat",
   BASIC_PASS: "test-only-secret",
   BASIC_PASS_TESTER: "tester-only-secret",
+  SESSION_SECRET: "unit-test-session-secret",
 };
 const authed = new Request("https://fulfillment-heartbeat-web.pages.dev/", {
   headers: { Authorization: `Basic ${Buffer.from("heartbeat:test-only-secret").toString("base64")}` },
@@ -826,35 +832,130 @@ assert.equal(
 );
 assert.match(middleware, /BASIC_PASS_TESTER/);
 assert.match(middleware, /"tester"/);
+assert.match(middleware, /autocomplete="current-password"/);
+assert.match(middleware, /autocomplete="username"/);
+assert.match(middleware, /method="POST"/);
+assert.match(middleware, /action="\/login"/);
+assert.match(middleware, /HttpOnly/);
+assert.match(middleware, /SameSite=Lax/);
 assert.match(app, /authBlocked/);
 assert.match(app, /retryHomeAfterAuth/);
+assert.match(app, /location\.assign\("\/login"\)/);
+assert.match(app, /location\.assign\("\/logout"\)/);
+assert.equal(app.includes("logout:logout"), false);
 assert.equal(app.includes("state.homeError = \"NO DATA\""), false);
 assert.match(app, /data-logout>Logout/);
-assert.match(app, /logout:logout/);
 assert.match(css, /\.drawer-logout/);
 const gateDenied = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/"),
   env: gateEnv,
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(gateDenied.status, 401);
-assert.match(gateDenied.headers.get("WWW-Authenticate"), /Basic realm="HeartBeat"/);
+assert.equal(gateDenied.status, 200);
+assert.equal(gateDenied.headers.get("WWW-Authenticate"), null);
+const loginHTML = await gateDenied.text();
+assert.match(loginHTML, /action="\/login"/);
+assert.match(loginHTML, /type="password"/);
+assert.match(loginHTML, /autocomplete="current-password"/);
+assert.match(loginHTML, /<span class="fulfill">Fulfill<\/span><span class="ment">ment<\/span>/);
+assert.equal(loginHTML.includes("NO DATA"), false);
+const dataDenied = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json"),
+  env: gateEnv,
+  next: async () => new Response("{}", { status: 200 }),
+});
+assert.equal(dataDenied.status, 401);
+assert.equal(dataDenied.headers.get("content-type"), "application/json; charset=utf-8");
+assert.equal(dataDenied.headers.get("cache-control"), "private, no-store");
+assert.equal(dataDenied.headers.get("set-cookie"), null);
+assert.equal(dataDenied.headers.get("WWW-Authenticate"), null);
+assert.deepEqual(await dataDenied.json(), { error: "unauthorized" });
+const signedIn = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "username=heartbeat&password=test-only-secret",
+  }),
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(signedIn.status, 303);
+assert.match(signedIn.headers.get("location"), /\/$/);
+const setCookie = signedIn.headers.get("set-cookie") || "";
+assert.match(setCookie, /hb_session=/);
+assert.match(setCookie, /HttpOnly/);
+assert.match(setCookie, /Secure/);
+assert.match(setCookie, /SameSite=Lax/);
+assert.match(setCookie, /Max-Age=2592000/);
+const sessionCookie = setCookie.split(";")[0];
 const opened = await basicGate({
-  request: authed,
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: sessionCookie } }),
   env: gateEnv,
   next: async () => new Response("page", { status: 200 }),
 });
 assert.equal(opened.status, 200);
 assert.equal(await opened.text(), "page");
 const dataOpened = await basicGate({
-  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
-    headers: { Authorization: `Basic ${Buffer.from("heartbeat:test-only-secret").toString("base64")}` },
-  }),
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
   env: gateEnv,
   next: async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
 });
 assert.equal(dataOpened.status, 200);
 assert.equal(dataOpened.headers.get("cache-control"), "private, no-store");
+const wrong = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "username=heartbeat&password=wrong",
+  }),
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(wrong.status, 401);
+assert.equal(wrong.headers.get("set-cookie"), null);
+assert.match(await wrong.text(), /That username or password is wrong/);
+const rotated = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: sessionCookie } }),
+  env: { ...gateEnv, BASIC_PASS: "rotated-secret" },
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.match(await rotated.text(), /action="\/login"/);
+const testerToken = await createSessionToken(gateEnv, "tester", "tester-only-secret");
+const testerCookie = `hb_session=${testerToken}`;
+const testerAfterMasterRotate = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: testerCookie } }),
+  env: { ...gateEnv, BASIC_PASS: "rotated-secret" },
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(await testerAfterMasterRotate.text(), "page");
+const testerAfterOwnRotate = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: testerCookie } }),
+  env: { ...gateEnv, BASIC_PASS_TESTER: "rotated-tester" },
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.match(await testerAfterOwnRotate.text(), /action="\/login"/);
+const stale = await createSessionToken(gateEnv, "heartbeat", "test-only-secret", 0);
+const expiredSession = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: `hb_session=${stale}` } }),
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.match(await expiredSession.text(), /action="\/login"/);
+const flippedCookie = sessionCookie.slice(0, -1) + (sessionCookie.endsWith("a") ? "b" : "a");
+const tampered = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: flippedCookie } }),
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.match(await tampered.text(), /action="\/login"/);
+const loggedOut = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", { headers: { cookie: sessionCookie } }),
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(loggedOut.status, 303);
+assert.match(loggedOut.headers.get("location"), /\/login$/);
+assert.match(loggedOut.headers.get("set-cookie") || "", /Max-Age=0/);
 
 const dataFiles = [
   "data/home.json",
