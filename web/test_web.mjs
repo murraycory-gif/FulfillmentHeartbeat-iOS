@@ -152,6 +152,10 @@ assert.equal(
   0,
 );
 assert.match(app, /This pack has no Schedule Check rows/);
+assert.match(app, /data-more/);
+assert.match(app, /Shopper names are not on this site/);
+assert.match(app, /Region results/);
+assert.match(app, /Not Upcoming Weeks Schedule Check/);
 assert.match(app, /text\/html/);
 
 for (const path of walk(join(root, "public"))) {
@@ -329,6 +333,7 @@ const dataFiles = [
   "data/section/dynacap.json",
   "data/section/schedule_quality.json",
   "data/section/labor.json",
+  "data/section/picker_scorecard.json",
 ];
 for (const file of dataFiles) {
   const text = readFileSync(join(root, "dist", file), "utf8").trim();
@@ -351,6 +356,8 @@ const eastLoss = cooked.regionLines.find((line) => line.section === "lost_revenu
 assert.equal(eastLoss.value, "$566,667.32");
 assert.ok(eastLoss.children.some((child) => child.division === "Shaws"));
 const schedule = JSON.parse(readFileSync(join(root, "dist/data/schedule.json"), "utf8"));
+const pickerFile = JSON.parse(readFileSync(join(root, "dist/data/section/picker_scorecard.json"), "utf8"));
+assert.deepEqual(pickerFile.rows, []);
 assert.equal(schedule.empty, true);
 assert.equal(schedule.stores.length, 0);
 assert.equal(countStores(cooked.filters.stores, filters({ region: "East Region" })), 615);

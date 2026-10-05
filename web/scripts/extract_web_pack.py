@@ -473,6 +473,8 @@ def extract(sqlite_path: str, out_dir: str) -> None:
     for section, rows in grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"]))
         _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
+    # Shopper tape stays out of the browser. The route is still JSON, not the HTML shell.
+    _write(section_dir / "picker_scorecard.json", {"section": "picker_scorecard", "rows": []})
     _write(out / "presub.json", {"scopes": presub})
     db.close()
 

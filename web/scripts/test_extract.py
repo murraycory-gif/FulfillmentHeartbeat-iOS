@@ -193,6 +193,8 @@ def main() -> None:
         assert schedule["workbookActionBanner"] == 468
         assert schedule["markets"][0]["label"] == "Total"
         assert sales["rows"][0]["payload"] == {"sales_dollars": 1200}
+        picker = json.loads((out / "section" / "picker_scorecard.json").read_text())
+        assert picker["rows"] == []
         assert "Secret Shopper" not in blob
         assert "current.sqlite" not in blob
         assert not (out / "presub.json").read_text().startswith("http")

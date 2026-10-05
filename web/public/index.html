@@ -13,13 +13,17 @@
     <header class="top">
       <button id="nav-toggle" type="button" aria-controls="drawer" aria-expanded="false">Pages</button>
       <div class="titles">
+        <p class="brand">Heartbeat</p>
         <h1 id="page-title">Dashboard</h1>
         <p id="updated">Updated —</p>
       </div>
       <p id="stamp" class="stamp">HB-0828.494</p>
     </header>
     <p id="banner" class="banner" hidden></p>
-    <form id="filters" class="filters"></form>
+    <div class="filter-bar">
+      <button id="filter-toggle" type="button" aria-expanded="false" aria-controls="filters">Filters</button>
+      <form id="filters" class="filters"></form>
+    </div>
     <main id="main">
       <p class="nodata">Loading…</p>
     </main>

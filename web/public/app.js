@@ -92,6 +92,8 @@ const COLUMNS = {
   ],
 };
 
+const ROW_PAGE = 80;
+
 const state = {
   page: "dashboard",
   filters: emptyFilters(),
@@ -100,12 +102,14 @@ const state = {
   packs: new Map(),
   scheduleTab: "action",
   bannerTimer: 0,
+  tableWindow: ROW_PAGE,
 };
 
 const drawer = document.querySelector("#drawer");
 const scrim = document.querySelector("#scrim");
 const main = document.querySelector("#main");
 const filtersForm = document.querySelector("#filters");
+const filterToggle = document.querySelector("#filter-toggle");
 const title = document.querySelector("#page-title");
 const updated = document.querySelector("#updated");
 const banner = document.querySelector("#banner");
@@ -179,7 +183,7 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${esc(page.title)}</button></li>`,
   ).join("");
-  drawer.innerHTML = `<ul class="pages">${items}</ul><p class="hint" style="padding:8px 16px">${esc(STAMP)}</p>`;
+  drawer.innerHTML = `<p class="drawer-title">Pages</p><ul class="pages">${items}</ul><p class="hint">${esc(STAMP)}</p>`;
 }
 
 function renderFilters() {
@@ -204,34 +208,43 @@ function renderFilters() {
       return `<label>${esc(label)}<select name="${key}">${options}</select></label>`;
     })
     .join("");
+  const seat = filtersActive(filters) ? scopeLabel(filters) : "Total Company";
+  filterToggle.textContent = `Filters · ${seat}`;
 }
 
 function setUpdated(raw) {
   updated.textContent = updatedLine(raw);
 }
 
-function companyBlock(section) {
-  const summary = summaryFor(section);
+function cookedTiles(section) {
   const tiles = tilesFor(section);
+  if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
+  return `<div class="tiles">${tiles.labels
+    .map((label, index) => {
+      const value = (tiles.values || [])[index];
+      return `<div class="chip"><span>${esc(label)}</span><strong>${esc(value == null || value === "" ? "—" : value)}</strong></div>`;
+    })
+    .join("")}</div>`;
+}
+
+function companyBlock(section, title) {
+  const summary = summaryFor(section);
+  const tiles = cookedTiles(section);
   if (!summary && !tiles) return `<p class="nodata">NO DATA</p>`;
   const health = summary ? summary.health : "none";
+  const stores = summary && summary.storeCount ? `${num(summary.storeCount, 0)} stores` : "";
+  const head = title
+    ? `<div class="score-top"><div><h2>${esc(title)}</h2>${stores ? `<p class="sub">${esc(stores)}</p>` : ""}</div><div class="status-col"><span class="eyebrow">Status</span>${badge(health)}</div></div>`
+    : `<div class="score-top"><div>${stores ? `<p class="sub">${esc(stores)}</p>` : ""}</div><div class="status-col"><span class="eyebrow">Status</span>${badge(health)}</div></div>`;
   const figure =
-    summary && summary.headline != null && summary.headline !== ""
-      ? `<p class="figure">${esc(formatHeadline(section, summary.headline))}</p>`
+    !tiles && summary && summary.headline != null && summary.headline !== ""
+      ? `<div class="chip ${health}"><span>Result</span><strong>${esc(formatHeadline(section, summary.headline))}</strong></div>`
       : "";
   const secondary = summary && summary.secondary ? `<p class="note">${esc(summary.secondary)}</p>` : "";
-  const tileHtml = tiles
-    ? `<div class="tiles">${tiles.labels
-        .map(
-          (label, index) =>
-            `<div class="tile"><span>${esc(label)}</span><strong>${esc((tiles.values || [])[index] || "—")}</strong></div>`,
-        )
-        .join("")}</div>`
-    : "";
   const scope = filtersActive(state.filters)
     ? `<p class="scope">In this scope: ${num(scopeStoreCount(roster(), state.filters, (state.home && state.home.regionLines) || []), 0)} stores. Company figures stay the cooked upload.</p>`
     : "";
-  return `${badge(health)}${figure}${secondary}${tileHtml}${scope}`;
+  return `<div class="score-face">${head}${figure}${tiles}${secondary}${scope}</div>`;
 }
 
 function cell(row, keys) {
@@ -246,7 +259,7 @@ function table(section, rows) {
   const columns = COLUMNS[section] || [];
   const matched = rows.filter((row) => row.store && includesScope(row, state.filters));
   if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
-  const shown = matched.slice(0, 300);
+  const shown = matched.slice(0, state.tableWindow);
   const head = ["Store", "Division", "District", "OM", ...columns.map((column) => column[0])]
     .map((label) => `<th>${esc(label)}</th>`)
     .join("");
@@ -258,8 +271,22 @@ function table(section, rows) {
       return `<tr><td>${esc(canonicalStore(row.store))}</td><td>${esc(row.division || "—")}</td><td>${esc(row.district || "—")}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
     })
     .join("");
-  const more = matched.length > shown.length ? `<p class="note">Showing ${shown.length} of ${matched.length} stores.</p>` : "";
-  return `${more}<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  const more =
+    matched.length > shown.length
+      ? `<p class="note">${num(shown.length, 0)} of ${num(matched.length, 0)} stores</p><button type="button" class="more" data-more="1">Show more</button>`
+      : `<p class="note">${num(matched.length, 0)} stores in this scope.</p>`;
+  const cards = shown
+    .map((row) => {
+      const metrics = columns
+        .map(
+          (column) =>
+            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1])))}</strong></div>`,
+        )
+        .join("");
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${esc(row.division || "—")} · ${esc(row.district || "—")} · ${esc(row.om || "—")}</p><div class="metric-row">${metrics}</div></li>`;
+    })
+    .join("");
+  return `${more}<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>`;
 }
 
 function visibleRegionLines() {
@@ -281,7 +308,14 @@ function grainBlock(section) {
         `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${esc(row.label)}</td><td>${esc(row.value)}</td><td>${esc(row.count)}</td></tr>`,
     )
     .join("");
-  return `<section class="grain"><h2>${filtersActive(state.filters) ? esc(scopeLabel(state.filters)) : "Regions"}</h2><div class="scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div></section>`;
+  const cards = rows
+    .map(
+      (row) =>
+        `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${esc(row.label)}</p></div><div class="line-value"><strong>${esc(row.value)}</strong><span>${esc(row.count)}</span></div></li>`,
+    )
+    .join("");
+  const heading = filtersActive(state.filters) ? scopeLabel(state.filters) : "Regions";
+  return `<section class="grain"><h2>${esc(heading)}</h2><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul></section>`;
 }
 
 function regionProof() {
@@ -291,20 +325,27 @@ function regionProof() {
   const rows = lines
     .map((line) => `<tr><td>${esc(line.region)}</td><td>${esc(line.title)}</td><td>${esc(line.value)}</td><td>${esc(line.count)}</td></tr>`)
     .join("");
+  const cards = lines
+    .map(
+      (line) =>
+        `<li class="line-card"><div><p class="eyebrow">${esc(line.region)}</p><p class="line-title">${esc(line.title)}</p></div><div class="line-value"><strong>${esc(line.value)}</strong><span>${esc(line.count)}</span></div></li>`,
+    )
+    .join("");
   const table = lines.length
-    ? `<div class="scroll"><table><thead><tr><th>Region</th><th>Metric</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="desk-only scroll"><table><thead><tr><th>Region</th><th>Metric</th><th>Value</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>`
     : "";
-  return `<section id="pack-lines"><h2>Seat pack regions</h2><p class="note">From packs/seat/company/all/current.sqlite</p>${note}${table}</section>`;
+  return `<section id="pack-lines"><h2>Region results</h2><p class="note">Cooked region lines for each scorecard. Not Upcoming Weeks Schedule Check — that page is in Pages, and it stays empty when this pack has no schedule rows.</p>${note}${table}</section>`;
 }
 
 function renderDashboard() {
   const cards = PAGES.filter((page) => page.section)
     .map((page) => {
-      return `<article class="card"><button class="link" type="button" data-page="${page.id}"><h2>${esc(page.title)}</h2>${companyBlock(page.section)}</button></article>`;
+      const health = (summaryFor(page.section) || {}).health || "none";
+      return `<article class="scorecard ${health}"><button class="link" type="button" data-page="${page.id}">${companyBlock(page.section, page.title)}</button></article>`;
     })
     .join("");
-  const schedule = `<article class="card"><button class="link" type="button" data-page="schedule"><h2>Upcoming Weeks Schedule Check</h2><p class="note">Separate pack. Open the page for Action Needed, Summary, and Store Detail.</p></button></article>`;
-  main.innerHTML = `${regionProof()}<div class="cards">${cards}${schedule}</div>`;
+  const schedule = `<article class="scorecard"><button class="link" type="button" data-page="schedule"><div class="score-face"><div class="score-top"><div><h2>Upcoming Weeks Schedule Check</h2><p class="sub">Its own page</p></div></div><p class="note">Not the region results. This page stays empty when the pack has no schedule rows.</p></div></button></article>`;
+  main.innerHTML = `<div class="cards">${cards}${schedule}</div>${regionProof()}`;
 }
 
 function renderPicker() {
@@ -315,7 +356,7 @@ function renderPicker() {
       main.innerHTML = `<p class="nodata">NO DATA</p>`;
       return;
     }
-    main.innerHTML = `${companyBlock("picker_scorecard")}${grainBlock("picker_scorecard")}<p class="note">Shopper rows stay in the cooked rollup. This page does not download the shopper tape.</p>`;
+    main.innerHTML = `<article class="scorecard ${(summary.health || "none")}">${companyBlock("picker_scorecard", "Picker ScoreCard")}</article>${grainBlock("picker_scorecard")}<p class="note">Shopper names are not on this site. The count above is the cooked upload.</p>`;
     return;
   }
   const health = roll.risk > 0 ? "risk" : roll.watch > 0 ? "watch" : roll.healthy > 0 ? "good" : "none";
@@ -403,7 +444,7 @@ function scheduleIsEmpty(pack) {
 function renderSchedule(pack) {
   const tabs = `<div class="seg">${scheduleTabs()}</div>`;
   if (scheduleIsEmpty(pack)) {
-    main.innerHTML = `${tabs}<p class="note">This pack has no Schedule Check rows.</p>`;
+    main.innerHTML = `${tabs}<article class="scorecard none"><p class="nodata">NO DATA</p><p class="note">This pack has no Schedule Check rows.</p></article>`;
     return;
   }
   const card = scheduleSummary(pack, state.filters);
@@ -472,8 +513,13 @@ function scheduleSummaryHtml(pack, card) {
 }
 
 function scheduleDetailHtml(pack) {
-  const rows = (pack.stores || []).filter((store) => includesScope(store, state.filters)).slice(0, 400);
-  if (!rows.length) return `<p class="note">No stores in this scope.</p>`;
+  const matched = (pack.stores || []).filter((store) => includesScope(store, state.filters));
+  if (!matched.length) return `<p class="note">No stores in this scope.</p>`;
+  const rows = matched.slice(0, state.tableWindow);
+  const more =
+    matched.length > rows.length
+      ? `<p class="note">${num(rows.length, 0)} of ${num(matched.length, 0)} stores</p><button type="button" class="more" data-more="1">Show more</button>`
+      : "";
   const body = rows
     .map((store) => {
       const unscheduled = notScheduled(store);
@@ -482,7 +528,7 @@ function scheduleDetailHtml(pack) {
       return `<tr><td>${name}${tag}</td><td>${esc(store.division || "—")}</td><td class="${toneClass(percentHealth(store.under, unscheduled))}">${esc(pct(store.under))}</td><td class="${toneClass(percentHealth(store.over, unscheduled))}">${esc(pct(store.over))}</td><td class="${toneClass(effHealth(store.eff, unscheduled))}">${esc(pct(store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
-  return `<div class="scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  return `${more}<div class="scroll"><table><thead><tr><th>Store</th><th>Division</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 let renderToken = 0;
@@ -549,7 +595,8 @@ async function render() {
   const storeTable = missing
     ? `<p class="note">Store rows are not in this upload.</p>`
     : table(page.section, rows);
-  main.innerHTML = `${companyBlock(page.section)}${grainBlock(page.section)}${extra}${storeTable}`;
+  const health = (summaryFor(page.section) || {}).health || "none";
+  main.innerHTML = `<article class="scorecard ${health}">${companyBlock(page.section)}</article>${grainBlock(page.section)}${extra}${storeTable}`;
 }
 
 function closeDrawer() {
@@ -557,6 +604,11 @@ function closeDrawer() {
   scrim.hidden = true;
   navToggle.setAttribute("aria-expanded", "false");
 }
+
+filterToggle.addEventListener("click", () => {
+  const open = filtersForm.classList.toggle("open");
+  filterToggle.setAttribute("aria-expanded", open ? "true" : "false");
+});
 
 navToggle.addEventListener("click", () => {
   const open = !drawer.classList.contains("open");
@@ -567,9 +619,16 @@ navToggle.addEventListener("click", () => {
 scrim.addEventListener("click", closeDrawer);
 
 document.body.addEventListener("click", (event) => {
+  const more = event.target.closest("[data-more]");
+  if (more) {
+    state.tableWindow += ROW_PAGE;
+    render();
+    return;
+  }
   const pageButton = event.target.closest("[data-page]");
   if (pageButton) {
     state.page = pageButton.getAttribute("data-page");
+    state.tableWindow = ROW_PAGE;
     closeDrawer();
     render();
     return;
@@ -577,6 +636,7 @@ document.body.addEventListener("click", (event) => {
   const tab = event.target.closest("[data-tab]");
   if (tab) {
     state.scheduleTab = tab.getAttribute("data-tab");
+    state.tableWindow = ROW_PAGE;
     render();
   }
 });
@@ -601,6 +661,7 @@ filtersForm.addEventListener("change", (event) => {
     next.store = "";
   }
   state.filters = next;
+  state.tableWindow = ROW_PAGE;
   render();
 });
 
