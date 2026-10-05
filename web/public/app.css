@@ -75,10 +75,11 @@ button, select {
 .heart, .pulse {
   display: block;
   flex: none;
+  position: relative;
 }
 
-.heart { width: 22px; height: 20px; }
-.pulse { width: 52px; height: 22px; }
+.heart { width: 22px; height: 20px; z-index: 2; }
+.pulse { width: 52px; height: 22px; z-index: 1; margin-left: -20px; }
 
 .ecg {
   stroke-dasharray: 18 90;
@@ -725,7 +726,7 @@ td.none, .unscheduled { color: var(--none); }
   }
   .wordmark { font-size: 1.48rem; }
   .heart { width: 32px; height: 29px; }
-  .pulse { width: 78px; height: 30px; }
+  .pulse { width: 78px; height: 30px; margin-left: -26px; }
   .score-face .figure { font-size: 1.35rem; }
   .cards { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -778,7 +779,7 @@ td.none, .unscheduled { color: var(--none); }
   .brand-lockup { top: 14px; gap: 12px; }
   .wordmark { font-size: 1.85rem; }
   .heart { width: 40px; height: 36px; }
-  .pulse { width: 100px; height: 38px; }
+  .pulse { width: 100px; height: 38px; margin-left: -36px; }
   .titles { padding-top: 52px; }
   h1 { font-size: 1.65rem; }
   #updated { font-size: 1.05rem; }
