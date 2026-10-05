@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { basicAuthOk, onRequest as basicGate, timingSafeEqualString } from "./functions/_middleware.js";
 import {
   accessCertsURL,
   authorize,
@@ -632,6 +633,44 @@ assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
 assert.match(app, /class="figure"/);
 assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
+assert.equal(statSync(join(root, "functions/_middleware.js")).isFile(), true);
+const middleware = readFileSync(join(root, "functions/_middleware.js"), "utf8");
+assert.match(middleware, /timingSafeEqual/);
+assert.match(middleware, /realm="HeartBeat"/);
+assert.equal(middleware.includes("BASIC_PASS="), false);
+assert.equal(timingSafeEqualString("heartbeat", "heartbeat"), true);
+assert.equal(timingSafeEqualString("heartbeat", "Heartbeat"), false);
+assert.equal(timingSafeEqualString("a", "ab"), false);
+const gateEnv = { BASIC_USER: "heartbeat", BASIC_PASS: "test-only-secret" };
+const authed = new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+  headers: { Authorization: `Basic ${Buffer.from("heartbeat:test-only-secret").toString("base64")}` },
+});
+assert.equal(basicAuthOk(authed, gateEnv), true);
+assert.equal(basicAuthOk(new Request("https://fulfillment-heartbeat-web.pages.dev/"), gateEnv), false);
+assert.equal(basicAuthOk(authed, {}), false);
+assert.equal(
+  basicAuthOk(
+    new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+      headers: { Authorization: `Basic ${Buffer.from("heartbeat:wrong").toString("base64")}` },
+    }),
+    gateEnv,
+  ),
+  false,
+);
+const gateDenied = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/"),
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(gateDenied.status, 401);
+assert.match(gateDenied.headers.get("WWW-Authenticate"), /Basic realm="HeartBeat"/);
+const opened = await basicGate({
+  request: authed,
+  env: gateEnv,
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(opened.status, 200);
+assert.equal(await opened.text(), "page");
 
 const dataFiles = [
   "data/home.json",
