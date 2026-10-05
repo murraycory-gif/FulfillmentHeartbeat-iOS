@@ -1979,6 +1979,10 @@ enum HeartbeatMath {
                 return (coverage.note, .none, coverage.inScope)
             }
         }
+        if section == .dynacap {
+            let rate = average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
+            return (scopeHeadline(section, rows: rows), band(rate, good: dynacapGoal, watch: dynacapRisk), rows.count)
+        }
         return (scopeHeadline(section, rows: rows), worstHealth(section, rows: rows), rows.count)
     }
 
@@ -6733,9 +6737,13 @@ enum HeartbeatFormat {
 
     static func relative(_ date: Date?) -> String {
         guard let date else { return "Never" }
+        #if os(Linux)
+        return ISO8601DateFormatter().string(from: date)
+        #else
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: Date())
+        #endif
     }
 
     static func stamp(_ date: Date?) -> String {

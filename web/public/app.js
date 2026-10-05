@@ -15,6 +15,7 @@ import { packURL } from "./packs.js";
 import { seatSummary } from "./seat.js";
 import {
   summary as scheduleSummary,
+  scheduleVisibleTitle,
   companyMarketNote,
   bannerMismatch,
   actionGroups,
@@ -520,11 +521,12 @@ function renderSchedule(pack) {
   }
   const card = scheduleSummary(pack, state.filters, roster());
   const week = pack.week ? `Week ${esc(pack.week)}` : "NO DATA";
+  const summaryTitle = scheduleVisibleTitle(pack.summaryTitle, pack.week);
   let body = "";
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
   else if (state.scheduleTab === "detail") body = scheduleDetailHtml(pack);
   else body = scheduleActionHtml(pack, card);
-  main.innerHTML = `<p class="note">${week}${pack.summaryTitle ? ` · ${esc(pack.summaryTitle)}` : ""}</p>${tabs}${body}`;
+  main.innerHTML = `<p class="note">${week}${summaryTitle ? ` · ${esc(summaryTitle)}` : ""}</p>${tabs}${body}`;
 }
 
 function scheduleActionHtml(pack, card) {

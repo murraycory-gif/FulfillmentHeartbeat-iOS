@@ -308,13 +308,6 @@ export function summarizeSeat(section, rows) {
   }
 }
 
-function dynacapHealth(raw) {
-  if (raw == null || raw === "") return null;
-  const number = Number(String(raw).replace(/,/g, "").replace(/%/g, "").trim());
-  if (!Number.isFinite(number)) return null;
-  return band(number, 65, 60);
-}
-
 export function seatSummary(section, { company, lines, rows, filters, roster }) {
   if (!filtersActive(filters)) {
     return {
@@ -330,17 +323,12 @@ export function seatSummary(section, { company, lines, rows, filters, roster }) 
   const built = summarizeSeat(section, scoped);
   const chrome = chromeSeat(lines, section, filters);
   if (chrome) {
-    let health = chrome.health && chrome.health !== "none" ? chrome.health : built.health;
-    if (section === "dynacap") {
-      const next = dynacapHealth(chrome.value);
-      if (next) health = next;
-    }
     return {
       fixedCompany: false,
       headline: null,
       headlineText: chrome.value,
       secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
-      health,
+      health: chrome.health && chrome.health !== "none" ? chrome.health : built.health,
       storeCount: chrome.count || built.storeCount,
     };
   }

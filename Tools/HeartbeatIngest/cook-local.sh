@@ -1,10 +1,12 @@
 #!/bin/bash
 # com.exclusivegroup.heartbeat-autoingest
-# Watches the iCloud Heartbeat_Reports folder. Heartbeat workbooks and
-# Schedule Review workbooks cook in separate subshells. One failure never
-# stops the other. Schedule rows are cooked into current.sqlite. A local
-# json file is still written beside the pack. This script does not upload
-# that json as the pack, and it does not create Cloudflare resources.
+# Watches iCloud Heartbeat_Reports. A new Heartbeat Daily Report or
+# Schedule Review Summary workbook cooks into current.sqlite, then
+# publish-web.sh deploys ONLY to Cloudflare Pages fulfillment-heartbeat-web.
+#
+# Unchanged files are a no-op. A cook or deploy error does not publish.
+# The API token is read from the environment or
+# ~/.config/heartbeat/cloudflare-api-token. It is never printed.
 #
 #   ./Tools/HeartbeatIngest/cook-local.sh
 #   ./Tools/HeartbeatIngest/cook-local.sh --install
@@ -15,6 +17,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ICLOUD="${HEARTBEAT_ICLOUD_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/Heartbeat_Reports}"
 MARKERS="${HEARTBEAT_COOK_MARKERS:-$HOME/Library/Application Support/Heartbeat/cook-markers}"
 OUT="${HEARTBEAT_COOK_OUT:-$HOME/Library/Application Support/Heartbeat}"
+SETTLE="${HEARTBEAT_SETTLE_SECONDS:-3}"
+SQLITE="$OUT/current.sqlite"
 mkdir -p "$MARKERS" "$OUT"
 
 install_agent() {
@@ -36,23 +40,26 @@ install_agent() {
 }
 
 newest_file() {
-  python3 - "$1" "$2" <<'PY'
-import fnmatch, os, sys
+  python3 - "$1" "$2" << 'PY'
+import os, sys
 folder, kind = sys.argv[1], sys.argv[2]
 if not os.path.isdir(folder):
     sys.exit(0)
 found = []
 for name in os.listdir(folder):
-    if name.startswith("~$") or not name.lower().endswith(".xlsx"):
+    if name.startswith("~$") or name.startswith(".") or name.endswith(".icloud"):
+        continue
+    if not name.lower().endswith(".xlsx"):
         continue
     path = os.path.join(folder, name)
     if not os.path.isfile(path):
         continue
+    folded = name.replace("_", " ").lower()
     if kind == "schedule":
-        if fnmatch.fnmatch(name, "Schedule Review Week *.xlsx"):
+        if "schedule review" in folded and ("summary" in folded or folded.startswith("schedule review week ")):
             found.append(path)
     else:
-        if name.startswith("Heartbeat") and "Schedule Review" not in name:
+        if folded.startswith("heartbeat") and "schedule" not in folded:
             found.append(path)
 if not found:
     sys.exit(0)
@@ -61,78 +68,168 @@ print(found[0])
 PY
 }
 
+mtime_of() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
+}
+
+bytes_of() {
+  stat -c %s "$1" 2>/dev/null || stat -f %z "$1"
+}
+
+file_stamp() {
+  local file="$1"
+  printf '%s:%s:%s\n' "$(mtime_of "$file")" "$(bytes_of "$file")" "$(basename "$file")"
+}
+
 marker_matches() {
   local marker="$1" file="$2"
   [[ -f "$marker" && -f "$file" ]] || return 1
-  local stamp size have
-  stamp="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file")"
-  size="$(stat -f %z "$file" 2>/dev/null || stat -c %s "$file")"
+  local have
   have="$(cat "$marker")"
-  [[ "$have" == "$stamp:$size:$(basename "$file")" ]]
+  [[ "$have" == "$(file_stamp "$file")" ]]
 }
 
 write_marker() {
   local marker="$1" file="$2"
-  local stamp size
-  stamp="$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file")"
-  size="$(stat -f %z "$file" 2>/dev/null || stat -c %s "$file")"
-  printf '%s\n' "$stamp:$size:$(basename "$file")" > "$marker"
+  file_stamp "$file" > "$marker"
 }
 
-publish_schedule() {
-  local sqlite="$1"
-  if [[ ! -f "$sqlite" ]]; then
-    echo "schedule publish skipped: current.sqlite is not cooked yet"
-    return 0
-  fi
-  echo "schedule rows are in current.sqlite. The json file is not the pack."
+file_settling() {
+  local file="$1"
+  local stamp now age
+  stamp="$(mtime_of "$file")"
+  now="$(date +%s)"
+  age=$(( now - stamp ))
+  [[ "$age" -lt "$SETTLE" ]]
 }
 
-cook_heartbeat() {
-  set -euo pipefail
-  local file bin marker
-  file="$(newest_file "$ICLOUD" heartbeat || true)"
-  if [[ -z "${file:-}" ]]; then
-    echo "heartbeat cook skipped: no Heartbeat workbook"
-    return 0
+schedule_rows() {
+  if [[ ! -f "$SQLITE" ]]; then
+    echo 0
+    return
   fi
-  marker="$MARKERS/heartbeat.marker"
-  if marker_matches "$marker" "$file"; then
-    echo "heartbeat unchanged $(basename "$file")"
-    return 0
-  fi
-  bin="$ROOT/Tools/HeartbeatIngest/.build/release/HeartbeatIngest"
+  python3 - "$SQLITE" << 'PY'
+import sqlite3, sys
+try:
+    con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    count = con.execute("SELECT COUNT(*) FROM schedule_store").fetchone()[0]
+except Exception:
+    count = 0
+print(count)
+PY
+}
+
+published_at() {
+  python3 - "$SQLITE" << 'PY'
+import json, sqlite3, sys
+con = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+raw = con.execute("SELECT json FROM dash_chrome WHERE id = 1").fetchone()
+if not raw:
+    raise SystemExit(1)
+chrome = json.loads(raw[0])
+stamp = chrome.get("publishedAt") or ""
+if not stamp:
+    raise SystemExit(1)
+print(stamp)
+PY
+}
+
+cook_daily() {
+  local file="$1"
+  local bin="${HEARTBEAT_INGEST_BIN:-$ROOT/Tools/HeartbeatIngest/.build/release/HeartbeatIngest}"
   if [[ ! -x "$bin" ]]; then
-    echo "heartbeat cook skipped: ingest binary not built"
-    return 0
+    echo "heartbeat cook failed: ingest binary not built ($bin)" >&2
+    return 1
   fi
-  "$bin" "$file" "$OUT/current.sqlite"
-  write_marker "$marker" "$file"
-  echo "heartbeat cooked $(basename "$file")"
+  local bytes
+  bytes="$(bytes_of "$file")"
+  if (( bytes < 1000000 )); then
+    echo "heartbeat cook failed: $(basename "$file") is ${bytes} bytes" >&2
+    return 1
+  fi
+  echo "cooking daily $(basename "$file")"
+  HEARTBEAT_SKIP_SEAT_PACKS=1 "$bin" "$file" "$SQLITE"
 }
 
-cook_schedule() {
-  set -euo pipefail
-  local file marker
-  file="$(newest_file "$ICLOUD" schedule || true)"
-  if [[ -z "${file:-}" ]]; then
-    echo "schedule cook skipped: no Schedule Review Week workbook"
+cook_schedule_file() {
+  local file="$1"
+  if [[ ! -f "$SQLITE" ]]; then
+    echo "schedule cook failed: current.sqlite is missing" >&2
+    return 1
+  fi
+  echo "cooking schedule $(basename "$file")"
+  if [[ -n "${HEARTBEAT_SCHEDULE_CMD:-}" ]]; then
+    HEARTBEAT_SCHEDULE_FILE="$file" HEARTBEAT_SCHEDULE_SQLITE="$SQLITE" bash -lc "$HEARTBEAT_SCHEDULE_CMD"
+    return $?
+  fi
+  python3 "$ROOT/Tools/ScheduleCheck/cook_schedule.py" \
+    "$file" \
+    "$OUT/schedule-check.json" \
+    --sqlite "$SQLITE" \
+    --publish-sheet
+}
+
+deploy_site() {
+  if [[ -n "${HEARTBEAT_DEPLOY_CMD:-}" ]]; then
+    bash -lc "$HEARTBEAT_DEPLOY_CMD"
+    return $?
+  fi
+  bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
+}
+
+run_pipeline() {
+  local daily sched
+  daily="$(newest_file "$ICLOUD" heartbeat || true)"
+  sched="$(newest_file "$ICLOUD" schedule || true)"
+  if [[ -z "${daily:-}" ]]; then
+    echo "heartbeat cook failed: no Heartbeat Daily Report workbook in $ICLOUD" >&2
+    return 1
+  fi
+  if [[ -z "${sched:-}" ]]; then
+    echo "schedule cook failed: no Schedule Review Summary workbook in $ICLOUD" >&2
+    return 1
+  fi
+  if file_settling "$daily" || file_settling "$sched"; then
+    echo "workbook still settling; will cook on the next run"
     return 0
   fi
-  marker="$MARKERS/schedule.marker"
-  if marker_matches "$marker" "$file"; then
-    echo "schedule unchanged $(basename "$file")"
-    return 0
+
+  local daily_marker="$MARKERS/heartbeat.marker"
+  local sched_marker="$MARKERS/schedule.marker"
+  local deploy_marker="$MARKERS/deploy.marker"
+  local need_daily=0 need_sched=0 rows=0
+  if ! marker_matches "$daily_marker" "$daily" || [[ ! -f "$SQLITE" ]]; then
+    need_daily=1
   fi
-  if [[ -f "$OUT/current.sqlite" ]]; then
-    python3 "$ROOT/Tools/ScheduleCheck/cook_schedule.py" "$file" "$OUT/schedule-check.json" --sqlite "$OUT/current.sqlite"
+  rows="$(schedule_rows)"
+  if ! marker_matches "$sched_marker" "$sched" || [[ "$need_daily" -eq 1 ]] || [[ "${rows:-0}" -eq 0 ]]; then
+    need_sched=1
+  fi
+
+  if [[ "$need_daily" -eq 0 && "$need_sched" -eq 0 ]]; then
+    local stamp deployed
+    stamp="$(published_at)" || return 1
+    deployed="$(cat "$deploy_marker" 2>/dev/null || true)"
+    if [[ "$deployed" == "$stamp" ]]; then
+      echo "unchanged $(basename "$daily") $(basename "$sched") publishedAt=$stamp"
+      return 0
+    fi
+    echo "redeploying cooked pack publishedAt=$stamp"
   else
-    python3 "$ROOT/Tools/ScheduleCheck/cook_schedule.py" "$file" "$OUT/schedule-check.json"
-    echo "schedule rows waiting for current.sqlite"
+    if [[ "$need_daily" -eq 1 ]]; then
+      cook_daily "$daily" || return 1
+      write_marker "$daily_marker" "$daily"
+    fi
+    if [[ "$need_sched" -eq 1 ]]; then
+      cook_schedule_file "$sched" || return 1
+      write_marker "$sched_marker" "$sched"
+    fi
   fi
-  write_marker "$marker" "$file"
-  publish_schedule "$OUT/current.sqlite"
-  echo "schedule cooked $(basename "$file")"
+
+  deploy_site || return 1
+  published_at > "$deploy_marker"
+  echo "deployed $(cat "$deploy_marker")"
+  return 0
 }
 
 if [[ "${1:-}" == "--install" ]]; then
@@ -140,15 +237,15 @@ if [[ "${1:-}" == "--install" ]]; then
   exit 0
 fi
 
+LOCK="$OUT/cook.lockdir"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "cook already running"
+  exit 0
+fi
+trap 'rmdir "$LOCK"' EXIT
+
 set +e
-( cook_heartbeat )
-heartbeat_status=$?
-( cook_schedule )
-schedule_status=$?
-if [[ "$heartbeat_status" -ne 0 ]]; then
-  echo "heartbeat cook failed (schedule cook is independent)"
-fi
-if [[ "$schedule_status" -ne 0 ]]; then
-  echo "schedule cook failed (heartbeat cook is independent)"
-fi
-exit 0
+run_pipeline
+status=$?
+set -e
+exit "$status"

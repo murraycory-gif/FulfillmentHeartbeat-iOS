@@ -64,6 +64,13 @@ function marketLabeled(pack, name) {
   );
 }
 
+export function scheduleVisibleTitle(title, week) {
+  const cooked = Number(week);
+  const text = String(title || "");
+  if (!Number.isFinite(cooked) || cooked <= 0) return text;
+  return text.replace(/Week\s*\d+/gi, `Week ${cooked}`).replace(/WK\s*\d+/gi, `WK${cooked}`);
+}
+
 export function scopedStores(pack, filters, roster) {
   return (pack.stores || []).filter((store) => includesScope(store, filters, roster));
 }

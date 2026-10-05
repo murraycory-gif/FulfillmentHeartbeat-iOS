@@ -523,21 +523,42 @@ def print_cross_check(report: dict) -> bool:
     return ok
 
 
+def is_schedule_workbook(name: str) -> bool:
+    """Daily iCloud saves use spaces. Downloads sometimes use underscores."""
+    if not name or name.startswith("~$") or name.startswith("."):
+        return False
+    folded = name.replace("_", " ").lower()
+    if not folded.endswith(".xlsx"):
+        return False
+    if "schedule review" not in folded:
+        return False
+    return "summary" in folded or folded.startswith("schedule review week ")
+
+
 def newest_schedule_workbook(folder: str):
     if not folder or not os.path.isdir(folder):
         return None
     found = []
     for name in os.listdir(folder):
-        if name.startswith("~$"):
+        if not is_schedule_workbook(name):
             continue
-        if fnmatch.fnmatch(name, "Schedule Review Week *.xlsx"):
-            path = os.path.join(folder, name)
-            if os.path.isfile(path):
-                found.append(path)
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            found.append(path)
     if not found:
         return None
     found.sort(key=lambda path: os.path.getmtime(path), reverse=True)
     return found[0]
+
+
+def sheet_publishable(pack: dict) -> bool:
+    """A schedule pack can ship when the workbook itself has a week and stores."""
+    try:
+        week = int(pack.get("week") or 0)
+    except (TypeError, ValueError):
+        return False
+    stores = pack.get("stores") or []
+    return week > 0 and len(stores) > 0
 
 
 def write_pack(pack: dict, dest: str) -> None:
@@ -653,6 +674,14 @@ def parse_args(argv=None):
     parser.add_argument("--find", help="Folder of Schedule Review Week *.xlsx. Newest mtime wins. ~$ ignored.")
     parser.add_argument("--sqlite", help="current.sqlite path. Schedule rows are replaced inside this pack.")
     parser.add_argument("--check", action="store_true", help="Print the cross-check and exit 1 on a company-number miss.")
+    parser.add_argument(
+        "--publish-sheet",
+        action="store_true",
+        help=(
+            "Write this workbook's own rows even when they miss the historical company lock. "
+            "Still refuses an empty week or an empty store list. Does not substitute lock numbers."
+        ),
+    )
     args = parser.parse_args(argv)
     # `--find FOLDER schedule-check.json` used to bind the json path to workbook,
     # then --find replaced the workbook, so output stayed empty and the process
@@ -677,18 +706,22 @@ def main(argv=None) -> int:
     pack = cook_workbook(path)
     report = pack["crossCheck"]
     ok = print_cross_check(report)
+    if args.check and not ok:
+        return 1
+    if (args.sqlite or args.publish_sheet) and not sheet_publishable(pack):
+        print("Schedule cook refused: week or store rows are missing. Nothing written.")
+        return 1
+    if not ok and not args.publish_sheet:
+        print("Company-number MISMATCH. Schedule rows were not written into current.sqlite.")
+        return 1
+    if not ok:
+        print(
+            "Historical company lock missed. Publishing this workbook's own rows. "
+            "Lock numbers were not substituted."
+        )
     if args.output:
         write_pack(pack, args.output)
         print(f"Wrote {args.output} ({os.path.getsize(args.output)} bytes, {report['scope']} stores)")
-    if not ok:
-        print("Company-number MISMATCH. Schedule rows were not written into current.sqlite.")
-        if args.output:
-            print(f"Removed {args.output}")
-            try:
-                os.remove(args.output)
-            except OSError:
-                pass
-        return 1
     if args.sqlite:
         write_sqlite(pack, args.sqlite)
         print(f"Cooked schedule rows into {args.sqlite} ({report['scope']} stores)")

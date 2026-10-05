@@ -75,6 +75,24 @@ The current iPhone / iPad / Mac build still downloads packs from the public host
 
 Do that only when you are ready for the phone to miss packs. This change does not flip the switch and does not change the phone URL.
 
+## Save in iCloud updates the site
+
+Cory does not ask Bot to deploy. A launchd watcher on the Mac cooks a saved workbook and uploads the site.
+
+What he clicks once:
+
+1. Cloudflare dashboard → My Profile → **API Tokens** → **Create Token**. Use a custom token with **Account / Cloudflare Pages / Edit**. Copy the token into `~/.config/heartbeat/cloudflare-api-token` and run `chmod 600` on that file. Do not commit it and do not paste it into chat.
+2. On the Mac, from this repo: `./Tools/HeartbeatIngest/setup-web-publish.sh`. If macOS asks for **Files and Folders** or iCloud Drive access, click **Allow**.
+
+After that, leave these files in iCloud Drive `Heartbeat_Reports`:
+
+- `Heartbeat Daily Report.xlsx`
+- `Schedule Review Week NN - Summary.xlsx`
+
+Saving either workbook runs `Tools/HeartbeatIngest/cook-local.sh`. That cooks the Daily Report and the Schedule Review sheet into `current.sqlite`, checks the pack, and deploys **only** to Pages project `fulfillment-heartbeat-web` (`https://fulfillment-heartbeat-web.pages.dev`). Dynacap health is the cooked band (goal 65, risk 60). The schedule title on the site uses the week from the workbook tabs. The cook does not invent metrics. If the cook or the pack check fails, the script exits and does not deploy. If neither file changed since the last successful deploy, it does nothing.
+
+The token is read from `CLOUDFLARE_API_TOKEN` or `~/.config/heartbeat/cloudflare-api-token`. launchd does not need the token in the plist.
+
 ## What you should see
 
 - First paint is the shell. The first network read is `/data/home.json`.

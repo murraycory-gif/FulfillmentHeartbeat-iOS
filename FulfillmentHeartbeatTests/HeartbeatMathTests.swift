@@ -353,6 +353,12 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateGood), .good)
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateWatch), .watch)
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateRisk), .risk)
+        let midAtlantic = HeartbeatMath.scopeCard(
+            section: .dynacap,
+            rows: [rateGood, rateWatch]
+        )
+        XCTAssertEqual(midAtlantic.health, .good)
+        XCTAssertEqual(midAtlantic.value, "68.0")
     }
 
     func testDynacapDistrictFileParsesAndJoinsStores() {

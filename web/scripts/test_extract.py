@@ -201,6 +201,24 @@ def main() -> None:
         print("extract ok")
         absent_schedule_and_item_tab()
         roster_people_stamp()
+        path_picker_store_join()
+
+
+def path_picker_store_join() -> None:
+    shoppers = {
+        "score-a": {"section": "picker_scorecard", "shopperId": "A", "store": "117"},
+        "score-b1": {"section": "picker_scorecard", "shopperId": "B", "store": "118"},
+        "score-b2": {"section": "picker_scorecard", "shopperId": "B", "store": "119"},
+        "path-a": {"section": "pick_path_picker", "shopperId": "A", "store": ""},
+        "path-b": {"section": "pick_path_picker", "shopperId": "B", "store": ""},
+        "path-c": {"section": "pick_path_picker", "shopperId": "C", "store": ""},
+    }
+    attached = module.attach_unique_scorecard_store(shoppers)
+    assert attached == 1
+    assert shoppers["path-a"]["store"] == "117"
+    assert shoppers["path-b"]["store"] == ""
+    assert shoppers["path-c"]["store"] == ""
+    print("path picker store join ok")
 
 
 def roster_people_stamp() -> None:

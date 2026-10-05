@@ -505,13 +505,15 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "section": section,
             }
             if section in SHOPPER_SECTIONS:
-                if not store:
+                # Path Picker rows have no store until the scorecard join below.
+                if not store and section != "pick_path_picker":
                     continue
                 shopper_id = str(text.get("shopper_id") or "").strip()
                 shopper_name = str(text.get("shopper_name") or shopper_id).strip()
                 record["shopper"] = shopper_name
                 record["shopperId"] = shopper_id
-                _merge_roster(roster, record, prefer_roster=False)
+                if store:
+                    _merge_roster(roster, record, prefer_roster=False)
                 identity = shopper_id or shopper_name
                 if not identity:
                     continue
@@ -528,6 +530,12 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
             previous = latest.get(key)
             if previous is None or record["recorded"] >= previous["recorded"]:
                 latest[key] = record
+    # Path Picker is an employee sheet with no store column. Attach the
+    # scorecard store only when that shopper id is on exactly one store.
+    attach_unique_scorecard_store(shoppers)
+    for record in shoppers.values():
+        if record.get("section") == "pick_path_picker" and record.get("store"):
+            _merge_roster(roster, record, prefer_roster=False)
     records = list(latest.values()) + list(shoppers.values())
     people = read_roster_people(roster_xlsx) if roster_xlsx else {}
     if people:
@@ -623,6 +631,30 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
     _write(out / "presub.json", {"scopes": presub})
     db.close()
+
+
+def attach_unique_scorecard_store(shoppers: dict) -> int:
+    by_shopper: dict[str, set[str]] = {}
+    for record in shoppers.values():
+        if record.get("section") != "picker_scorecard":
+            continue
+        shopper_id = str(record.get("shopperId") or "").strip()
+        store = str(record.get("store") or "").strip()
+        if shopper_id and store:
+            by_shopper.setdefault(shopper_id, set()).add(store)
+    attached = 0
+    for record in shoppers.values():
+        if record.get("section") != "pick_path_picker":
+            continue
+        if str(record.get("store") or "").strip():
+            continue
+        shopper_id = str(record.get("shopperId") or "").strip()
+        options = by_shopper.get(shopper_id) or set()
+        if len(options) != 1:
+            continue
+        record["store"] = next(iter(options))
+        attached += 1
+    return attached
 
 
 def _merge_roster(roster: dict, record: dict, prefer_roster: bool) -> None:
