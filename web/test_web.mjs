@@ -363,6 +363,9 @@ assert.match(app, /function warmDashboard/);
 assert.match(app, /Shopper tape stays parked/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
+assert.match(pageHtml, /rel="icon" href="\/favicon-32\.png" type="image\/png" sizes="32x32"/);
+assert.match(pageHtml, /rel="icon" href="\/favicon-16\.png" type="image\/png" sizes="16x16"/);
+assert.match(pageHtml, /rel="apple-touch-icon" href="\/apple-touch-icon\.png"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
@@ -961,6 +964,13 @@ assert.match(accountsSrc, /src="\/shell-nav\.js\?v=1"/);
 assert.match(readFileSync(join(root, "public/login.css"), "utf8"), /\.header-back,\s*#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(app, /function applyPageQuery/);
 assert.match(loginHTML, /href="\/favicon\.svg"/);
+assert.match(loginHTML, /href="\/favicon-32\.png"/);
+assert.match(loginHTML, /href="\/apple-touch-icon\.png"/);
+assert.match(readFileSync(join(root, "public/favicon.svg"), "utf8"), /stop-color="#3d8dff"/);
+for (const file of ["public/favicon-16.png", "public/favicon-32.png", "public/apple-touch-icon.png"]) {
+  const bytes = readFileSync(join(root, file));
+  assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", file);
+}
 let bootServed = false;
 const boot = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/nav-boot.js?v=2"),
@@ -984,6 +994,19 @@ const icon = await basicGate({
 });
 assert.equal(icon.status, 200);
 assert.equal(iconServed, true);
+for (const iconPath of ["/favicon-32.png", "/favicon-16.png", "/apple-touch-icon.png"]) {
+  let pngServed = false;
+  const png = await basicGate({
+    request: new Request(`https://fulfillment-heartbeat-web.pages.dev${iconPath}`),
+    env: gateEnv,
+    next: async () => {
+      pngServed = true;
+      return new Response("png", { status: 200, headers: { "content-type": "image/png" } });
+    },
+  });
+  assert.equal(png.status, 200, iconPath);
+  assert.equal(pngServed, true, iconPath);
+}
 assert.equal(loginHTML.includes("NO DATA"), false);
 const dataDenied = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json"),
