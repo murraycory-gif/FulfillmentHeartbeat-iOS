@@ -444,7 +444,7 @@ export async function onRequest(context) {
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {
     return redirect(request, "/favicon.svg", "", 302);
   }
-  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js" || pathname === "/favicon.svg" || pathname === "/auth-copy.js")) {
+  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js" || pathname === "/favicon.svg" || pathname === "/favicon-32.png" || pathname === "/favicon-16.png" || pathname === "/apple-touch-icon.png" || pathname === "/auth-copy.js")) {
     return context.next();
   }
 
