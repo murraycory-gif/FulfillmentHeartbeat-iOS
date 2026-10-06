@@ -126,10 +126,13 @@ From the repo, after `node web/check_pack.mjs web/public/data` exits 0:
 
 ```bash
 # HEARTBEAT_DATA_ONLY=1 never runs `wrangler pages deploy`.
+# A dirty worktree refuses this too, before tests and before any secret upload.
 HEARTBEAT_DATA_ONLY=1 bash Tools/HeartbeatIngest/publish-web.sh
 ```
 
 That command puts every pack JSON at `web-pack/<cookSha>-<publishedAt>/`, downloads that set, and runs `check_pack` on it. It writes `web-pack/current.json` last. `previous` becomes the prior pointer entry. A pack that fails `check_pack` does not move the pointer. A served file whose `schemaVersion` or `cookSha` disagrees with the pointer does not replace the last good entry. When `~/.config/heartbeat/web-email` and `web-password` are present, the data-only upload signs in and reads every `/data` JSON file back.
+
+The sqlite extract and the live-pack download both write to a temp directory. They do not copy into tracked `web/public/data`, so a new pack does not dirty the tree before the dirty-worktree check. A dirty tree blocks a data-only upload the same way it blocks a full publish.
 
 A one-file upload, if you are not using the script:
 
@@ -161,7 +164,7 @@ After that, leave these files in iCloud Drive `Heartbeat_Reports`:
 
 Saving either workbook runs `Tools/HeartbeatIngest/cook-local.sh`. That cooks the Daily Report and the Schedule Review sheet into `current.sqlite`, checks the pack, and uploads **only** the JSON pack to R2 bucket `heartbeat-packs` for Pages project `fulfillment-heartbeat-web` (`https://fulfillment-heartbeat-web.pages.dev`). It does not create a Pages deployment. Dynacap health is the cooked band (goal 65, risk 60). The schedule title on the site uses the week from the workbook tabs. The cook does not invent metrics. If the cook or the pack check fails, the script exits and does not upload. If neither file changed since the last successful upload, it does nothing.
 
-The Mac job signs in through the form and treats an unsigned `/data` response of `401` JSON `{"error":"unauthorized"}` as the lock. A UI deploy must not upload an older pack over the live one. `HEARTBEAT_UI_ONLY=1` skips the sqlite extract. Save the current pack in `web/public/data` and set `HEARTBEAT_USE_LOCAL_DATA=1`, or put the site login in `~/.config/heartbeat/web-email` and `web-password` so a newer live pack is downloaded first. A cook still passes `current.sqlite`. An older sqlite does not replace a newer pack already in `web/public/data`. After upload, `publish-web.sh` checks the unsigned `401` again. When `~/.config/heartbeat/web-email` and `web-password` are present, it signs in and reads every `/data` JSON file back, and exits if `publishedAt`, `schemaVersion`, or `cookSha` differs from the files just uploaded.
+The Mac job signs in through the form and treats an unsigned `/data` response of `401` JSON `{"error":"unauthorized"}` as the lock. A UI deploy must not upload an older pack over the live one. `HEARTBEAT_UI_ONLY=1` skips the sqlite extract. Save the current pack in `web/public/data` and set `HEARTBEAT_USE_LOCAL_DATA=1`, or put the site login in `~/.config/heartbeat/web-email` and `web-password` so a newer live pack is downloaded first. A cook still passes `current.sqlite`. The extract and the live download stay in a temp directory. They do not replace tracked `web/public/data`. A dirty tree blocks that upload, including a data-only upload. After upload, `publish-web.sh` checks the unsigned `401` again. When `~/.config/heartbeat/web-email` and `web-password` are present, it signs in and reads every `/data` JSON file back, and exits if `publishedAt`, `schemaVersion`, or `cookSha` differs from the files just uploaded.
 
 The token is read from `CLOUDFLARE_API_TOKEN` or `~/.config/heartbeat/cloudflare-api-token`. launchd does not need the token in the plist.
 

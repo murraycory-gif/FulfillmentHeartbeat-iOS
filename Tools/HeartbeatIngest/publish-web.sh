@@ -104,8 +104,9 @@ else
 fi
 
 LIVE_CHECKED=0
+LIVE_STAGE="$(mktemp -d)"
 if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
-  python3 - "$DATA" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" << 'PY'
+  python3 - "$DATA" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" "$LIVE_STAGE" << 'PY'
 import http.cookiejar
 import json
 import shutil
@@ -120,6 +121,7 @@ email = Path(sys.argv[2]).read_text().strip()
 password = Path(sys.argv[3]).read_text().strip()
 site = sys.argv[4].rstrip("/")
 identity_script = sys.argv[5]
+stage = Path(sys.argv[6])
 ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
 jar = http.cookiejar.CookieJar()
@@ -150,7 +152,8 @@ if status != 200:
     print(f"live pack check failed: /data/home.json returned {status}", file=sys.stderr)
     raise SystemExit(2)
 live = json.loads(raw)
-live_file = dest.parent / ".live-home.json"
+live_file = stage / ".live-home.json"
+stage.mkdir(parents=True, exist_ok=True)
 live_file.write_text(json.dumps(live), encoding="utf-8")
 ranked = subprocess.run(
     [sys.executable, identity_script, "newer", str(live_file), str(dest)],
@@ -168,10 +171,8 @@ if choice == "keep":
 names = [path.relative_to(dest).as_posix() for path in dest.rglob("*") if path.is_file()]
 if "home.json" not in names:
     names.insert(0, "home.json")
-staged = dest.parent / ".data-next"
-if staged.exists():
-    shutil.rmtree(staged)
-staged.mkdir()
+# The download stays in this temp dir. It must not replace tracked web/public/data.
+staged = stage
 for name in names:
     status, payload = call("/data/" + name)
     if status != 200 or not payload:
@@ -194,17 +195,13 @@ if staged_home.get("cookSha") != live.get("cookSha") or staged_cooked != live_co
     print("live pack check failed: downloaded stamp does not match", file=sys.stderr)
     raise SystemExit(2)
 got = staged_cooked or str(staged_home.get("publishedAt") or "")
-backup = dest.parent / ".data-prev"
-if backup.exists():
-    shutil.rmtree(backup)
-if dest.exists():
-    dest.rename(backup)
-staged.rename(dest)
-if backup.exists():
-    shutil.rmtree(backup)
 print(f"fetched live pack publishedAt={got}")
 PY
   LIVE_CHECKED=1
+  if [[ -f "$LIVE_STAGE/home.json" && "$PACK_DIR" == "$DATA" ]]; then
+    PACK_DIR="$LIVE_STAGE"
+    echo "publish-web: live pack stays out of tracked web/public/data"
+  fi
 fi
 
 if [[ -n "$UI_ONLY" && "$LIVE_CHECKED" -ne 1 && "$USE_LOCAL" != "1" ]]; then
@@ -264,7 +261,8 @@ if grep -q "dynacapHealth" "$WEB/public/seat.js"; then
 fi
 
 # Before tests and secret upload. A dirty tree would stamp the build label
-# with a commit that does not match the files about to ship.
+# with a commit that does not match the files about to ship. HEARTBEAT_DATA_ONLY
+# reaches this check too, so a dirty tree blocks a data-only upload.
 if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
   echo "refusing publish: git worktree is dirty, so the build label would show a commit that does not match this tree" >&2
   exit 1
