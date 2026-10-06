@@ -161,6 +161,36 @@ export function checkPack(dir) {
   if (!plain || plain.sourceIssue || plainAiv == null || Math.abs(plainAiv - -0.38645958215580284) > 1e-6) {
     errors.push("store 1 AIV changed");
   }
+  let weightedNum = 0;
+  let weightedDen = 0;
+  let simpleNum = 0;
+  let simpleCount = 0;
+  for (const row of laborRows) {
+    const payload = row.payload || {};
+    const rowAiv = finite(payload.aiv_impact_pct);
+    const rowWeight = finite(payload.weight);
+    if (rowAiv == null) continue;
+    if (rowWeight == null || rowWeight < 0) {
+      errors.push(`labor weight missing ${row.store}`);
+      break;
+    }
+    const cost = finite(payload.cost_trgt_pct);
+    if (cost == null) continue;
+    weightedNum += rowAiv * rowWeight;
+    weightedDen += rowWeight;
+    simpleNum += rowAiv;
+    simpleCount += 1;
+  }
+  if (aiv != null && weightedDen > 0) {
+    const weighted = weightedNum / weightedDen;
+    const simple = simpleCount ? simpleNum / simpleCount : null;
+    if (Math.abs(weighted - aiv) > 0.001) {
+      errors.push(`labor AIV weighted=${weighted} company=${aiv}`);
+    }
+    if (simple != null && Math.abs(simple - aiv) <= Math.abs(weighted - aiv)) {
+      errors.push(`labor AIV simple average ${simple} is as close as the hours weight`);
+    }
+  }
 
   if (!Array.isArray(home.regionTables) || home.regionTables.length < 10) errors.push("regionTables missing");
 

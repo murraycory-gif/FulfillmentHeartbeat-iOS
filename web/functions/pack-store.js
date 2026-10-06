@@ -129,6 +129,21 @@ export function dataPath(pathname) {
   return rel;
 }
 
+// /api/<name> is the same guarded pack as /data/<name>.json. It is not a
+// bucket key. Callers must not turn this into web-pack/home.json.
+export function packApiPath(pathname) {
+  const rest = String(pathname || "")
+    .replace(/^\/api\/?/, "")
+    .split("?")[0]
+    .replace(/\/+$/, "");
+  if (!rest || rest.includes("..") || rest.includes("\\") || rest.includes("//")) return "";
+  if (/r2\.dev/i.test(rest) || /sqlite/i.test(rest) || /:\/\//.test(rest)) return "";
+  if (rest === "home" || rest === "presub" || rest === "schedule") return `${rest}.json`;
+  const match = rest.match(/^section\/([a-z0-9_]+)$/);
+  if (!match) return "";
+  return `section/${match[1]}.json`;
+}
+
 export async function readPackObject(bucket, pathname) {
   const rel = dataPath(pathname.startsWith("/data/") ? pathname : `/data/${pathname}`);
   if (!rel) return null;

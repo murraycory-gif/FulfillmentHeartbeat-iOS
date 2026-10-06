@@ -23,7 +23,7 @@ import {
   verifyAccessJwt,
 } from "./functions/gate.js";
 import { checkPack } from "./check_pack.mjs";
-import { PACK_POINTER_KEY, guardHome, packObjectKey, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
+import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
@@ -104,6 +104,11 @@ assert.equal(objectKeyForPath("schedule"), "schedule-check.json");
 assert.equal(objectKeyForPath("section/not_a_section"), null);
 assert.equal(objectKeyForPath("section/../home"), null);
 assert.equal(objectKeyForPath("packs/seat/company/all/current.sqlite"), null);
+assert.equal(packApiPath("/api/home"), "home.json");
+assert.equal(packApiPath("/api/section/labor"), "section/labor.json");
+assert.equal(packApiPath("/api/schedule"), "schedule.json");
+assert.equal(packApiPath("/api/web-pack/home.json"), "");
+assert.equal(packApiPath("https://example.r2.dev/home"), "");
 assert.equal(objectKeyForPath("https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"), null);
 assert.equal(objectKeyForPath("home?x=https://example.r2.dev/a"), null);
 
@@ -568,6 +573,7 @@ const fn = readFileSync(join(root, "functions/api/[[path]].js"), "utf8");
 assert.equal(/r2\.dev/i.test(fn), false);
 assert.match(fn, /private, no-store/);
 assert.match(fn, /HEARTBEAT_PACKS/);
+assert.equal(fn.includes("bucket.get"), false);
 
 assert.equal(updatedLine(""), "Updated —");
 assert.equal(updatedLine(null), "Updated —");
@@ -1200,6 +1206,40 @@ const staticFallback = await basicGate({
 });
 assert.equal(await staticFallback.text(), "static-home");
 assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
+resetPackCache();
+const apiPacked = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/section/missing_items", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(packFiles) }),
+  next: async () => new Response("api-function", { status: 200 }),
+});
+assert.equal(apiPacked.status, 200);
+assert.equal(apiPacked.headers.get("cache-control"), "private, no-store");
+assert.match(await apiPacked.text(), /Mountain West/);
+resetPackCache();
+const staleOnly = {
+  "web-pack/home.json": JSON.stringify({ publishedAt: "2026-09-29T20:29:58Z" }),
+};
+const apiStale = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/home", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(staleOnly) }),
+  next: async () => new Response("stale-body", { status: 200 }),
+});
+assert.equal(apiStale.status, 404);
+assert.equal(apiStale.headers.get("cache-control"), "private, no-store");
+assert.equal((await apiStale.text()).includes("2026-09-29"), false);
+resetPackCache();
+const apiUnsigned = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/home"),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(packFiles) }),
+  next: async () => new Response("api-function", { status: 200 }),
+});
+assert.equal(apiUnsigned.status, 401);
+assert.equal(apiUnsigned.headers.get("cache-control"), "private, no-store");
+assert.deepEqual(await apiUnsigned.json(), { error: "unauthorized" });
 const wrong = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
@@ -1358,6 +1398,19 @@ assert.equal(laborByStore["1509"].sourceIssue, "source data issue");
 assert.equal(laborByStore["1509"].payload.sch_hrs, 0);
 assert.equal(laborByStore["1"].sourceIssue, undefined);
 assert.ok(Math.abs(laborByStore["1"].payload.aiv_impact_pct - -0.38645958215580284) < 1e-9);
+assert.equal(laborByStore["1"].payload.weight, 383);
+assert.equal(laborByStore["233"].payload.weight, 334);
+assert.equal(laborByStore["1509"].payload.weight, 45);
+let aivNum = 0;
+let aivDen = 0;
+for (const row of laborFile.rows) {
+  const payload = row.payload || {};
+  if (payload.cost_trgt_pct == null || payload.aiv_impact_pct == null || payload.weight == null) continue;
+  aivNum += payload.aiv_impact_pct * payload.weight;
+  aivDen += payload.weight;
+}
+assert.ok(aivDen > 0);
+assert.ok(Math.abs(aivNum / aivDen - packHome.laborMarket.aiv_impact_pct) <= 0.001);
 const lostFile = JSON.parse(readFileSync(join(root, "dist/data/section/lost_revenue.json"), "utf8"));
 assert.ok(new Set(lostFile.rows.map((row) => row.division)).size > 8);
 assert.ok(lostFile.rows.filter((row) => row.division === "Haggen").length < 30);

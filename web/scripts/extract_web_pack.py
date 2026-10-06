@@ -361,8 +361,26 @@ def format_company_aiv(value: float) -> str:
     return f"{float(value):.2f}%"
 
 
+def labor_act_hours(raw: dict) -> float | None:
+    """Labor!E is actual hours. The company ActHrs cell is the sum of that column.
+
+    Company AIV (Labor!M2171) matches the ActHrs-weighted average of store rows
+    that have a cost target. A simple average does not: stores 233 and 1509
+    dominate it. Sales dollars do not reproduce M2171.
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        hours = float(raw.get("act_hrs"))
+    except (TypeError, ValueError):
+        return None
+    if hours < 0 or hours != hours or hours == float("inf"):
+        return None
+    return hours
+
+
 def labor_bridge(payload: dict) -> dict:
-    """Company AIV is the workbook Total, not a weighted store average. No weight field."""
+    """Company AIV is the workbook Total. The company object has no weight field."""
     out = {}
     for key in ("uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct", "target_vs_actual_pct"):
         raw = payload.get(key)
@@ -1012,6 +1030,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "payload": slim_payload(fact["payload_json"]),
                 "section": section,
             }
+            if section == "labor":
+                hours = labor_act_hours(loads(fact["payload_json"], {}))
+                if hours is not None:
+                    record["payload"]["weight"] = hours
             if section in SHOPPER_SECTIONS:
                 # Path Picker rows have no store until the scorecard join below.
                 if not store and section != "pick_path_picker":

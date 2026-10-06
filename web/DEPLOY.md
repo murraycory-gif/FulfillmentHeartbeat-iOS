@@ -83,7 +83,7 @@ This environment has no Wrangler login. Set `CLOUDFLARE_API_TOKEN` to an account
 
 ### 5. Public bucket URL — read this before you click
 
-The web app does not use a public R2 URL. `connect-src` is `'self'`. The function will not serve a key that points at `r2.dev` or a sqlite file.
+The web app does not use a public R2 URL. `connect-src` is `'self'`. The function will not serve a key that points at a public bucket host or a sqlite file. `heartbeat-packs` has no custom domain. Its managed public hostname stays disabled. Pages reads the bucket only through the `HEARTBEAT_PACKS` binding, inside `_middleware.js`, after the session check. `/data` and `/api` responses send `Cache-Control: private, no-store`. A pack whose `schemaVersion` or required keys fail `guardHome` is not served; the function uses `pointer.json` `previous`, then the static files from the last full Pages deploy.
 
 The current iPhone / iPad / Mac build still downloads packs from the public host in `PulseCloud.defaultPackHost` (`HBPackHost`, the `r2.dev` URL). Turning **public access off** on `heartbeat-packs` is what keeps the bucket off the public internet. It also stops that phone build until a later build reads through a protected origin.
 
@@ -110,7 +110,7 @@ web-pack/packs/<cookSha>/section/<section>.json
 
 `cookSha` is `metadata.cookSha` in `home.json`. The object paths under `web-pack/packs/<cookSha>/` match the paths under `/data/`.
 
-The function reads `pointer.json` only. It does not read a bare `web-pack/home.json` key. A September 2026 object at that key was an older pack with no `schemaVersion`, and serving it made `home.json` disagree with `schedule.json`. `current` has to pass `guardHome` in `web/functions/pack-store.js` (`schemaVersion`, `cookSha`, `laborMarket`, `regionTables`, `summaries`, `companyTiles`, `filters.stores`). If it fails, the function serves `previous`. If neither pack is valid, or the bucket has no pointer yet, `/data/*` falls through to the static files from the last full Pages deploy. Those static files are still behind the sign-in middleware.
+The function reads `pointer.json` only. It does not read a bare `web-pack/home.json` key. A September 2026 object at that key was an older pack with no `schemaVersion`, and serving it made `home.json` disagree with `schedule.json`. `current` has to pass `guardHome` in `web/functions/pack-store.js` (`schemaVersion`, `cookSha`, `laborMarket`, `regionTables`, `summaries`, `companyTiles`, `filters.stores`). If it fails, the function serves `previous`. If neither pack is valid, or the bucket has no pointer yet, `/data/*` falls through to the static files from the last full Pages deploy. Those static files are still behind the sign-in middleware. `/api/*` uses the same guarded pack and does not fall through to a bare bucket key. An unsigned `/api` request is `401`, the same as `/data`.
 
 Every JSON file in one cook carries the same top-level `publishedAt`, `schemaVersion`, and `cookSha`. `publish-web.sh` prints those three fields for each file and refuses a deploy when they disagree, or when `publishedAt` is `2026-09-29` or `2026-09-30`.
 

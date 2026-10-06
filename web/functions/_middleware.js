@@ -3,7 +3,7 @@
 // The shared BASIC_PASS login stays until AUTH_CUTOVER=1, after the account sign-in is verified.
 // Nothing here is a password. A missing secret fails closed.
 
-import { readPackObject } from "./pack-store.js";
+import { packApiPath, readPackObject } from "./pack-store.js";
 import {
   acceptInvite,
   accountHTML,
@@ -406,19 +406,36 @@ async function accountResponse(request, env, db, session, now) {
   return htmlResponse(accountHTML(session.user, "", "", chrome));
 }
 
+function packHeaders() {
+  return {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+}
+
+function packJSON(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: packHeaders() });
+}
+
+// HEARTBEAT_PACKS is read here, after the session check, and nowhere else.
 async function packFromBucket(env, pathname) {
   const bucket = env && env.HEARTBEAT_PACKS;
   if (!bucket || typeof bucket.get !== "function") return null;
   const object = await readPackObject(bucket, pathname);
   if (!object) return null;
-  return new Response(object.body, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "private, no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
+  return new Response(object.body, { status: 200, headers: packHeaders() });
+}
+
+async function apiPackResponse(request, env, pathname) {
+  if (request.method !== "GET" && request.method !== "HEAD") return packJSON({ error: "NO DATA" }, 405);
+  const rel = packApiPath(pathname);
+  if (!rel) return packJSON({ error: "NO DATA" }, 404);
+  const bucket = env && env.HEARTBEAT_PACKS;
+  const object = await readPackObject(bucket, `/data/${rel}`);
+  if (!object) return packJSON({ error: "NO DATA" }, 404);
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers: packHeaders() });
+  return new Response(object.body, { status: 200, headers: packHeaders() });
 }
 
 export async function onRequest(context) {
@@ -484,11 +501,12 @@ export async function onRequest(context) {
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {
-    if (pathname.startsWith("/data/") || pathname === "/session") return unauthorizedJSON();
+    if (pathname.startsWith("/data/") || pathname.startsWith("/api/") || pathname === "/session") return unauthorizedJSON();
     return loginResponse("", "", 200);
   }
   if (pathname === "/login") return redirect(request, "/");
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session);
+  if (pathname.startsWith("/api/")) return apiPackResponse(request, env, pathname);
   if (pathname.startsWith("/data/")) {
     const packed = await packFromBucket(env, pathname);
     if (packed) return packed;

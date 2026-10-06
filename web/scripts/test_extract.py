@@ -137,6 +137,19 @@ def main() -> None:
         db.execute(
             "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
+                "labor",
+                "1",
+                "SoCal",
+                "Ada",
+                "Store 1",
+                "2026-09-28",
+                json.dumps({"act_hrs": 383, "aiv_impact_pct": -0.38645958215580284, "cost_trgt_pct": 11.4}),
+                json.dumps({"labor_grain": "store", "district": "01"}),
+            ),
+        )
+        db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
                 "picker_scorecard",
                 "117",
                 "Shaws",
@@ -218,6 +231,9 @@ def main() -> None:
         assert "TOTAL" not in stores
         labor = json.loads((out / "section" / "labor.json").read_text())
         assert all(row["store"].upper() != "TOTAL" for row in labor["rows"])
+        labor_one = next(row for row in labor["rows"] if row["store"] == "1")
+        assert labor_one["payload"]["weight"] == 383
+        assert "weight" not in (home.get("laborMarket") or {})
         assert stores["117"]["district"] == "03"
         assert stores["117"]["division"] == "Shaws"
         assert stores["3436"]["district"] == "39"
