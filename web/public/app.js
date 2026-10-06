@@ -22,7 +22,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, companyCountText, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, reportedStoreLine, rowsInScope, seatSummary, sectionStoreCount, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, reportedStoreLine, rowsInScope, seatSummary, sectionStoreCount, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -39,7 +39,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "39";
+const APP_VERSION = "40";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -258,6 +258,7 @@ async function fetchPack(path) {
       const data = await readPack(url);
       state.packs.set(path, data);
       state.failedPacks.delete(path);
+      if (state.browseOpen) paintBrowse();
       return data;
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
@@ -275,6 +276,7 @@ async function loadOptional(path) {
     return await load(path);
   } catch {
     state.failedPacks.add(path);
+    if (state.browseOpen) paintBrowse();
     return null;
   }
 }
@@ -453,10 +455,11 @@ function paintBrowse() {
 function browseCountLabel(item) {
   const section = pageById(state.page).section || "";
   if (!section) return `${num(item.count, 0)} roster stores`;
-  const pack = state.packs.get(`section/${section}`);
-  if (!pack || !Array.isArray(pack.rows)) return "";
-  const count = sectionStoreCount(pack.rows, browseScope(state.filters, item.kind, item.value), roster(), section);
-  return count == null ? "" : num(count, 0);
+  if (sectionPackPending(section)) return browseCountText(null, true);
+  const rows = sectionRows(section);
+  if (!rows) return "";
+  const count = sectionStoreCount(rows, browseScope(state.filters, item.kind, item.value), roster(), section);
+  return browseCountText(count, false);
 }
 
 function paintChips() {
@@ -1368,9 +1371,11 @@ async function render() {
   if (page.section === "picker_scorecard") {
     renderPicker();
     const path = "section/picker_scorecard";
-    if (shopperSeat(state.filters) && !state.packs.has(path) && !state.failedPacks.has(path)) {
+    if (!state.packs.has(path) && !state.failedPacks.has(path)) {
       loadOptional(path).then(() => {
-        if (token === renderToken && state.page === "picker_scorecard") renderPicker();
+        if (token !== renderToken || state.page !== "picker_scorecard") return;
+        renderPicker();
+        paintBrowse();
       });
     }
     return;
