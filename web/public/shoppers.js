@@ -17,6 +17,67 @@ export function shopperPph(row) {
   return Number.isFinite(number) ? number : null;
 }
 
+// Flag a shopper PPH at or below PPH_SOURCE_LOW, or above PPH_SOURCE_HIGH.
+// The goal split still counts these rows. Averages leave them out.
+export const PPH_SOURCE_LOW = 0;
+export const PPH_SOURCE_HIGH = 300;
+
+export function PPH_SOURCE_CHECK(value) {
+  if (value == null || value === "") return false;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return false;
+  return number <= PPH_SOURCE_LOW || number > PPH_SOURCE_HIGH;
+}
+
+export function shopperPphLabel(value, format) {
+  const shown = format(value);
+  return PPH_SOURCE_CHECK(value) ? `${shown} check source` : shown;
+}
+
+export function shopperPphSummary(rows) {
+  let atGoal = 0;
+  let between = 0;
+  let below = 0;
+  let missing = 0;
+  let flagged = 0;
+  let sum = 0;
+  let counted = 0;
+  let weighted = 0;
+  let weight = 0;
+  for (const row of rows || []) {
+    const pph = shopperPph(row);
+    if (pph == null) {
+      missing += 1;
+      continue;
+    }
+    if (pph >= 80) atGoal += 1;
+    else if (pph >= 74) between += 1;
+    else below += 1;
+    if (PPH_SOURCE_CHECK(pph)) {
+      flagged += 1;
+      continue;
+    }
+    const hours = Number(((row && row.payload) || {}).pick_hours);
+    if (Number.isFinite(hours) && hours > 0) {
+      weighted += pph * hours;
+      weight += hours;
+    }
+    sum += pph;
+    counted += 1;
+  }
+  return {
+    withPph: atGoal + between + below,
+    atGoal,
+    between,
+    below,
+    missing,
+    flagged,
+    average: counted ? sum / counted : null,
+    // Hours-weighted mean of the shopper rows that pass the source check.
+    hoursWeighted: weight ? weighted / weight : null,
+  };
+}
+
 // 80 is the goal. 74 up to the goal is watch. Below 74 is at risk.
 // A blank PPH stays none so the list does not invent a color.
 export function pphBar(value) {
@@ -38,6 +99,9 @@ export function sortShoppersByPph(rows) {
   return (rows || []).slice().sort((left, right) => {
     const leftPph = shopperPph(left);
     const rightPph = shopperPph(right);
+    const leftFlag = leftPph != null && PPH_SOURCE_CHECK(leftPph);
+    const rightFlag = rightPph != null && PPH_SOURCE_CHECK(rightPph);
+    if (leftFlag !== rightFlag) return leftFlag ? 1 : -1;
     if (leftPph == null && rightPph == null) return shopperIdentity(left).localeCompare(shopperIdentity(right));
     if (leftPph == null) return 1;
     if (rightPph == null) return -1;

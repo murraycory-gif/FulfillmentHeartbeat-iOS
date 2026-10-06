@@ -52,7 +52,7 @@ import {
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
-import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
+import { metricsInSource, pphBar, PPH_SOURCE_CHECK, PPH_SOURCE_HIGH, PPH_SOURCE_LOW, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -262,7 +262,10 @@ const eastSeat = seatSummary("sales", {
   filters: filters({ region: "East Region" }),
 });
 assert.equal(eastSeat.fixedCompany, false);
-assert.equal(eastSeat.headlineText, "$10,706,607.64");
+assert.equal(eastSeat.headlineText, "$30.00");
+assert.equal(eastSeat.headline, 30);
+assert.equal(eastSeat.storeCount, 2);
+assert.equal(eastSeat.workbook, false);
 const laborLines = [
   {
     section: "labor",
@@ -280,20 +283,23 @@ const laborEast = seatSummary("labor", {
   rows: [],
   filters: filters({ region: "East Region" }),
 });
-assert.equal(laborEast.headlineText, "-3.97%");
+assert.equal(laborEast.headlineText, null);
+assert.equal(laborEast.workbook, false);
 const laborEastLine = seatSummary("labor", {
   lines: laborLines,
   rows: [],
   filters: filters({ region: "East Region" }),
 });
-assert.equal(laborEastLine.headlineText, "-8.59%");
+assert.equal(laborEastLine.headlineText, null);
+assert.equal(laborEastLine.workbook, false);
 const laborDivision = seatSummary("labor", {
   lines: laborLines,
   tables: laborTables,
   rows: [],
   filters: filters({ division: "Mid-Atlantic" }),
 });
-assert.equal(laborDivision.headlineText, "-13.59%");
+assert.equal(laborDivision.headlineText, null);
+assert.equal(laborDivision.workbook, false);
 assert.equal(laborGrainValue(laborTables, { grain: "region", label: "East", value: "-8.59%" }), "-3.97%");
 assert.equal(laborGrainValue(laborTables, { grain: "division", label: "Mid-Atlantic", value: "-13.59%" }), "-13.59%");
 const lostScopeRows = [
@@ -313,9 +319,7 @@ assert.equal(eastLost.missed, "Not available");
 assert.equal(eastLost.storeCount, 2);
 assert.deepEqual(lostExclMissed(lostScopeRows), { sum: 373, count: 3 });
 assert.equal(lostGrainRows(lostScopeRows, filters({}), lostScopeRows).find((row) => row.label === "South").value, 263);
-assert.equal(eastSeat.headline, null);
 assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
-assert.equal(eastSeat.storeCount, 615);
 const shawsSeat = seatSummary("sales", {
   company: companySales,
   lines: eastLines,
@@ -336,8 +340,9 @@ const districtSeat = seatSummary("sales", {
   rows: eastStores,
   filters: filters({ region: "East Region", district: "03" }),
 });
-assert.equal(districtSeat.headlineText, null);
+assert.equal(districtSeat.headlineText, "$10.00");
 assert.equal(districtSeat.headline, 10);
+assert.equal(districtSeat.workbook, false);
 assert.equal(districtSeat.secondary, "1 up · 0 flat · 0 down");
 const blankDynacap = seatSummary("dynacap", {
   company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
@@ -406,8 +411,8 @@ const midAtlantic = seatSummary("dynacap", {
   rows: [],
   filters: filters({ division: "Mid-Atlantic" }),
 });
-assert.equal(midAtlantic.headlineText, "100.0");
-assert.equal(midAtlantic.health, "watch");
+assert.equal(midAtlantic.headlineText, null);
+assert.equal(midAtlantic.workbook, false);
 assert.equal(
   scheduleVisibleTitle("Schedule Review Summary — Week 31 (WK31)", 32),
   "Schedule Review Summary — Week 32 (WK32)",
@@ -431,7 +436,7 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=29/);
+assert.match(pageHtml, /app\.css\?v=30/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
@@ -442,12 +447,12 @@ assert.match(css, /\.scope-chip \{[^}]*flex:\s*none/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.css\?v=29/);
-assert.match(pageHtml, /app\.js\?v=47/);
+assert.match(pageHtml, /app\.css\?v=30/);
+assert.match(pageHtml, /app\.js\?v=48/);
 assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
 assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
 assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
-assert.match(app, /const APP_VERSION = "47"/);
+assert.match(app, /const APP_VERSION = "48"/);
 assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
 assert.match(app, /id="build-stamp"/);
 assert.match(app, /Build \$\{esc\(buildLine\)\}/);
@@ -553,7 +558,18 @@ const rankedShoppers = sortShoppersByPph([
   { store: "1", shopper: "Low", shopperId: "Low", payload: { pph: 22.7, pick_hours: 0.9, orders: 1 } },
   { store: "1", shopper: "Zero", shopperId: "Zero", payload: { pph: 0, pick_hours: 1, orders: 1 } },
 ]);
-assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Zero", "Low", "High", "Blank"]);
+assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Low", "High", "Blank", "Zero"]);
+assert.equal(PPH_SOURCE_LOW, 0);
+assert.equal(PPH_SOURCE_HIGH, 300);
+assert.equal(PPH_SOURCE_CHECK(PPH_SOURCE_LOW), true);
+assert.equal(PPH_SOURCE_CHECK(PPH_SOURCE_HIGH), false);
+assert.equal(PPH_SOURCE_CHECK(0), true);
+assert.equal(PPH_SOURCE_CHECK(-1), true);
+assert.equal(PPH_SOURCE_CHECK(300), false);
+assert.equal(PPH_SOURCE_CHECK(300.01), true);
+assert.equal(PPH_SOURCE_CHECK(80), false);
+assert.equal(shopperPphLabel(0, (value) => Number(value).toFixed(1)), "0.0 check source");
+assert.equal(shopperPphLabel(81.2, (value) => Number(value).toFixed(1)), "81.2");
 assert.deepEqual(
   metricsInSource(rankedShoppers, [
     { label: "PPH", keys: ["pph"] },
@@ -567,7 +583,7 @@ assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/
 assert.equal(app.includes("Labor Sch Eff workbook total"), false);
 assert.match(app, /workbook roll-up/);
 assert.match(app, /store average/);
-assert.match(app, /PPH store average/);
+assert.match(app, /\$\{shownRate\("pph", built\.headline\)\} store average/);
 assert.match(app, /store sum/);
 assert.equal(divisionChipTitle("sales", "Sales"), "Sales store sum");
 assert.equal(divisionChipTitle("labor", "Labor"), "Labor store average");
@@ -580,7 +596,13 @@ assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Sch
 assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /export function formatCompanyAiv/);
 assert.match(app, /formatCompanyAiv\(aiv\)/);
 assert.match(app, /laborMarket/);
-assert.equal(formatCompanyAiv(0.002610916545167652), "0.00%");
+assert.equal(formatCompanyAiv(0.002610916545167652), "0.00% (+0.0026%)");
+assert.notEqual(formatCompanyAiv(0.002610916545167652), "0.26%");
+assert.notEqual(formatCompanyAiv(0.002610916545167652), "0.0000%");
+assert.equal(pct(-0.38645958215580284), "-0.39%");
+assert.notEqual(pct(-0.38645958215580284 * 100), "-0.39%");
+assert.equal(pct(-0.38645958215580284 / 100), "-0.00%");
+assert.match(app, /\["AIV", \["aiv_impact_pct"\], pct\]/);
 assert.equal(shopperHoursText(-0.45583333333333337, (value) => value.toFixed(1)), "source data issue");
 assert.equal(shopperHoursText(1.2, (value) => value.toFixed(1)), "1.2");
 assert.match(css, /\.share\[hidden\]/);
@@ -592,6 +614,11 @@ assert.match(phoneCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(phoneCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
 assert.match(deskCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(deskCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
+assert.match(phoneCss, /\.wordmark \{ font-size: 1\.48rem; \}/);
+assert.match(deskCss, /\.wordmark \{ font-size: 1\.48rem; \}/);
+assert.match(phoneCss, /\.heart \{ width: 32px; height: 29px; \}/);
+assert.match(deskCss, /\.heart \{ width: 32px; height: 29px; \}/);
+assert.match(deskCss, /\.brand-lockup \{[^}]*justify-self:\s*center/);
 assert.equal(phoneCss.includes("min-height: 32px"), false);
 assert.equal(deskCss.includes("min-height: 22px"), false);
 assert.match(css, /grid-template-areas:\s*"lockup"\s*"title"\s*"foot"/);
@@ -607,10 +634,10 @@ assert.equal(app.includes("worstHealth"), false);
 assert.equal(pageHtml.includes('id="stamp"'), false);
 assert.equal(pageHtml.includes('class="stamp"'), false);
 assert.match(pageHtml, /class="header-foot"/);
-assert.match(deskCss, /\.wordmark \{ font-size: 1\.55rem/);
-assert.match(deskCss, /h1 \{ font-size: 1\.05rem/);
-assert.match(deskCss, /#updated \{ font-size: 0\.78rem/);
-assert.match(deskCss, /\.pulse \{[^}]*margin-left:\s*-28px/);
+assert.match(deskCss, /\.wordmark \{ font-size: 1\.48rem/);
+assert.match(deskCss, /h1 \{\s*font-size: 0\.98rem/);
+assert.match(deskCss, /#updated \{[^}]*font-size: 0\.72rem/);
+assert.match(deskCss, /\.pulse \{[^}]*margin-left:\s*-26px/);
 assert.equal(deskCss.includes('"nav stamp"'), false);
 assert.equal(app.includes("Hide pages"), false);
 assert.equal(deskCss.includes(".chip strong"), false);
@@ -794,6 +821,20 @@ assert.deepEqual(scopeChips(store53).map((chip) => chip.label), ["Company", "Eas
 const eastBrowse = browseLevel(packRoster, { region: "", division: "", district: "", om: "", store: "" });
 assert.equal(eastBrowse.level, "region");
 assert.ok(eastBrowse.rows.every((row) => row.count > 0));
+const eastSearch = searchScope(packRoster, empty, "East");
+const regionGroup = eastSearch.find((group) => group.group === "Region");
+assert.ok(regionGroup, "typing East offers a Region group");
+assert.equal(eastSearch[0].group, "Region");
+const eastHit = regionGroup.hits.find((hit) => hit.label === "East");
+assert.ok(eastHit, "Region group offers East");
+assert.equal(eastHit.kind, "region");
+assert.equal(eastHit.value, "East Region");
+const browseEast = eastBrowse.rows.find((row) => row.label === "East");
+assert.deepEqual(cascadePick(packRoster, eastHit), cascadePick(packRoster, browseEast));
+assert.equal(cascadePick(packRoster, eastHit).region, "East Region");
+assert.equal(cascadePick(packRoster, eastHit).division, "");
+const eastScoped = searchScope(packRoster, filters({ region: "East Region" }), "East");
+assert.equal(eastScoped.some((group) => group.group === "Region"), false);
 const a1Browse = browseLevel(packRoster, { region: "East Region", division: "Mid-Atlantic", district: "", om: "", store: "" });
 assert.equal(a1Browse.level, "district");
 assert.ok(a1Browse.rows.some((row) => row.value === "A1" && row.count > 0 && row.label.includes("PHILA")));
@@ -1114,8 +1155,8 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
-assert.match(distIndex, /app\.css\?v=29/);
-assert.match(distIndex, /app\.js\?v=47/);
+assert.match(distIndex, /app\.css\?v=30/);
+assert.match(distIndex, /app\.js\?v=48/);
 assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
 const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
 assert.equal(distApp.includes("__BUILD_SHA__"), false);
@@ -1724,8 +1765,81 @@ else if (midRate >= 60) assert.equal(cookedMidAtlantic.health, "watch");
 else assert.equal(cookedMidAtlantic.health, "risk");
 const schedule = JSON.parse(readFileSync(join(root, "dist/data/schedule.json"), "utf8"));
 const pickerFile = JSON.parse(readFileSync(join(root, "dist/data/section/picker_scorecard.json"), "utf8"));
-assert.ok(pickerFile.rows.length > 1000);
+assert.equal(pickerFile.rows.length, 29923);
 assert.ok(pickerFile.rows.some((row) => row.shopper));
+const pickerSummary = shopperPphSummary(pickerFile.rows);
+assert.equal(pickerSummary.withPph, 29906);
+assert.equal(pickerSummary.atGoal, 9973);
+assert.equal(pickerSummary.between, 3470);
+assert.equal(pickerSummary.below, 16463);
+assert.equal(pickerSummary.missing, 17);
+assert.equal(pickerSummary.flagged, 27);
+assert.equal(pickerSummary.average.toFixed(2), "73.68");
+assert.equal(pickerSummary.hoursWeighted.toFixed(2), "73.93");
+let negativePph = 0;
+let zeroPph = 0;
+let highPph = 0;
+for (const row of pickerFile.rows) {
+  const pph = shopperPph(row);
+  if (pph == null || !PPH_SOURCE_CHECK(pph)) continue;
+  if (pph < 0) negativePph += 1;
+  else if (pph === 0) zeroPph += 1;
+  else highPph += 1;
+}
+assert.equal(negativePph, 1);
+assert.equal(zeroPph, 9);
+assert.equal(highPph, 17);
+const store688 = pickerFile.rows.filter((row) => canonicalStore(row.store) === "688");
+const store688Summary = shopperPphSummary(store688);
+assert.equal(store688.length, 31);
+assert.equal(store688Summary.withPph, 29);
+assert.equal(store688Summary.atGoal, 14);
+assert.equal(store688Summary.between, 2);
+assert.equal(store688Summary.below, 13);
+assert.equal(store688Summary.missing, 2);
+assert.equal(store688Summary.flagged, 0);
+const lowest688 = sortShoppersByPph(store688).find((row) => {
+  const pph = shopperPph(row);
+  return pph != null && !PPH_SOURCE_CHECK(pph);
+});
+assert.equal(lowest688.shopperId, "CPAD103");
+assert.equal(lowest688.payload.pph.toFixed(2), "51.88");
+const gric = pickerFile.rows.find((row) => row.shopperId === "GRIC122");
+const trowe = pickerFile.rows.find((row) => row.shopperId === "TROWE26");
+assert.equal(gric.store, "617");
+assert.equal(trowe.store, "2675");
+assert.equal(PPH_SOURCE_CHECK(gric.payload.pph), true);
+assert.equal(PPH_SOURCE_CHECK(trowe.payload.pph), true);
+assert.match(shopperPphLabel(gric.payload.pph, (value) => Number(value).toFixed(2)), /-169\.41 check source/);
+assert.match(shopperPphLabel(trowe.payload.pph, (value) => Number(value).toFixed(1)), /5,?142\.9 check source/);
+assert.equal(shopperMatchesQuery(gric, "GRIC122"), true);
+assert.equal(shopperMatchesQuery(trowe, "TROWE26"), true);
+assert.equal(sortShoppersByPph(pickerFile.rows).filter((row) => shopperMatchesQuery(row, "GRIC122")).length, 1);
+assert.equal(sortShoppersByPph(pickerFile.rows).filter((row) => shopperMatchesQuery(row, "TROWE26")).length, 1);
+assert.equal(PPH_SOURCE_CHECK(shopperPph(sortShoppersByPph(pickerFile.rows)[0])), false);
+assert.equal(app.includes("GRIC122"), false);
+assert.equal(app.includes("TROWE26"), false);
+assert.equal(readFileSync(join(root, "public/shoppers.js"), "utf8").includes("GRIC122"), false);
+assert.match(app, /shopper average, excl\. check source/);
+assert.match(app, /hours-weighted shopper average, excl\. check source/);
+assert.equal(app.includes("summary.workbookTotal"), false);
+assert.equal(app.includes('class="metric person"'), false);
+assert.match(app, /OM \$\{seat\.om\}/);
+assert.match(app, /Tap a region or store to see its shoppers/);
+assert.match(app, /data-pph-drill/);
+const qualityFile = JSON.parse(readFileSync(join(root, "public/data/section/schedule_quality.json"), "utf8"));
+const rosterDistrict = Object.fromEntries(packRoster.map((row) => [canonicalStore(row.store), row.district]));
+let acmeDistricts = 0;
+for (const row of qualityFile.rows) {
+  const rosterCode = rosterDistrict[canonicalStore(row.store)];
+  if (!rosterCode || !/^A\d$/i.test(rosterCode)) continue;
+  const shown = shownDistrict("schedule_quality", row.district, rosterCode);
+  acmeDistricts += 1;
+  assert.match(shown, new RegExp(`^${rosterCode}\\b`));
+  assert.equal(/^H/i.test(shown), false);
+}
+assert.ok(acmeDistricts > 100);
+assert.equal(pct(laborByStore["1"].payload.aiv_impact_pct), "-0.39%");
 const pathPickers = JSON.parse(readFileSync(join(root, "dist/data/section/pick_path_picker.json"), "utf8"));
 assert.ok(pathPickers.rows.length > 1000);
 assert.equal(schedule.empty, undefined);
@@ -1913,10 +2027,41 @@ const southLaborSeat = seatSummary("labor", {
   filters: filters({ region: "South Region" }),
   roster: packRoster,
 });
-assert.equal(eastLaborSeat.headlineText, "-3.97%");
-assert.equal(eastLaborSeat.workbook, true);
-assert.equal(southLaborSeat.headlineText, "-3.64%");
-assert.equal(southLaborSeat.workbook, true);
+assert.equal(eastLaborSeat.headlineText, "-5.62%");
+assert.equal(eastLaborSeat.workbook, false);
+assert.equal(eastLaborSeat.storeCount, 593);
+assert.equal(eastLaborAvg.flagged, 17);
+assert.equal(southLaborSeat.headlineText, "-3.43%");
+assert.equal(southLaborSeat.workbook, false);
+assert.equal(southLaborSeat.storeCount, 392);
+assert.equal(southLaborAvg.flagged, 0);
+const californiaLaborSeat = seatSummary("labor", {
+  company: laborCompany,
+  lines: packHome.regionLines,
+  tables: packHome.regionTables,
+  rows: laborRows,
+  filters: filters({ region: "California Region" }),
+  roster: packRoster,
+});
+const westLaborSeat = seatSummary("labor", {
+  company: laborCompany,
+  lines: packHome.regionLines,
+  tables: packHome.regionTables,
+  rows: laborRows,
+  filters: filters({ region: "West Region" }),
+  roster: packRoster,
+});
+assert.equal(californiaLaborSeat.headlineText, "-5.38%");
+assert.equal(californiaLaborSeat.workbook, false);
+assert.equal(californiaLaborSeat.storeCount, 571);
+assert.equal(californiaLaborAvg.flagged, 28);
+assert.equal(westLaborSeat.headlineText, "-4.62%");
+assert.equal(westLaborSeat.workbook, false);
+assert.equal(westLaborSeat.storeCount, 538);
+assert.equal(westLaborAvg.flagged, 10);
+assert.equal(app.includes("laborRegionRollup"), false);
+assert.match(app, /function laborFilteredAverage\(\) \{\n  return filtersActive\(state\.filters\);\n\}/);
+assert.match(app, /\$\{num\(count, 0\)\} check source/);
 const eastSalesRows = summarizeSeat(
   "sales",
   rowsInScope(salesRows, filters({ region: "East Region" }), packRoster, "sales"),
@@ -1938,6 +2083,81 @@ assert.equal(metricCountLine(dynRows, ["dynacap_rate", "pieces_per_hour"]), "2,0
 assert.equal(metricCountLine(dynRows, ["utilization_pct", "pickup_util_pct"]), "2,089 of 2,164");
 assert.equal(metricCountLine(dynRows, ["eot_capacity", "used_capacity"]), "");
 assert.match(app, /metricCountLine\(/);
+const missingRows = JSON.parse(readFileSync(join(root, "public/data/section/missing_items.json"), "utf8")).rows;
+const blankSalesIds = ["378", "797", "1734", "1777", "1787", "2156", "2258", "2796", "3067", "3610", "3964", "4187", "4270"];
+const blankSales = salesRows.filter((row) => {
+  const division = String(row.division || "").trim();
+  const dollars = Number(row.payload && row.payload.sales_dollars) || 0;
+  const orders = Number(row.payload && row.payload.sales_orders) || 0;
+  return !division && dollars === 0 && orders === 0;
+});
+assert.deepEqual(
+  blankSales.map((row) => String(Number(row.store))).sort(),
+  blankSalesIds.slice().sort(),
+);
+assert.equal(sectionStoreCount(salesRows, noScope, packRoster, "sales"), 2168);
+const regionGold = [
+  ["East", 23372961.03, 613, 249680, 5600031, 1369516.37, 613, 9368, 81.28, 612, 8.49, 613],
+  ["South", 14749116.96, 397, 177060, 3971682, 684390, 397, 5476, 59.41, 325, 7.05, 397],
+  ["California", 23804503.18, 601, 264534, 4961901, 1014772.91, 600, 8125, 59.14, 600, 8.05, 600],
+  ["West", 19907309.4, 557, 213760, 4728751, 759943.27, 557, 6869, 67.39, 552, 6.36, 557],
+];
+const salesCompany = packHome.summaries.find((item) => item.section === "sales");
+let regionSales = 0;
+let regionOrders = 0;
+let regionItems = 0;
+for (const [name, sales, salesN, orders, items, lost, lostN, shoppers, pcs, pcsN, missing, missingN] of regionGold) {
+  const scope = filters({ region: `${name} Region` });
+  const salesScoped = rowsInScope(salesRows, scope, packRoster, "sales");
+  const salesBuilt = summarizeSeat("sales", salesScoped);
+  assert.equal(money(salesBuilt.headline), money(sales), `${name} sales`);
+  assert.equal(salesBuilt.storeCount, salesN, `${name} sales stores`);
+  assert.equal(payloadSum(salesScoped, "sales_orders").sum, orders, `${name} orders`);
+  assert.equal(payloadSum(salesScoped, "sales_items").sum, items, `${name} items`);
+  const lostRoll = lostExclMissed(rowsInScope(lostRows, scope, packRoster, "lost_revenue"));
+  assert.equal(money(lostRoll.sum), money(lost), `${name} lost`);
+  assert.equal(lostRoll.count, lostN, `${name} lost stores`);
+  assert.equal(
+    distinctShopperCount(rowsInScope(pickerRows, scope, packRoster, "picker_scorecard")),
+    shoppers,
+    `${name} shoppers`,
+  );
+  const pcsBuilt = summarizeSeat("dynacap", rowsInScope(dynRows, scope, packRoster, "dynacap"));
+  assert.equal(Number(pcsBuilt.headline).toFixed(2), Number(pcs).toFixed(2), `${name} pcs/hr`);
+  assert.equal(pcsBuilt.storeCount, pcsN, `${name} pcs/hr stores`);
+  const missingBuiltRegion = summarizeSeat("missing_items", rowsInScope(missingRows, scope, packRoster, "missing_items"));
+  assert.equal(pct(missingBuiltRegion.headline), pct(missing), `${name} missing`);
+  assert.equal(missingBuiltRegion.storeCount, missingN, `${name} missing stores`);
+  const salesSeat = seatSummary("sales", {
+    company: salesCompany,
+    lines: packHome.regionLines,
+    tables: packHome.regionTables,
+    rows: salesRows,
+    filters: scope,
+    roster: packRoster,
+  });
+  assert.equal(salesSeat.workbook, false, `${name} sales workbook`);
+  assert.equal(money(salesSeat.headline), money(sales), `${name} sales seat`);
+  assert.equal(salesSeat.storeCount, salesN, `${name} sales seat stores`);
+  regionSales += salesBuilt.headline;
+  regionOrders += orders;
+  regionItems += items;
+}
+assert.equal(money(regionSales), "$81,833,890.57");
+assert.equal(regionOrders, 905034);
+assert.equal(regionItems, 19262365);
+const salesGrain = sectionRowGrain("sales", salesRows, noScope, packRoster, packHome.regionLines);
+for (const row of salesGrain) {
+  assert.equal(row.workbook, false);
+  assert.equal(String(row.value).toLowerCase().includes("workbook"), false);
+}
+assert.equal(salesGrain.find((row) => row.grain === "region" && row.label === "East").count, 613);
+assert.equal(salesGrain.find((row) => row.grain === "region" && row.label === "South").count, 397);
+const laborValueGrain = sectionRowGrain("labor", laborRows, noScope, packRoster, packHome.regionLines);
+const eastLaborGrain = laborValueGrain.find((row) => row.grain === "region" && row.label === "East");
+assert.equal(eastLaborGrain.workbook, false);
+assert.match(eastLaborGrain.value, /^-5\.62% store average/);
+assert.equal(eastLaborGrain.value.toLowerCase().includes("workbook"), false);
 assert.match(app, /<small class="count">/);
 assert.match(css, /\.chip small\.count/);
 assert.match(app, /Loading shopper rows…/);
