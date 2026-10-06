@@ -26,6 +26,17 @@ if [[ -z "${HEARTBEAT_SKIP_GIT_CHECK:-}" && "${1:-}" != "--install" ]]; then
     echo "refusing cook: ${BRANCH} is ${BEHIND} commit(s) behind origin/${BRANCH}" >&2
     exit 1
   fi
+  # cook-guard.sh documents the pinned cook paths. A dirty publish-web.sh
+  # is flagged for review and does not stop the cook. Any other dirty path
+  # outside that list is refused.
+  changed=()
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && changed+=("$path")
+  done < <(git -C "$ROOT" diff --name-only HEAD)
+  if ((${#changed[@]})) && ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" "${changed[@]}"; then
+    echo "refusing cook: a change is outside the cook path" >&2
+    exit 1
+  fi
 fi
 ICLOUD="${HEARTBEAT_ICLOUD_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/Heartbeat_Reports}"
 MARKERS="${HEARTBEAT_COOK_MARKERS:-$HOME/Library/Application Support/Heartbeat/cook-markers}"

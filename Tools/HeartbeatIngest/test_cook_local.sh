@@ -115,4 +115,51 @@ refuse=$?
 set -e
 test "$refuse" -ne 0
 
+guard() {
+  bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" "$@"
+}
+test "$(guard web/scripts/extract_web_pack.py)" = "cook"
+test "$(guard Tools/HeartbeatIngest/cook-local.sh)" = "cook"
+test "$(guard Tools/HeartbeatIngest/prepare-sources.sh)" = "cook"
+test "$(guard Tools/HeartbeatIngest/nested/file.sh)" = "cook"
+test "$(guard web/check_pack.mjs)" = "cook"
+test "$(guard web/functions/pack-store.js)" = "cook"
+test "$(guard)" = "cook"
+review_out="$(guard Tools/HeartbeatIngest/publish-web.sh 2>"$WORK/review.err")"
+test "$review_out" = "review"
+grep -q "flagged for review" "$WORK/review.err"
+mix="$(guard web/scripts/extract_web_pack.py Tools/HeartbeatIngest/publish-web.sh 2>"$WORK/review-mix.err")"
+test "$mix" = "review"
+set +e
+refuse_out="$(guard web/public/app.js 2>"$WORK/refuse.err")"
+refuse_status=$?
+set -e
+test "$refuse_status" -ne 0
+test "$refuse_out" = "refuse"
+set +e
+both="$(guard web/check_pack.mjs Tools/HeartbeatIngest/publish-web.sh web/functions/_middleware.js 2>"$WORK/both.err")"
+both_status=$?
+set -e
+test "$both_status" -ne 0
+test "$both" = "refuse"
+guard_src="$(cat "$ROOT/Tools/HeartbeatIngest/cook-guard.sh")"
+for needle in \
+  "web/scripts/extract_web_pack.py" \
+  "Tools/HeartbeatIngest/cook-local.sh" \
+  "Tools/HeartbeatIngest/" \
+  "web/check_pack.mjs" \
+  "web/functions/pack-store.js" \
+  "schemaVersion" \
+  "cookSha" \
+  "laborMarket" \
+  "regionTables" \
+  "summaries" \
+  "companyTiles" \
+  "filters.stores" \
+  "flagged for review" \
+  "not an auto-refuse"
+do
+  grep -q "$needle" <<<"$guard_src"
+done
+
 echo "cook-local orchestrator ok first=$first second=$second"
