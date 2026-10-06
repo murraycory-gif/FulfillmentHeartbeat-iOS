@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
@@ -21,7 +21,7 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, laborBridgeCensus, lostRollupErrors, packIdentityErrors, storeCountErrors, workbookTotalErrors } from "./check_pack.mjs";
+import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, laborBridgeCensus, lostRollupErrors, octoberStoreFixture, packIdentityErrors, packValueErrors, storeCountErrors, workbookTotalErrors } from "./check_pack.mjs";
 import { PACK_FILES, PACK_POINTER_KEY, PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, readPackObject, resetPackCache, sha256Hex } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, WORKBOOK_TOTAL_FIELDS, schemaWarning } from "./public/schema.js";
@@ -949,6 +949,244 @@ assert.ok(
 assert.ok(liveErrors.some((item) => item.includes("storeCount=")));
 assert.ok(liveErrors.some((item) => item.includes("currency")));
 assert.ok(liveErrors.some((item) => item.startsWith("lost ")));
+assert.equal(liveErrors.some((item) => item.startsWith("Goal %")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("Lost %")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("Missed")), false);
+assert.equal(liveErrors.some((item) => item.includes("store 6")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("lost 210")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("lost 239")), false);
+assert.equal(liveErrors.some((item) => item.includes("sheet=2167")), false);
+assert.equal(liveErrors.some((item) => item.includes("labor flagged=")), false);
+const pinnedSales = JSON.parse(readFileSync(join(livePack, "section/sales.json"), "utf8"));
+const pinnedLost = JSON.parse(readFileSync(join(livePack, "section/lost_revenue.json"), "utf8"));
+const pinnedSchedule = JSON.parse(readFileSync(join(livePack, "schedule.json"), "utf8"));
+assert.deepEqual(packValueErrors(packHome, pinnedSales, pinnedLost), []);
+assert.deepEqual(octoberStoreFixture(packHome, pinnedLost, pinnedSchedule), []);
+assert.deepEqual(octoberStoreFixture({ metadata: { cookSha: "e".repeat(40) } }, pinnedLost, pinnedSchedule), [
+  "october fixture runs only on the pinned Oct 5 pack",
+]);
+
+function moneyText(number) {
+  const rounded = Math.round(number * 100) / 100;
+  return `$${rounded.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fixMoneyString(value) {
+  if (typeof value !== "string" || !value.trim().startsWith("$")) return value;
+  const number = Number(value.replace(/[$,\s]/g, ""));
+  return Number.isFinite(number) ? moneyText(number) : value;
+}
+
+function payloadSum(rows, key) {
+  let total = 0;
+  for (const row of rows) {
+    const payload = row && row.payload;
+    if (!payload || payload[key] == null || payload[key] === "") continue;
+    const number = Number(payload[key]);
+    if (Number.isFinite(number)) total += number;
+  }
+  return total;
+}
+
+function putTile(home, section, label, value) {
+  const block = home.companyTiles[section];
+  const index = block.labels.indexOf(label);
+  if (index >= 0) block.values[index] = value;
+}
+
+const FRESH_REGION = {
+  Shaws: "East",
+  "Mid-Atlantic": "East",
+  "Jewel Osco": "East",
+  Southern: "South",
+  United: "South",
+  Southwest: "South",
+  NorCal: "California",
+  SoCal: "California",
+  "Mountain West": "West",
+  Seattle: "West",
+  Haggen: "West",
+  Portland: "West",
+};
+
+function writeFreshWeek() {
+  const dir = mkdtempSync(join(tmpdir(), "hb-week-"));
+  cpSync(livePack, dir, { recursive: true });
+  const sha = "d".repeat(40);
+  const cookedAt = "2026-10-13T15:00:00Z";
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  const sales = JSON.parse(readFileSync(join(dir, "section/sales.json"), "utf8"));
+  const lost = JSON.parse(readFileSync(join(dir, "section/lost_revenue.json"), "utf8"));
+  const bumped = sales.rows.find((row) => row && row.division === "Shaws" && row.payload);
+  bumped.payload.sales_dollars = Number(bumped.payload.sales_dollars) + 1234.56;
+  bumped.payload.sales_orders = Number(bumped.payload.sales_orders) + 3;
+  bumped.payload.sales_items = Number(bumped.payload.sales_items) + 9;
+  const store6 = lost.rows.find((row) => String(row.store) === "6");
+  delete store6.payload.missed_sales;
+  const loss210 = lost.rows.find((row) => String(row.store) === "210");
+  const loss239 = lost.rows.find((row) => String(row.store) === "239");
+  loss210.payload.lost_revenue = 999;
+  loss239.payload.lost_revenue = 111;
+  const missedRow = lost.rows.find(
+    (row) => row.payload && row.payload.missed_sales != null && String(row.store) !== "6",
+  );
+  missedRow.payload.missed_sales = Number(missedRow.payload.missed_sales) + 50;
+  missedRow.payload.lost_revenue = Number(missedRow.payload.lost_revenue) + 50;
+  const goalRow = lost.rows.find((row) => row.payload && row.payload.lost_revenue_goal != null);
+  goalRow.payload.lost_revenue_goal = Number(goalRow.payload.lost_revenue_goal) + 25;
+  const salesDollars = payloadSum(sales.rows, "sales_dollars");
+  const orders = payloadSum(sales.rows, "sales_orders");
+  const items = payloadSum(sales.rows, "sales_items");
+  putTile(home, "sales", "Sales $", moneyText(salesDollars));
+  putTile(home, "sales", "Orders", Math.round(orders).toLocaleString("en-US"));
+  putTile(home, "sales", "Items", Math.round(items).toLocaleString("en-US"));
+  const lostDollars = payloadSum(lost.rows, "lost_revenue");
+  const missedDollars = payloadSum(lost.rows, "missed_sales");
+  const ecommDollars = payloadSum(lost.rows, "ecomm_sales");
+  const goalDollars = payloadSum(lost.rows, "lost_revenue_goal");
+  putTile(home, "lost_revenue", "Lost $", moneyText(lostDollars));
+  putTile(home, "lost_revenue", "Missed", moneyText(missedDollars));
+  putTile(home, "lost_revenue", "eComm $", moneyText(ecommDollars));
+  putTile(home, "lost_revenue", "Lost %", `${((lostDollars / ecommDollars) * 100).toFixed(2)}%`);
+  putTile(home, "lost_revenue", "Goal %", `${((goalDollars / ecommDollars) * 100).toFixed(2)}%`);
+  const workbook = {};
+  for (const [section, fields] of Object.entries(WORKBOOK_TOTAL_FIELDS)) {
+    workbook[section] = Object.fromEntries(fields.map((field) => [field, 1]));
+  }
+  workbook.sales.sales_dollars = salesDollars;
+  workbook.lost_revenue.lost_dollars = lostDollars;
+  workbook.lost_revenue.missed_dollars = missedDollars;
+  workbook.lost_revenue.ecomm_dollars = ecommDollars;
+  home.workbookTotal = workbook;
+  const byRegion = new Map();
+  for (const row of lost.rows) {
+    const region = FRESH_REGION[row.division];
+    if (!region) continue;
+    if (!byRegion.has(region)) byRegion.set(region, []);
+    byRegion.get(region).push(row);
+  }
+  const exclOf = (list) =>
+    list.reduce((sum, row) => {
+      const payload = row.payload || {};
+      return sum + (Number(payload.lost_revenue) || 0) - (Number(payload.missed_sales) || 0);
+    }, 0);
+  const lostLines = ["East", "South", "California", "West"].map((region) => {
+    const rows = byRegion.get(region) || [];
+    const byDivision = new Map();
+    for (const row of rows) {
+      if (!byDivision.has(row.division)) byDivision.set(row.division, []);
+      byDivision.get(row.division).push(row);
+    }
+    return {
+      section: "lost_revenue",
+      region,
+      title: "Lost $ excl. Missed",
+      value: moneyText(exclOf(rows)),
+      count: rows.length,
+      health: "good",
+      missed: "Not available",
+      children: [...byDivision.entries()].map(([division, list]) => ({
+        division,
+        value: moneyText(exclOf(list)),
+        count: list.length,
+        health: "good",
+        missed: "Not available",
+      })),
+    };
+  });
+  home.regionLines = home.regionLines.filter((line) => line.section !== "lost_revenue").concat(lostLines);
+  for (const block of Object.values(home.companyTiles)) {
+    if (Array.isArray(block.values)) block.values = block.values.map(fixMoneyString);
+  }
+  for (const line of home.regionLines) {
+    line.value = fixMoneyString(line.value);
+    for (const child of line.children || []) child.value = fixMoneyString(child.value);
+  }
+  for (const row of home.regionTables || []) row.headline = fixMoneyString(row.headline);
+  for (const section of ["lost_revenue", "missing_items", "five_star", "pre_sub_oos"]) {
+    const summary = home.summaries.find((item) => item.section === section);
+    const file =
+      section === "lost_revenue"
+        ? lost
+        : JSON.parse(readFileSync(join(dir, "section", `${section}.json`), "utf8"));
+    summary.storeCount = file.rows.length;
+  }
+  const picker = JSON.parse(readFileSync(join(dir, "section/picker_scorecard.json"), "utf8"));
+  home.pickerRollups.company.stores = new Set(picker.rows.map((row) => row && row.store).filter(Boolean)).size;
+  const stamp = (value) => {
+    value.publishedAt = value.publishedAt || home.publishedAt;
+    value.schemaVersion = SCHEMA_VERSION;
+    value.cookSha = sha;
+    value.cookedAt = cookedAt;
+    if (value.metadata && typeof value.metadata === "object") {
+      value.metadata.schemaVersion = SCHEMA_VERSION;
+      value.metadata.cookSha = sha;
+    }
+  };
+  const bodies = {
+    "home.json": home,
+    "section/sales.json": sales,
+    "section/lost_revenue.json": lost,
+  };
+  for (const rel of PACK_FILES) {
+    const body = bodies[rel] || JSON.parse(readFileSync(join(dir, rel), "utf8"));
+    stamp(body);
+    writeFileSync(join(dir, rel), JSON.stringify(body));
+  }
+  return dir;
+}
+
+const freshWeek = writeFreshWeek();
+const freshCheck = checkPack(freshWeek);
+assert.deepEqual(freshCheck.errors, [], freshCheck.errors.join("\n"));
+const freshHome = JSON.parse(readFileSync(join(freshWeek, "home.json"), "utf8"));
+assert.notEqual(freshHome.companyTiles.sales.values[freshHome.companyTiles.sales.labels.indexOf("Sales $")], "$81,833,890.57");
+assert.notEqual(freshHome.companyTiles.lost_revenue.values[freshHome.companyTiles.lost_revenue.labels.indexOf("Goal %")], "3.06%");
+assert.notEqual(freshHome.companyTiles.lost_revenue.values[freshHome.companyTiles.lost_revenue.labels.indexOf("Lost %")], "5.19%");
+assert.notEqual(freshHome.companyTiles.lost_revenue.values[freshHome.companyTiles.lost_revenue.labels.indexOf("Missed")], "$420,030.87");
+assert.deepEqual(octoberStoreFixture(freshHome, JSON.parse(readFileSync(join(freshWeek, "section/lost_revenue.json"), "utf8")), pinnedSchedule), [
+  "october fixture runs only on the pinned Oct 5 pack",
+]);
+
+function corruptFresh(mutate) {
+  const dir = mkdtempSync(join(tmpdir(), "hb-corrupt-"));
+  cpSync(freshWeek, dir, { recursive: true });
+  mutate(dir);
+  return dir;
+}
+
+const salesDisagree = corruptFresh((dir) => {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  const labels = home.companyTiles.sales.labels;
+  home.companyTiles.sales.values[labels.indexOf("Sales $")] = "$10,000,000.00";
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+});
+assert.ok(checkPack(salesDisagree).errors.some((item) => item.startsWith("Sales $")));
+const droppedLost = corruptFresh((dir) => {
+  const lost = JSON.parse(readFileSync(join(dir, "section/lost_revenue.json"), "utf8"));
+  lost.rows = lost.rows.slice(100);
+  writeFileSync(join(dir, "section/lost_revenue.json"), JSON.stringify(lost));
+});
+assert.ok(checkPack(droppedLost).errors.some((item) => item.includes("lost rows=") && item.includes("floor=")));
+const zeroedMissed = corruptFresh((dir) => {
+  const lost = JSON.parse(readFileSync(join(dir, "section/lost_revenue.json"), "utf8"));
+  for (const row of lost.rows) {
+    if (row.payload && Object.prototype.hasOwnProperty.call(row.payload, "missed_sales")) row.payload.missed_sales = 0;
+  }
+  writeFileSync(join(dir, "section/lost_revenue.json"), JSON.stringify(lost));
+});
+assert.ok(checkPack(zeroedMissed).errors.some((item) => item.includes("missed_sales collapsed")));
+const missingRegion = corruptFresh((dir) => {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  home.regionLines = home.regionLines.filter((line) => !(line.section === "sales" && line.region === "East"));
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+});
+assert.ok(checkPack(missingRegion).errors.some((item) => item === "sales region East missing"));
+rmSync(freshWeek, { recursive: true, force: true });
+rmSync(salesDisagree, { recursive: true, force: true });
+rmSync(droppedLost, { recursive: true, force: true });
+rmSync(zeroedMissed, { recursive: true, force: true });
+rmSync(missingRegion, { recursive: true, force: true });
 const liveRepublish = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", livePack], { encoding: "utf8" });
 assert.notEqual(liveRepublish.status, 0);
 assert.match(liveRepublish.stderr, /refusing publish: cookedAt is missing/);

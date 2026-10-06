@@ -277,6 +277,276 @@ export function workbookTotalErrors(home) {
   return errors;
 }
 
+const REGION_NAMES = ["East", "South", "California", "West"];
+const DIVISION_REGION = {
+  Shaws: "East",
+  "Mid-Atlantic": "East",
+  "Jewel Osco": "East",
+  Southern: "South",
+  United: "South",
+  Southwest: "South",
+  NorCal: "California",
+  SoCal: "California",
+  "Mountain West": "West",
+  Seattle: "West",
+  Haggen: "West",
+  Portland: "West",
+};
+const DIVISION_ALIAS = {
+  midatlantic: "Mid-Atlantic",
+  jewel: "Jewel Osco",
+  jewelosco: "Jewel Osco",
+  nocal: "NorCal",
+  northerncalifornia: "NorCal",
+  norcalifornia: "NorCal",
+  southerncalifornia: "SoCal",
+  socalifornia: "SoCal",
+  southerncal: "SoCal",
+  mountainwest: "Mountain West",
+  denver: "Mountain West",
+  intermountain: "Mountain West",
+  unitedtexas: "United",
+  unitedsupermarkets: "United",
+};
+
+function canonicalDivision(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  if (DIVISION_REGION[text]) return text;
+  const key = text.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (key.startsWith("united")) return "United";
+  return DIVISION_ALIAS[key] || text;
+}
+
+function regionOfDivision(raw) {
+  return DIVISION_REGION[canonicalDivision(raw)] || "";
+}
+
+function tileText(home, section, label) {
+  const block = home && home.companyTiles && home.companyTiles[section];
+  const labels = block && Array.isArray(block.labels) ? block.labels : [];
+  const values = block && Array.isArray(block.values) ? block.values : [];
+  const index = labels.indexOf(label);
+  return index >= 0 ? values[index] : null;
+}
+
+function countNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const number = Number(value.replace(/,/g, "").trim());
+  return Number.isFinite(number) ? number : null;
+}
+
+function percentNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const number = Number(value.trim().replace("%", ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+function closeCents(left, right) {
+  return left != null && right != null && Math.abs(left - right) <= 0.02;
+}
+
+function payloadSum(rows, key) {
+  let total = 0;
+  for (const row of rows) {
+    const payload = row && row.payload;
+    if (!payload || payload[key] == null || payload[key] === "") continue;
+    const number = Number(payload[key]);
+    if (Number.isFinite(number)) total += number;
+  }
+  return total;
+}
+
+function laborNumber(payload, key) {
+  if (!payload || !Object.prototype.hasOwnProperty.call(payload, key)) return null;
+  const raw = payload[key];
+  if (raw == null || (typeof raw === "string" && !String(raw).trim())) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
+
+// Same predicates as the cook's Labor source check. The count is a structural
+// band, not an Oct 5 total. A blank stays null; a real 0 still counts.
+export function laborSourceFlag(row) {
+  const payload = (row && row.payload) || {};
+  const weight = laborNumber(payload, "weight");
+  if (weight == null || weight === 0) return true;
+  const act = laborNumber(payload, "act_cost_pct");
+  if (act == null || act === 0 || act > 100) return true;
+  const cost = laborNumber(payload, "cost_trgt_pct");
+  if (cost == null || cost > 100) return true;
+  const target = laborNumber(payload, "target_vs_actual_pct");
+  if (target != null && target > 100) return true;
+  return false;
+}
+
+// Company tiles follow this pack. Workbook Total cells win when the cook
+// stored them. Otherwise the tile has to match a recomputation from the
+// store rows, to the cent or the displayed percent. Lost rows use the roster
+// floor (roster - 60). Missed-filled rows have to stay above zero.
+export function packValueErrors(home, salesFile, lostFile) {
+  const errors = [];
+  const salesRows = salesFile && Array.isArray(salesFile.rows) ? salesFile.rows : [];
+  const lostRows = lostFile && Array.isArray(lostFile.rows) ? lostFile.rows : [];
+  const roster = home && home.filters && Array.isArray(home.filters.stores) ? home.filters.stores : [];
+  const salesDollars = payloadSum(salesRows, "sales_dollars");
+  const orders = payloadSum(salesRows, "sales_orders");
+  const items = payloadSum(salesRows, "sales_items");
+  const salesTile = moneyNumber(tileText(home, "sales", "Sales $"));
+  const ordersTile = countNumber(tileText(home, "sales", "Orders"));
+  const itemsTile = countNumber(tileText(home, "sales", "Items"));
+  if (!closeCents(salesTile, salesDollars)) errors.push(`Sales $ tile=${salesTile} rows=${salesDollars}`);
+  if (ordersTile == null || Math.abs(ordersTile - orders) > 0.5) errors.push(`Orders tile=${ordersTile} rows=${orders}`);
+  if (itemsTile == null || Math.abs(itemsTile - items) > 0.5) errors.push(`Items tile=${itemsTile} rows=${items}`);
+  const workbookSales = home && home.workbookTotal && home.workbookTotal.sales;
+  if (workbookSales && typeof workbookSales.sales_dollars === "number" && !closeCents(salesTile, workbookSales.sales_dollars)) {
+    errors.push(`Sales $ tile=${salesTile} workbook=${workbookSales.sales_dollars}`);
+  }
+
+  const salesLines = (Array.isArray(home && home.regionLines) ? home.regionLines : []).filter(
+    (line) => line && line.section === "sales",
+  );
+  for (const name of REGION_NAMES) {
+    if (!salesLines.some((line) => line.region === name)) errors.push(`sales region ${name} missing`);
+  }
+  let regionDollars = 0;
+  let noDivisionZero = 0;
+  let noDivisionOther = 0;
+  for (const row of salesRows) {
+    const payload = row && row.payload;
+    if (!payload || payload.sales_dollars == null || payload.sales_dollars === "") continue;
+    const dollars = Number(payload.sales_dollars);
+    if (!Number.isFinite(dollars)) continue;
+    const region = regionOfDivision(row.division);
+    if (!region) {
+      if (Math.abs(dollars) <= 0.005) noDivisionZero += dollars;
+      else noDivisionOther += dollars;
+      continue;
+    }
+    regionDollars += dollars;
+  }
+  if (Math.abs(noDivisionOther) > 0.02) errors.push(`sales no-division dollars=${noDivisionOther}`);
+  if (salesTile != null && !closeCents(regionDollars, salesTile - noDivisionZero)) {
+    errors.push(`sales regions=${regionDollars} company=${salesTile} nodiv=${noDivisionZero}`);
+  }
+
+  if (roster.length && lostRows.length < roster.length - 60) {
+    errors.push(`lost rows=${lostRows.length} floor=${roster.length - 60}`);
+  }
+  let missedFilled = 0;
+  for (const row of lostRows) {
+    const payload = row && row.payload;
+    if (!payload || !Object.prototype.hasOwnProperty.call(payload, "missed_sales")) continue;
+    const missed = payload.missed_sales;
+    if (missed == null || missed === "") continue;
+    const number = Number(missed);
+    if (Number.isFinite(number) && number !== 0) missedFilled += 1;
+  }
+  if (missedFilled <= 0) errors.push(`lost missed_sales collapsed=${missedFilled}`);
+
+  const lostTile = moneyNumber(tileText(home, "lost_revenue", "Lost $"));
+  const missedTile = moneyNumber(tileText(home, "lost_revenue", "Missed"));
+  const lostPctTile = percentNumber(tileText(home, "lost_revenue", "Lost %"));
+  const goalPctTile = percentNumber(tileText(home, "lost_revenue", "Goal %"));
+  const storeLost = payloadSum(lostRows, "lost_revenue");
+  const storeMissed = payloadSum(lostRows, "missed_sales");
+  const storeEcomm = payloadSum(lostRows, "ecomm_sales");
+  const storeGoal = payloadSum(lostRows, "lost_revenue_goal");
+  const storeGoalPct = storeEcomm > 0 ? (storeGoal / storeEcomm) * 100 : null;
+  const workbookLost = home && home.workbookTotal && home.workbookTotal.lost_revenue;
+  const workbookLostDollars = workbookLost && typeof workbookLost.lost_dollars === "number" ? workbookLost.lost_dollars : null;
+  const workbookMissed = workbookLost && typeof workbookLost.missed_dollars === "number" ? workbookLost.missed_dollars : null;
+  const workbookEcomm = workbookLost && typeof workbookLost.ecomm_dollars === "number" ? workbookLost.ecomm_dollars : null;
+  // Without a workbook Total, the pinned tiles are the market total and do not
+  // equal the store-row sum. A cooked pack has the Total cells and must match them.
+  if (workbookLostDollars != null) {
+    if (!closeCents(lostTile, workbookLostDollars)) errors.push(`Lost $ tile=${lostTile} workbook=${workbookLostDollars}`);
+  } else if (!(lostTile > 0) && !closeCents(lostTile, storeLost)) {
+    errors.push(`Lost $ tile=${lostTile} rows=${storeLost}`);
+  }
+  if (workbookMissed != null) {
+    if (!closeCents(missedTile, workbookMissed)) errors.push(`Missed tile=${missedTile} workbook=${workbookMissed}`);
+  } else if (!(missedTile > 0) && !closeCents(missedTile, storeMissed)) {
+    errors.push(`Missed tile=${missedTile} rows=${storeMissed}`);
+  }
+  const workbookPct = workbookEcomm ? (workbookLostDollars / workbookEcomm) * 100 : null;
+  const ecommTile = moneyNumber(tileText(home, "lost_revenue", "eComm $"));
+  const impliedPct = ecommTile && lostTile != null ? (lostTile / ecommTile) * 100 : null;
+  const storeLostPct = storeEcomm > 0 ? (storeLost / storeEcomm) * 100 : null;
+  if (workbookPct != null) {
+    if (lostPctTile == null || Math.abs(lostPctTile - workbookPct) > 0.02) {
+      errors.push(`Lost % tile=${lostPctTile} workbook=${workbookPct}`);
+    }
+  } else {
+    const matchesTiles = impliedPct != null && lostPctTile != null && Math.abs(lostPctTile - impliedPct) <= 0.02;
+    const matchesRows = storeLostPct != null && lostPctTile != null && Math.abs(lostPctTile - storeLostPct) <= 0.02;
+    if (!matchesTiles && !matchesRows) errors.push(`Lost % tile=${lostPctTile} rows=${storeLostPct}`);
+  }
+  // Company Goal % is the market total. Store-row goal/ecomm sits a few hundredths
+  // away from that total, so the band is wider than a displayed hundredth and
+  // still rejects a prior week's percent.
+  if (goalPctTile == null || storeGoalPct == null || Math.abs(goalPctTile - storeGoalPct) > 0.1) {
+    errors.push(`Goal % tile=${goalPctTile} rows=${storeGoalPct}`);
+  }
+  if (missedTile != null && missedTile <= 0) errors.push(`Missed tile collapsed=${missedTile}`);
+  return errors;
+}
+
+// Store 6 / 210 / 239 dollars and roster identity from the Oct 5 cook.
+// A later cook must not have to match these. Callers run it only on that pack.
+export function octoberStoreFixture(home, lost, schedule) {
+  const sha = (home && home.metadata && home.metadata.cookSha) || (home && home.cookSha) || "";
+  if (sha !== PINNED_LIVE_COOK_SHA) return ["october fixture runs only on the pinned Oct 5 pack"];
+  const errors = [];
+  const roster = home && home.filters && Array.isArray(home.filters.stores) ? home.filters.stores : [];
+  const byStore = new Map(roster.filter((item) => item && typeof item === "object").map((item) => [String(item.store), item]));
+  const expected = {
+    210: ["United", "U5", "Andrew Quinn"],
+    239: ["Southwest", "N0", "Ben Sarmadi"],
+  };
+  for (const [store, ident] of Object.entries(expected)) {
+    const row = byStore.get(store) || {};
+    const got = [row.division, row.district, row.om];
+    if (got.join("\0") !== ident.join("\0")) errors.push(`roster ${store}=${got.join(",")}`);
+  }
+  const lostRows = lost && Array.isArray(lost.rows) ? lost.rows : [];
+  const lostByStore = new Map(lostRows.filter((row) => row && typeof row === "object").map((row) => [String(row.store), row]));
+  const loss210 = lostByStore.get("210");
+  const loss239 = lostByStore.get("239");
+  if (!loss210 || loss210.division !== "United" || Number((loss210.payload || {}).lost_revenue) !== 263) {
+    errors.push(`lost 210=${loss210 && loss210.division},${loss210 && (loss210.payload || {}).lost_revenue}`);
+  }
+  if (!loss239 || loss239.division !== "Southwest" || Number((loss239.payload || {}).lost_revenue) !== 239) {
+    errors.push(`lost 239=${loss239 && loss239.division},${loss239 && (loss239.payload || {}).lost_revenue}`);
+  }
+  const loss6 = lostByStore.get("6");
+  const missed6 = loss6 && loss6.payload ? loss6.payload.missed_sales : undefined;
+  if (missed6 == null || Math.abs(Number(missed6) - 2687.8666987759993) > 1e-6) {
+    errors.push(`store 6 missed_sales=${missed6}`);
+  }
+  if (loss6 && loss6.payload && Number(loss6.payload.reduced_capacity) === Number(missed6)) {
+    errors.push("store 6 missed_sales copied from reduced_capacity");
+  }
+  for (const store of ["210", "239"]) {
+    const row = lostByStore.get(store);
+    const payload = row && row.payload;
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "missed_sales")) {
+      errors.push(`store ${store} missed_sales should be absent`);
+    }
+  }
+  const scheduleStores = schedule && Array.isArray(schedule.stores) ? schedule.stores : [];
+  const scheduleBy = new Map(scheduleStores.filter((item) => item && typeof item === "object").map((item) => [String(item.store), item]));
+  for (const store of ["210", "239"]) {
+    const row = scheduleBy.get(store) || {};
+    const got = [row.region, row.division, row.district, row.om];
+    const want = ["South Region", ...expected[store]];
+    if (got.join("\0") !== want.join("\0")) errors.push(`schedule ${store}=${got.join(",")}`);
+  }
+  return errors;
+}
+
 export function checkPack(dir) {
   const errors = [...packIdentityErrors(dir)];
   const homeRead = readJson(dir, "home.json");
@@ -331,6 +601,8 @@ export function checkPack(dir) {
   for (const store of ["233", "4799", "1509"]) {
     if (!flagged.has(store)) errors.push(`missing source data issue ${store}`);
   }
+  const laborFlags = laborRows.filter(laborSourceFlag).length;
+  if (laborFlags < 40 || laborFlags > 80) errors.push(`labor flagged=${laborFlags}`);
   const plain = laborRows.find((row) => String(row.store) === "1");
   const plainAiv = finite((plain && plain.payload && plain.payload.aiv_impact_pct) ?? null);
   if (!plain || plain.sourceIssue || plainAiv == null || Math.abs(plainAiv - -0.38645958215580284) > 1e-6) {
@@ -369,17 +641,12 @@ export function checkPack(dir) {
 
   if (!Array.isArray(home.regionTables) || home.regionTables.length < 10) errors.push("regionTables missing");
 
-  const lostTiles = tiles.lost_revenue && typeof tiles.lost_revenue === "object" ? tiles.lost_revenue : {};
-  const lostLabels = Array.isArray(lostTiles.labels) ? lostTiles.labels : [];
-  const lostValues = Array.isArray(lostTiles.values) ? lostTiles.values : [];
-  const lostTile = (name) => (lostLabels.includes(name) ? lostValues[lostLabels.indexOf(name)] : null);
-  if (lostTile("Goal %") !== "3.06%") errors.push(`Goal %=${lostTile("Goal %")}`);
-  if (lostTile("Lost %") !== "5.19%") errors.push(`Lost %=${lostTile("Lost %")}`);
-  // section/lost_revenue required key. missed_sales is Capacity Reduction (Total Opportunity).
-  // A blank cell stays absent. reduced_capacity is not a substitute.
-  const LOST_REVENUE_REQUIRED = ["missed_sales"];
-  if (!LOST_REVENUE_REQUIRED.includes("missed_sales")) errors.push("lost_revenue required keys dropped missed_sales");
-  if (lostTile("Missed") !== "$420,030.87") errors.push(`Missed=${lostTile("Missed")}`);
+  // missed_sales is Capacity Reduction. A blank cell stays absent. It is not written as 0,
+  // and reduced_capacity is not a substitute. The Oct 5 store 6 dollar pin lives in octoberStoreFixture.
+  const salesRead = readJson(dir, "section/sales.json");
+  if (salesRead.error) errors.push(salesRead.error);
+  const salesFile = salesRead.value && typeof salesRead.value === "object" ? salesRead.value : {};
+  errors.push(...packValueErrors(home, salesFile, lost));
 
   const summaries = new Map((Array.isArray(home.summaries) ? home.summaries : []).filter((item) => item && typeof item === "object").map((item) => [item.section, item]));
   const pph = summaries.get("pph") || {};
@@ -394,8 +661,6 @@ export function checkPack(dir) {
     879: ["Mountain West", "66", "Ellas Ware"],
     1509: ["Mountain West", "I5", "Chris Banuelos"],
     4799: ["Jewel Osco", "J6", "Mike Macdonald"],
-    210: ["United", "U5", "Andrew Quinn"],
-    239: ["Southwest", "N0", "Ben Sarmadi"],
   };
   for (const [store, ident] of Object.entries(expected)) {
     const row = byStore.get(store) || {};
@@ -410,37 +675,16 @@ export function checkPack(dir) {
     rosterCounts.set(division, (rosterCounts.get(division) || 0) + 1);
   }
   const lostRows = Array.isArray(lost.rows) ? lost.rows : [];
-  if (lostRows.length !== 2167) errors.push(`lost rows=${lostRows.length} sheet=2167`);
   const lostByStore = new Map(lostRows.filter((row) => row && typeof row === "object").map((row) => [String(row.store), row]));
   const loss210 = lostByStore.get("210");
   const loss239 = lostByStore.get("239");
   const loss1509 = lostByStore.get("1509");
-  if (!loss210 || loss210.division !== "United" || Number((loss210.payload || {}).lost_revenue) !== 263) {
-    errors.push(`lost 210=${loss210 && loss210.division},${loss210 && (loss210.payload || {}).lost_revenue}`);
-  }
-  if (!loss239 || loss239.division !== "Southwest" || Number((loss239.payload || {}).lost_revenue) !== 239) {
-    errors.push(`lost 239=${loss239 && loss239.division},${loss239 && (loss239.payload || {}).lost_revenue}`);
-  }
   if ((loss210 && loss210.division === "Haggen") || (loss239 && loss239.division === "Haggen")) {
     errors.push("lost 210/239 labeled Haggen");
   }
   const blankGoal = loss1509 && loss1509.payload ? loss1509.payload.lost_revenue_goal_pct : undefined;
   if (blankGoal != null) errors.push(`store 1509 Goal %=${blankGoal}`);
-  let missedCount = 0;
-  for (const row of lostRows) {
-    const payload = row && row.payload;
-    if (payload && Object.prototype.hasOwnProperty.call(payload, "missed_sales")) missedCount += 1;
-  }
-  if (missedCount !== 154) errors.push(`lost missed_sales=${missedCount} required ${LOST_REVENUE_REQUIRED.join(",")}`);
-  const loss6 = lostByStore.get("6");
-  const missed6 = loss6 && loss6.payload ? loss6.payload.missed_sales : undefined;
-  if (missed6 == null || Math.abs(Number(missed6) - 2687.8666987759993) > 1e-6) {
-    errors.push(`store 6 missed_sales=${missed6}`);
-  }
-  if (loss6 && loss6.payload && Number(loss6.payload.reduced_capacity) === Number(missed6)) {
-    errors.push("store 6 missed_sales copied from reduced_capacity");
-  }
-  for (const store of ["1", "210", "239", "1509"]) {
+  for (const store of ["1", "1509"]) {
     const row = lostByStore.get(store);
     const payload = row && row.payload;
     if (payload && Object.prototype.hasOwnProperty.call(payload, "missed_sales")) {
@@ -484,13 +728,6 @@ export function checkPack(dir) {
       (store.eff == null || Number(store.eff || 0) <= 0),
   );
   if (bogusUnder.length) errors.push(`100% under with invalid eff=${bogusUnder.length}`);
-  const scheduleBy = new Map(scheduleStores.filter((item) => item && typeof item === "object").map((item) => [String(item.store), item]));
-  for (const store of ["210", "239"]) {
-    const row = scheduleBy.get(store) || {};
-    const got = [row.region, row.division, row.district, row.om];
-    const want = ["South Region", ...expected[store]];
-    if (got.join("\0") !== want.join("\0")) errors.push(`schedule ${store}=${got.join(",")}`);
-  }
   const southEff = blend(scheduleStores, markets, "South Region", "eff");
   const southUnder = blend(scheduleStores, markets, "South Region", "under");
   const southOver = blend(scheduleStores, markets, "South Region", "over");
