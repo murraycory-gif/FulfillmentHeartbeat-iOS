@@ -157,8 +157,8 @@ enum ScheduleCheckMath {
     static let overGate = 15.0
     static let effGoal = 90.0
     static let dayNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
-    /// Laid-out height of the Store Detail column header plus one line per store.
-    /// The horizontal scroll inside the page uses this so the rows are not height 0.
+    /// Header plus one line per store. The Store Detail page does not apply this
+    /// as a scroll min height — that blanked the lazy list. Tests lock the formula.
     static let detailHeaderHeight: CGFloat = 32
     static let detailRowHeight: CGFloat = 32
     static func detailBodyHeight(rowCount: Int) -> CGFloat {
@@ -293,7 +293,7 @@ enum ScheduleCheckMath {
                 seat,
                 "",
                 "NO DATA",
-                "The Schedule Review workbook is not on this device.",
+                "This pack has no Schedule Check rows.",
             ].joined(separator: "\n")
         }
         let card = summary(pack: pack, filters: filters)

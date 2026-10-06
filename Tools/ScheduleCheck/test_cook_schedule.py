@@ -15,6 +15,10 @@ import cook_schedule as cook
 
 
 class QualifyTests(unittest.TestCase):
+    def test_blank_week_is_not_zero(self):
+        self.assertEqual(cook.measured_schedule(None, None, 100.0, 0.0, 0.0), (None, None, None))
+        self.assertEqual(cook.measured_schedule(4.0, 2.0, 90.0, None, None), (4.0, 2.0, 90.0))
+
     def test_gate(self):
         self.assertFalse(cook.qualifies(None, 20, 20, 20))
         self.assertFalse(cook.qualifies(29999.99, 20, 20, 20))
@@ -175,6 +179,76 @@ class CookArgsTests(unittest.TestCase):
             self.assertEqual(store[1], "Shaws")
             self.assertAlmostEqual(store[2], 100.0, places=2)
             self.assertIn("1", store[3])
+            connection.close()
+
+    def test_publish_sheet_writes_workbook_rows_when_lock_misses(self):
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            dest = os.path.join(folder, "current.sqlite")
+            sqlite3.connect(dest).close()
+            pack = {
+                "publishedAt": "2026-10-05T00:00:00Z",
+                "week": 32,
+                "filename": "Schedule Review Week 32 - Summary.xlsx",
+                "summaryTitle": "Schedule Review Summary — Week 31 (WK31)",
+                "workbookActionBanner": 468,
+                "markets": [{"label": "Total", "under": 5.01, "over": 6.55, "eff": 64.97}],
+                "stores": [{
+                    "store": "117",
+                    "region": "East Region",
+                    "division": "Shaws",
+                    "district": "B5",
+                    "om": "Pat",
+                    "sales": 33961.98,
+                    "under": 5.01,
+                    "over": 6.55,
+                    "eff": 64.97,
+                    "pch": 70.67,
+                    "fourUnder": None,
+                    "fourOver": None,
+                    "star": None,
+                    "dayUnder": [None] * 7,
+                    "dayOver": [None] * 7,
+                }],
+                "crossCheck": self.sample_report(marketUnder=5.01, marketOver=6.55, pch=70.67),
+            }
+            original = cook.cook_workbook
+            cook.cook_workbook = lambda path: pack
+            try:
+                code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest, "--publish-sheet"])
+            finally:
+                cook.cook_workbook = original
+            self.assertEqual(code, 0)
+            connection = sqlite3.connect(dest)
+            market = connection.execute("SELECT under, over FROM schedule_market WHERE label = 'Total'").fetchone()
+            self.assertAlmostEqual(market[0], 5.01, places=2)
+            self.assertAlmostEqual(market[1], 6.55, places=2)
+            self.assertNotAlmostEqual(market[0], 41.07, places=2)
+            connection.close()
+
+    def test_publish_sheet_refuses_empty_store_list(self):
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            dest = os.path.join(folder, "current.sqlite")
+            sqlite3.connect(dest).close()
+            pack = {"week": 32, "stores": [], "crossCheck": self.sample_report(scope=1)}
+            original = cook.cook_workbook
+            cook.cook_workbook = lambda path: pack
+            try:
+                code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest, "--publish-sheet"])
+            finally:
+                cook.cook_workbook = original
+            self.assertEqual(code, 1)
+            connection = sqlite3.connect(dest)
+            tables = {
+                row[0]
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            self.assertNotIn("schedule_store", tables)
             connection.close()
 
     def test_company_miss_does_not_write_sqlite(self):

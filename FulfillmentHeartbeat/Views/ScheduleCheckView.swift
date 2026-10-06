@@ -41,7 +41,7 @@ struct ScheduleCheckView: View {
             Text("NO DATA")
                 .font(.title.weight(.bold))
                 .foregroundStyle(AppTheme.textTertiary)
-            Text("Schedule Review Week file is not on this device.")
+            Text("This pack has no Schedule Check rows.")
                 .font(.body)
                 .foregroundStyle(AppTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -169,34 +169,41 @@ struct ScheduleCheckView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Header and store rows share one scroll that has a real viewport.
+    /// A nested horizontal scroll with `minHeight` of every store line lays
+    /// the page out blank, and it builds all 2,000+ rows on the tap.
+    /// Empty is the pack: this page does not invent schedule rows.
     private func detailPage(_ pack: ScheduleCheckPack) -> some View {
         let rows = sorted(ScheduleCheckMath.scoped(pack, filters: store.filters))
-        let laidOut = ScheduleCheckMath.detailBodyHeight(rowCount: rows.count)
-        let rowBody = CGFloat(rows.count) * ScheduleCheckMath.detailRowHeight
-        return ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 0) {
-                if rows.isEmpty {
-                    Text("No stores in this scope.")
-                        .font(.body)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                header(detailColumns, tappable: true)
-                    .frame(height: ScheduleCheckMath.detailHeaderHeight, alignment: .leading)
-                ScrollView(.horizontal) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(rows) { store in
-                            detailRow(store)
-                            Divider().overlay(AppTheme.cardBorder)
+        return Group {
+            if rows.isEmpty {
+                Text("No stores in this scope.")
+                    .font(.body)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                GeometryReader { proxy in
+                    ScrollView([.horizontal, .vertical]) {
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            Section {
+                                ForEach(rows) { store in
+                                    detailRow(store)
+                                        .frame(width: detailWidth, height: ScheduleCheckMath.detailRowHeight, alignment: .leading)
+                                    Divider().overlay(AppTheme.cardBorder)
+                                        .frame(width: detailWidth)
+                                }
+                            } header: {
+                                header(detailColumns, tappable: true)
+                                    .frame(width: detailWidth, height: ScheduleCheckMath.detailHeaderHeight, alignment: .leading)
+                                    .background(AppTheme.bg)
+                            }
                         }
                     }
-                    .frame(minWidth: detailWidth, minHeight: laidOut, alignment: .topLeading)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-                .frame(height: rowBody, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding(.bottom, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

@@ -31,13 +31,21 @@ export function qualifies(sales, under, fourUnder, over) {
   return false;
 }
 
-export function qualifiesStore(store) {
-  return qualifies(store.sales, store.under, store.fourUnder, store.over);
-}
-
 export function notScheduled(store) {
   if (store.under == null || store.eff == null) return false;
   return Number(store.under) >= 99.5 && Math.abs(Number(store.eff)) < 0.05;
+}
+
+// High under with almost no efficiency. Same shape as not scheduled, short of that gate.
+export function barelyScheduled(store) {
+  if (notScheduled(store)) return false;
+  if (store.under == null || store.eff == null) return false;
+  return Number(store.under) >= 90 && Number(store.eff) < 10;
+}
+
+export function qualifiesStore(store) {
+  if (notScheduled(store) || barelyScheduled(store)) return false;
+  return qualifies(store.sales, store.under, store.fourUnder, store.over);
 }
 
 export function effHealth(value, unscheduled) {
@@ -64,26 +72,54 @@ function marketLabeled(pack, name) {
   );
 }
 
-export function scopedStores(pack, filters) {
-  return (pack.stores || []).filter((store) => includesScope(store, filters));
+export function scheduleVisibleTitle(title, week) {
+  const cooked = Number(week);
+  const text = String(title || "");
+  if (!Number.isFinite(cooked) || cooked <= 0) return text;
+  return text.replace(/Week\s*\d+/gi, `Week ${cooked}`).replace(/WK\s*\d+/gi, `WK${cooked}`);
 }
 
-export function summary(pack, filters) {
-  const rows = scopedStores(pack, filters);
-  const storeUnder = average(rows.map((row) => row.under));
-  const storeOver = average(rows.map((row) => row.over));
+export function scopedStores(pack, filters, roster) {
+  return (pack.stores || []).filter((store) => includesScope(store, filters, roster));
+}
+
+function measuredStores(rows) {
+  return rows.filter((row) => !notScheduled(row) && !scheduleMetricsBlank(row));
+}
+
+export function summary(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
+  const measured = measuredStores(rows);
+  const storeUnder = average(measured.map((row) => row.under));
+  const storeOver = average(measured.map((row) => row.over));
   const cutInside = Boolean(filters.district || filters.om || filters.store);
   let market = null;
   if (!filtersActive(filters)) market = marketLabeled(pack, "Total") || null;
   else if (!cutInside && filters.division) market = marketLabeled(pack, filters.division) || null;
   const usesMarket = market != null;
+  let eff = average(rows.map((row) => row.eff));
+  if (!cutInside && usesMarket) {
+    const fromMarket = explicitMarketEff(market);
+    if (fromMarket !== undefined) eff = fromMarket;
+  } else if (!cutInside && filters.region) {
+    const regional = regionMarketEff(pack, rows);
+    if (regional != null) eff = regional;
+  }
+  let under = usesMarket ? (market.under ?? null) : storeUnder;
+  let over = usesMarket ? (market.over ?? null) : storeOver;
+  if (!cutInside && !usesMarket && filters.region) {
+    const blendedUnder = regionMarketBlend(pack, rows, "under");
+    const blendedOver = regionMarketBlend(pack, rows, "over");
+    if (blendedUnder != null) under = blendedUnder;
+    if (blendedOver != null) over = blendedOver;
+  }
   return {
-    under: usesMarket ? (market.under ?? null) : storeUnder,
-    over: usesMarket ? (market.over ?? null) : storeOver,
+    under,
+    over,
     pch: average(rows.map((row) => row.pch)),
-    eff: average(rows.map((row) => row.eff)),
-    underCount: rows.filter((row) => Number(row.under) > 0).length,
-    overCount: rows.filter((row) => Number(row.over) > 0).length,
+    eff,
+    underCount: rows.filter((row) => !notScheduled(row) && Number(row.under) > 0).length,
+    overCount: rows.filter((row) => !notScheduled(row) && Number(row.over) > 0).length,
     scope: rows.length,
     usesMarketLook: usesMarket,
     storeUnder,
@@ -92,21 +128,87 @@ export function summary(pack, filters) {
   };
 }
 
+function scheduleMetricsBlank(store) {
+  return store.under == null && store.over == null && store.eff == null;
+}
+
+function explicitMarketEff(market) {
+  if (!market || !Object.hasOwn(market, "eff")) return undefined;
+  // Number(null) is 0. A blank Market Look eff is missing, not a real zero.
+  if (market.eff == null || market.eff === "") return null;
+  const value = Number(market.eff);
+  return Number.isFinite(value) ? value : null;
+}
+
+function explicitMarketNumber(market, field) {
+  if (!market || !Object.hasOwn(market, field)) return undefined;
+  if (market[field] == null || market[field] === "") return null;
+  const value = Number(market[field]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function divisionScheduleWeight(rows, division) {
+  return rows.filter((row) => row.division === division).length;
+}
+
+// South blends division Market Look eff by every schedule store in the division.
+// United's eff is blank, so it drops out.
+function regionMarketEff(pack, rows) {
+  const divisions = [...new Set(rows.map((row) => row.division).filter(Boolean))];
+  let weight = 0;
+  let sum = 0;
+  for (const division of divisions) {
+    const eff = explicitMarketEff(marketLabeled(pack, division));
+    if (eff == null) continue;
+    const count = divisionScheduleWeight(rows, division);
+    weight += count;
+    sum += eff * count;
+  }
+  return weight ? sum / weight : null;
+}
+
+// Same store-count weight as Eff. The averaged number is the division Market Look
+// rate. An unscheduled store's placeholder 100% under is not that rate.
+function regionMarketBlend(pack, rows, field) {
+  const divisions = [...new Set(rows.map((row) => row.division).filter(Boolean))];
+  let weight = 0;
+  let sum = 0;
+  for (const division of divisions) {
+    const value = explicitMarketNumber(marketLabeled(pack, division), field);
+    if (value == null) continue;
+    const count = divisionScheduleWeight(rows, division);
+    if (!count) continue;
+    weight += count;
+    sum += value * count;
+  }
+  return weight ? sum / weight : null;
+}
+
+// United's current-week under and over are blank. Eff 1 on that row is not a measurement.
+export function scheduleGapNote(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
+  if (!rows.length || !rows.every(scheduleMetricsBlank)) {
+    const names = rankedDivisions(pack, filters, roster)
+      .filter((row) => row.under == null && row.over == null && row.eff == null)
+      .map((row) => row.division);
+    if (!names.length) return "";
+    return `${names.join(", ")}: No data`;
+  }
+  return "No data";
+}
+
 export function companyMarketNote(card, filters) {
   if (!card.usesMarketLook || filtersActive(filters)) return null;
   if (card.storeUnder == null || card.storeOver == null) return null;
   return `Market Look Total under/over. Stores Current Week average is Under ${pct(card.storeUnder)} / Over ${pct(card.storeOver)}.`;
 }
 
-export function bannerMismatch(pack, card, filters) {
-  if (filtersActive(filters)) return null;
-  if (pack.workbookActionBanner == null) return null;
-  if (Number(pack.workbookActionBanner) === card.actionCount) return null;
-  return `Workbook banner said ${pack.workbookActionBanner} stores. This cook qualifies ${card.actionCount}.`;
+export function bannerMismatch() {
+  return null;
 }
 
-export function actionGroups(pack, filters) {
-  const rows = scopedStores(pack, filters).filter(qualifiesStore);
+export function actionGroups(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster).filter(qualifiesStore);
   const grouped = new Map();
   for (const row of rows) {
     const name = row.division || "";
@@ -128,18 +230,23 @@ export function actionGroups(pack, filters) {
   }));
 }
 
-export function rankedRegions(pack, filters) {
-  const rows = scopedStores(pack, filters);
+export function rankedRegions(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
   const names = [...new Set(rows.map((row) => row.region).filter(Boolean))];
   return names
     .map((name) => {
       const group = rows.filter((row) => row.region === name);
+      const open = !filters || !(filters.district || filters.om || filters.store);
+      const marketEff = open ? regionMarketEff(pack, group) : null;
+      const measured = measuredStores(group);
+      const blendedUnder = open ? regionMarketBlend(pack, group, "under") : null;
+      const blendedOver = open ? regionMarketBlend(pack, group, "over") : null;
       return {
         region: name,
-        under: average(group.map((row) => row.under)),
-        over: average(group.map((row) => row.over)),
+        under: blendedUnder != null ? blendedUnder : average(measured.map((row) => row.under)),
+        over: blendedOver != null ? blendedOver : average(measured.map((row) => row.over)),
         pch: average(group.map((row) => row.pch)),
-        eff: average(group.map((row) => row.eff)),
+        eff: marketEff != null ? marketEff : average(group.map((row) => row.eff)),
         scope: group.length,
       };
     })
@@ -151,21 +258,22 @@ export function rankedRegions(pack, filters) {
     });
 }
 
-export function rankedDivisions(pack, filters) {
-  const rows = scopedStores(pack, filters);
+export function rankedDivisions(pack, filters, roster) {
+  const rows = scopedStores(pack, filters, roster);
   const cutInside = Boolean(filters.district || filters.om || filters.store);
   const names = [...new Set(rows.map((row) => row.division).filter(Boolean))];
   return names
     .map((name) => {
       const group = rows.filter((row) => row.division === name);
       const market = cutInside ? null : marketLabeled(pack, name);
+      const fromMarket = market ? explicitMarketEff(market) : undefined;
       return {
         division: name,
         region: (group[0] && group[0].region) || "",
-        under: market ? (market.under ?? null) : average(group.map((row) => row.under)),
-        over: market ? (market.over ?? null) : average(group.map((row) => row.over)),
+        under: market ? (market.under ?? null) : average(measuredStores(group).map((row) => row.under)),
+        over: market ? (market.over ?? null) : average(measuredStores(group).map((row) => row.over)),
         pch: average(group.map((row) => row.pch)),
-        eff: average(group.map((row) => row.eff)),
+        eff: fromMarket !== undefined ? fromMarket : average(group.map((row) => row.eff)),
         scope: group.length,
       };
     })

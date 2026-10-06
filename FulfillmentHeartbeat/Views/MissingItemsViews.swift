@@ -662,11 +662,11 @@ private struct MissingItemsCheapLine: View, Equatable {
                     .foregroundStyle(AppTheme.blue)
             }
             .frame(width: storeW, alignment: .leading)
+            cell(snap.total, snap.health, width: cellW)
             ForEach(depts) { dept in
                 let value = snap.raw[dept.rawValue]
                 cell(snap.values[dept.rawValue] ?? "—", MissingItemsMath.health(value), width: cellW)
             }
-            cell(snap.total, snap.health, width: cellW)
             Text(snap.health.label.uppercased())
                 .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
@@ -803,10 +803,10 @@ private struct MissingItemsMetricLine: View {
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: MILayout.countW, alignment: .center)
             }
+            cell(HeartbeatFormat.pct(total), health)
             ForEach(depts) { dept in
                 cell(HeartbeatFormat.pct(values[dept.rawValue]), MissingItemsMath.health(values[dept.rawValue]))
             }
-            cell(HeartbeatFormat.pct(total), health)
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: MILayout.statusW, alignment: .trailing)
         }
@@ -861,12 +861,12 @@ struct MissingItemsMetricHeader: View {
                 head("Stores", key: "count", alignment: .center)
                     .frame(width: MILayout.countW, alignment: .center)
             }
+            head("Total", key: MissingItemDept.totalKey, alignment: .center)
+                .frame(width: cellW, alignment: .center)
             ForEach(depts) { dept in
                 deptHead(dept)
                     .frame(width: cellW, alignment: .center)
             }
-            head("Total", key: MissingItemDept.totalKey, alignment: .center)
-                .frame(width: cellW, alignment: .center)
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: MILayout.statusW, alignment: .trailing)
         }
@@ -1075,6 +1075,7 @@ struct MissingItemsRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
         .onChange(of: depts.count) { _, _ in rebuild() }
         .onChange(of: section) { _, _ in rebuild() }
     }
@@ -1141,6 +1142,7 @@ struct MissingItemsRollupTable: View {
             }
             var averages: [String: [String: Double]] = [:]
             let needsFacts = chrome.contains { row in
+                if HeartbeatMath.grainNumber(row, 0) == nil { return true }
                 let kept = HeartbeatMath.missingItemsChromeValues(row, flags: flags(for: row.label))
                 return depts.contains { kept[$0.rawValue] == nil }
             }
@@ -1152,8 +1154,6 @@ struct MissingItemsRollupTable: View {
                 }
             }
             summary = chrome.map { row in
-                let total = HeartbeatMath.grainNumber(row, 0)
-                let onRow = HeartbeatMath.missingItemsChromeValues(row, flags: flags(for: row.label))
                 var filled: [String: Double] = [:]
                 for alias in HeartbeatMath.grainAliasKeys(row.label, grain: next.scopeGrain) {
                     if let hit = averages[alias] {
@@ -1161,7 +1161,11 @@ struct MissingItemsRollupTable: View {
                         break
                     }
                 }
-                let values = HeartbeatMath.missingItemsKeepingDepartments(chrome: onRow, filling: filled)
+                let total = HeartbeatMath.missingRollupRate(row, averages: filled)
+                let onRow = HeartbeatMath.missingItemsChromeValues(row, flags: flags(for: row.label))
+                var deptFill = filled
+                deptFill.removeValue(forKey: MissingItemDept.totalKey)
+                let values = HeartbeatMath.missingItemsKeepingDepartments(chrome: onRow, filling: deptFill)
                 return MissingItemsRollupRow(
                     id: row.label,
                     label: HeartbeatMath.displayGrainLabel(row.label),
@@ -1174,7 +1178,11 @@ struct MissingItemsRollupTable: View {
             applyCurrentSort()
             return
         }
-        let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
+        let pack = store.scopedPackRows(for: section)
+        let source = MissingItemsRollupBuilder.source(
+            from: pack.isEmpty ? store.rollupStores(for: section) : pack,
+            filters: store.filters
+        )
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .region {

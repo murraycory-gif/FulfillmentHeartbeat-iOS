@@ -1,5 +1,11 @@
 import Foundation
 
+#if os(Linux)
+func autoreleasepool<T>(_ body: () throws -> T) rethrows -> T {
+    try body()
+}
+#endif
+
 @main
 enum HeartbeatIngest {
     static func main() throws {
@@ -108,6 +114,10 @@ enum HeartbeatIngest {
             exit(1)
         }
         print("Dashboard tiles complete.")
+        if ProcessInfo.processInfo.environment["HEARTBEAT_SKIP_SEAT_PACKS"] == "1" {
+            print("Seat packs skipped. The website pack is this sqlite.")
+            return
+        }
         let includeStores = PulseSeatPack.shouldCookEveryStoreSeat()
         print("Cooking company + every district + every store seat pack…")
         let packRoot = sqlite.deletingLastPathComponent().appendingPathComponent("packs", isDirectory: true)

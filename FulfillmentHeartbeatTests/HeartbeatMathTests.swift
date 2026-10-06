@@ -353,6 +353,12 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateGood), .good)
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateWatch), .watch)
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateRisk), .risk)
+        let midAtlantic = HeartbeatMath.scopeCard(
+            section: .dynacap,
+            rows: [rateGood, rateWatch]
+        )
+        XCTAssertEqual(midAtlantic.health, .good)
+        XCTAssertEqual(midAtlantic.value, "68.0")
     }
 
     func testDynacapDistrictFileParsesAndJoinsStores() {
@@ -3663,6 +3669,271 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertTrue(page.contains("fillingMissingScopeLine"))
         XCTAssertTrue(page.contains("section == .missingItems || section == .preSubOOS"))
+    }
+
+    /// East Missing is 8.61% on 613 stores. East Pre-Sub is 6.63% on 613.
+    /// The rate is the row total, not a department cell, and it is painted before
+    /// the department columns so it sits on the row next to the store count.
+    func testMissingAndPreSubEastRatesStayOnTheRow() throws {
+        let missing = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["8.61%", "—", "—", "—"],
+            health: .risk
+        )
+        XCTAssertEqual(HeartbeatMath.missingRollupRate(missing) ?? 0, 8.61, accuracy: 0.001)
+        XCTAssertEqual(missing.storeCount, 613)
+        let dashed = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["—", "—", "—", "—"],
+            health: .none
+        )
+        let fromFacts = HeartbeatMath.missingRollupRate(
+            dashed,
+            averages: [MissingItemDept.totalKey: 8.61, MissingItemDept.grocery.rawValue: 3.86]
+        )
+        XCTAssertEqual(fromFacts ?? 0, 8.61, accuracy: 0.001)
+        XCTAssertNotEqual(fromFacts, 3.86)
+        XCTAssertEqual(
+            HeartbeatMath.missingRollupRate(missing, averages: [MissingItemDept.totalKey: 1]) ?? 0,
+            8.61,
+            accuracy: 0.001
+        )
+        let presub = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["6.63%"],
+            health: .risk
+        )
+        XCTAssertEqual(HeartbeatMath.missingRollupRate(presub) ?? 0, 6.63, accuracy: 0.001)
+        XCTAssertEqual(presub.storeCount, 613)
+        XCTAssertNotEqual(presub.storeCount, 615)
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let view = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/MissingItemsViews.swift"),
+            encoding: .utf8
+        )
+        let lineStart = try XCTUnwrap(view.range(of: "private struct MissingItemsMetricLine"))
+        let lineEnd = try XCTUnwrap(view.range(of: "struct MissingItemsMetricHeader"))
+        let line = String(view[lineStart.lowerBound..<lineEnd.lowerBound])
+        let totalCell = try XCTUnwrap(line.range(of: "cell(HeartbeatFormat.pct(total)"))
+        let deptCells = try XCTUnwrap(line.range(of: "ForEach(depts)"))
+        XCTAssertLessThan(totalCell.lowerBound, deptCells.lowerBound)
+        let headerStart = lineEnd
+        let headerEnd = try XCTUnwrap(view.range(of: "struct MissingItemsStickyStoreHeader"))
+        let header = String(view[headerStart.lowerBound..<headerEnd.lowerBound])
+        let totalHead = try XCTUnwrap(header.range(of: "head(\"Total\""))
+        let deptHead = try XCTUnwrap(header.range(of: "ForEach(depts)"))
+        XCTAssertLessThan(totalHead.lowerBound, deptHead.lowerBound)
+        XCTAssertTrue(view.contains("missingRollupRate"))
+    }
+
+    /// Loss dollars already pass. Lost % and the other region cells must fill
+    /// from this section's facts without taking Sales' 615 store count.
+    func testLossRegionKeepsDollarsAndFillsLostPercent() throws {
+        let east = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 610,
+            values: ["$393,334.12", "—", "—", "—", "—", "—", "—"],
+            health: .risk
+        )
+        let west = HeartbeatMath.DashboardGrainTableRow(
+            label: "West Region",
+            storeCount: 553,
+            values: ["$191,547.49"],
+            health: .risk
+        )
+        let california = HeartbeatMath.DashboardGrainTableRow(
+            label: "California Region",
+            storeCount: 599,
+            values: ["$168,079.57", "—", "—", "—", "—", "—", "—"],
+            health: .risk
+        )
+        func store(_ number: String, _ division: String, _ lost: Double, _ pct: Double, _ sales: Double) -> MetricRow {
+            MetricRow(
+                section: .lostRevenue,
+                division: division,
+                operationsOM: "",
+                storeNumber: number,
+                payload: [
+                    "lost_revenue": lost,
+                    "lost_revenue_pct": pct,
+                    "ecomm_sales": sales,
+                    "post_sub_oos_foregone": 10,
+                    "refund_lost": 4,
+                    "missed_sales": 2,
+                ],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        let facts = [
+            store("117", "Shaws", 200, 4.0, 5_000),
+            store("200", "Jewel Osco", 100, 5.0, 2_000),
+            store("300", "Seattle", 50, 3.0, 1_000),
+            store("400", "NorCal", 80, 2.5, 4_000),
+        ]
+        let chrome = [east, west, california]
+        XCTAssertTrue(HeartbeatMath.grainTableNeedsColumnFill(chrome, section: .lostRevenue))
+        XCTAssertNil(HeartbeatMath.grainNumber(east, 1))
+        let filled = HeartbeatMath.fillingDashCellsKeepingCount(
+            chrome,
+            section: .lostRevenue,
+            metricRows: facts,
+            grain: .region
+        )
+        let eastRow = try XCTUnwrap(filled.first { $0.label == "East Region" })
+        XCTAssertEqual(eastRow.storeCount, 610)
+        XCTAssertNotEqual(eastRow.storeCount, 615)
+        XCTAssertEqual(HeartbeatMath.grainNumber(eastRow, 0) ?? 0, 393_334.12, accuracy: 0.01)
+        let eastPct = try XCTUnwrap(HeartbeatMath.grainNumber(eastRow, 1))
+        XCTAssertGreaterThan(eastPct, 1)
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 3))
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 4))
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 5))
+        XCTAssertNotNil(HeartbeatMath.grainNumber(eastRow, 6))
+        let westRow = try XCTUnwrap(filled.first { $0.label == "West Region" })
+        XCTAssertEqual(westRow.storeCount, 553)
+        XCTAssertEqual(HeartbeatMath.grainNumber(westRow, 0) ?? 0, 191_547.49, accuracy: 0.01)
+        XCTAssertNotNil(HeartbeatMath.grainNumber(westRow, 1))
+        let californiaRow = try XCTUnwrap(filled.first { $0.label == "California Region" })
+        XCTAssertEqual(californiaRow.storeCount, 599)
+        XCTAssertEqual(HeartbeatMath.grainNumber(californiaRow, 0) ?? 0, 168_079.57, accuracy: 0.01)
+        XCTAssertNotNil(HeartbeatMath.grainNumber(californiaRow, 1))
+        let untouched = HeartbeatMath.fillingDashCellsKeepingCount(
+            chrome,
+            section: .lostRevenue,
+            metricRows: [],
+            grain: .region
+        )
+        XCTAssertEqual(untouched.first?.values.first, "$393,334.12")
+        XCTAssertEqual(untouched.first?.storeCount, 610)
+        let one = store("117", "Shaws", 200, 4.0, 5_000)
+        let reported = HeartbeatMath.lostRevenueReportedPct([one])
+        XCTAssertEqual(reported ?? 0, 4, accuracy: 0.05)
+        XCTAssertGreaterThan(reported ?? 0, 1, "Lost % stays in sheet percent units, not dollars/sales")
+        XCTAssertNotEqual(reported ?? 0, 0.04, accuracy: 0.0001)
+    }
+
+    /// Company Sales is the pack `sales_grain=company` row. A blank store with a
+    /// large dollar figure is not that row, and a labor store with no ActHrs stays.
+    func testCompanySalesGrainAndBlankLaborHoursStay() {
+        let impostor = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 9_000_000, "sales_yoy_pct": 15],
+            textPayload: [:]
+        )
+        XCTAssertNil(HeartbeatMath.salesCompanyRow([impostor]))
+        let company = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 37_065_336.17, "sales_yoy_pct": -6.561144357311532],
+            textPayload: ["sales_grain": "company", "sales_week": "202631"]
+        )
+        let hit = HeartbeatMath.salesCompanyRow([impostor, company])
+        XCTAssertEqual(hit?.textPayload["sales_grain"], "company")
+        XCTAssertEqual(hit?.number("sales_dollars") ?? 0, 37_065_336.17, accuracy: 0.01)
+        XCTAssertEqual(hit?.number("sales_yoy_pct") ?? 0, -6.561144357311532, accuracy: 0.0001)
+
+        let blankHours = MetricRow(
+            section: .labor,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "3427",
+            payload: ["cost_trgt_pct": 14.9],
+            textPayload: ["labor_grain": "store"]
+        )
+        XCTAssertNil(blankHours.number("act_hrs"))
+        XCTAssertTrue(PulseQuery.isStoreFact(blankHours))
+        let smallHours = MetricRow(
+            section: .labor,
+            division: "Shaws",
+            operationsOM: "",
+            storeNumber: "2219",
+            payload: ["act_hrs": 42, "cost_trgt_pct": 12],
+            textPayload: ["labor_grain": "store"]
+        )
+        XCTAssertTrue(PulseQuery.isStoreFact(smallHours))
+        XCTAssertEqual(smallHours.number("act_hrs") ?? 0, 42, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatFormat.pct(0), "0.00%")
+        XCTAssertEqual(HeartbeatFormat.pct(nil), "—")
+    }
+
+    /// Sales keeps the cooked dollar and 615 stores, and fills YoY and orders
+    /// that chrome left as dashes. Four region rows need a floor tall enough for West.
+    func testSalesRegionKeepsChromeDollarsAndFillsTheOtherCells() throws {
+        let chromeRow = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 615,
+            values: ["$8,209,791.69", "—", "—"],
+            health: .risk
+        )
+        let chrome = SalesRollupBuilder.rowsFromChrome([chromeRow], grain: .region)
+        let facts = [
+            MetricRow(
+                section: .sales,
+                division: "Shaws",
+                operationsOM: "",
+                storeNumber: "117",
+                payload: [
+                    "sales_dollars": 100,
+                    "sales_yoy_pct": -10,
+                    "sales_orders": 4,
+                    "sales_items": 12,
+                ],
+                textPayload: ["sales_grain": "store"]
+            )
+        ]
+        let built = SalesRollupBuilder.dashboardRows(from: facts, grain: .region)
+        let kept = SalesRollupBuilder.keepingChromeHeadline(chrome, filling: built, grain: .region)
+        let east = try XCTUnwrap(kept.first { $0.label == "East Region" })
+        XCTAssertEqual(east.storeCount, 615)
+        XCTAssertEqual(east.pack.sales ?? 0, 8_209_791.69, accuracy: 0.01)
+        XCTAssertEqual(east.pack.yoy ?? 0, -10, accuracy: 0.01)
+        XCTAssertEqual(east.pack.orders ?? 0, 4, accuracy: 0.01)
+        XCTAssertEqual(east.pack.items ?? 0, 12, accuracy: 0.01)
+        XCTAssertNotNil(east.pack.aos)
+        XCTAssertGreaterThan(OverviewSalesAlignedTable.bodyHeight(rowCount: 4), 4 * 36 + 48)
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sales = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SalesViews.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(sales.contains("keepingChromeHeadline"))
+        XCTAssertTrue(sales.contains("dashFillRows(for: .sales)"))
+        XCTAssertTrue(sales.contains("OverviewSalesAlignedTable.bodyHeight(rowCount: summary.count)"))
+        XCTAssertTrue(sales.contains("minHeight: rollupBodyHeight"))
+        let loss = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(loss.contains("fillingDashCellsKeepingCount"))
+        XCTAssertTrue(loss.contains("dashFillRows(for: .lostRevenue)"))
+        XCTAssertTrue(loss.contains("lostRevenueReportedPct"))
+        let storeSrc = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSrc.contains("func ensureDashFill"))
+        XCTAssertTrue(storeSrc.contains("packGrainStamp"))
+        XCTAssertTrue(storeSrc.contains(#"textNeedle: "\"sales_grain\":\"company\"""#))
+        XCTAssertFalse(storeSrc.contains("func grainFacts"))
+        let labor = try String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/WorkbookParser.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(labor.contains("SheetXML.colLetter(idxStore)"))
+        XCTAssertFalse(labor.contains("colLetter(max(idxStore, 4))"))
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {
@@ -14309,6 +14580,201 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(partialValues[headers.firstIndex(of: "Kill") ?? -1], "—")
         XCTAssertNil(HeartbeatMath.lostRevenueReportedValue([missing], key: "lost_revenue"))
         XCTAssertEqual(HeartbeatMath.lostRevenueReportedValue([zero], key: "kill_switch_lost") ?? -1, 0, accuracy: 0.001)
+    }
+
+    /// Shopper chip lists pack shoppers on Store / Ops / District / Division only.
+    /// Company and Region return no choices, even when the tape is full.
+    func testShopperFilterStaysOnSeatAndSkipsCompanyRegion() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        XCTAssertEqual(
+            FilterFocus.allCases.map(\.rawValue),
+            ["region", "division", "district", "om", "store"]
+        )
+
+        let jewel = shopperFact(store: "3407", division: "Jewel Osco", district: "J2", om: "Pat Lee", id: "A1", name: "Ada")
+        let shaws = shopperFact(store: "2219", division: "Shaws", district: "S1", om: "Sam", id: "B2", name: "Bea")
+        let path = MetricRow(
+            section: .pickPathPicker,
+            division: "Jewel Osco",
+            operationsOM: "Pat Lee",
+            storeNumber: "3407",
+            textPayload: ["shopper_id": "A1", "shopper_name": "Ada", "district": "J2"]
+        )
+        let sales = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "Pat Lee",
+            storeNumber: "3407",
+            payload: ["sales_dollars": 100],
+            textPayload: ["district": "J2"]
+        )
+        let tape = [jewel, shaws, path, sales]
+
+        var company = DashboardFilters()
+        company.shopper = "3407|a1"
+        company.sanitize()
+        XCTAssertFalse(PulseLaunch.shouldListFilterShoppers(filters: company))
+        XCTAssertEqual(company.shopper, "")
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: company).count, 0)
+        XCTAssertFalse(FilterFocus.sheetChips(filters: company).contains(.shopper))
+
+        var region = DashboardFilters()
+        region.region = "East Region"
+        XCTAssertFalse(PulseLaunch.shouldListFilterShoppers(filters: region))
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: region).count, 0)
+        XCTAssertFalse(FilterFocus.sheetChips(filters: region).contains(.shopper))
+
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertTrue(PulseLaunch.shouldListFilterShoppers(filters: division))
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: division), .division)
+        let divisionChoices = PulseLaunch.filterShopperChoices(rows: tape, filters: division)
+        XCTAssertEqual(divisionChoices.map(\.id), ["3407|a1"])
+        XCTAssertEqual(divisionChoices.map(\.label), ["A1 · 3407"])
+        XCTAssertTrue(FilterFocus.sheetChips(filters: division).contains(.shopper))
+
+        var district = DashboardFilters()
+        district.district = "J2"
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: district).map(\.id), ["3407|a1"])
+
+        var om = DashboardFilters()
+        om.om = "Pat Lee"
+        XCTAssertEqual(PulseLaunch.filterShopperChoices(rows: tape, filters: om).map(\.id), ["3407|a1"])
+
+        var store = DashboardFilters()
+        store.store = "3407"
+        let storeChoices = PulseLaunch.filterShopperChoices(rows: tape, filters: store)
+        XCTAssertEqual(storeChoices.map(\.id), ["3407|a1"])
+        XCTAssertEqual(storeChoices.map(\.label), ["A1"])
+
+        store.shopper = "3407|a1"
+        XCTAssertTrue(PulseLaunch.shouldBindShopperFilterFacts(filters: store))
+        XCTAssertTrue(PulseLaunch.shopperSelectionChangedInPlace(
+            from: DashboardFilters(region: "", division: "", district: "", om: "", store: "3407"),
+            to: store
+        ))
+        var moved = store
+        moved.store = "2219"
+        XCTAssertFalse(PulseLaunch.shopperSelectionChangedInPlace(from: store, to: moved))
+
+        let narrowed = HeartbeatMath.filtered(tape, filters: store)
+        XCTAssertEqual(narrowed.filter { $0.section == .pickerScorecard }.count, 1)
+        XCTAssertEqual(narrowed.filter { $0.section == .sales }.count, 1)
+        XCTAssertFalse(narrowed.contains { $0.storeNumber == "2219" })
+
+        let oldJSON = #"{"region":"","division":"Jewel Osco","district":"","om":"","store":""}"#.data(using: .utf8)!
+        let decoded = try? JSONDecoder().decode(DashboardFilters.self, from: oldJSON)
+        XCTAssertEqual(decoded?.division, "Jewel Osco")
+        XCTAssertEqual(decoded?.shopper, "")
+
+        store.shopper = "3407|a1\n3407|a1"
+        store.sanitize()
+        XCTAssertEqual(store.shopper, "3407|a1")
+        XCTAssertEqual(store.chipTitle(for: .shopper), "A1")
+        XCTAssertEqual(CommandCenterLayout.overviewSeatLabel(store), "A1 Shopper")
+    }
+
+    /// Chrome keeps the cooked headline. Dashed side columns fill from pack facts.
+    /// Prep store rows keep an Excel 0 and drop a roster pad that has no rate.
+    func testChromeSideColumnsFillFromPackFacts() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.494")
+        let east = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 613,
+            values: ["2.64", "—", "—", "—", "—", "—"],
+            health: .risk
+        )
+        let jewel = MetricRow(
+            section: .fiveStar,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "3407",
+            payload: [
+                "star_rating": 4,
+                "flash_pct": 1.5,
+                "coe_pct": 2.5,
+                "ott_pct": 3.5,
+                "presub_pct": 4.5,
+                "oth5_pct": 5.5,
+            ],
+            textPayload: ["district": "J2"]
+        )
+        let filled = HeartbeatMath.fillingDashCellsKeepingCount(
+            [east],
+            section: .fiveStar,
+            metricRows: [jewel],
+            grain: .region
+        )
+        XCTAssertEqual(filled.first?.values.first, "2.64")
+        XCTAssertEqual(filled.first?.storeCount, 613)
+        XCTAssertEqual(filled.first?.values.dropFirst().contains("—"), false)
+
+        let zero = MetricRow(
+            section: .prepNotReady,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "2219",
+            payload: ["pnr_rate_pct": 0],
+            textPayload: ["district": "J2"]
+        )
+        let pad = MetricRow(
+            section: .prepNotReady,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "3407",
+            textPayload: ["district": "J2"]
+        )
+        let kept = [zero, pad].filter {
+            $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+        }
+        XCTAssertEqual(kept.map(\.storeNumber), ["2219"])
+        XCTAssertEqual(HeartbeatFormat.pct(kept.first?.number("pnr_rate_pct")), "0.00%")
+
+        let storeSource = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSource?.contains("fillingDashCellsKeepingCount") == true)
+        let detail = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        guard let detail,
+              let prepStart = detail.range(of: "private var prepRows"),
+              let prepEnd = detail.range(of: "private var scheduleRows")
+        else {
+            return XCTFail("prepRows must stay on the section page")
+        }
+        let prep = String(detail[prepStart.lowerBound..<prepEnd.lowerBound])
+        XCTAssertFalse(prep.contains("rosterJoined"), prep)
+        XCTAssertTrue(prep.contains("pnr_rate_pct"), prep)
+    }
+
+    private func shopperFact(
+        store: String,
+        division: String,
+        district: String,
+        om: String,
+        id: String,
+        name: String
+    ) -> MetricRow {
+        MetricRow(
+            section: .pickerScorecard,
+            division: division,
+            operationsOM: om,
+            storeNumber: store,
+            textPayload: [
+                "shopper_id": id,
+                "shopper_name": name,
+                "district": district,
+            ]
+        )
     }
 }
 

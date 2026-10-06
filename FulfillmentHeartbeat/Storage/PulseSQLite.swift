@@ -598,6 +598,36 @@ enum PulseSQLite {
         return out
     }
 
+    /// One fact whose text JSON contains `needle`, such as `"sales_grain":"company"`.
+    /// Does not walk the rest of the section.
+    static func readGrainFact(from url: URL, section: MetricSection, textNeedle: String) -> GrainFact? {
+        guard exists(at: url), !textNeedle.isEmpty else { return nil }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        residentCap(db)
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = """
+        SELECT store_number, division, payload_json, text_json
+        FROM facts
+        WHERE section = ? AND instr(text_json, ?) > 0
+        LIMIT 1;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        bind(stmt, 1, section.rawValue)
+        bind(stmt, 2, textNeedle)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return GrainFact(
+            store: string(stmt, 0),
+            division: string(stmt, 1),
+            numbers: decodeMap(optional(stmt, 2) ?? "{}"),
+            text: decodeText(optional(stmt, 3) ?? "{}")
+        )
+    }
+
     /// Department numbers for one section, one row at a time. The map is not a
     /// resident fact plane: only the requested keys are kept, then the payload is dropped.
     static func departmentPayloads(

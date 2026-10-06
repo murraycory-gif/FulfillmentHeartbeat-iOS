@@ -118,6 +118,12 @@ struct OverviewSalesAlignedTable: View {
     var district: Bool = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
+    /// Header plus every region. A short floor clips West under the card.
+    static func bodyHeight(rowCount: Int) -> CGFloat {
+        let rows = CGFloat(max(rowCount, 0))
+        return 64 + rows * 72
+    }
+
     private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
     private var valueMin: CGFloat { HubLayout.dashboardValueMin(phone: phone, columns: 8) }
     private var floor: CGFloat {
@@ -131,7 +137,7 @@ struct OverviewSalesAlignedTable: View {
     }
 
     var body: some View {
-        HubAdaptiveHScroll(minWidth: floor, minHeight: CGFloat(max(rows.count, 1)) * 36 + 48) {
+        HubAdaptiveHScroll(minWidth: floor, minHeight: Self.bodyHeight(rowCount: rows.count)) {
             OverviewSalesColumns(
                 title: title,
                 rows: rows,
@@ -488,6 +494,52 @@ enum SalesRollupBuilder {
         return rowsFromChrome(chrome, grain: grain)
     }
 
+    /// Chrome dollars and store counts stay (East $8,209,791.69 on 615).
+    /// YoY, orders, AOS, and the rest fill from the fact rollup when chrome left them blank.
+    static func keepingChromeHeadline(
+        _ chrome: [SalesRollupRow],
+        filling facts: [SalesRollupRow],
+        grain: DashScopeGrain
+    ) -> [SalesRollupRow] {
+        guard !facts.isEmpty else { return chrome }
+        var byAlias: [String: SalesRollupRow] = [:]
+        byAlias.reserveCapacity(facts.count * 3)
+        for row in facts {
+            for alias in HeartbeatMath.grainAliasKeys(row.label, grain: grain) where byAlias[alias] == nil {
+                byAlias[alias] = row
+            }
+        }
+        return chrome.map { row in
+            var match: SalesRollupRow?
+            for alias in HeartbeatMath.grainAliasKeys(row.label, grain: grain) {
+                if let hit = byAlias[alias] {
+                    match = hit
+                    break
+                }
+            }
+            guard let match else { return row }
+            let pack = row.pack
+            let fact = match.pack
+            return SalesRollupRow(
+                label: row.label,
+                storeCount: row.storeCount > 0 ? row.storeCount : match.storeCount,
+                pack: SalesPack(
+                    sales: pack.sales ?? fact.sales,
+                    yoy: pack.yoy ?? fact.yoy,
+                    orders: pack.orders ?? fact.orders,
+                    ordersYoy: pack.ordersYoy ?? fact.ordersYoy,
+                    aos: pack.aos ?? fact.aos,
+                    aiv: pack.aiv ?? fact.aiv,
+                    items: pack.items ?? fact.items,
+                    ipt: pack.ipt ?? fact.ipt,
+                    hd: pack.hd ?? fact.hd,
+                    dug: pack.dug ?? fact.dug,
+                    health: pack.health == .none ? fact.health : pack.health
+                )
+            )
+        }
+    }
+
     /// Chrome grain rows already have the section dollars. Use them when store
     /// divisions do not resolve into regions or markets.
     static func rowsFromChrome(
@@ -660,6 +712,9 @@ struct SalesRollupTable: View {
     @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
+    private var rollupBodyHeight: CGFloat {
+        OverviewSalesAlignedTable.bodyHeight(rowCount: summary.count)
+    }
 
     var body: some View {
         Group {
@@ -690,7 +745,7 @@ struct SalesRollupTable: View {
                             .padding(.horizontal, 10)
                             .padding(.bottom, 10)
                         } else {
-                        HubAdaptiveHScroll {
+                        HubAdaptiveHScroll(minHeight: rollupBodyHeight) {
                             VStack(alignment: .leading, spacing: 10) {
                                 SalesMetricHeader(
                                     label: grain.columnTitle,
@@ -707,7 +762,7 @@ struct SalesRollupTable: View {
                                     )
                                 }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: rollupBodyHeight, alignment: .topLeading)
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
@@ -722,6 +777,7 @@ struct SalesRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func applySort(_ key: String) {
@@ -740,11 +796,21 @@ struct SalesRollupTable: View {
         case .district: dashGrain = .district
         case .store: dashGrain = .store
         }
-        var rows = SalesRollupBuilder.dashboardRows(
-            from: SalesRollupBuilder.source(from: store.rollupStores(for: .sales), filters: store.filters),
-            grain: dashGrain,
-            chrome: store.dashboardGrainRows(for: .sales, grain: dashGrain)
+        let cached = store.dashFillRows(for: .sales)
+        let sourceRows = SalesRollupBuilder.source(
+            from: cached.isEmpty ? store.rollupStores(for: .sales) : cached,
+            filters: store.filters
         )
+        let chromeTable = store.dashboardGrainRows(for: .sales, grain: dashGrain)
+        var rows = SalesRollupBuilder.dashboardRows(
+            from: sourceRows,
+            grain: dashGrain,
+            chrome: chromeTable
+        )
+        let chromeRows = SalesRollupBuilder.rowsFromChrome(chromeTable, grain: dashGrain)
+        if !chromeRows.isEmpty {
+            rows = SalesRollupBuilder.keepingChromeHeadline(chromeRows, filling: rows, grain: dashGrain)
+        }
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         rows.sort { lhs, rhs in
             let result: ComparisonResult

@@ -27,6 +27,17 @@ export function updatedLine(raw) {
   return `Updated ${publishClock(date)}`;
 }
 
+// Header stamp from the pack publish time, UTC. HB-1005.1839 is 2026-10-05 18:39Z.
+export function publishStamp(raw) {
+  const date = parsePackTime(raw);
+  if (!date) return "";
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `HB-${month}${day}.${hour}${minute}`;
+}
+
 export function bannerText(onScreen, incoming) {
   const previous = parsePackTime(onScreen);
   const next = parsePackTime(incoming);
@@ -48,14 +59,15 @@ export function pct(value) {
 }
 
 export function money(value) {
-  if (value == null || Number.isNaN(Number(value))) return "—";
-  const number = Number(value);
-  const digits = Math.abs(number - Math.round(number)) < 0.005 ? 0 : 2;
+  if (value == null || value === "") return "—";
+  const cleaned = typeof value === "string" ? value.replace(/[$,\s]/g, "") : value;
+  const number = Number(cleaned);
+  if (!Number.isFinite(number)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
   }).format(number);
 }
 

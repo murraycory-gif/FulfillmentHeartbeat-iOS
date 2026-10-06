@@ -56,6 +56,8 @@ DIVISION_ALIASES = {
     "SOCAL": "SoCal",
     "MOUNTAINWEST": "Mountain West",
     "MOUNTAIN WEST": "Mountain West",
+    "DENVER": "Mountain West",
+    "INTERMOUNTAIN": "Mountain West",
     "SEATTLE": "Seattle",
     "HAGGEN": "Haggen",
     "PORTLAND": "Portland",
@@ -311,12 +313,17 @@ def load_markets(table):
             name = "Total"
         else:
             name = canonical_division(label) or label
+        under = percent(row[1] if len(row) > 1 else None)
+        over = percent(row[2] if len(row) > 2 else None)
+        eff = percent(row[3] if len(row) > 3 else None)
+        if under is None and over is None:
+            eff = None
         markets.append(
             {
                 "label": name,
-                "under": percent(row[1] if len(row) > 1 else None),
-                "over": percent(row[2] if len(row) > 2 else None),
-                "eff": percent(row[3] if len(row) > 3 else None),
+                "under": under,
+                "over": over,
+                "eff": eff,
             }
         )
     return markets
@@ -343,6 +350,35 @@ def summary_title(table):
     return ""
 
 
+def load_store_detail(table):
+    """Store Detail has the under/over cells Stores Current Week leaves blank."""
+    detail = {}
+    for row in table[1:]:
+        if len(row) < 7:
+            continue
+        key = store_key(row[3] if len(row) > 3 else None)
+        if not key:
+            continue
+        detail[key] = {
+            "under": percent(row[5]) if len(row) > 5 else None,
+            "over": percent(row[6]) if len(row) > 6 else None,
+        }
+    return detail
+
+
+def fill_metric(current, fallback):
+    if current is not None:
+        return current
+    return fallback
+
+
+def measured_schedule(under, over, eff, detail_under=None, detail_over=None):
+    """A blank current-week under and over is not a measured 0%. Eff on that row is not 100%."""
+    if under is None and over is None:
+        return None, None, None
+    return fill_metric(under, detail_under), fill_metric(over, detail_over), eff
+
+
 def cook_workbook(path: str) -> dict:
     import openpyxl
 
@@ -355,6 +391,7 @@ def cook_workbook(path: str) -> dict:
         day_under, day_over = load_days(workbook)
         stars = load_stars(rows_of(workbook, "5 Star Last 5 Weeks"))
         roster = load_roster(rows_of(workbook, "Roster"))
+        detail = load_store_detail(rows_of(workbook, "Store Detail")) if "Store Detail" in workbook.sheetnames else {}
         markets = load_markets(rows_of(workbook, f"Market Look WK{week}"))
         banner = banner_count(rows_of(workbook, "ACTION NEEDED"))
         title = summary_title(rows_of(workbook, "Summary"))
@@ -375,6 +412,14 @@ def cook_workbook(path: str) -> dict:
             district = ""
         om = identity.get("om") or ""
         quality_row = quality.get(key, {})
+        detail_row = detail.get(key, {})
+        under, over, eff = measured_schedule(
+            percent(row[4]) if len(row) > 4 else None,
+            percent(row[3]) if len(row) > 3 else None,
+            percent(row[5]) if len(row) > 5 else None,
+            detail_row.get("under"),
+            detail_row.get("over"),
+        )
         stores.append(
             {
                 "store": key,
@@ -383,9 +428,9 @@ def cook_workbook(path: str) -> dict:
                 "district": district,
                 "om": om,
                 "sales": sales.get(key),
-                "under": percent(row[4]),
-                "over": percent(row[3]),
-                "eff": percent(row[5]),
+                "under": under,
+                "over": over,
+                "eff": eff,
                 "pch": quality_row.get("pch"),
                 "fourUnder": quality_row.get("fourUnder"),
                 "fourOver": quality_row.get("fourOver"),
@@ -523,21 +568,42 @@ def print_cross_check(report: dict) -> bool:
     return ok
 
 
+def is_schedule_workbook(name: str) -> bool:
+    """Daily iCloud saves use spaces. Downloads sometimes use underscores."""
+    if not name or name.startswith("~$") or name.startswith("."):
+        return False
+    folded = name.replace("_", " ").lower()
+    if not folded.endswith(".xlsx"):
+        return False
+    if "schedule review" not in folded:
+        return False
+    return "summary" in folded or folded.startswith("schedule review week ")
+
+
 def newest_schedule_workbook(folder: str):
     if not folder or not os.path.isdir(folder):
         return None
     found = []
     for name in os.listdir(folder):
-        if name.startswith("~$"):
+        if not is_schedule_workbook(name):
             continue
-        if fnmatch.fnmatch(name, "Schedule Review Week *.xlsx"):
-            path = os.path.join(folder, name)
-            if os.path.isfile(path):
-                found.append(path)
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            found.append(path)
     if not found:
         return None
     found.sort(key=lambda path: os.path.getmtime(path), reverse=True)
     return found[0]
+
+
+def sheet_publishable(pack: dict) -> bool:
+    """A schedule pack can ship when the workbook itself has a week and stores."""
+    try:
+        week = int(pack.get("week") or 0)
+    except (TypeError, ValueError):
+        return False
+    stores = pack.get("stores") or []
+    return week > 0 and len(stores) > 0
 
 
 def write_pack(pack: dict, dest: str) -> None:
@@ -653,6 +719,14 @@ def parse_args(argv=None):
     parser.add_argument("--find", help="Folder of Schedule Review Week *.xlsx. Newest mtime wins. ~$ ignored.")
     parser.add_argument("--sqlite", help="current.sqlite path. Schedule rows are replaced inside this pack.")
     parser.add_argument("--check", action="store_true", help="Print the cross-check and exit 1 on a company-number miss.")
+    parser.add_argument(
+        "--publish-sheet",
+        action="store_true",
+        help=(
+            "Write this workbook's own rows even when they miss the historical company lock. "
+            "Still refuses an empty week or an empty store list. Does not substitute lock numbers."
+        ),
+    )
     args = parser.parse_args(argv)
     # `--find FOLDER schedule-check.json` used to bind the json path to workbook,
     # then --find replaced the workbook, so output stayed empty and the process
@@ -677,18 +751,22 @@ def main(argv=None) -> int:
     pack = cook_workbook(path)
     report = pack["crossCheck"]
     ok = print_cross_check(report)
+    if args.check and not ok:
+        return 1
+    if (args.sqlite or args.publish_sheet) and not sheet_publishable(pack):
+        print("Schedule cook refused: week or store rows are missing. Nothing written.")
+        return 1
+    if not ok and not args.publish_sheet:
+        print("Company-number MISMATCH. Schedule rows were not written into current.sqlite.")
+        return 1
+    if not ok:
+        print(
+            "Historical company lock missed. Publishing this workbook's own rows. "
+            "Lock numbers were not substituted."
+        )
     if args.output:
         write_pack(pack, args.output)
         print(f"Wrote {args.output} ({os.path.getsize(args.output)} bytes, {report['scope']} stores)")
-    if not ok:
-        print("Company-number MISMATCH. Schedule rows were not written into current.sqlite.")
-        if args.output:
-            print(f"Removed {args.output}")
-            try:
-                os.remove(args.output)
-            except OSError:
-                pass
-        return 1
     if args.sqlite:
         write_sqlite(pack, args.sqlite)
         print(f"Cooked schedule rows into {args.sqlite} ({report['scope']} stores)")

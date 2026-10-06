@@ -19,7 +19,7 @@ That writes `web/dist/` (`pages_build_output_dir`). Functions stay in `web/funct
 
 ## What Cory sets up
 
-Do these in order. Free tier only: Pages and one existing R2 bucket binding. No Access PIN, no D1, no paid add-on, no custom domain, no DNS change.
+Do these in order. Pages, the existing R2 bucket, and one D1 database for accounts. No Access PIN, no paid add-on, no custom domain, no DNS change.
 
 ### 1. Allowlist
 
@@ -33,9 +33,15 @@ Do these in order. Free tier only: Pages and one existing R2 bucket binding. No 
    - Variable name: `HEARTBEAT_PACKS`
    - Bucket: the existing bucket `heartbeat-packs`
    - Do not create a new bucket. Do not turn on public access here.
-4. Do **not** set `HEARTBEAT_WEB_DEV`. That flag only bypasses an old localhost check.
-5. Do **not** add a custom domain. Leave the `*.pages.dev` hostname. Do not change DNS.
-6. Do **not** attach Cloudflare Access to this hostname. A PIN in front of the HTML, or a 401 on `/api/section`, is what left every scorecard on "Sign in with the email PIN".
+4. **Settings** → **Bindings** → **Add** → **D1 database**, if the deploy did not attach it from `wrangler.toml`.
+   - Variable name: `HB_AUTH`
+   - Database: `fulfillment-heartbeat-auth`
+   - Production and Preview both use that database
+5. Pages secrets, set once and not rotated on later deploys: `SESSION_SECRET` (signs the cookie), `ADMIN_EMAIL` (the first admin's address), `SETUP_SECRET` (bearer token for the one-time `GET /setup` link). Do not put a password in the repo. Optional mail is off unless `INVITE_EMAIL` is `1` and `INVITE_EMAIL_URL` is a webhook. Copying the invite link works without mail.
+6. Do **not** set `HEARTBEAT_WEB_DEV`. That flag only bypasses an old localhost check.
+7. Do **not** set `AUTH_CUTOVER` until an account sign-in has been verified. Until then the shared `BASIC_PASS` login still works.
+8. Do **not** add a custom domain. Leave the `*.pages.dev` hostname. Do not change DNS.
+9. Do **not** attach Cloudflare Access to this hostname. A PIN in front of the HTML, or a 401 on `/api/section`, is what left every scorecard on "Sign in with the email PIN".
 
 ### 3. Cook the pack into the site
 
@@ -65,7 +71,7 @@ npm run build
 npx wrangler pages deploy dist --project-name fulfillment-heartbeat-web
 ```
 
-Wrangler will ask you to log in. That upload is the site. Re-run step 3 when the seat pack changes, then step 4. Do not deploy to `heartbeat-web.pages.dev`.
+This environment has no Wrangler login. Set `CLOUDFLARE_API_TOKEN` to an account token with Cloudflare Pages Edit, then run the command. Do not pass `--project-name heartbeat-web`. That upload is the site. Re-run step 3 when the seat pack changes, then step 4. Do not deploy to `heartbeat-web.pages.dev`.
 
 ### 5. Public bucket URL — read this before you click
 
@@ -74,6 +80,26 @@ The web app does not use a public R2 URL. `connect-src` is `'self'`. The functio
 The current iPhone / iPad / Mac build still downloads packs from the public host in `PulseCloud.defaultPackHost` (`HBPackHost`, the `r2.dev` URL). Turning **public access off** on `heartbeat-packs` is what keeps the bucket off the public internet. It also stops that phone build until a later build reads through a protected origin.
 
 Do that only when you are ready for the phone to miss packs. This change does not flip the switch and does not change the phone URL.
+
+## Save in iCloud updates the site
+
+Cory does not ask Bot to deploy. A launchd watcher on the Mac cooks a saved workbook and uploads the site.
+
+What he clicks once:
+
+1. Cloudflare dashboard → My Profile → **API Tokens** → **Create Token**. Use a custom token with **Account / Cloudflare Pages / Edit**. Copy the token into `~/.config/heartbeat/cloudflare-api-token` and run `chmod 600` on that file. Do not commit it and do not paste it into chat.
+2. On the Mac, from this repo: `./Tools/HeartbeatIngest/setup-web-publish.sh`. If macOS asks for **Files and Folders** or iCloud Drive access, click **Allow**.
+
+After that, leave these files in iCloud Drive `Heartbeat_Reports`:
+
+- `Heartbeat Daily Report.xlsx`
+- `Schedule Review Week NN - Summary.xlsx`
+
+Saving either workbook runs `Tools/HeartbeatIngest/cook-local.sh`. That cooks the Daily Report and the Schedule Review sheet into `current.sqlite`, checks the pack, and deploys **only** to Pages project `fulfillment-heartbeat-web` (`https://fulfillment-heartbeat-web.pages.dev`). Dynacap health is the cooked band (goal 65, risk 60). The schedule title on the site uses the week from the workbook tabs. The cook does not invent metrics. If the cook or the pack check fails, the script exits and does not deploy. If neither file changed since the last successful deploy, it does nothing.
+
+The Mac job signs in through the form and treats an unsigned `/data` response of `401` JSON `{"error":"unauthorized"}` as the lock. A UI deploy must not upload an older pack over the live one. `HEARTBEAT_UI_ONLY=1` skips the sqlite extract. Save the current pack in `web/public/data` and set `HEARTBEAT_USE_LOCAL_DATA=1`, or put the site login in `~/.config/heartbeat/web-email` and `web-password` so a newer live pack is downloaded first. A cook still passes `current.sqlite`. An older sqlite does not replace a newer pack already in `web/public/data`. After upload, `publish-web.sh` checks the unsigned `401` again.
+
+The token is read from `CLOUDFLARE_API_TOKEN` or `~/.config/heartbeat/cloudflare-api-token`. launchd does not need the token in the plist.
 
 ## What you should see
 

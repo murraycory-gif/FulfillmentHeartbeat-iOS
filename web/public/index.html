@@ -3,27 +3,104 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Heartbeat</title>
-  <link rel="stylesheet" href="/app.css">
+  <title>Fulfillment Heartbeat</title>
+  <link rel="stylesheet" href="/app.css?v=20">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <script src="/nav-boot.js?v=2"></script>
 </head>
 <body>
   <div id="scrim" hidden></div>
   <nav id="drawer" aria-label="Pages"></nav>
   <div class="shell">
+    <div class="sticky-top">
     <header class="top">
-      <button id="nav-toggle" type="button" aria-controls="drawer" aria-expanded="false">Pages</button>
+      <p class="brand-lockup">
+          <span class="wordmark" aria-label="Fulfillment Heartbeat"><span class="fulfill">Fulfill</span><span class="ment">ment</span></span>
+          <svg class="heart" viewBox="0 0 36 33" aria-hidden="true">
+            <defs>
+              <linearGradient id="hb-heart" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#9fd4ff"/>
+                <stop offset="48%" stop-color="#3d8dff"/>
+                <stop offset="100%" stop-color="#00a9e0"/>
+              </linearGradient>
+              <radialGradient id="hb-shine" cx="34%" cy="26%" r="62%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.42"/>
+                <stop offset="45%" stop-color="#ffffff" stop-opacity="0.06"/>
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <path fill="url(#hb-heart)" d="M18 32.4C18 27.36 0 20.88 1.8 12.96C3.6 1.44 13.68 1.44 18 7.92C22.32 1.44 32.4 1.44 34.2 12.96C36 20.88 18 27.36 18 32.4Z"/>
+            <path fill="url(#hb-shine)" d="M18 32.4C18 27.36 0 20.88 1.8 12.96C3.6 1.44 13.68 1.44 18 7.92C22.32 1.44 32.4 1.44 34.2 12.96C36 20.88 18 27.36 18 32.4Z"/>
+            <path fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="1.1" d="M18 32.4C18 27.36 0 20.88 1.8 12.96C3.6 1.44 13.68 1.44 18 7.92C22.32 1.44 32.4 1.44 34.2 12.96C36 20.88 18 27.36 18 32.4Z"/>
+          </svg>
+          <svg class="pulse" viewBox="0 0 52 22" aria-hidden="true">
+            <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path stroke="#00A9E0" stroke-opacity="0.28" stroke-width="3.2" d="M0 14.5L5.1 14.5L8.2 17.5L15.3 1.5L21.4 20.5L25.5 14.5Q30.6 7.5 35.7 14.5L51 14.5"/>
+              <path class="ecg" stroke="#00A9E0" stroke-width="3.2" d="M0 14.5L5.1 14.5L8.2 17.5L15.3 1.5L21.4 20.5L25.5 14.5Q30.6 7.5 35.7 14.5L51 14.5"/>
+            </g>
+          </svg>
+      </p>
       <div class="titles">
         <h1 id="page-title">Dashboard</h1>
+      </div>
+      <div class="header-foot">
+        <button id="nav-toggle" type="button" aria-controls="drawer" aria-expanded="false">Pages</button>
         <p id="updated">Updated —</p>
       </div>
-      <p id="stamp" class="stamp">HB-0828.494</p>
     </header>
     <p id="banner" class="banner" hidden></p>
-    <form id="filters" class="filters"></form>
+    <div class="filter-bar">
+      <div class="find-row">
+        <div class="find">
+          <input id="scope-search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search store, OM, district, division…" aria-label="Search store, OM, district, division" aria-controls="scope-results" aria-expanded="false">
+          <div id="scope-results" class="scope-results" hidden></div>
+        </div>
+        <button id="browse-open" type="button" aria-expanded="false" aria-controls="browse">Browse</button>
+        <button id="share-open" type="button" aria-label="Share">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 16V4M7 8l5-5 5 5M5 20h14"/></svg>
+        </button>
+      </div>
+      <div class="chip-row">
+        <div id="scope-chips" class="scope-chips"></div>
+        <button id="clear-filters" type="button" hidden>Clear all</button>
+      </div>
+      <div id="browse" class="browse" hidden>
+        <div class="browse-card" role="dialog" aria-labelledby="browse-title">
+          <div class="browse-head">
+            <button id="browse-back" type="button" hidden>Back</button>
+            <p id="browse-title"></p>
+            <button id="browse-close" type="button">Close</button>
+          </div>
+          <div id="browse-list"></div>
+        </div>
+      </div>
+    </div>
+    </div>
     <main id="main">
       <p class="nodata">Loading…</p>
     </main>
   </div>
-  <script type="module" src="/app.js"></script>
+  <div id="share" class="share" hidden>
+    <div class="share-card" role="dialog" aria-modal="true" aria-labelledby="share-title">
+      <h2 id="share-title">Share</h2>
+      <p id="share-scope" class="note"></p>
+      <div class="share-modes">
+        <label><input type="radio" name="share-mode" value="page" checked> This page</label>
+        <label><input type="radio" name="share-mode" value="all"> All pages</label>
+        <label><input type="radio" name="share-mode" value="pick"> Pick pages</label>
+      </div>
+      <div id="share-picks" class="share-picks" hidden></div>
+      <label class="share-to">To<input id="share-to" type="text" inputmode="email" autocomplete="email" placeholder="Optional. name@company.com"></label>
+      <p id="share-error" class="note" hidden>Pick at least one page.</p>
+      <div class="share-actions">
+        <button id="share-send" type="button">Email this page</button>
+        <button id="share-close" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/app.js?v=29"></script>
 </body>
 </html>

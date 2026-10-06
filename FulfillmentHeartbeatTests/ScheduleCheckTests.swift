@@ -173,9 +173,16 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertTrue(markets.contains("market.label"))
 
         let detail = sourceSpan(view, from: "private func detailPage", until: "private func marketBlock")
-        XCTAssertFalse(detail.contains("ScrollView([.horizontal, .vertical])"))
-        XCTAssertFalse(detail.contains("LazyVStack"))
+        XCTAssertTrue(
+            detail.contains("ScrollView([.horizontal, .vertical])"),
+            "header and store rows share one scroll that has a real viewport"
+        )
+        XCTAssertTrue(detail.contains("GeometryReader"), "the scroll needs the page size or the lazy rows lay out at height 0")
+        XCTAssertTrue(detail.contains("LazyVStack"), "store rows stay lazy so 2,163 lines do not build on the tap")
         XCTAssertTrue(detail.contains("ForEach(rows)"))
+        XCTAssertTrue(detail.contains("header(detailColumns, tappable: true)"))
+        XCTAssertFalse(detail.contains("frame(height: rowBody"))
+        XCTAssertFalse(detail.contains("minHeight: laidOut"), "a 2,163-line min height blanks the lazy stack")
     }
 
     func testStoreDetailRowsHaveLaidOutHeight() {
@@ -195,10 +202,12 @@ final class ScheduleCheckTests: XCTestCase {
             encoding: .utf8
         )
         let detail = view ?? ""
-        XCTAssertTrue(detail.contains("ScheduleCheckMath.detailBodyHeight(rowCount: rows.count)"))
-        XCTAssertTrue(detail.contains("frame(minWidth: detailWidth, minHeight: laidOut"))
+        XCTAssertFalse(detail.contains("ScheduleCheckMath.detailBodyHeight(rowCount: rows.count)"))
+        XCTAssertFalse(detail.contains("frame(minWidth: detailWidth, minHeight: laidOut"))
         XCTAssertTrue(detail.contains("No stores in this scope."))
         XCTAssertTrue(detail.contains("header(detailColumns, tappable: true)"))
+        XCTAssertTrue(detail.contains("LazyVStack"))
+        XCTAssertTrue(detail.contains("ForEach(rows)"))
         guard let pageStart = detail.range(of: "private func detailPage"),
               let pageEnd = detail.range(of: "private func marketBlock") else {
             XCTFail("Store Detail page is missing")
@@ -206,14 +215,21 @@ final class ScheduleCheckTests: XCTestCase {
         }
         let page = String(detail[pageStart.lowerBound..<pageEnd.lowerBound])
         let header = page.range(of: "header(detailColumns, tappable: true)")
-        let scroll = page.range(of: "ScrollView(.horizontal)")
+        let scroll = page.range(of: "ScrollView([.horizontal, .vertical])")
+        let rows = page.range(of: "ForEach(rows)")
         XCTAssertNotNil(header)
         XCTAssertNotNil(scroll)
-        if let header, let scroll {
-            XCTAssertLessThan(header.lowerBound, scroll.lowerBound, "the column header has to sit outside the horizontal scroll")
+        XCTAssertNotNil(rows)
+        if let header, let scroll, let rows {
+            XCTAssertLessThan(scroll.lowerBound, header.lowerBound, "the column header sits in the same scroll as the rows")
+            XCTAssertLessThan(header.lowerBound, rows.lowerBound)
         }
-        XCTAssertTrue(page.contains(".frame(height: rowBody"))
-        XCTAssertTrue(page.contains("frame(height: ScheduleCheckMath.detailHeaderHeight"))
+        XCTAssertTrue(page.contains("GeometryReader"))
+        XCTAssertTrue(page.contains(".frame(width: proxy.size.width, height: proxy.size.height)"))
+        XCTAssertFalse(page.contains("frame(height: rowBody"))
+        XCTAssertFalse(page.contains("minHeight: laidOut"))
+        XCTAssertTrue(page.contains("frame(width: detailWidth, height: ScheduleCheckMath.detailHeaderHeight"))
+        XCTAssertTrue(page.contains("frame(width: detailWidth, height: ScheduleCheckMath.detailRowHeight"))
     }
 
     func testScheduleRowsRoundTripInsideCurrentSqlite() throws {
@@ -277,7 +293,8 @@ final class ScheduleCheckTests: XCTestCase {
                 .appendingPathComponent("FulfillmentHeartbeat/Views/ScheduleCheckView.swift"),
             encoding: .utf8
         )
-        XCTAssertTrue(view.contains("Schedule Review Week file is not on this device."))
+        XCTAssertTrue(view.contains("This pack has no Schedule Check rows."))
+        XCTAssertFalse(view.contains("not on this device"))
         XCTAssertTrue(view.contains("store.scheduleCheck == nil"))
         let pack = ScheduleCheckPack(
             publishedAt: "2026-09-29T20:29:58Z",
@@ -323,7 +340,10 @@ final class ScheduleCheckTests: XCTestCase {
         XCTAssertEqual(pages[schedule + 1], .scheduleCheck)
         XCTAssertEqual(PulseEmail.SharePage.from(destination: .scheduleCheck), .dashboard)
         XCTAssertFalse(HeartbeatAssist.pagePrompts(.scheduleCheck).isEmpty)
-        XCTAssertTrue(ScheduleCheckMath.assistText(pack: nil, filters: DashboardFilters()).contains("NO DATA"))
+        let emptyAssist = ScheduleCheckMath.assistText(pack: nil, filters: DashboardFilters())
+        XCTAssertTrue(emptyAssist.contains("NO DATA"))
+        XCTAssertTrue(emptyAssist.contains("This pack has no Schedule Check rows."))
+        XCTAssertFalse(emptyAssist.contains("not on this device"))
     }
 
     private func sourceSpan(_ text: String, from start: String, until end: String) -> String {

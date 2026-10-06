@@ -11,17 +11,27 @@ export const FIGURE_SECTIONS = new Set([
   "labor",
 ]);
 
-export function packURL(path) {
+export function packURL(path, origin) {
   const clean = String(path || "")
     .replace(/^\/+/, "")
     .split("?")[0];
   const lower = clean.toLowerCase();
   if (!clean || clean.includes("..") || clean.includes("\\") || clean.includes("//")) return null;
   if (lower.includes(".sqlite") || lower.includes("://")) return null;
-  if (clean === "home") return "/data/home.json";
-  if (clean === "presub") return "/data/presub.json";
-  if (clean === "schedule") return "/data/schedule.json";
-  const match = clean.match(/^section\/([a-z0-9_]+)$/);
-  if (!match) return null;
-  return `/data/section/${match[1]}.json`;
+  let relative = null;
+  if (clean === "home") relative = "/data/home.json";
+  else if (clean === "presub") relative = "/data/presub.json";
+  else if (clean === "schedule") relative = "/data/schedule.json";
+  else {
+    const match = clean.match(/^section\/([a-z0-9_]+)$/);
+    if (match) relative = `/data/section/${match[1]}.json`;
+  }
+  if (!relative) return null;
+  if (!origin) return relative;
+  // location.origin has no user:pass. Strip again in case the base still has them.
+  try {
+    return new URL(relative, new URL(String(origin)).origin).href;
+  } catch {
+    return null;
+  }
 }

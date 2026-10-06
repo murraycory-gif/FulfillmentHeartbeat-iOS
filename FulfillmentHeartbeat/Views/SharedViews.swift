@@ -1109,7 +1109,7 @@ struct FilterBar: View {
                         .contentShape(Rectangle())
                 }
             } else {
-                ForEach(FilterFocus.allCases) { focus in
+                ForEach(FilterFocus.sheetChips(filters: store.filters)) { focus in
                     HubChromePill(
                         title: pillTitle(for: focus),
                         symbol: focus.symbol,
@@ -1139,7 +1139,11 @@ struct FilterBar: View {
     }
 
     private var compactFilterTitle: String {
-        let active = FilterFocus.allCases.compactMap { focus -> String? in
+        var focuses = FilterFocus.allCases
+        if !store.filters.shopper.isEmpty {
+            focuses.insert(.shopper, at: 0)
+        }
+        let active = focuses.compactMap { focus -> String? in
             let title = store.filters.chipTitle(for: focus)
             return title == focus.chipTitle ? nil : title
         }
@@ -1948,7 +1952,7 @@ struct FilterSheet: View {
     private var filterGrainChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(FilterFocus.allCases) { item in
+                ForEach(FilterFocus.sheetChips(filters: draft)) { item in
                     filterFocusChip(item)
                 }
             }
@@ -2019,7 +2023,10 @@ struct FilterSheet: View {
         var next = draft
         next.toggle(value, in: focus)
         draft = next
-        if focus != .store {
+        if !FilterFocus.sheetChips(filters: next).contains(focus) {
+            focus = .region
+        }
+        if focus != .store && focus != .shopper {
             options = store.filterChoices(focus: focus, draft: next)
         }
     }
@@ -3035,6 +3042,7 @@ struct PickPathRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -4347,6 +4355,7 @@ struct DynacapRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -5259,6 +5268,7 @@ struct PrepRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -6048,6 +6058,7 @@ struct FiveStarRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -7130,6 +7141,7 @@ struct LaborRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -7836,11 +7848,6 @@ private enum LostRevenueMath {
         return values.isEmpty ? nil : values.reduce(0, +)
     }
 
-    static func ratio(_ dollars: Double?, _ sales: Double?) -> Double? {
-        guard let dollars, let sales, sales > 0 else { return nil }
-        return dollars / sales
-    }
-
     static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {
         let stores = HeartbeatMath.lostRevenueStoreRows(rows)
         let sales = optionalTO(rows, "ecomm_sales")
@@ -7851,9 +7858,7 @@ private enum LostRevenueMath {
             label: "",
             storeCount: stores.count,
             lost: lost,
-            pct: market?.number("lost_revenue_pct")
-                ?? ratio(lost, sales)
-                ?? HeartbeatMath.average(stores.compactMap { $0.number("lost_revenue_pct") }),
+            pct: HeartbeatMath.lostRevenueReportedPct(rows),
             goal: HeartbeatMath.lostRevenueInheritedGoalPct(rows: rows, fallback: fallbackGoal),
             sales: sales,
             post: optionalTO(rows, "post_sub_oos_foregone"),
@@ -8293,13 +8298,34 @@ struct LostRevenueRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
         let next = forcedGrain ?? LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        if let chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
+        let packFacts = LostRevenueRollupBuilder.source(
+            from: store.scopedPackRows(for: .lostRevenue),
+            filters: store.filters
+        )
+        if var chrome = store.chromeRollupRows(for: .lostRevenue, grain: next.scopeGrain) {
+            if HeartbeatMath.grainTableNeedsColumnFill(chrome, section: .lostRevenue) {
+                let facts = packFacts.isEmpty
+                    ? LostRevenueRollupBuilder.source(
+                        from: store.dashFillRows(for: .lostRevenue),
+                        filters: store.filters
+                    )
+                    : packFacts
+                let goal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+                chrome = HeartbeatMath.fillingDashCellsKeepingCount(
+                    chrome,
+                    section: .lostRevenue,
+                    metricRows: facts,
+                    grain: next.scopeGrain,
+                    goalFallback: goal
+                )
+            }
             summary = chrome.map { row in
                 LostRevenueRollupRow(
                     id: row.label,
@@ -8317,7 +8343,9 @@ struct LostRevenueRollupTable: View {
             applyCurrentSort()
             return
         }
-        let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
+        let source = packFacts.isEmpty
+            ? LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
+            : packFacts
         let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
         rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
@@ -9387,6 +9415,7 @@ struct ScheduleRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -10169,6 +10198,7 @@ struct PPHRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.packGrainStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
