@@ -1251,6 +1251,221 @@ assert.notEqual(failedList.ran.status, 0);
 assert.match(failedList.ran.stderr, /no secret was created/);
 assert.match(failedList.calls, /npx wrangler pages secret list/);
 assert.equal(failedList.calls.includes("openssl"), false);
+const pointerFn = publishScript.slice(publishScript.indexOf("pointer_is_verified() {"), publishScript.indexOf("require_verified_pointer() {"));
+assert.match(pointerFn, /\$\{pointer_state##\*\$'\\n'\}/);
+assert.match(pointerFn, /\[\[ "\$last" == "pointer preflight: verified" \]\]/);
+const previewAt = publishScript.indexOf("# BEGIN pointer-preview");
+const previewEnd = publishScript.indexOf("# END pointer-preview");
+const commitAt = publishScript.indexOf("# BEGIN pointer-commit");
+assert.ok(previewAt !== -1 && previewEnd > previewAt && commitAt > previewEnd);
+const previewSlice = publishScript.slice(previewAt + "# BEGIN pointer-preview".length, previewEnd);
+const commitSlice = publishScript.slice(commitAt + "# BEGIN pointer-commit".length, publishScript.indexOf("# END pointer-commit"));
+assert.match(previewSlice, /if ! pointer_is_verified/);
+assert.ok(previewSlice.indexOf("pointer_is_verified") < previewSlice.indexOf("publish_pack_pointer"));
+assert.match(commitSlice, /if ! pointer_is_verified/);
+assert.ok(commitSlice.indexOf("pointer_is_verified") < commitSlice.indexOf("--commit-pointer"));
+const bannerRun = (mode, pointer) => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-banner-"));
+  const bin = join(dir, "bin");
+  const store = join(dir, "r2");
+  const web = join(dir, "web");
+  const pack = join(dir, "pack");
+  mkdirSync(bin);
+  mkdirSync(web);
+  mkdirSync(pack);
+  const liveKey = join(store, "heartbeat-packs/web-pack/current.json");
+  mkdirSync(join(store, "heartbeat-packs/web-pack"), { recursive: true });
+  writeFileSync(liveKey, JSON.stringify(pointer));
+  writeFileSync(
+    join(pack, "home.json"),
+    JSON.stringify({
+      cookSha: "c".repeat(40),
+      publishedAt: "2026-10-06T01:35:23Z",
+      cookedAt: "2026-10-07T03:00:00Z",
+      schemaVersion: 1,
+      metadata: { schemaVersion: 1, cookSha: "c".repeat(40), cookedAt: "2026-10-07T03:00:00Z" },
+    }),
+  );
+  writeFileSync(join(web, "check_pack.mjs"), "process.exit(0)\n");
+  const log = join(dir, "wrangler.log");
+  writeFileSync(
+    join(bin, "npx"),
+    `#!/usr/bin/env python3
+import os, shutil, sys
+from pathlib import Path
+args = sys.argv[1:]
+log = Path(os.environ["WRANGLER_LOG"])
+store = Path(os.environ["WRANGLER_STORE"])
+sys.stdout.write("⛅️ wrangler 4.147.0\\n")
+sys.stdout.write("────────────────────\\n")
+sys.stdout.write("Resource location\\n")
+sys.stdout.write('Downloading "web-pack/current.json"…\\n')
+kind = "other"
+key = ""
+if len(args) >= 5 and args[2:4] == ["object", "get"]:
+    kind = "get"
+    key = args[4]
+elif len(args) >= 5 and args[2:4] == ["object", "put"]:
+    kind = "put"
+    key = args[4]
+elif "pages" in args and "deploy" in args:
+    kind = "deploy"
+with log.open("a", encoding="utf-8") as handle:
+    handle.write(f"{kind} {key}\\n")
+dest = next((item.split("=", 1)[1] for item in args if item.startswith("--file=")), "")
+if kind == "get":
+    src = store / key
+    if not src.is_file():
+        sys.stderr.write("The specified key does not exist.\\n")
+        raise SystemExit(1)
+    Path(dest).write_bytes(src.read_bytes())
+    raise SystemExit(0)
+if kind == "put":
+    target = store / key
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(dest, target)
+    raise SystemExit(0)
+raise SystemExit(0)
+`,
+  );
+  chmodSync(join(bin, "npx"), 0o755);
+  const fn = (name) => {
+    const start = publishScript.indexOf(`${name}() {`);
+    let depth = 0;
+    for (let i = publishScript.indexOf("{", start); i < publishScript.length; i += 1) {
+      if (publishScript[i] === "{") depth += 1;
+      else if (publishScript[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return publishScript.slice(start, i + 1);
+      }
+    }
+    throw new Error(name);
+  };
+  const script = [
+    "set -euo pipefail",
+    `ROOT=${JSON.stringify(join(root, ".."))}`,
+    `WEB=${JSON.stringify(web)}`,
+    `PACK_DIR=${JSON.stringify(pack)}`,
+    "PROJECT=fulfillment-heartbeat-web",
+    "POINTER_PLAN=",
+    `DATA_ONLY=${mode === "data" ? "1" : ""}`,
+    `UI_ONLY=${mode === "ui" ? "1" : ""}`,
+    fn("publish_pack_pointer"),
+    fn("pointer_is_verified"),
+    fn("fail_deploy_readback"),
+    previewSlice,
+    'if [[ -n "$DATA_ONLY" ]]; then exit 0; fi',
+    'if [[ -n "$UI_ONLY" ]]; then LIVE_POINTER_BEFORE="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"; fi',
+    'npx wrangler pages deploy dist --project-name "$PROJECT" --branch main',
+    commitSlice,
+    'if [[ -n "$UI_ONLY" ]]; then',
+    '  LIVE_POINTER_AFTER="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"',
+    '  if [[ "$LIVE_POINTER_BEFORE" != "$LIVE_POINTER_AFTER" ]]; then echo "UI-only deploy changed the live pointer" >&2; exit 1; fi',
+    "fi",
+  ].join("\n");
+  const ran = spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, WRANGLER_LOG: log, WRANGLER_STORE: store },
+  });
+  const calls = existsSync(log) ? readFileSync(log, "utf8") : "";
+  rmSync(dir, { recursive: true, force: true });
+  return { ran, calls };
+};
+const livePointer = {
+  prefix: `web-pack/${"a".repeat(40)}-2026-10-05T00:00:00Z`,
+  cookSha: "a".repeat(40),
+  cookedAt: "2026-10-05T00:00:00Z",
+  publishedAt: "2026-10-06T01:35:23Z",
+  schemaVersion: 1,
+};
+const badPointer = { prefix: "web-pack/nope", cookSha: "zz", publishedAt: "x", cookedAt: "y", schemaVersion: 1 };
+for (const mode of ["data", "full", "ui"]) {
+  const refused = bannerRun(mode, badPointer);
+  assert.notEqual(refused.ran.status, 0, refused.ran.stderr);
+  assert.equal(refused.calls.includes("put "), false, refused.calls);
+  assert.equal(refused.calls.includes("deploy"), false, refused.calls);
+  const accepted = bannerRun(mode, livePointer);
+  assert.equal(accepted.ran.status, 0, accepted.ran.stderr || accepted.ran.stdout);
+  const lines = accepted.calls.trim().split("\n").filter(Boolean);
+  const pointerGets = lines.flatMap((line, index) => (line.startsWith("get heartbeat-packs/web-pack/current.json") ? [index] : []));
+  const pointerPuts = lines.flatMap((line, index) => (line.startsWith("put heartbeat-packs/web-pack/current.json") ? [index] : []));
+  assert.ok(pointerGets.length > 0, accepted.calls);
+  if (mode === "ui") {
+    assert.deepEqual(pointerPuts, []);
+    assert.ok(lines.some((line) => line.startsWith("deploy")));
+  } else {
+    assert.ok(pointerPuts.length === 1, accepted.calls);
+    assert.ok(pointerGets[0] < pointerPuts[0], accepted.calls);
+    assert.ok(lines.slice(0, pointerGets[0]).every((line) => !line.startsWith("put ")), accepted.calls);
+  }
+}
+const cleanPreflight = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-preflight-"));
+  const bin = join(dir, "bin");
+  const store = join(dir, "r2");
+  mkdirSync(bin);
+  mkdirSync(join(store, "heartbeat-packs/web-pack"), { recursive: true });
+  writeFileSync(join(store, "heartbeat-packs/web-pack/current.json"), JSON.stringify(livePointer));
+  writeFileSync(
+    join(bin, "npx"),
+    `#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+sys.stdout.write("⛅️ wrangler 4.147.0\\n")
+sys.stdout.write("────────────────────\\n")
+sys.stdout.write("Resource location\\n")
+sys.stdout.write('Downloading "web-pack/current.json"…\\n')
+if len(args) >= 5 and args[2:4] == ["object", "get"]:
+    dest = next(item.split("=", 1)[1] for item in args if item.startswith("--file="))
+    Path(dest).write_bytes((Path(os.environ["WRANGLER_STORE"]) / args[4]).read_bytes())
+raise SystemExit(0)
+`,
+  );
+  chmodSync(join(bin, "npx"), 0o755);
+  const ran = spawnSync("python3", [join(root, "scripts/pack_publish.py"), "preflight", join(root, "public/data")], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, WRANGLER_STORE: store },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  return ran;
+})();
+assert.equal(cleanPreflight.status, 0, cleanPreflight.stderr);
+assert.equal(cleanPreflight.stdout.trim(), "pointer preflight: verified");
+assert.match(cleanPreflight.stderr, /Downloading "web-pack\/current\.json"/);
+const lastLineOnly = spawnSync(
+  "bash",
+  [
+    "-c",
+    [
+      "set -euo pipefail",
+      pointerFn,
+      "pointer_is_verified",
+    ].join("\n"),
+  ],
+  {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${(() => {
+        const dir = mkdtempSync(join(tmpdir(), "hb-last-"));
+        const bin = join(dir, "bin");
+        mkdirSync(bin);
+        writeFileSync(
+          join(bin, "python3"),
+          `#!/bin/bash\nif [[ "$*" == *preflight* ]]; then printf '%s\\n' '⛅️ wrangler 4.147.0' '────────────────────' 'Resource location' 'Downloading "web-pack/current.json"…' 'pointer preflight: verified'; exit 0; fi\nexec /usr/bin/python3 "$@"\n`,
+        );
+        chmodSync(join(bin, "python3"), 0o755);
+        return bin;
+      })()}:${process.env.PATH}`,
+      ROOT: join(root, ".."),
+      PACK_DIR: join(root, "public/data"),
+    },
+  },
+);
+assert.equal(lastLineOnly.status, 0, lastLineOnly.stderr);
+assert.match(lastLineOnly.stdout, /pointer preflight: verified\s*$/);
+assert.match(lastLineOnly.stdout, /Downloading "web-pack\/current\.json"/);
 assert.match(publishScript, /pack_publish\.py" "\$PACK_DIR"/);
 assert.equal(publishScript.includes("migrate-pinned"), false);
 assert.equal(publishScript.includes("--commit-dirty"), false);
@@ -2748,9 +2963,31 @@ const laborBridge = laborFile.rows.filter((row) => {
   );
 });
 assert.equal(laborBridge.length, 2109);
-const pinnedBridge = laborBridgeCensus(laborFile.rows);
-assert.equal(pinnedBridge.bridged, 2109);
+const rosterCount = cooked.filters.stores.length;
+const pinnedBridge = laborBridgeCensus(laborFile.rows, rosterCount);
+assert.equal(pinnedBridge.bridged, 2151);
+assert.equal(pinnedBridge.bridged, laborBridge.length + 42);
 assert.deepEqual(pinnedBridge.errors, []);
+assert.ok(pinnedBridge.bridged >= 2000);
+assert.ok(pinnedBridge.bridged >= rosterCount - 60);
+const aivZero = (row) => {
+  const aiv = row && row.payload ? row.payload.aiv_impact_pct : undefined;
+  return aiv == null || aiv === "" || Number(aiv) === 0;
+};
+assert.equal(laborFile.rows.filter(aivZero).length, 42);
+const droppedAiv = laborBridgeCensus(
+  laborFile.rows.filter((row) => !aivZero(row)),
+  rosterCount,
+);
+assert.equal(droppedAiv.bridged, 2109);
+assert.ok(droppedAiv.errors.some((item) => item === "labor bridge rows=2109"));
+const dropped500 = laborBridgeCensus(laborFile.rows.slice(500), rosterCount);
+assert.ok(dropped500.bridged < 2000);
+assert.ok(dropped500.errors.some((item) => item.startsWith("labor bridge rows=")));
+const dropFivePct = Math.ceil(laborFile.rows.length * 0.05);
+const droppedPct = laborBridgeCensus(laborFile.rows.slice(dropFivePct), rosterCount);
+assert.ok(droppedPct.bridged < rosterCount - 60);
+assert.ok(droppedPct.errors.some((item) => item.startsWith("labor bridge rows=")));
 const twoDigitBridge = laborBridgeCensus([
   { store: "10", payload: { uplh_impact_pct: 1, wage_impact_pct: 1, aiv_impact_pct: 1, target_vs_actual_pct: 3 } },
   { store: "23", payload: { uplh_impact_pct: 2, wage_impact_pct: 2, aiv_impact_pct: 2, target_vs_actual_pct: 6 } },

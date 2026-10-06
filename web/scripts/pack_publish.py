@@ -208,8 +208,11 @@ def _run(wrangler, args, check=True):
     if wrangler is not None:
         return wrangler(args, check=check)
     result = subprocess.run(["npx", "wrangler", *args], check=False, capture_output=True, text=True)
+    # Wrangler 4.147 prints its banner, a rule, "Resource location", and
+    # Downloading "web-pack/current.json"… on stdout. The shell preflight
+    # reads only this process's stdout, so that banner has to stay on stderr.
     if result.stdout:
-        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", file=sys.stderr)
     if result.stderr:
         print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
     if check and result.returncode != 0:

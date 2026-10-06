@@ -22,27 +22,47 @@ function finite(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function bridgePart(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 // The census is this pack's own Labor rows whose four bridge parts add up.
-// The pinned cook bridges 2,109. Keeping two-digit store IDs (include: nil)
-// adds 18 stores (10, 23, 24, 25, 28, 31, …) and bridges 2,127. A fixed 2,109
-// rejects that cook. A complete row that does not add up still fails, and a
-// labor file with no bridged row fails closed.
-export function laborBridgeCensus(rows) {
+// An absent AIV or wage is zero: the 42 AIV-zero rows still bridge
+// (UPLH + 0 + 0 = Target vs Actual). The pinned file has 2,109 rows with all
+// four parts present and 42 more once that zero is filled in. Keeping
+// two-digit store IDs (include: nil) adds 18 stores and bridges 2,127 of the
+// complete rows. A fixed 2,109 rejects that cook. A complete row that does
+// not add up still fails, and a labor file with no bridged row fails closed.
+// When the store-roster count is passed, also refuse a bridged count under
+// 2,000 or under that roster minus 60.
+export function laborBridgeCensus(rows, rosterCount) {
   const list = Array.isArray(rows) ? rows : [];
   const errors = [];
   let bridged = 0;
   for (const row of list) {
     const payload = (row && row.payload) || {};
-    const parts = [payload.uplh_impact_pct, payload.wage_impact_pct, payload.aiv_impact_pct, payload.target_vs_actual_pct];
-    if (parts.some((part) => part == null || !Number.isFinite(Number(part)))) continue;
-    const sum = Number(parts[0]) + Number(parts[1]) + Number(parts[2]);
-    if (Math.abs(sum - Number(parts[3])) > 0.01) {
-      errors.push(`labor bridge ${row && row.store}`);
+    const uplh = bridgePart(payload.uplh_impact_pct);
+    const wage = bridgePart(payload.wage_impact_pct);
+    const aiv = bridgePart(payload.aiv_impact_pct);
+    const target = bridgePart(payload.target_vs_actual_pct);
+    if (uplh != null && wage != null && aiv != null && target != null) {
+      if (Math.abs(uplh + wage + aiv - target) > 0.01) {
+        errors.push(`labor bridge ${row && row.store}`);
+        continue;
+      }
+      bridged += 1;
       continue;
     }
-    bridged += 1;
+    if (uplh == null || target == null) continue;
+    if (Math.abs(uplh + (wage ?? 0) + (aiv ?? 0) - target) <= 0.01) bridged += 1;
   }
   if (list.length > 0 && bridged === 0) errors.push(`labor bridge rows=${bridged}`);
+  else if (rosterCount != null && Number.isFinite(Number(rosterCount))) {
+    const roster = Number(rosterCount);
+    if (bridged < 2000 || bridged < roster - 60) errors.push(`labor bridge rows=${bridged}`);
+  }
   return { bridged, errors };
 }
 
@@ -302,7 +322,8 @@ export function checkPack(dir) {
   if (aivTile !== "0.00%") errors.push(`AIV tile=${aivTile}`);
 
   const laborRows = Array.isArray(laborFile.rows) ? laborFile.rows : [];
-  errors.push(...laborBridgeCensus(laborRows).errors);
+  const storeRoster = home.filters && Array.isArray(home.filters.stores) ? home.filters.stores : [];
+  errors.push(...laborBridgeCensus(laborRows, storeRoster.length).errors);
 
   const flagged = new Map(
     laborRows.filter((row) => row.sourceIssue === "source data issue").map((row) => [String(row.store), row]),
@@ -365,7 +386,7 @@ export function checkPack(dir) {
   if (!String(pph.secondary || "").includes("between 74 and 80")) errors.push(`pph secondary=${pph.secondary}`);
   if (pph.health === "risk") errors.push("pph health is risk at a 74+ average");
 
-  const roster = home.filters && Array.isArray(home.filters.stores) ? home.filters.stores : [];
+  const roster = storeRoster;
   const byStore = new Map(roster.filter((item) => item && typeof item === "object").map((item) => [String(item.store), item]));
   const expected = {
     233: ["Seattle", "28", "Ryan Burns"],

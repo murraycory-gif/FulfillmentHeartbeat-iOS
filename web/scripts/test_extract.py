@@ -1052,6 +1052,57 @@ def labor_blanks_are_null() -> None:
     print("labor blanks ok")
 
 
+def labor_region_lines_skip_source_check() -> None:
+    """Region lines skip every LABOR_SOURCE_CHECK row, not only the four source issues.
+
+    An AIV of zero is not a source-issue row (cost target is present, scheduled
+    hours are not zero) and still stays out of the mean. The Oct 5 cook then
+    matches the UI: East -5.62%, California -5.38%, West -4.62%, South -3.43%.
+    """
+    aiv_zero = {
+        "target_vs_actual_pct": -80,
+        "uplh_impact_pct": -70,
+        "wage_impact_pct": -10,
+        "aiv_impact_pct": 0,
+        "act_cost_pct": 9,
+        "cost_trgt_pct": 12,
+        "sch_hrs": 40,
+    }
+    assert module.labor_source_issue(aiv_zero) is False
+    assert module.LABOR_SOURCE_CHECK({"payload": aiv_zero}) is True
+    blank_aiv = {
+        "target_vs_actual_pct": -40,
+        "uplh_impact_pct": -40,
+        "wage_impact_pct": 0,
+        "act_cost_pct": 8,
+        "cost_trgt_pct": 11,
+        "sch_hrs": 20,
+    }
+    assert module.labor_source_issue(blank_aiv) is False
+    assert module.LABOR_SOURCE_CHECK({"payload": blank_aiv}) is True
+    records = [
+        {"section": "labor", "store": "1", "division": "Shaws", "payload": {"target_vs_actual_pct": -10, "aiv_impact_pct": -1}},
+        {"section": "labor", "store": "2", "division": "Shaws", "payload": {"target_vs_actual_pct": 0, "aiv_impact_pct": -1}},
+        {
+            "section": "labor",
+            "store": "3",
+            "division": "Shaws",
+            "sourceIssue": "source data issue",
+            "payload": {"target_vs_actual_pct": 500, "aiv_impact_pct": 500},
+        },
+        {"section": "labor", "store": "4", "division": "Shaws", "payload": aiv_zero},
+        {"section": "labor", "store": "5", "division": "Shaws", "payload": blank_aiv},
+    ]
+    lines, tables = module.build_region_views(records)
+    east = next(line for line in lines if line["section"] == "labor" and line["region"] == "East")
+    assert east["value"] == "-5.00%"
+    assert east["count"] == 2
+    table = next(row for row in tables if row["section"] == "labor" and row["region"] == "East")
+    assert table["headline"] == "-5.00%"
+    assert table["storeCount"] == 2
+    print("labor source check ok")
+
+
 def labor_web_rows_are_plain_mean() -> None:
     """act_cost_dollars must not leave sqlite. The site labels Labor a store average."""
     records = [
@@ -1059,13 +1110,13 @@ def labor_web_rows_are_plain_mean() -> None:
             "section": "labor",
             "store": "1",
             "division": "Shaws",
-            "payload": {"target_vs_actual_pct": -10, "act_cost_dollars": 1_000_000},
+            "payload": {"target_vs_actual_pct": -10, "aiv_impact_pct": -1, "act_cost_dollars": 1_000_000},
         },
         {
             "section": "labor",
             "store": "2",
             "division": "Shaws",
-            "payload": {"target_vs_actual_pct": 0, "act_cost_dollars": 1},
+            "payload": {"target_vs_actual_pct": 0, "aiv_impact_pct": -1, "act_cost_dollars": 1},
         },
         {
             "section": "labor",
@@ -1116,8 +1167,8 @@ def region_rows_cover_company() -> None:
         {"section": "picker_scorecard", "store": "210", "division": "United", "district": "U5", "om": "Andrew Quinn", "shopperId": "A", "payload": {"pph": 90}},
         {"section": "picker_scorecard", "store": "210", "division": "United", "district": "U5", "om": "Andrew Quinn", "shopperId": "A", "payload": {"pph": 50}},
         {"section": "picker_scorecard", "store": "239", "division": "Southwest", "district": "N0", "om": "Ben Sarmadi", "shopperId": "B", "payload": {"pph": 70}},
-        {"section": "labor", "store": "10", "division": "Shaws", "payload": {"target_vs_actual_pct": -10}},
-        {"section": "labor", "store": "11", "division": "Shaws", "payload": {"target_vs_actual_pct": -2}},
+        {"section": "labor", "store": "10", "division": "Shaws", "payload": {"target_vs_actual_pct": -10, "aiv_impact_pct": -1}},
+        {"section": "labor", "store": "11", "division": "Shaws", "payload": {"target_vs_actual_pct": -2, "aiv_impact_pct": -1}},
     ]
     lines, tables = module.build_region_views(records)
     module.assert_additive_region_sums(
@@ -1206,4 +1257,5 @@ if __name__ == "__main__":
     workbook_total_shifted_row()
     labor_blanks_are_null()
     labor_web_rows_are_plain_mean()
+    labor_region_lines_skip_source_check()
     region_rows_cover_company()

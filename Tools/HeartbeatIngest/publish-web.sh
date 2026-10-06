@@ -322,10 +322,12 @@ publish_pack_pointer() {
   python3 "$ROOT/web/scripts/pack_publish.py" "$PACK_DIR" "$WEB/check_pack.mjs"
 }
 pointer_is_verified() {
-  local pointer_state
+  local pointer_state last
   pointer_state="$(python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR")"
   printf '%s\n' "$pointer_state"
-  [[ "$pointer_state" == "pointer preflight: verified" ]]
+  # Wrangler can still leak a banner ahead of the status line. Compare the last line.
+  last="${pointer_state##*$'\n'}"
+  [[ "$last" == "pointer preflight: verified" ]]
 }
 require_verified_pointer() {
   if ! pointer_is_verified; then
@@ -338,15 +340,22 @@ fail_deploy_readback() {
   echo "rollback: cd \"$WEB\" && npx wrangler pages deployment rollback --project-name \"$PROJECT\"" >&2
   exit 1
 }
+# Compare the live pointer before any current.json put. A mismatch must
+# exit here, while the pointer is still the one that was read.
+# BEGIN pointer-preview
+if ! pointer_is_verified; then
+  echo "refusing deploy: pack data must publish through the pointer" >&2
+  exit 1
+fi
 if [[ -n "$DATA_ONLY" ]]; then
   publish_pack_pointer
 elif [[ -z "$UI_ONLY" ]]; then
   POINTER_PLAN="$(mktemp)"
   python3 "$ROOT/web/scripts/pack_publish.py" --defer-pointer "$PACK_DIR" "$WEB/check_pack.mjs" "$POINTER_PLAN"
 fi
+# END pointer-preview
 
 if [[ -n "$DATA_ONLY" ]]; then
-  require_verified_pointer
   if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
     python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$PACK_DIR" << 'PY'
 import http.cookiejar
@@ -422,14 +431,16 @@ fi
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
   --branch main
+# BEGIN pointer-commit
 if [[ -n "$POINTER_PLAN" ]]; then
-  if ! python3 "$ROOT/web/scripts/pack_publish.py" --commit-pointer "$POINTER_PLAN"; then
-    fail_deploy_readback
-  fi
   if ! pointer_is_verified; then
     fail_deploy_readback
   fi
+  if ! python3 "$ROOT/web/scripts/pack_publish.py" --commit-pointer "$POINTER_PLAN"; then
+    fail_deploy_readback
+  fi
 fi
+# END pointer-commit
 if [[ -n "$UI_ONLY" ]]; then
   LIVE_POINTER_AFTER="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"
   if [[ "$LIVE_POINTER_BEFORE" != "$LIVE_POINTER_AFTER" ]]; then

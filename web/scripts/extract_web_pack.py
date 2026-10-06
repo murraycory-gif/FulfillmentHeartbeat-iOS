@@ -461,6 +461,32 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
         block["values"] = values
 
 
+def LABOR_SOURCE_CHECK(record: dict) -> bool:
+    """Every flagged Labor row, not only the four source-issue stores.
+
+    The Oct 5 cook flags 57 of these. The UI store average skips them, so a
+    region line has to as well: East -5.62%, California -5.38%, West -4.62%,
+    South -3.43%. A source-issue row is flagged. So is an AIV of zero or a
+    blank AIV. A store with a nonzero AIV stays in the mean.
+    """
+    if not isinstance(record, dict):
+        return False
+    if record.get("sourceIssue"):
+        return True
+    payload = record.get("payload") or {}
+    if not isinstance(payload, dict):
+        return True
+    if labor_source_issue(payload):
+        return True
+    aiv = payload.get("aiv_impact_pct")
+    if aiv is None or (isinstance(aiv, str) and not aiv.strip()):
+        return True
+    try:
+        return float(aiv) == 0
+    except (TypeError, ValueError):
+        return True
+
+
 def labor_source_issue(payload: dict) -> bool:
     """Bad Labor source rows stay in the pack, flagged instead of read as a real AIV.
 
@@ -962,7 +988,7 @@ def _region_lines_from_rows(records: list) -> list:
         store = str(record.get("store") or "")
         if is_total_store(store):
             continue
-        if section == "labor" and (record.get("sourceIssue") or labor_source_issue(record.get("payload") or {})):
+        if section == "labor" and LABOR_SOURCE_CHECK(record):
             continue
         region = _region_of(record)
         division = canonical_division(record.get("division") or "")
