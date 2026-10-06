@@ -1,10 +1,13 @@
 // Session gate for every Pages request, including static files.
-// Accounts live in HB_AUTH (D1): email, PBKDF2 password, role, invite, revocable session.
-// The shared BASIC_PASS login stays until AUTH_CUTOVER=1, after the account sign-in is verified.
-// Nothing here is a password. A missing secret fails closed.
+// Accounts live in HB_USERS (D1): email, PBKDF2 password, role, one-time link, revocable session.
+// The shared BASIC_PASS login stays a viewer until AUTH_CUTOVER=1.
+// Nothing here is a password. A missing database fails closed.
 
 import { packApiPath, readPackObject } from "./pack-store.js";
 import {
+  ABSOLUTE_TTL,
+  ACCOUNT_COOKIE,
+  SHARED_COOKIE,
   acceptInvite,
   accountHTML,
   accountSharedHTML,
@@ -13,15 +16,12 @@ import {
   authCutover,
   authDb,
   deniedHTML,
-  emailInvitesEnabled,
-  ensureAdminSeed,
   ensureSchema,
   inviteHTML,
   listUsers,
   loginHTML,
   changePassword,
   clearLoginFailures,
-  loginThrottled,
   openInvite,
   createSharedSession,
   readAccountSession,
@@ -29,12 +29,10 @@ import {
   recordLoginFailure,
   revokeSession,
   revokeSharedSession,
-  setupText,
   authenticateAccount,
 } from "./accounts.js";
 
-const COOKIE = "hb_session";
-const MAX_AGE = 30 * 24 * 60 * 60;
+const MAX_AGE = ABSOLUTE_TTL;
 
 export function timingSafeEqualString(left, right) {
   const encoder = new TextEncoder();
@@ -102,35 +100,41 @@ export function basicAuthOk(request, env) {
   return Boolean(matchedAccount(got.user, got.pass, env));
 }
 
-function sessionSecret(env) {
-  const secret = envSecret(env, "SESSION_SECRET");
-  return secret.length >= 16 ? secret : "";
+function sessionCookie(name, token) {
+  return `${name}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`;
 }
 
-function sessionCookie(token) {
-  return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`;
+function clearCookie(name) {
+  return `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
-function clearCookie() {
-  return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+function accountCookies(token) {
+  return [sessionCookie(ACCOUNT_COOKIE, token), clearCookie(SHARED_COOKIE)];
+}
+
+function sharedCookies(token) {
+  return [sessionCookie(SHARED_COOKIE, token), clearCookie(ACCOUNT_COOKIE)];
+}
+
+function clearedCookies() {
+  return [clearCookie(ACCOUNT_COOKIE), clearCookie(SHARED_COOKIE)];
 }
 
 const REFERRER_POLICY = "same-origin";
 const CROSS_SITE_MESSAGE = "Sign-in blocked: please open the site directly and try again.";
 
-function htmlResponse(html, status = 200) {
-  return new Response(html, {
-    status,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-      "Referrer-Policy": REFERRER_POLICY,
-      "Content-Security-Policy":
-        "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
-    },
+function htmlResponse(html, status = 200, cookies = []) {
+  const headers = new Headers({
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": REFERRER_POLICY,
+    "Content-Security-Policy":
+      "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
   });
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  return new Response(html, { status, headers });
 }
 
 function loginResponse(message, email, status) {
@@ -143,16 +147,20 @@ function unauthorizedJSON() {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "private, no-store",
+      Vary: "Cookie",
+      "CDN-Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },
   });
 }
 
-function redirect(request, path, cookie, status = 303) {
+function redirect(request, path, cookies, status = 303) {
   const headers = new Headers();
   headers.set("Location", new URL(path, request.url).toString());
   headers.set("Cache-Control", "no-store");
-  if (cookie) headers.set("Set-Cookie", cookie);
+  for (const cookie of [].concat(cookies || [])) {
+    if (cookie) headers.append("Set-Cookie", cookie);
+  }
   return new Response(null, { status, headers });
 }
 
@@ -223,40 +231,36 @@ function settingsChrome(session, here) {
 }
 
 async function submitLogin(request, env, db, now) {
-  if (!sessionSecret(env)) return loginResponse("Sign-in is unavailable.", "", 503);
   if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
   const params = await readForm(request);
   if (!params) return loginResponse("That email or password is wrong.", "", 401);
   const email = params.get("email") || params.get("username") || "";
   const password = params.get("password") || "";
-  if (db) {
-    if (await loginThrottled(db, request, email, now)) {
-      return loginResponse("Too many sign-in attempts. Try again later.", email, 429);
+  if (!db) {
+    if (!authCutover(env) && matchedAccount(email, password, env)) {
+      return loginResponse("Sign-in is unavailable.", "", 503);
     }
-    const result = await authenticateAccount(db, env, request, email, password, now);
-    if (result.throttled) return loginResponse("Too many sign-in attempts. Try again later.", email, 429);
-    if (result.invited) return loginResponse("Use the invite link to set a password.", email, 401);
-    if (result.unavailable) return loginResponse("Sign-in is unavailable.", email, 503);
-    if (result.session) return redirect(request, "/", sessionCookie(result.session));
+    return loginResponse("That email or password is wrong.", "", 401);
   }
+  const result = await authenticateAccount(db, request, email, password, now);
+  if (result.throttled) return loginResponse("Too many sign-in attempts. Try again later.", "", 429);
+  if (result.unavailable) return loginResponse("Sign-in is unavailable.", "", 503);
+  if (result.session) return redirect(request, "/", accountCookies(result.session));
   if (!authCutover(env)) {
     const account = matchedAccount(email, password, env);
     if (account) {
-      if (!db) return loginResponse("Sign-in is unavailable.", "", 503);
-      const token = await createSharedSession(db, env, account.user, now);
+      const token = await createSharedSession(db, account.user, now);
       if (!token) return loginResponse("Sign-in is unavailable.", "", 503);
-      if (db) {
-        try {
-          await clearLoginFailures(db, request, email);
-        } catch {
-          // A shared-password sign-in still succeeds if the attempt log cannot be cleared.
-        }
+      try {
+        await clearLoginFailures(db, request, email);
+      } catch {
+        // A shared-password sign-in still succeeds if the attempt log cannot be cleared.
       }
-      return redirect(request, "/", sessionCookie(token));
+      return redirect(request, "/", sharedCookies(token));
     }
   }
-  if (db) await recordLoginFailure(db, request, email, now);
-  return loginResponse("That email or password is wrong.", email, 401);
+  await recordLoginFailure(db, request, email, now);
+  return loginResponse("That email or password is wrong.", "", 401);
 }
 
 async function inviteResponse(request, env, db, token, now) {
@@ -265,8 +269,8 @@ async function inviteResponse(request, env, db, token, now) {
     if (!sameOrigin(request)) return htmlResponse(inviteHTML("", token, CROSS_SITE_MESSAGE), 403);
     const params = await readForm(request);
     if (!params) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 400);
-    const result = await acceptInvite(db, env, token, params.get("password") || "", params.get("confirm") || "", now);
-    if (result.session) return redirect(request, "/", sessionCookie(result.session));
+    const result = await acceptInvite(db, token, params.get("password") || "", params.get("confirm") || "", now);
+    if (result.session) return redirect(request, "/", accountCookies(result.session));
     return htmlResponse(inviteHTML(result.email || "", token, result.error), 400);
   }
   const invite = await openInvite(db, token, now);
@@ -276,24 +280,30 @@ async function inviteResponse(request, env, db, token, now) {
 
 async function adminResponse(request, env, db, session, now) {
   const chrome = settingsChrome(session, "admin");
+  if (request.method === "POST" && !sameOrigin(request)) {
+    return htmlResponse(adminHTML({ users: [], error: CROSS_SITE_MESSAGE, chrome }), 403);
+  }
   if (!chrome.admin) return htmlResponse(deniedHTML(chrome), 403);
-  if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", emailOn: false, chrome }), 503);
+  if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST", "Cache-Control": "no-store" } });
+  }
+  if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", chrome }), 503);
   let notice = "";
   let error = "";
   let link = "";
   if (request.method === "POST") {
     if (!sameOrigin(request)) {
-      return htmlResponse(adminHTML({ users: [], error: CROSS_SITE_MESSAGE, emailOn: emailInvitesEnabled(env), chrome }), 403);
+      return htmlResponse(adminHTML({ users: [], error: CROSS_SITE_MESSAGE, chrome }), 403);
     }
     const params = await readForm(request);
-    if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", emailOn: emailInvitesEnabled(env), chrome }), 400);
+    if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", chrome }), 400);
     const fields = Object.fromEntries(params.entries());
-    const result = await adminAct(db, env, request, fields, now);
+    const result = await adminAct(db, request, fields, now);
     notice = result.notice || "";
     error = result.error || "";
     link = result.link || "";
   }
-  return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env), chrome }));
+  return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, chrome }));
 }
 
 function sessionPayload(session) {
@@ -315,6 +325,9 @@ function sessionJSON(session) {
 }
 
 async function accountResponse(request, env, db, session, now) {
+  if (request.method === "POST" && !sameOrigin(request)) {
+    return htmlResponse(accountHTML(session && session.user, CROSS_SITE_MESSAGE, "", settingsChrome(session, "account")), 403);
+  }
   if (!session) return loginResponse("", "", 200);
   const chrome = settingsChrome(session, "account");
   if (!session.account) return htmlResponse(accountSharedHTML(chrome));
@@ -325,15 +338,16 @@ async function accountResponse(request, env, db, session, now) {
     if (!params) return htmlResponse(accountHTML(session.user, "That form was empty.", "", chrome), 400);
     const result = await changePassword(
       db,
-      env,
-      request,
       session,
       params.get("current") || "",
       params.get("password") || "",
       params.get("confirm") || "",
       now,
+      request,
     );
-    if (result.notice) return htmlResponse(accountHTML(session.user, "", result.notice, chrome));
+    if (result.notice) {
+      return htmlResponse(accountHTML(session.user, "", result.notice, chrome), 200, result.session ? accountCookies(result.session) : []);
+    }
     return htmlResponse(accountHTML(session.user, result.error, "", chrome), result.status || 400);
   }
   return htmlResponse(accountHTML(session.user, "", "", chrome));
@@ -343,6 +357,8 @@ function packHeaders() {
   return {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "private, no-store",
+    Vary: "Cookie",
+    "CDN-Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
   };
 }
@@ -396,35 +412,36 @@ async function routeRequest(context) {
   if (db) {
     try {
       await ensureSchema(db);
-      await ensureAdminSeed(db, env, now);
       accountsReady = true;
-    } catch (error) {
-      console.error("accounts setup failed", error instanceof Error ? error.message : "unknown");
+    } catch {
+      console.error("accounts setup failed");
       accountsReady = false;
     }
   }
   const readyDb = accountsReady ? db : null;
 
-  if (request.method === "GET" && pathname === "/setup") {
-    if (!readyDb) return new Response("Not found", { status: 404 });
-    const text = await setupText(readyDb, env, request, now);
-    if (text == null) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
-    return new Response(text, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  if (pathname === "/setup" || pathname === "/hb-user" || pathname.startsWith("/scripts/")) {
+    return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
   if (pathname.startsWith("/invite/")) {
+    if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST", "Cache-Control": "no-store" } });
+    }
     return inviteResponse(request, env, readyDb, decodeURIComponent(pathname.slice("/invite/".length)), now);
   }
-  if (request.method === "POST" && pathname === "/login") return submitLogin(request, env, readyDb, now);
-  if ((request.method === "GET" || request.method === "HEAD" || request.method === "POST") && pathname === "/logout") {
-    if (readyDb) {
-      const current = await readAccountSession(readyDb, request, env, now);
-      if (current) await revokeSession(readyDb, current.sessionId, now);
-      else {
-        const shared = await readSharedSession(readyDb, request, env, now);
-        if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
-      }
+  if (pathname === "/login" && request.method === "POST") return submitLogin(request, env, readyDb, now);
+  if (pathname === "/logout") {
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } });
     }
-    return redirect(request, "/login", clearCookie(), 302);
+    if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
+    if (readyDb) {
+      const current = await readAccountSession(readyDb, request, now);
+      if (current) await revokeSession(readyDb, current.sessionId, now);
+      const shared = await readSharedSession(readyDb, request, now);
+      if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
+    }
+    return redirect(request, "/login", clearedCookies(), 303);
   }
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {
     return redirect(request, "/favicon.svg", "", 302);
@@ -433,8 +450,8 @@ async function routeRequest(context) {
     return context.next();
   }
 
-  let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
-  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, env, now);
+  let session = readyDb ? await readAccountSession(readyDb, request, now) : null;
+  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, now);
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {
@@ -453,6 +470,8 @@ async function routeRequest(context) {
   if (!pathname.startsWith("/data/")) return response;
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "private, no-store");
+  headers.set("Vary", "Cookie");
+  headers.set("CDN-Cache-Control", "no-store");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

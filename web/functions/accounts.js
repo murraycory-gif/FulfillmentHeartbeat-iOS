@@ -1,12 +1,21 @@
-// Per-user accounts on the HB_AUTH D1 binding.
-// Passwords are PBKDF2-SHA256 with a per-user salt. Sessions live in D1 so disable can revoke them.
-// Nothing in this file is a password or an invite token.
+// Per-user accounts on the HB_USERS D1 binding.
+// Passwords are PBKDF2-SHA256. Sessions and setup links are stored only as SHA-256.
+// Nothing in this file is a password, a session token, or an invite token.
 
+export const PASSWORD_ALGO = "PBKDF2-SHA256";
 export const PBKDF2_ITERATIONS = 100_000;
-export const INVITE_TTL = 7 * 24 * 60 * 60;
-export const SESSION_TTL = 30 * 24 * 60 * 60;
-export const LOGIN_WINDOW = 15 * 60;
-export const LOGIN_LIMIT = 8;
+export const MIN_PASSWORD = 12;
+export const SETUP_TTL = 24 * 60 * 60;
+export const INVITE_TTL = 24 * 60 * 60;
+export const IDLE_TTL = 12 * 60 * 60;
+export const ABSOLUTE_TTL = 7 * 24 * 60 * 60;
+export const BACKOFF_CAP = 15 * 60;
+export const FIRST_ADMIN_EMAIL = "murraycory@icloud.com";
+export const ACCOUNT_COOKIE = "hb_session";
+export const SHARED_COOKIE = "hb_shared";
+
+const DUMMY_SALT = "11".repeat(16);
+const DUMMY_HASH = "22".repeat(32);
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS users (
@@ -14,6 +23,7 @@ const SCHEMA = [
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL DEFAULT '',
     password_salt TEXT NOT NULL DEFAULT '',
+    password_algo TEXT NOT NULL DEFAULT 'PBKDF2-SHA256',
     password_iterations INTEGER NOT NULL DEFAULT 100000,
     role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
     status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
@@ -24,7 +34,6 @@ const SCHEMA = [
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
-    token_enc TEXT NOT NULL DEFAULT '',
     purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset', 'setup')),
     expires_at INTEGER NOT NULL,
     used_at INTEGER,
@@ -34,6 +43,15 @@ const SCHEMA = [
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS shared_sessions (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
     revoked_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
@@ -41,23 +59,24 @@ const SCHEMA = [
     bucket TEXT PRIMARY KEY,
     failures INTEGER NOT NULL,
     window_start INTEGER NOT NULL,
-    locked_until INTEGER NOT NULL DEFAULT 0
-  )`,
-  `CREATE TABLE IF NOT EXISTS shared_sessions (
-    id TEXT PRIMARY KEY,
-    subject TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,
-    revoked_at INTEGER,
-    created_at INTEGER NOT NULL
+    next_at INTEGER NOT NULL DEFAULT 0
   )`,
   "CREATE INDEX IF NOT EXISTS invites_user ON invites (user_id, used_at)",
   "CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, revoked_at)",
+  "CREATE INDEX IF NOT EXISTS shared_sessions_live ON shared_sessions (revoked_at, expires_at)",
+];
+
+const ALTERS = [
+  "ALTER TABLE users ADD COLUMN password_algo TEXT NOT NULL DEFAULT 'PBKDF2-SHA256'",
+  "ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER",
+  "ALTER TABLE shared_sessions ADD COLUMN last_seen_at INTEGER",
+  "ALTER TABLE login_attempts ADD COLUMN next_at INTEGER NOT NULL DEFAULT 0",
 ];
 
 const encoder = new TextEncoder();
 
 export function authDb(env) {
-  return (env && (env.HB_AUTH || env.DB)) || null;
+  return (env && env.HB_USERS) || null;
 }
 
 export function authCutover(env) {
@@ -73,14 +92,16 @@ export function emailOk(value) {
   return email.length >= 6 && email.length <= 200 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function envSecret(env, key) {
-  const value = env && env[key];
-  return typeof value === "string" ? value.trim() : "";
+export function passwordOk(password) {
+  const value = String(password ?? "");
+  return value.length >= MIN_PASSWORD && value.length <= 200;
 }
 
-export function sessionSecret(env) {
-  const secret = envSecret(env, "SESSION_SECRET");
-  return secret.length >= 16 ? secret : "";
+export function backoffSeconds(failures) {
+  const count = Number(failures) || 0;
+  if (count <= 0) return 0;
+  const shift = Math.min(count - 1, 16);
+  return Math.min(2 ** shift, BACKOFF_CAP);
 }
 
 function bytesToHex(bytes) {
@@ -88,8 +109,10 @@ function bytesToHex(bytes) {
 }
 
 function hexToBytes(hex) {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i += 1) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  const text = String(hex || "");
+  if (!/^[0-9a-f]+$/i.test(text) || text.length % 2 !== 0) return null;
+  const out = new Uint8Array(text.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = Number.parseInt(text.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
 
@@ -99,145 +122,161 @@ function base64url(bytes) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
-function base64urlDecode(text) {
-  const pad = text.length % 4 === 0 ? "" : "=".repeat(4 - (text.length % 4));
-  const binary = atob(String(text).replaceAll("-", "+").replaceAll("_", "/") + pad);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
 async function sha256Hex(text) {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(String(text)));
   return bytesToHex(new Uint8Array(digest));
 }
 
-async function hmacHex(secret, message) {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const signed = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
-  return bytesToHex(new Uint8Array(signed));
-}
-
-async function aesKey(secret) {
-  const raw = await crypto.subtle.digest("SHA-256", encoder.encode(secret));
-  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
-}
-
-async function encryptToken(secret, token) {
-  const key = await aesKey(secret);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(token)));
-  const packed = new Uint8Array(iv.length + cipher.length);
-  packed.set(iv, 0);
-  packed.set(cipher, iv.length);
-  return base64url(packed);
-}
-
-async function decryptToken(secret, packed) {
-  try {
-    const bytes = base64urlDecode(packed);
-    if (bytes.length < 13) return "";
-    const key = await aesKey(secret);
-    const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: bytes.slice(0, 12) },
-      key,
-      bytes.slice(12),
-    );
-    return new TextDecoder().decode(plain);
-  } catch {
-    return "";
+function bytesEqual(left, right) {
+  const a = left instanceof Uint8Array ? left : new Uint8Array();
+  const b = right instanceof Uint8Array ? right : new Uint8Array();
+  if (a.byteLength !== b.byteLength) {
+    const filler = a.byteLength ? a : new Uint8Array(32);
+    if (crypto.subtle && typeof crypto.subtle.timingSafeEqual === "function") {
+      crypto.subtle.timingSafeEqual(filler, filler);
+    }
+    return false;
   }
+  if (crypto.subtle && typeof crypto.subtle.timingSafeEqual === "function") {
+    return crypto.subtle.timingSafeEqual(a, b);
+  }
+  let diff = 0;
+  for (let i = 0; i < a.byteLength; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
 }
 
 export async function hashPassword(password, iterations = PBKDF2_ITERATIONS) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const key = await crypto.subtle.importKey("raw", encoder.encode(String(password)), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     key,
     256,
   );
-  return { hash: bytesToHex(new Uint8Array(bits)), salt: bytesToHex(salt), iterations };
+  return {
+    hash: bytesToHex(new Uint8Array(bits)),
+    salt: bytesToHex(salt),
+    iterations,
+    algo: PASSWORD_ALGO,
+  };
 }
 
-export async function verifyPassword(password, saltHex, expectedHash, iterations) {
-  if (!saltHex || !expectedHash) return false;
-  const rounds = Number(iterations) || PBKDF2_ITERATIONS;
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: hexToBytes(saltHex), iterations: rounds, hash: "SHA-256" },
-    key,
-    256,
+export async function verifyPassword(password, saltHex, expectedHash, iterations, algo = PASSWORD_ALGO) {
+  const rounds = Number(iterations) > 0 ? Number(iterations) : PBKDF2_ITERATIONS;
+  const salt = hexToBytes(saltHex);
+  const saltBytes = salt && salt.byteLength === 16 ? salt : new Uint8Array(16);
+  const key = await crypto.subtle.importKey("raw", encoder.encode(String(password)), "PBKDF2", false, ["deriveBits"]);
+  const bits = new Uint8Array(
+    await crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes, iterations: rounds, hash: "SHA-256" }, key, 256),
   );
-  const actual = bytesToHex(new Uint8Array(bits));
-  if (actual.length !== expectedHash.length) return false;
-  let diff = 0;
-  for (let i = 0; i < actual.length; i += 1) diff |= actual.charCodeAt(i) ^ expectedHash.charCodeAt(i);
-  return diff === 0;
+  const expected = hexToBytes(expectedHash);
+  const expectedBytes = expected && expected.byteLength === bits.byteLength ? expected : new Uint8Array(bits.byteLength);
+  const same = bytesEqual(bits, expectedBytes);
+  const storedOk =
+    algo === PASSWORD_ALGO &&
+    rounds === PBKDF2_ITERATIONS &&
+    Boolean(salt && salt.byteLength === 16) &&
+    Boolean(expected && expected.byteLength === 32);
+  return Boolean(same && storedOk);
 }
 
 export async function ensureSchema(db) {
   for (const sql of SCHEMA) await db.prepare(sql).run();
-}
-
-function clientIp(request) {
-  return (
-    (request && request.headers && (request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for"))) ||
-    "local"
-  )
-    .split(",")[0]
-    .trim()
-    .slice(0, 80);
-}
-
-async function attemptRow(db, bucket) {
-  return db.prepare("SELECT failures, window_start, locked_until FROM login_attempts WHERE bucket = ?").bind(bucket).first();
-}
-
-function attemptBucket(request, email) {
-  return `ip:${clientIp(request)}|email:${normalizeEmail(email)}`;
-}
-
-export async function loginThrottled(db, request, email, now) {
-  const row = await attemptRow(db, attemptBucket(request, email));
-  return Boolean(row && Number(row.locked_until) > now);
-}
-
-export async function recordLoginFailure(db, request, email, now) {
-  const buckets = [attemptBucket(request, email)];
-  for (const bucket of buckets) {
-    const row = await attemptRow(db, bucket);
-    const fresh = !row || now - Number(row.window_start) > LOGIN_WINDOW;
-    const failures = fresh ? 1 : Number(row.failures) + 1;
-    const windowStart = fresh ? now : Number(row.window_start);
-    const locked = failures >= LOGIN_LIMIT ? now + LOGIN_WINDOW : 0;
-    await db
-      .prepare(
-        `INSERT INTO login_attempts (bucket, failures, window_start, locked_until) VALUES (?, ?, ?, ?)
-         ON CONFLICT(bucket) DO UPDATE SET failures = excluded.failures, window_start = excluded.window_start, locked_until = excluded.locked_until`,
-      )
-      .bind(bucket, failures, windowStart, locked)
-      .run();
+  for (const sql of ALTERS) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // The column is already there on databases created from the current schema.
+    }
   }
 }
 
+function clientIp(request) {
+  const headers = request && request.headers;
+  const raw =
+    (headers && (headers.get("cf-connecting-ip") || headers.get("x-forwarded-for"))) || "local";
+  return String(raw).split(",")[0].trim().slice(0, 80) || "local";
+}
+
+function ipBucket(request) {
+  return `ip:${clientIp(request)}`;
+}
+
+function emailBucket(email) {
+  return `email:${normalizeEmail(email)}`;
+}
+
+async function attemptRow(db, bucket) {
+  return db.prepare("SELECT failures, window_start, next_at FROM login_attempts WHERE bucket = ?").bind(bucket).first();
+}
+
+export async function loginThrottled(db, request, email, now) {
+  const ip = await attemptRow(db, ipBucket(request));
+  const mail = await attemptRow(db, emailBucket(email));
+  return Boolean((ip && Number(ip.next_at) > now) || (mail && Number(mail.next_at) > now));
+}
+
+async function bumpAttempt(db, bucket, now) {
+  const row = await attemptRow(db, bucket);
+  const failures = row ? Number(row.failures) + 1 : 1;
+  const windowStart = row ? Number(row.window_start) : now;
+  const nextAt = now + backoffSeconds(failures);
+  await db
+    .prepare(
+      `INSERT INTO login_attempts (bucket, failures, window_start, next_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(bucket) DO UPDATE SET failures = excluded.failures, window_start = excluded.window_start, next_at = excluded.next_at`,
+    )
+    .bind(bucket, failures, windowStart, nextAt)
+    .run();
+}
+
+export async function recordLoginFailure(db, request, email, now) {
+  await bumpAttempt(db, ipBucket(request), now);
+  await bumpAttempt(db, emailBucket(email), now);
+}
+
 export async function clearLoginFailures(db, request, email) {
-  await db.prepare("DELETE FROM login_attempts WHERE bucket = ?").bind(attemptBucket(request, email)).run();
+  await db.prepare("DELETE FROM login_attempts WHERE bucket = ?").bind(emailBucket(email)).run();
+  void request;
 }
 
 async function findUserByEmail(db, email) {
   return db.prepare("SELECT * FROM users WHERE email = ?").bind(normalizeEmail(email)).first();
 }
 
-export async function issueInvite(db, env, userId, purpose, now) {
-  const secret = sessionSecret(env);
-  if (!secret) return null;
+function cookieToken() {
+  return bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+export function accountCookie(token) {
+  return /^[a-f0-9]{64}$/.test(String(token || ""));
+}
+
+function readCookie(request, name) {
+  const header = (request && request.headers && request.headers.get("cookie")) || "";
+  const prefix = `${name}=`;
+  for (const part of header.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
+  }
+  return "";
+}
+
+async function touchSession(db, table, id, seen, now) {
+  if (now - Number(seen || 0) < 60) return;
+  await db.prepare(`UPDATE ${table} SET last_seen_at = ? WHERE id = ?`).bind(now, id).run();
+}
+
+export async function issueInvite(db, userId, purpose, now) {
   const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const id = crypto.randomUUID();
+  const ttl = purpose === "setup" ? SETUP_TTL : INVITE_TTL;
   await db.prepare("UPDATE invites SET used_at = ? WHERE user_id = ? AND used_at IS NULL").bind(now, userId).run();
   await db
     .prepare(
-      "INSERT INTO invites (id, user_id, token_hash, token_enc, purpose, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+      "INSERT INTO invites (id, user_id, token_hash, purpose, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
     )
-    .bind(id, userId, await sha256Hex(token), await encryptToken(secret, token), purpose, now + INVITE_TTL, now)
+    .bind(id, userId, await sha256Hex(token), purpose, now + ttl, now)
     .run();
   return token;
 }
@@ -246,62 +285,40 @@ export function inviteUrl(request, token) {
   return new URL(`/invite/${token}`, request.url).toString();
 }
 
-export async function ensureAdminSeed(db, env, now) {
-  const email = normalizeEmail(envSecret(env, "ADMIN_EMAIL"));
-  if (!emailOk(email)) return null;
-  const admins = await db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").first();
-  if (admins) return null;
-  const id = crypto.randomUUID();
-  try {
+export async function issueFirstAdminLink(db, now) {
+  const active = await db
+    .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1")
+    .first();
+  if (active) return null;
+  const other = await db
+    .prepare("SELECT id, email, status FROM users WHERE role = 'admin' AND email != ? LIMIT 1")
+    .bind(FIRST_ADMIN_EMAIL)
+    .first();
+  if (other) return null;
+  let user = await findUserByEmail(db, FIRST_ADMIN_EMAIL);
+  if (user && user.role !== "admin") return null;
+  if (user && user.status === "disabled") return null;
+  if (!user) {
+    const id = crypto.randomUUID();
     await db
       .prepare(
-        "INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at, last_login_at) VALUES (?, ?, '', '', ?, 'admin', 'invited', ?, NULL)",
+        "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at, last_login_at) VALUES (?, ?, '', '', ?, ?, 'admin', 'invited', ?, NULL)",
       )
-      .bind(id, email, PBKDF2_ITERATIONS, now)
+      .bind(id, FIRST_ADMIN_EMAIL, PASSWORD_ALGO, PBKDF2_ITERATIONS, now)
       .run();
-  } catch {
-    return findUserByEmail(db, email);
+    user = await findUserByEmail(db, FIRST_ADMIN_EMAIL);
   }
-  await issueInvite(db, env, id, "setup", now);
-  return findUserByEmail(db, email);
-}
-
-export async function setupText(db, env, request, now) {
-  const expected = envSecret(env, "SETUP_SECRET");
-  const header = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!expected || expected.length < 16 || header.length !== expected.length) return null;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i += 1) diff |= expected.charCodeAt(i) ^ header.charCodeAt(i);
-  if (diff !== 0) return null;
-  await ensureAdminSeed(db, env, now);
-  const email = normalizeEmail(envSecret(env, "ADMIN_EMAIL"));
-  const user = await findUserByEmail(db, email);
-  if (!user) return "ADMIN_EMAIL is not set to a usable address.\n";
-  let invite = await db
-    .prepare(
-      "SELECT token_enc, expires_at, used_at FROM invites WHERE user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
-    )
-    .bind(user.id)
-    .first();
-  if (!invite || Number(invite.expires_at) < now) {
-    await issueInvite(db, env, user.id, "setup", now);
-    invite = await db
-      .prepare(
-        "SELECT token_enc, expires_at, used_at FROM invites WHERE user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
-      )
-      .bind(user.id)
-      .first();
-  }
-  const token = invite ? await decryptToken(sessionSecret(env), invite.token_enc) : "";
-  if (!token) return `Admin ${user.email} is ${user.status}. Issue a new link from People after you sign in.\n`;
-  return `email: ${user.email}\ninvite: ${inviteUrl(request, token)}\n`;
+  if (!user) return null;
+  const token = await issueInvite(db, user.id, "setup", now);
+  return { email: FIRST_ADMIN_EMAIL, token, expiresAt: now + SETUP_TTL };
 }
 
 export async function openInvite(db, token, now) {
   if (!token || token.length < 20 || token.length > 200) return null;
   const row = await db
     .prepare(
-      `SELECT invites.id AS invite_id, invites.expires_at, invites.used_at, users.id, users.email, users.status
+      `SELECT invites.id AS invite_id, invites.purpose, invites.expires_at, invites.used_at,
+              users.id, users.email, users.role, users.status
        FROM invites JOIN users ON users.id = invites.user_id
        WHERE invites.token_hash = ?`,
     )
@@ -311,63 +328,72 @@ export async function openInvite(db, token, now) {
   return row;
 }
 
-export async function acceptInvite(db, env, token, password, confirm, now) {
+export async function acceptInvite(db, token, password, confirm, now) {
   const invite = await openInvite(db, token, now);
   if (!invite) return { error: "This link is no longer valid." };
-  if (String(password || "").length < 10) return { error: "Use at least 10 characters.", email: invite.email };
+  if (invite.purpose === "setup") {
+    const active = await db
+      .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1")
+      .first();
+    if (active || normalizeEmail(invite.email) !== FIRST_ADMIN_EMAIL) {
+      return { error: "This link is no longer valid." };
+    }
+  }
+  if (!passwordOk(password)) return { error: "Use at least 12 characters.", email: invite.email };
   if (password !== confirm) return { error: "Those passwords do not match.", email: invite.email };
-  if (String(password).length > 200) return { error: "That password is too long.", email: invite.email };
   const hashed = await hashPassword(password);
+  const claimed = await db
+    .prepare("UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL")
+    .bind(now, invite.invite_id)
+    .run();
+  const changes = claimed && claimed.meta ? Number(claimed.meta.changes) : 0;
+  if (!changes) return { error: "This link is no longer valid.", email: invite.email };
+  await db.prepare("UPDATE invites SET used_at = ? WHERE user_id = ? AND used_at IS NULL").bind(now, invite.id).run();
   await db
     .prepare(
-      "UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ?, status = 'active', last_login_at = ? WHERE id = ?",
+      "UPDATE users SET password_hash = ?, password_salt = ?, password_algo = ?, password_iterations = ?, status = 'active', last_login_at = ? WHERE id = ?",
     )
-    .bind(hashed.hash, hashed.salt, hashed.iterations, now, invite.id)
+    .bind(hashed.hash, hashed.salt, hashed.algo, hashed.iterations, now, invite.id)
     .run();
-  await db.prepare("UPDATE invites SET used_at = ? WHERE user_id = ? AND used_at IS NULL").bind(now, invite.id).run();
-  const session = await createAccountSession(db, env, invite.id, now);
+  const session = await createAccountSession(db, invite.id, now);
   return session ? { session, email: invite.email } : { error: "Sign-in is unavailable.", email: invite.email };
 }
 
-export async function createAccountSession(db, env, userId, now) {
-  const secret = sessionSecret(env);
-  if (!secret) return "";
-  const id = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
-  const exp = now + SESSION_TTL;
-  await db.prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at) VALUES (?, ?, ?, NULL, ?)").bind(id, userId, exp, now).run();
-  const sig = await hmacHex(secret, id);
-  return `${id}.${sig}`;
+export async function createAccountSession(db, userId, now) {
+  const token = cookieToken();
+  const id = await sha256Hex(token);
+  const exp = now + ABSOLUTE_TTL;
+  await db
+    .prepare(
+      "INSERT INTO sessions (id, user_id, expires_at, last_seen_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+    )
+    .bind(id, userId, exp, now, now)
+    .run();
+  return token;
 }
 
-export function accountCookie(token) {
-  if (!token) return "";
-  return /^[a-f0-9]{64}\.[a-f0-9]{64}$/.test(token);
+async function sessionLive(row, now) {
+  if (!row || row.revoked_at) return false;
+  if (Number(row.expires_at) < now) return false;
+  const seen = Number(row.last_seen_at || row.created_at || 0);
+  if (now - seen > IDLE_TTL) return false;
+  return true;
 }
 
-export async function readAccountSession(db, request, env, now) {
-  const secret = sessionSecret(env);
-  const header = (request && request.headers && request.headers.get("cookie")) || "";
-  let token = "";
-  for (const part of header.split(";")) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith("hb_session=")) token = trimmed.slice("hb_session=".length);
-  }
-  if (!secret || !accountCookie(token)) return null;
-  const id = token.slice(0, 64);
-  const sig = token.slice(65);
-  const expected = await hmacHex(secret, id);
-  if (expected.length !== sig.length) return null;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i += 1) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  if (diff !== 0) return null;
+export async function readAccountSession(db, request, now) {
+  const token = readCookie(request, ACCOUNT_COOKIE);
+  if (!accountCookie(token)) return null;
+  const id = await sha256Hex(token);
   const row = await db
     .prepare(
-      `SELECT sessions.id AS session_id, sessions.expires_at, sessions.revoked_at, users.email, users.role, users.status
+      `SELECT sessions.id AS session_id, sessions.expires_at, sessions.last_seen_at, sessions.revoked_at, sessions.created_at,
+              users.email, users.role, users.status
        FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.id = ?`,
     )
     .bind(id)
     .first();
-  if (!row || row.revoked_at || Number(row.expires_at) < now || row.status !== "active") return null;
+  if (!row || row.status !== "active" || !(await sessionLive(row, now))) return null;
+  await touchSession(db, "sessions", row.session_id, row.last_seen_at || row.created_at, now);
   return { user: row.email, role: row.role, exp: Number(row.expires_at), sessionId: row.session_id, account: true };
 }
 
@@ -376,121 +402,153 @@ export async function revokeSession(db, sessionId, now) {
   await db.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
 }
 
-export async function createSharedSession(db, env, subject, now) {
-  const secret = sessionSecret(env);
-  const name = String(subject || "").trim();
-  if (!secret || !db || !name || /[|\r\n]/.test(name)) return "";
-  const id = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
-  const exp = now + SESSION_TTL;
-  await db
-    .prepare("INSERT INTO shared_sessions (id, subject, expires_at, revoked_at, created_at) VALUES (?, ?, ?, NULL, ?)")
-    .bind(id, name, exp, now)
-    .run();
-  const sig = await hmacHex(secret, id);
-  return `${id}.${sig}`;
+async function revokeUserSessions(db, userId, now) {
+  await db.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, userId).run();
 }
 
-export async function readSharedSession(db, request, env, now) {
-  const secret = sessionSecret(env);
-  const header = (request && request.headers && request.headers.get("cookie")) || "";
-  let token = "";
-  for (const part of header.split(";")) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith("hb_session=")) token = trimmed.slice("hb_session=".length);
-  }
-  if (!secret || !db || !accountCookie(token)) return null;
-  const id = token.slice(0, 64);
-  const sig = token.slice(65);
-  const expected = await hmacHex(secret, id);
-  if (expected.length !== sig.length) return null;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i += 1) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  if (diff !== 0) return null;
+export async function createSharedSession(db, subject, now) {
+  const name = String(subject || "").trim();
+  if (!db || !name || /[|\r\n]/.test(name)) return "";
+  const token = cookieToken();
+  const id = await sha256Hex(token);
+  const exp = now + ABSOLUTE_TTL;
+  await db
+    .prepare(
+      "INSERT INTO shared_sessions (id, subject, expires_at, last_seen_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+    )
+    .bind(id, name, exp, now, now)
+    .run();
+  return token;
+}
+
+export async function readSharedSession(db, request, now) {
+  const token = readCookie(request, SHARED_COOKIE);
+  if (!db || !accountCookie(token)) return null;
+  const id = await sha256Hex(token);
   const row = await db
-    .prepare("SELECT id, subject, expires_at, revoked_at FROM shared_sessions WHERE id = ?")
+    .prepare("SELECT id, subject, expires_at, last_seen_at, revoked_at, created_at FROM shared_sessions WHERE id = ?")
     .bind(id)
     .first();
-  if (!row || row.revoked_at || Number(row.expires_at) < now) return null;
+  if (!(await sessionLive(row, now))) return null;
+  await touchSession(db, "shared_sessions", row.id, row.last_seen_at || row.created_at, now);
   return { user: row.subject, role: "viewer", exp: Number(row.expires_at), sessionId: row.id, account: false, shared: true };
 }
 
 export async function revokeSharedSession(db, sessionId, now) {
   if (!db || !sessionId) return;
-  await db.prepare("UPDATE shared_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
+  await db
+    .prepare("UPDATE shared_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+    .bind(now, sessionId)
+    .run();
 }
 
-export async function changePassword(db, env, request, session, current, password, confirm, now) {
+async function dummyVerify(password) {
+  return verifyPassword(password || "invalid-password", DUMMY_SALT, DUMMY_HASH, PBKDF2_ITERATIONS, PASSWORD_ALGO);
+}
+
+export async function changePassword(db, session, current, password, confirm, now, request) {
   if (!session || !session.account) return { error: "This sign-in does not have its own password." };
-  if (await loginThrottled(db, request, session.user, now)) return { error: "Too many attempts. Try again later.", status: 429 };
-  if (String(password || "").length < 10) return { error: "Use at least 10 characters." };
-  if (password !== confirm) return { error: "Those passwords do not match." };
-  if (String(password).length > 200) return { error: "That password is too long." };
+  if (request && (await loginThrottled(db, request, session.user, now))) {
+    await dummyVerify(current);
+    return { error: "Too many attempts. Try again later.", status: 429 };
+  }
   const user = await findUserByEmail(db, session.user);
-  const active = Boolean(user && user.status === "active" && user.password_hash);
+  const active = Boolean(
+    user &&
+      user.status === "active" &&
+      user.password_hash &&
+      user.password_algo === PASSWORD_ALGO &&
+      Number(user.password_iterations) === PBKDF2_ITERATIONS,
+  );
   const match = await verifyPassword(
     current || "invalid-password",
-    active ? user.password_salt : bytesToHex(crypto.getRandomValues(new Uint8Array(16))),
-    active ? user.password_hash : bytesToHex(new Uint8Array(32)),
-    active ? user.password_iterations : PBKDF2_ITERATIONS,
+    active ? user.password_salt : DUMMY_SALT,
+    active ? user.password_hash : DUMMY_HASH,
+    PBKDF2_ITERATIONS,
+    PASSWORD_ALGO,
   );
-  if (!match) {
-    await recordLoginFailure(db, request, session.user, now);
+  if (!passwordOk(password)) return { error: "Use at least 12 characters." };
+  if (password !== confirm) return { error: "Those passwords do not match." };
+  if (!match || !active) {
+    if (request) await recordLoginFailure(db, request, session.user, now);
     return { error: "That password is wrong.", status: 401 };
   }
   const hashed = await hashPassword(password);
   await db
-    .prepare("UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ? WHERE id = ?")
-    .bind(hashed.hash, hashed.salt, hashed.iterations, user.id)
+    .prepare(
+      "UPDATE users SET password_hash = ?, password_salt = ?, password_algo = ?, password_iterations = ? WHERE id = ?",
+    )
+    .bind(hashed.hash, hashed.salt, hashed.algo, hashed.iterations, user.id)
     .run();
-  await db
-    .prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL")
-    .bind(now, user.id, session.sessionId)
-    .run();
-  await clearLoginFailures(db, request, session.user);
-  return { notice: "Password saved." };
+  await revokeUserSessions(db, user.id, now);
+  if (request) await clearLoginFailures(db, request, session.user);
+  const fresh = await createAccountSession(db, user.id, now);
+  return fresh ? { notice: "Password saved.", session: fresh } : { error: "Sign-in is unavailable.", status: 503 };
 }
 
-export async function authenticateAccount(db, env, request, emailRaw, password, now) {
+export async function authenticateAccount(db, request, emailRaw, password, now) {
   const email = normalizeEmail(emailRaw);
-  if (await loginThrottled(db, request, email, now)) return { throttled: true };
+  const throttled = await loginThrottled(db, request, email, now);
   const user = email ? await findUserByEmail(db, email) : null;
-  if (user && user.status === "invited") return { invited: true, email };
-  const active = Boolean(user && user.status === "active" && user.password_hash);
-  const salt = active ? user.password_salt : bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-  const expected = active ? user.password_hash : bytesToHex(new Uint8Array(32));
-  const iterations = active ? user.password_iterations : PBKDF2_ITERATIONS;
-  const match = await verifyPassword(password || "invalid-password", salt, expected, iterations);
-  if (!match) return { missing: !active, bad: active, email };
+  const active = Boolean(
+    user &&
+      user.status === "active" &&
+      user.password_hash &&
+      user.password_algo === PASSWORD_ALGO &&
+      Number(user.password_iterations) === PBKDF2_ITERATIONS,
+  );
+  const match = await verifyPassword(
+    password || "invalid-password",
+    active ? user.password_salt : DUMMY_SALT,
+    active ? user.password_hash : DUMMY_HASH,
+    PBKDF2_ITERATIONS,
+    PASSWORD_ALGO,
+  );
+  if (throttled) return { throttled: true, email };
+  if (!match || !active) return { bad: true, email };
   await clearLoginFailures(db, request, email);
   await db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(now, user.id).run();
-  const session = await createAccountSession(db, env, user.id, now);
+  const session = await createAccountSession(db, user.id, now);
   if (!session) return { unavailable: true };
   return { session, email: user.email, role: user.role };
 }
 
 async function adminCount(db) {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status != 'disabled'").first();
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status != 'disabled'")
+    .first();
   return Number(row && row.n) || 0;
 }
 
 export async function listUsers(db) {
-  const listed = await db.prepare("SELECT id, email, role, status, created_at, last_login_at FROM users ORDER BY created_at, email").all();
+  const listed = await db
+    .prepare("SELECT id, email, role, status, created_at, last_login_at FROM users ORDER BY created_at, email")
+    .all();
   return (listed && listed.results) || [];
 }
 
-async function currentInviteLink(db, env, request, userId, now) {
-  const row = await db
+async function insertUser(db, email, role, status, hashed, now) {
+  const id = crypto.randomUUID();
+  await db
     .prepare(
-      "SELECT token_enc, expires_at FROM invites WHERE user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
+      "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
     )
-    .bind(userId)
-    .first();
-  if (!row || Number(row.expires_at) < now) return "";
-  const token = await decryptToken(sessionSecret(env), row.token_enc);
-  return token ? inviteUrl(request, token) : "";
+    .bind(
+      id,
+      email,
+      hashed ? hashed.hash : "",
+      hashed ? hashed.salt : "",
+      PASSWORD_ALGO,
+      hashed ? hashed.iterations : PBKDF2_ITERATIONS,
+      role,
+      status,
+      now,
+    )
+    .run();
+  return id;
 }
 
-export async function adminAct(db, env, request, fields, now) {
+export async function adminAct(db, request, fields, now) {
   const action = String(fields.action || "");
   const email = normalizeEmail(fields.email || "");
   const userId = String(fields.user || "");
@@ -500,42 +558,65 @@ export async function adminAct(db, env, request, fields, now) {
     const existing = await findUserByEmail(db, email);
     if (existing && existing.status === "disabled") return { error: "That person is disabled. Re-enable them instead." };
     if (existing && existing.status === "active") return { error: "That person already has an account." };
-    let id = existing && existing.id;
-    if (!id) {
-      id = crypto.randomUUID();
-      await db
-        .prepare(
-          "INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at, last_login_at) VALUES (?, ?, '', '', ?, ?, 'invited', ?, NULL)",
-        )
-        .bind(id, email, PBKDF2_ITERATIONS, role, now)
-        .run();
+    const temp = String(fields.password || "");
+    if (temp) {
+      if (!passwordOk(temp)) return { error: "Use at least 12 characters." };
+      const hashed = await hashPassword(temp);
+      if (existing) {
+        await db
+          .prepare(
+            "UPDATE users SET password_hash = ?, password_salt = ?, password_algo = ?, password_iterations = ?, role = ?, status = 'active' WHERE id = ?",
+          )
+          .bind(hashed.hash, hashed.salt, hashed.algo, hashed.iterations, role, existing.id)
+          .run();
+        await revokeUserSessions(db, existing.id, now);
+      } else {
+        await insertUser(db, email, role, "active", hashed, now);
+      }
+      return { notice: `${email} can sign in with the password you set.`, email };
     }
-    const token = await issueInvite(db, env, id, "invite", now);
+    let id = existing && existing.id;
+    if (!id) id = await insertUser(db, email, role, "invited", null, now);
+    const token = await issueInvite(db, id, "invite", now);
     const link = token ? inviteUrl(request, token) : "";
-    const mailed = await maybeEmailInvite(env, email, link);
-    return { notice: mailed.notice, link, email };
+    return { notice: "Copy this one-time link. It expires in 24 hours.", link, email };
   }
   const user = userId ? await db.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first() : null;
   if (!user) return { error: "That person is not on the list." };
-  if (action === "copy" || action === "resend" || action === "reset") {
-    if (action === "copy") {
-      const link = await currentInviteLink(db, env, request, user.id, now);
-      if (link) return { link, email: user.email, notice: "Copy this invite link." };
-    }
+  if (action === "resend" || action === "reset") {
     if (action === "reset") {
-      await db.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, user.id).run();
-      await db.prepare("UPDATE users SET password_hash = '', password_salt = '', status = 'invited' WHERE id = ?").bind(user.id).run();
+      await revokeUserSessions(db, user.id, now);
+      await db
+        .prepare(
+          "UPDATE users SET password_hash = '', password_salt = '', password_algo = ?, password_iterations = ?, status = 'invited' WHERE id = ?",
+        )
+        .bind(PASSWORD_ALGO, PBKDF2_ITERATIONS, user.id)
+        .run();
     }
     const purpose = action === "reset" ? "reset" : "invite";
-    const token = await issueInvite(db, env, user.id, purpose, now);
+    const token = await issueInvite(db, user.id, purpose, now);
     const link = token ? inviteUrl(request, token) : "";
-    const mailed = action === "resend" ? await maybeEmailInvite(env, user.email, link) : { notice: "" };
-    return { link, email: user.email, notice: mailed.notice || (action === "reset" ? "Password cleared. Send this set-password link." : "New invite link.") };
+    return {
+      link,
+      email: user.email,
+      notice: action === "reset" ? "Password cleared. Send this set-password link." : "New invite link. The previous link no longer works.",
+    };
+  }
+  if (action === "role") {
+    const role = fields.role === "admin" ? "admin" : "viewer";
+    if (user.role === "admin" && role !== "admin" && (await adminCount(db)) <= 1) {
+      return { error: "Keep at least one admin." };
+    }
+    if (role !== user.role) {
+      await db.prepare("UPDATE users SET role = ? WHERE id = ?").bind(role, user.id).run();
+      await revokeUserSessions(db, user.id, now);
+    }
+    return { notice: `${user.email} is ${role}.` };
   }
   if (action === "disable") {
     if (user.role === "admin" && (await adminCount(db)) <= 1) return { error: "Keep at least one admin." };
     await db.prepare("UPDATE users SET status = 'disabled' WHERE id = ?").bind(user.id).run();
-    await db.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, user.id).run();
+    await revokeUserSessions(db, user.id, now);
     return { notice: `${user.email} is disabled.` };
   }
   if (action === "enable") {
@@ -551,28 +632,6 @@ export async function adminAct(db, env, request, fields, now) {
     return { notice: `${user.email} was removed.` };
   }
   return { error: "That action is not available." };
-}
-
-export function emailInvitesEnabled(env) {
-  return envSecret(env, "INVITE_EMAIL") === "1";
-}
-
-async function maybeEmailInvite(env, email, link) {
-  if (!emailInvitesEnabled(env)) return { notice: "" };
-  const url = envSecret(env, "INVITE_EMAIL_URL");
-  if (!url || !link) return { notice: "Email is on, but no mailer is configured. Copy the link." };
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ to: email, link }),
-      signal: AbortSignal.timeout(4000),
-    });
-    if (!response.ok) return { notice: "Email did not send. Copy the link." };
-    return { notice: "Email sent. The link is below if you also want to copy it." };
-  } catch {
-    return { notice: "Email did not send. Copy the link." };
-  }
 }
 
 export function escapeHtml(value) {
@@ -603,9 +662,7 @@ const SCORE_PAGES = [
 ];
 
 function homeChrome(chrome) {
-  const pages = SCORE_PAGES.map(
-    ([, title, href]) => `<li><a href="${href}">${escapeHtml(title)}</a></li>`,
-  ).join("");
+  const pages = SCORE_PAGES.map(([, title, href]) => `<li><a href="${href}">${escapeHtml(title)}</a></li>`).join("");
   const settings = [];
   if (chrome.admin) {
     const current = chrome.here === "admin" ? ' aria-current="page"' : "";
@@ -622,7 +679,7 @@ function homeChrome(chrome) {
   <nav id="drawer" aria-label="Pages">
     <div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div>
     <ul class="pages">${pages}</ul>
-    <div class="drawer-foot">${settingsBlock}<a class="drawer-logout" href="/logout">Logout</a></div>
+    <div class="drawer-foot">${settingsBlock}<form method="POST" action="/logout" class="drawer-logout-form"><button type="submit" class="drawer-logout">Logout</button></form></div>
   </nav>
   <header class="top">
     <div class="header-tools">
@@ -702,9 +759,9 @@ export function inviteHTML(email, token, message) {
     `<form class="login-card" method="POST" action="/invite/${escapeHtml(token)}" autocomplete="on">
       <h2>${escapeHtml(email || "Fulfillment Heartbeat")}</h2>
       ${alert}
-      <label>New password<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
-      <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
-      <p class="hint">At least 10 characters.</p>
+      <label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+      <p class="hint">At least 12 characters. This link works once.</p>
       <button type="submit">Save and sign in</button>
     </form>`,
   );
@@ -728,9 +785,9 @@ export function accountHTML(email, message, notice, chrome) {
       <h2>${escapeHtml(email || "Change password")}</h2>
       ${alert}
       <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
-      <label>New password<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
-      <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
-      <p class="hint">At least 10 characters.</p>
+      <label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+      <p class="hint">At least 12 characters.</p>
       <button type="submit">Save password</button>
     </form>`,
     chrome || { admin: false, account: true, here: "account" },
@@ -748,34 +805,37 @@ export function accountSharedHTML(chrome) {
 
 function userActions(user) {
   const id = escapeHtml(user.id);
-  const button = (action, label) =>
-    `<button type="submit" name="action" value="${action}" form="user-${id}">${label}</button>`;
+  const button = (action, label) => `<button type="submit" name="action" value="${action}" form="user-${id}">${label}</button>`;
   const parts = [];
-  if (user.status !== "active") parts.push(button("resend", "New invite"), button("copy", "Copy invite"));
+  if (user.status !== "active") parts.push(button("resend", "New link"));
   if (user.status === "active") parts.push(button("reset", "Reset password"));
+  if (user.role === "admin") parts.push(button("role", "Make viewer"));
+  else parts.push(button("role", "Make admin"));
   if (user.status === "disabled") parts.push(button("enable", "Re-enable"));
   else parts.push(button("disable", "Disable"));
   parts.push(button("remove", "Remove"));
   return parts.join("");
 }
 
-export function adminHTML({ users, notice, error, link, emailOn, chrome }) {
+export function adminHTML({ users, notice, error, link, chrome }) {
   const alert = error ? `<p class="login-error" role="alert">${escapeHtml(error)}</p>` : notice ? `<p class="hint">${escapeHtml(notice)}</p>` : "";
   const linkBox = link
-    ? `<label>Invite link<input id="invite-link" readonly value="${escapeHtml(link)}"></label><button type="button" data-copy="invite-link">Copy</button>`
+    ? `<label>One-time link<input id="invite-link" readonly value="${escapeHtml(link)}"></label><button type="button" data-copy="invite-link">Copy</button>`
     : "";
   const cards = (users || [])
     .map((user) => {
-      const when = user.last_login_at ? new Date(Number(user.last_login_at) * 1000).toISOString().slice(0, 16).replace("T", " ") : "never";
+      const when = user.last_login_at
+        ? new Date(Number(user.last_login_at) * 1000).toISOString().slice(0, 16).replace("T", " ")
+        : "never";
+      const nextRole = user.role === "admin" ? "viewer" : "admin";
       return `<article class="user-card">
         <h2>${escapeHtml(user.email)}</h2>
         <p class="hint">${escapeHtml(user.role)} · ${escapeHtml(user.status)} · last sign-in ${escapeHtml(when)}</p>
-        <form id="user-${escapeHtml(user.id)}" method="POST" action="/admin"><input type="hidden" name="user" value="${escapeHtml(user.id)}"></form>
+        <form id="user-${escapeHtml(user.id)}" method="POST" action="/admin"><input type="hidden" name="user" value="${escapeHtml(user.id)}"><input type="hidden" name="role" value="${nextRole}"></form>
         <div class="row-actions">${userActions(user)}</div>
       </article>`;
     })
     .join("");
-  const mailNote = emailOn ? "" : `<p class="hint">Email is off. Copy the invite link.</p>`;
   return shell(
     "People · Fulfillment Heartbeat",
     "People",
@@ -783,12 +843,13 @@ export function adminHTML({ users, notice, error, link, emailOn, chrome }) {
       <h2>Add a person</h2>
       ${alert}
       ${linkBox}
-      ${mailNote}
+      <p class="hint">Email is off. Copy the invite link. A blank password makes a one-time link instead.</p>
       <form method="POST" action="/admin">
         <input type="hidden" name="action" value="add">
         <label>Email<input name="email" type="email" autocomplete="off" autocapitalize="none" required></label>
         <label>Role<select name="role"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
-        <button type="submit">Create invite</button>
+        <label>Temporary password<input name="password" type="password" autocomplete="new-password" minlength="12"></label>
+        <button type="submit">Add user</button>
       </form>
     </section>
     <div class="user-list">${cards}</div>

@@ -23,6 +23,7 @@ import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
 import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, PPH_SOURCE_CHECK, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./shoppers.js";
+import { afterPackStatus, packRequestInit, packUrl, paintWhileLoading } from "./auth-boot.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -118,6 +119,7 @@ const state = {
   browseOpen: false,
   home: null,
   homeError: "",
+  homeSettled: false,
   packs: new Map(),
   scheduleTab: "summary",
   bannerTimer: 0,
@@ -213,7 +215,7 @@ function authBlocked(response, text) {
 }
 
 async function readPack(url) {
-  const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+  const response = await fetch(url, packRequestInit());
   const text = await response.text();
   const trimmed = text.trim();
   if (authBlocked(response, trimmed) || !response.ok) {
@@ -253,10 +255,11 @@ async function fetchPack(path) {
   const relative = packURL(path);
   if (!relative) throw new Error("NO DATA");
   const url = new URL(relative, location.origin).href;
+  const nonce = Date.now().toString(36);
   let last = new Error("NO DATA");
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
-      const data = await readPack(url);
+      const data = await readPack(packUrl(url, attempt, nonce));
       state.packs.set(path, data);
       state.failedPacks.delete(path);
       if (state.browseOpen) paintBrowse();
@@ -264,8 +267,10 @@ async function fetchPack(path) {
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
       console.error("pack fetch failed", url, last);
-      if (last.authBlocked || attempt === 7) break;
-      await packWait(400 * (attempt + 1));
+      const status = last.authBlocked ? 401 : 0;
+      const next = afterPackStatus(status, attempt);
+      if (next === "login" || next === "fail") break;
+      await packWait(last.authBlocked ? 150 * (attempt + 1) : 400 * (attempt + 1));
     }
   }
   throw last;
@@ -342,22 +347,38 @@ function renderNav() {
   ).join("");
   const buildLine = buildLabel(BUILD_SHA, APP_VERSION);
   const buildHtml = buildLine ? `<p id="build-stamp" class="drawer-stamp">Build ${esc(buildLine)}</p>` : "";
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot">${buildHtml}<p id="stamp" class="drawer-stamp">${esc(packStamp)}</p>${settingsNav()}<button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot">${buildHtml}<p id="stamp" class="drawer-stamp">${esc(packStamp)}</p>${settingsNav()}<form method="POST" action="/logout" class="drawer-logout-form"><button type="submit" class="drawer-logout" data-logout>Logout</button></form></div>`;
 }
 
 function loadAccountSession() {
   const url = new URL("/session", location.origin);
-  return fetch(url, { credentials: "same-origin", cache: "no-store" })
-    .then((response) => (response.ok ? response.json() : null))
-    .then((payload) => {
-      accountSession = payload;
-      renderNav();
-    })
-    .catch(() => {});
+  let chain = Promise.resolve(null);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    chain = chain.then((found) => {
+      if (found) return found;
+      if (attempt) return packWait(150 * attempt).then(readSession);
+      return readSession();
+    });
+  }
+  return chain.then((payload) => {
+    accountSession = payload;
+    renderNav();
+    return payload;
+  });
+
+  function readSession() {
+    return fetch(url, { credentials: "same-origin", cache: "reload" })
+      .then((response) => (response.ok ? response.json() : null))
+      .catch(() => null);
+  }
 }
 
 function logout() {
-  window.location.assign(new URL("/logout", location.origin).href);
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = new URL("/logout", location.origin).href;
+  document.body.appendChild(form);
+  form.submit();
 }
 
 let searchHits = [];
@@ -1966,7 +1987,8 @@ async function render() {
   renderFilters();
   if (!state.home) {
     setUpdated(null);
-    main.innerHTML = `<p class="nodata">NO DATA</p>`;
+    const paint = paintWhileLoading(state.home, state.homeSettled);
+    main.innerHTML = paint === "nodata" ? `<p class="nodata">NO DATA</p>` : `<p class="note">Loading…</p>`;
     return;
   }
   if (page.id === "schedule") {
@@ -2435,6 +2457,7 @@ document.body.addEventListener("click", (event) => {
     paintBrowse();
   }
   if (event.target.closest("[data-logout]")) {
+    event.preventDefault();
     logout();
     return;
   }
@@ -2483,6 +2506,7 @@ document.body.addEventListener("click", (event) => {
 
 function acceptHome(home) {
   state.home = home;
+  state.homeSettled = true;
   state.homeError = "";
   applyPackStamp(home && home.publishedAt);
   const staleSchema = schemaWarning(home);
@@ -2499,6 +2523,7 @@ function retryHomeAfterAuth() {
       window.location.assign("/login");
       return;
     }
+    state.homeSettled = true;
     if (!state.home) state.homeError = "";
   });
 }
@@ -2541,6 +2566,7 @@ if (pageHasCredentials()) {
       return;
     }
     state.home = null;
+    state.homeSettled = true;
     state.homeError = "";
     render();
     window.addEventListener("focus", retryHomeAfterAuth);

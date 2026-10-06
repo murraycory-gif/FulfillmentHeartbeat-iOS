@@ -19,6 +19,7 @@ binding = "HB_AUTH"
 database_name = "fulfillment-heartbeat-auth"
 database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"
 preview_database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"
+migrations_dir = "migrations"
 
 # Preview Pages deploys. Bindings are not inherited from the top level.
 [[env.preview.r2_buckets]]

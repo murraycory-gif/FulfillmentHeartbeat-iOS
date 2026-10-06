@@ -1,7 +1,8 @@
--- Heartbeat accounts. Same statements as web/migrations/0001_accounts.sql.
--- No users, passwords, salts, or invite tokens are seeded.
--- Production database: hb-users. Preview database: hb-users-preview.
--- Do not apply this file to both names against one database id.
+-- Heartbeat accounts. No users, passwords, salts, or invite tokens are seeded.
+-- Apply to each database separately:
+--   npx wrangler d1 migrations apply hb-users --remote
+--   npx wrangler d1 migrations apply hb-users-preview --remote
+-- Preview (hb-users-preview) and production (hb-users) are different databases.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,

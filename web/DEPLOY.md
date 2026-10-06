@@ -33,15 +33,38 @@ Do these in order. Pages, the existing R2 bucket, and one D1 database for accoun
    - Variable name: `HEARTBEAT_PACKS`
    - Bucket: the existing bucket `heartbeat-packs`
    - Do not create a new bucket. Do not turn on public access here.
-4. **Settings** → **Bindings** → **Add** → **D1 database**, if the deploy did not attach it from `wrangler.toml`.
-   - Variable name: `HB_AUTH`
-   - Database: `fulfillment-heartbeat-auth`
-   - Production and Preview both use that database
-5. Pages secrets, set once and not rotated on later deploys: `SESSION_SECRET` (signs the cookie), `ADMIN_EMAIL` (the first admin's address), `SETUP_SECRET` (bearer token for the one-time `GET /setup` link). Do not put a password in the repo. Optional mail is off unless `INVITE_EMAIL` is `1` and `INVITE_EMAIL_URL` is a webhook. Copying the invite link works without mail.
+4. **Settings** → **Bindings** → **Add** → **D1 database**. Production and Preview are separate databases. The binding name is `HB_USERS` in both environments.
+   - Create them, then put the two different ids in `web/wrangler.toml` (`database_id` and `env.preview` / `preview_database_id`). Do not point Preview at the production database.
+   - Production variable name: `HB_USERS`. Database name: `hb-users`.
+   - Preview variable name: `HB_USERS`. Database name: `hb-users-preview`.
+   - Apply `web/migrations/0001_accounts.sql` to each database. It does not seed a user or a password.
+5. Pages secrets: `BASIC_USER`, `BASIC_PASS`, and `BASIC_PASS_TESTER` for the shared viewer login. Do not put a password in the repo. Leave `AUTH_CUTOVER` unset until an account sign-in has been verified. The shared password is a viewer and cannot open user management.
 6. Do **not** set `HEARTBEAT_WEB_DEV`. That flag only bypasses an old localhost check.
-7. Do **not** set `AUTH_CUTOVER` until an account sign-in has been verified. Until then the shared `BASIC_PASS` login still works.
+7. Do **not** set `AUTH_CUTOVER` until an account sign-in has been verified. Until then the shared `BASIC_PASS` login still works, as a viewer.
 8. Do **not** add a custom domain. Leave the `*.pages.dev` hostname. Do not change DNS.
 9. Do **not** attach Cloudflare Access to this hostname. A PIN in front of the HTML, or a 401 on `/api/section`, is what left every scorecard on "Sign in with the email PIN".
+
+Create the databases, apply the migration, then mint the first admin on the preview database only. Both commands run on your machine. The site does not serve them.
+
+```bash
+npx wrangler d1 create hb-users
+npx wrangler d1 create hb-users-preview
+# Put the two ids in web/wrangler.toml. They must be different.
+npx wrangler d1 migrations apply hb-users-preview --remote
+node scripts/hb-setup.mjs --database hb-users-preview --origin https://YOUR-PREVIEW.pages.dev
+node scripts/hb-user.mjs create --email qc-viewer@example.com --role viewer --database hb-users-preview
+node scripts/hb-user.mjs create --email qc-admin@example.com --role admin --database hb-users-preview
+```
+
+`hb-setup.mjs` prints the one-time link for `murraycory@icloud.com` to stdout. It expires in 24 hours, works once, and only while no active admin exists. `hb-user.mjs` prints a random password once. Neither command prints into the repo. `hb-users` is production; the script refuses it unless `HB_ALLOW_PROD=1`.
+
+Preview deploy, from `web/`, after the ids are real:
+
+```bash
+npx wrangler pages deploy dist --project-name fulfillment-heartbeat-web --branch cursor/user-accounts-93a9
+```
+
+That is a branch deployment. Do not omit `--branch`. Do not deploy production from this change until the preview database is the one Pages Preview binds to `HB_USERS`.
 
 ### 3. Cook the pack into the site
 
