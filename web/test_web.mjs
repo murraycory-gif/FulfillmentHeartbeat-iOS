@@ -2158,6 +2158,31 @@ const sameOriginLogin = await accountRequest(auth.db, "/login", {
   headers: { origin: "https://fulfillment-heartbeat-web.pages.dev" },
 });
 assert.equal(sameOriginLogin.status, 303);
+const ownOriginAttempts = browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n;
+const crossSiteOwnOrigin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: {
+    origin: "https://fulfillment-heartbeat-web.pages.dev",
+    "sec-fetch-site": "cross-site",
+  },
+});
+assert.equal(crossSiteOwnOrigin.status, 403);
+const crossSiteOwnOriginHtml = await crossSiteOwnOrigin.text();
+assert.match(crossSiteOwnOriginHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(crossSiteOwnOriginHtml.includes("That email or password is wrong."), false);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, ownOriginAttempts);
+const sameSiteOwnOrigin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: {
+    origin: "https://fulfillment-heartbeat-web.pages.dev",
+    "sec-fetch-site": "same-site",
+  },
+});
+assert.equal(sameSiteOwnOrigin.status, 403);
+assert.match(await sameSiteOwnOrigin.text(), /Sign-in blocked: please open the site directly and try again/);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, ownOriginAttempts);
 
 const formOrigin = openAuth();
 const formSetup = await accountRequest(formOrigin.db, "/setup", { headers: { authorization: "Bearer setup-secret-value" } });
