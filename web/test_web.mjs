@@ -1485,8 +1485,11 @@ function accountEnv(db, extra = {}) {
   };
 }
 
-async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null } = {}) {
-  const requestHeaders = { "sec-fetch-site": "same-origin", ...headers };
+async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null, fetchSite = "same-origin" } = {}) {
+  const requestHeaders = { ...headers };
+  if (fetchSite && !Object.prototype.hasOwnProperty.call(headers, "sec-fetch-site")) {
+    requestHeaders["sec-fetch-site"] = fetchSite;
+  }
   if (body) requestHeaders["content-type"] = "application/x-www-form-urlencoded";
   if (cookie) requestHeaders.cookie = cookie;
   return basicGate({
@@ -1865,6 +1868,34 @@ const refererLogin = await accountRequest(browserLogin.db, "/login", {
   headers: { origin: "null", "sec-fetch-site": "none", referer: "https://fulfillment-heartbeat-web.pages.dev/login" },
 });
 assert.equal(refererLogin.status, 303);
+const missingFetchBlocked = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null" },
+  fetchSite: false,
+});
+assert.equal(missingFetchBlocked.status, 403);
+const missingFetchBlockedHtml = await missingFetchBlocked.text();
+assert.match(missingFetchBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(missingFetchBlockedHtml.includes("That email or password is wrong."), false);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+const missingFetchWrongHost = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", referer: "https://evil.example/login" },
+  fetchSite: false,
+});
+assert.equal(missingFetchWrongHost.status, 403);
+assert.match(await missingFetchWrongHost.text(), /Sign-in blocked: please open the site directly and try again/);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+const missingFetch = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", referer: "https://fulfillment-heartbeat-web.pages.dev/login" },
+  fetchSite: false,
+});
+assert.equal(missingFetch.status, 303);
+assert.match(missingFetch.headers.get("set-cookie") || "", /^hb_session=/);
 const sameOriginLogin = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
