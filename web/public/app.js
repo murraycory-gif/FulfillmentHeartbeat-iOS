@@ -21,7 +21,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -672,31 +672,68 @@ function meanOf(rows, keys) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+const TILE_KEYS = {
+  missing_items: { Rate: ["mi_pct"] },
+  pre_sub_oos: { Rate: ["oos_pct", "mi_pct"] },
+  prep_not_ready: { "PNR %": ["pnr_rate_pct", "prep_not_ready_pct"] },
+  pick_path: { "Path %": ["compliance_pct"], "AVG PPH": ["pph"] },
+  five_star: {
+    Rating: ["star_rating"],
+    Flash: ["flash_pct"],
+    COE: ["coe_pct"],
+    OTT: ["ott_pct"],
+    "Pre-Sub": ["presub_pct"],
+    OTH: ["oth5_pct"],
+  },
+  pph: { PPH: ["pph"] },
+  dynacap: { "Pcs/Hr": ["dynacap_rate", "pieces_per_hour"], "Util %": ["utilization_pct", "pickup_util_pct"], PPH: ["pph"] },
+  schedule_quality: {
+    "Sch Eff": ["schedule_efficiency_pct"],
+    Staffing: ["staffing_efficiency_pct"],
+    Under: ["under_schedule_pct", "under_scheduled"],
+    Over: ["over_schedule_pct", "over_scheduled"],
+  },
+  sales: {
+    "Sales $": ["sales_dollars"],
+    AOS: ["sales_dollars"],
+    AIV: ["sales_items"],
+    "Items/Txn": ["sales_orders"],
+  },
+  labor: {
+    "Target Vs Actual": ["target_vs_actual_pct"],
+    "Act Cost": ["act_cost_pct"],
+    "Cost Tgt": ["cost_trgt_pct"],
+    "Sch Eff": ["schedule_efficiency_pct"],
+    UPLH: ["uplh_impact_pct"],
+    Wage: ["wage_impact_pct"],
+    AIV: ["aiv_impact_pct"],
+  },
+  lost_revenue: {
+    "Lost %": ["lost_revenue_pct"],
+    "Goal %": ["lost_revenue_goal_pct"],
+  },
+};
+
+function tileKeySource(section, label) {
+  if ((section === "dynacap" || section === "pph") && label === "PPH") return "pph";
+  return section;
+}
+
+function tileCountLine(section, label) {
+  const averaged =
+    isStoreAverageTile(section, label) ||
+    (filtersActive(state.filters) && isWorkbookTile(section, label) && !MONEY_TILES.has(label));
+  if (!averaged) return "";
+  const source = tileKeySource(section, label);
+  const keys = TILE_KEYS[source] && TILE_KEYS[source][label];
+  if (!keys) return "";
+  const rows = sectionRows(source);
+  if (!rows) return "";
+  return metricCountLine(rowsInScope(rows, state.filters, roster(), source), keys);
+}
+
 function rowRateValue(section, label) {
-  const specs = {
-    missing_items: { Rate: ["mi_pct"] },
-    pre_sub_oos: { Rate: ["oos_pct", "mi_pct"] },
-    prep_not_ready: { "PNR %": ["pnr_rate_pct", "prep_not_ready_pct"] },
-    pick_path: { "Path %": ["compliance_pct"], "AVG PPH": ["pph"] },
-    five_star: {
-      Rating: ["star_rating"],
-      Flash: ["flash_pct"],
-      COE: ["coe_pct"],
-      OTT: ["ott_pct"],
-      "Pre-Sub": ["presub_pct"],
-      OTH: ["oth5_pct"],
-    },
-    pph: { PPH: ["pph"] },
-    dynacap: { "Pcs/Hr": ["dynacap_rate", "pieces_per_hour"], "Util %": ["utilization_pct", "pickup_util_pct"] },
-    schedule_quality: {
-      "Sch Eff": ["schedule_efficiency_pct"],
-      Staffing: ["staffing_efficiency_pct"],
-      Under: ["under_schedule_pct", "under_scheduled"],
-      Over: ["over_schedule_pct", "over_scheduled"],
-    },
-    sales: { "Sales $": ["sales_dollars"] },
-  };
-  const keys = specs[section] && specs[section][label];
+  const keys = TILE_KEYS[section] && TILE_KEYS[section][label];
   if (!keys) return null;
   const rows = sectionRows(section);
   if (!rows) return sectionPackPending(section) ? "Loading…" : "—";
@@ -864,7 +901,9 @@ function cookedTiles(section) {
       const shown = shownTileValue(section, label, raw);
       const toneClass = tone && tileUsesSectionTone(label) ? ` tone-${tone}` : "";
       const keepCase = /eComm/.test(name) ? " keep-case" : "";
-      return `<div class="chip${toneClass}${keepCase}"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
+      const countLine = tileCountLine(section, label);
+      const count = countLine ? `<small class="count">${esc(countLine)}</small>` : "";
+      return `<div class="chip${toneClass}${keepCase}"><span>${esc(name)}</span><strong>${esc(shown)}</strong>${count}</div>`;
     })
     .join("");
   return body ? `<div class="tiles">${body}</div>` : "";
@@ -1254,7 +1293,7 @@ function salesLaborChip(row, regionName) {
     const built = summarizeSeat(section, scoped);
     if (built.headline == null) return { title: row.title, text: "Not available", tone: "none" };
     const text = section === "sales" ? money(built.headline) : shownRate(section, built.headline);
-    const title = section === "labor" ? `${row.title} store average` : row.title;
+    const title = divisionChipTitle(section, row.title);
     return { title, text, tone: chipTone(built.health) };
   }
   const raw = row.headline;

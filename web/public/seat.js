@@ -265,6 +265,33 @@ function countText(count) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(count));
 }
 
+// "2,089 of 2,164" when a store-average tile skips stores that lack the metric.
+export function partialCountLine(have, total) {
+  const present = Number(have);
+  const all = Number(total);
+  if (!Number.isFinite(present) || !Number.isFinite(all)) return "";
+  if (present <= 0 || all <= 0 || present >= all) return "";
+  return `${countText(present)} of ${countText(all)}`;
+}
+
+export function metricCountLine(rows, keys) {
+  const list = Array.isArray(rows) ? rows : [];
+  let have = 0;
+  for (const row of list) {
+    if (field(row, keys) != null) have += 1;
+  }
+  return partialCountLine(have, list.length);
+}
+
+// Division filter on the Regions card. Sales dollars are a sum of the stores
+// in that division. Labor stays an unweighted store average.
+export function divisionChipTitle(section, title) {
+  const name = String(title || "");
+  if (section === "labor") return `${name} store average`;
+  if (section === "sales") return `${name} store sum`;
+  return name;
+}
+
 // A dashboard store count is either "Loading…" or the section-row count.
 // The placeholder has no digits, so a pack storeCount cannot flash first.
 export function companyCountText(count, pending) {
