@@ -23,6 +23,7 @@ import {
   verifyAccessJwt,
 } from "./functions/gate.js";
 import { checkPack } from "./check_pack.mjs";
+import { PACK_POINTER_KEY, guardHome, packObjectKey, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
@@ -887,7 +888,12 @@ assert.match(publishScript, /fulfillment-heartbeat-web/);
 assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
+assert.match(publishScript, /web-pack\/packs\//);
+assert.match(publishScript, /web-pack\/pointer\.json/);
 assert.match(publishScript, /site tree not deployed/);
+assert.match(publishScript, /print_pack_stamp\.mjs/);
+assert.match(publishScript, /2026-09-29/);
+assert.match(publishScript, /2026-09-30/);
 assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), "utf8"), /HEARTBEAT_DATA_ONLY=1/);
 assert.match(readFileSync(join(root, "package.json"), "utf8"), />=22\.5\.0/);
 assert.match(publishScript, /\{"error":"unauthorized"\}/);
@@ -1123,6 +1129,76 @@ const dataOpened = await basicGate({
 });
 assert.equal(dataOpened.status, 200);
 assert.equal(dataOpened.headers.get("cache-control"), "private, no-store");
+assert.equal(rawDivisionName("JEWEL"), true);
+assert.equal(rawDivisionName("Jewel Osco"), false);
+assert.equal(rawDivisionName("DENVER"), true);
+assert.equal(rawDivisionName("INTERMOUNTAIN"), true);
+const goodSha = "a".repeat(40);
+const badSha = "b".repeat(40);
+const goodHome = {
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha },
+  laborMarket: { aiv_impact_pct: 3, uplh_impact_pct: 1, wage_impact_pct: 2, target_vs_actual_pct: 6 },
+  regionTables: [{ region: "West" }],
+  summaries: [{ section: "sales" }],
+  companyTiles: { sales: { labels: [], values: [] } },
+  filters: { stores: [{ store: "1", division: "Mountain West" }] },
+};
+const badHome = {
+  metadata: { schemaVersion: 0, cookSha: badSha },
+  laborMarket: { aiv_impact_pct: 1, uplh_impact_pct: 1, wage_impact_pct: 1, target_vs_actual_pct: 3 },
+  regionTables: [{ region: "West" }],
+  summaries: [{ section: "sales" }],
+  companyTiles: {},
+  filters: { stores: [{ store: "1" }] },
+};
+assert.equal(guardHome(goodHome).length, 0);
+assert.ok(guardHome(badHome).some((item) => item.startsWith("schemaVersion=")));
+function memoryBucket(files) {
+  return {
+    async get(key) {
+      if (!Object.prototype.hasOwnProperty.call(files, key)) return null;
+      const text = files[key];
+      return { text: async () => text, body: text };
+    },
+  };
+}
+const packFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({ current: badSha, previous: goodSha }),
+  [packObjectKey(badSha, "home.json")]: JSON.stringify(badHome),
+  [packObjectKey(badSha, "section/missing_items.json")]: JSON.stringify({ rows: [{ store: "879", division: "DENVER" }] }),
+  [packObjectKey(goodSha, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(goodSha, "section/missing_items.json")]: JSON.stringify({ rows: [{ store: "879", division: "Mountain West" }] }),
+};
+resetPackCache();
+const packed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(packFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(packed.status, 200);
+assert.equal(packed.headers.get("cache-control"), "private, no-store");
+assert.match(await packed.text(), /Mountain West/);
+resetPackCache();
+const unsignedPack = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json"),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(packFiles) }),
+  next: async () => new Response("static-pack", { status: 200 }),
+});
+assert.equal(unsignedPack.status, 401);
+assert.equal(unsignedPack.headers.get("cache-control"), "private, no-store");
+assert.deepEqual(await unsignedPack.json(), { error: "unauthorized" });
+resetPackCache();
+const staticFallback = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({ [PACK_POINTER_KEY]: JSON.stringify({ current: badSha, previous: "" }) }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(await staticFallback.text(), "static-home");
+assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
 const wrong = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",

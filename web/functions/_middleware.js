@@ -3,6 +3,7 @@
 // The shared BASIC_PASS login stays until AUTH_CUTOVER=1, after the account sign-in is verified.
 // Nothing here is a password. A missing secret fails closed.
 
+import { readPackObject } from "./pack-store.js";
 import {
   acceptInvite,
   accountHTML,
@@ -408,22 +409,16 @@ async function accountResponse(request, env, db, session, now) {
 async function packFromBucket(env, pathname) {
   const bucket = env && env.HEARTBEAT_PACKS;
   if (!bucket || typeof bucket.get !== "function") return null;
-  const rel = String(pathname || "").replace(/^\/data\//, "");
-  if (!rel || rel.includes("..") || rel.includes("\\") || !/^[\w./-]+$/.test(rel) || !rel.endsWith(".json")) return null;
-  try {
-    const object = await bucket.get(`web-pack/${rel}`);
-    if (!object) return null;
-    return new Response(object.body, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  } catch {
-    return null;
-  }
+  const object = await readPackObject(bucket, pathname);
+  if (!object) return null;
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 export async function onRequest(context) {

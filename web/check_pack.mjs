@@ -2,10 +2,11 @@
 // The Mac push runs this before upload:
 //   node web/check_pack.mjs web/public/data
 // A failing pack exits non-zero and must not be uploaded.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SCHEMA_VERSION } from "./public/schema.js";
+import { guardHome, rawDivisionName } from "./functions/pack-store.js";
 
 function readJson(dir, name) {
   const file = join(dir, name);
@@ -38,8 +39,62 @@ function blend(stores, markets, region, field) {
   return weight ? total / weight : null;
 }
 
-export function checkPack(dir) {
+const BANNED_PUBLISHED = [/^2026-09-29/, /^2026-09-30/];
+
+function jsonFiles(dir, rel = "") {
+  const out = [];
+  for (const name of readdirSync(join(dir, rel))) {
+    const next = rel ? `${rel}/${name}` : name;
+    const full = join(dir, next);
+    if (statSync(full).isDirectory()) out.push(...jsonFiles(dir, next));
+    else if (name.endsWith(".json")) out.push(next);
+  }
+  return out.sort();
+}
+
+export function packFileStamp(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    publishedAt: typeof value.publishedAt === "string" ? value.publishedAt : "",
+    schemaVersion: value.schemaVersion,
+    cookSha: typeof value.cookSha === "string" ? value.cookSha : "",
+  };
+}
+
+export function packIdentityErrors(dir) {
   const errors = [];
+  let files = [];
+  try {
+    files = jsonFiles(dir);
+  } catch {
+    return ["pack directory is missing"];
+  }
+  if (!files.length) return ["pack directory has no json files"];
+  let expected = null;
+  for (const rel of files) {
+    const read = readJson(dir, rel);
+    if (read.error) {
+      errors.push(read.error);
+      continue;
+    }
+    const stamp = packFileStamp(read.value);
+    if (!stamp || stamp.publishedAt.length < 20) errors.push(`${rel} publishedAt missing`);
+    if (!stamp || stamp.schemaVersion !== SCHEMA_VERSION) errors.push(`${rel} schemaVersion=${stamp ? stamp.schemaVersion : "missing"}`);
+    if (!stamp || !/^[0-9a-f]{40}$/.test(stamp.cookSha)) errors.push(`${rel} cookSha missing`);
+    if (stamp && BANNED_PUBLISHED.some((pattern) => pattern.test(stamp.publishedAt))) {
+      errors.push(`${rel} publishedAt ${stamp.publishedAt} is a retired pack`);
+    }
+    if (stamp && stamp.publishedAt && stamp.schemaVersion === SCHEMA_VERSION && /^[0-9a-f]{40}$/.test(stamp.cookSha)) {
+      const key = `${stamp.publishedAt}\0${stamp.schemaVersion}\0${stamp.cookSha}`;
+      if (!expected) expected = key;
+      else if (expected !== key) errors.push(`${rel} stamp does not match the rest of the pack`);
+    }
+  }
+  return errors;
+}
+
+export function checkPack(dir) {
+  const errors = [...packIdentityErrors(dir)];
   const homeRead = readJson(dir, "home.json");
   const scheduleRead = readJson(dir, "schedule.json");
   const lostRead = readJson(dir, "section/lost_revenue.json");
@@ -60,16 +115,10 @@ export function checkPack(dir) {
     errors.push("schedule.json is not an object");
   }
 
-  const metadata = home.metadata && typeof home.metadata === "object" ? home.metadata : {};
-  if (metadata.schemaVersion !== SCHEMA_VERSION) {
-    errors.push(`schemaVersion=${metadata.schemaVersion ?? "missing"} expected ${SCHEMA_VERSION}`);
-  }
-  if (typeof metadata.cookSha !== "string" || !/^[0-9a-f]{40}$/.test(metadata.cookSha)) {
-    errors.push("cookSha missing");
-  }
+  errors.push(...guardHome(homeRead.value));
 
   const labor = home.laborMarket && typeof home.laborMarket === "object" ? home.laborMarket : {};
-  if ("weight" in labor) errors.push("laborMarket has a weight field");
+  if ("weight" in labor && !errors.some((item) => item.includes("weight"))) errors.push("laborMarket has a weight field");
   const aiv = finite(labor.aiv_impact_pct);
   const uplh = finite(labor.uplh_impact_pct);
   const wage = finite(labor.wage_impact_pct);
@@ -201,6 +250,17 @@ export function checkPack(dir) {
   if (southEff == null || Math.abs(southEff - 91.04) > 0.02) errors.push(`South eff=${southEff}`);
   if (southUnder == null || Math.abs(southUnder - 3.05) > 0.02) errors.push(`South under=${southUnder}`);
   if (southOver == null || Math.abs(southOver - 5.91) > 0.02) errors.push(`South over=${southOver}`);
+
+  for (const name of ["section/missing_items.json", "section/schedule_quality.json"]) {
+    const read = readJson(dir, name);
+    if (read.error) {
+      errors.push(read.error);
+      continue;
+    }
+    const rows = read.value && Array.isArray(read.value.rows) ? read.value.rows : [];
+    const raw = rows.find((row) => row && rawDivisionName(row.division));
+    if (raw) errors.push(`${name} division ${raw.division} on store ${raw.store}`);
+  }
 
   const dynRows = Array.isArray(dynacap.rows) ? dynacap.rows : [];
   const unitedDyn = dynRows.filter((row) => row && row.division === "United");

@@ -151,6 +151,16 @@ for _name in OFFICIAL_DIVISIONS:
     _DIVISION_ALIAS["".join(ch for ch in _name.lower() if ch.isalnum())] = _name
 
 
+def roster_division(record: dict, roster: dict) -> str:
+    """Display division for a fact. Roster name first, then the sheet token."""
+    current = roster.get(record.get("store") or "")
+    if current and current.get("division"):
+        named = canonical_division(current.get("division") or "")
+        if named:
+            return named
+    return canonical_division(record.get("division") or "")
+
+
 def canonical_division(raw: str) -> str:
     text = (raw or "").strip()
     if not text:
@@ -269,7 +279,8 @@ def region_lines(packs) -> list:
             for child in item.get("children") or []:
                 if not isinstance(child, dict):
                     continue
-                label = str(child.get("label") or "").strip()
+                raw_label = str(child.get("label") or "").strip()
+                label = canonical_division(raw_label) or raw_label
                 child_value = child.get("value")
                 if not label or child_value is None or str(child_value).strip() in {"", "—", "-", "–"}:
                     continue
@@ -1050,13 +1061,12 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         )
     for item in roster.values():
         item["division"] = canonical_division(item.get("division") or "")
-    # Division belongs to the store. The roster wins over a sheet that mis-tags the row.
+    # Division belongs to the store. Missing Items and Schedule Quality sheets
+    # say DENVER, INTERMOUNTAIN, and JEWEL. The roster display name wins, and
+    # a sheet token that is not on the roster still goes through the same map.
     for record in records:
+        record["division"] = roster_division(record, roster)
         current = roster.get(record["store"])
-        if current and current.get("division"):
-            record["division"] = current["division"]
-        elif record.get("division"):
-            record["division"] = canonical_division(record["division"])
         if not current:
             continue
         for field in ("district", "om"):
@@ -1093,11 +1103,21 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     apply_lost_tile_scale(company_tiles, lost_market_payload(db))
     labor_market = labor_market_payload(db)
     apply_labor_aiv_tile(company_tiles, labor_market)
-    home = {
-        "publishedAt": published,
+    if not published or len(str(published)) < 20:
+        raise SystemExit(f"refusing pack write: publishedAt {published!r}")
+    schema = schema_version()
+    sha = cook_sha()
+
+    def stamped(payload: dict) -> dict:
+        payload["publishedAt"] = published
+        payload["schemaVersion"] = schema
+        payload["cookSha"] = sha
+        return payload
+
+    home = stamped({
         "metadata": {
-            "schemaVersion": schema_version(),
-            "cookSha": cook_sha(),
+            "schemaVersion": schema,
+            "cookSha": sha,
         },
         "summaries": summaries,
         "companyTiles": company_tiles,
@@ -1119,7 +1139,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
             records,
         ),
         "regionTables": region_tables(chrome.get("tables") or {}),
-    }
+    })
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
     schedule_path = out / "schedule.json"
@@ -1128,10 +1148,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         clear_blank_schedule(schedule)
         clear_invalid_schedule_under(schedule)
         schedule["summaryTitle"] = schedule_summary_title(schedule.get("summaryTitle") or "", schedule.get("week") or 0)
-        _write(schedule_path, schedule)
+        _write(schedule_path, stamped(schedule))
     else:
         # Keep the URL as JSON. An older file must not keep stores this pack lacks.
-        _write(schedule_path, empty_schedule())
+        _write(schedule_path, stamped(empty_schedule()))
     grouped: dict[str, list] = {section: [] for section in SECTIONS}
     for record in latest.values():
         row = {
@@ -1147,7 +1167,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         grouped[record["section"]].append(row)
     for section, rows in grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"]))
-        _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
+        _write(section_dir / f"{section}.json", stamped({"section": section, "rows": rows}))
     shopper_grouped: dict[str, list] = {section: [] for section in SHOPPER_SECTIONS}
     for record in shoppers.values():
         shopper_grouped[record["section"]].append(
@@ -1164,8 +1184,8 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         )
     for section, rows in shopper_grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"], item.get("shopper") or ""))
-        _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
-    _write(out / "presub.json", {"scopes": presub})
+        _write(section_dir / f"{section}.json", stamped({"section": section, "rows": rows}))
+    _write(out / "presub.json", stamped({"scopes": presub}))
     db.close()
     check_pack(out)
 

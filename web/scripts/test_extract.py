@@ -379,6 +379,85 @@ def absent_schedule_and_item_tab() -> None:
         print("absent schedule ok")
 
 
+def raw_sheet_divisions() -> None:
+    """Missing Items and Schedule Quality sheets use DENVER / JEWEL. Rows use the roster name."""
+    assert module.canonical_division("DENVER") == "Mountain West"
+    assert module.canonical_division("INTERMOUNTAIN") == "Mountain West"
+    assert module.canonical_division("JEWEL") == "Jewel Osco"
+    assert module.canonical_division("SO CALIFORNIA") == "SoCal"
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "current.sqlite"
+        out = Path(tmp) / "out"
+        db = sqlite3.connect(db_path)
+        db.executescript(
+            """
+            CREATE TABLE pack_meta (id INTEGER PRIMARY KEY, written_at TEXT);
+            CREATE TABLE dash_chrome (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE facts (
+              section TEXT, store_number TEXT, division TEXT, operations_om TEXT,
+              store_name TEXT, recorded_on TEXT, payload_json TEXT, text_json TEXT
+            );
+            """
+        )
+        chrome = {
+            "publishedAt": "2026-10-06T01:35:23Z",
+            "summaries": [],
+            "packs": {
+                "missing_items": [
+                    {
+                        "line": {"label": "West Region", "value": "8.0%", "count": 2, "health": "watch"},
+                        "children": [
+                            {"label": "DENVER", "value": "7.0%", "count": 1, "health": "watch"},
+                            {"label": "INTERMOUNTAIN", "value": "9.0%", "count": 1, "health": "watch"},
+                        ],
+                    }
+                ],
+                "schedule_quality": [
+                    {
+                        "line": {"label": "East Region", "value": "90%", "count": 1, "health": "good"},
+                        "children": [{"label": "JEWEL", "value": "91%", "count": 1, "health": "good"}],
+                    }
+                ],
+            },
+        }
+        db.execute("INSERT INTO pack_meta VALUES (1, '2026-10-06T01:35:23Z')")
+        db.execute("INSERT INTO dash_chrome VALUES (1, ?)", (json.dumps(chrome),))
+        rows = [
+            ("store_roster", "879", "Mountain West", "Ellas Ware", "66"),
+            ("store_roster", "4799", "Jewel Osco", "Mike Macdonald", "J6"),
+            ("missing_items", "879", "DENVER", "sheet om", "65"),
+            ("missing_items", "339", "INTERMOUNTAIN", "", "I5"),
+            ("schedule_quality", "4799", "JEWEL", "sheet om", "J6"),
+            ("pph", "339", "Mountain West", "Chris Banuelos", "I5"),
+        ]
+        for section, store, division, om, district in rows:
+            db.execute(
+                "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (section, store, division, om, "", "2026-10-06", "{}", json.dumps({"district": district})),
+            )
+        db.commit()
+        db.close()
+        module.extract(str(db_path), str(out))
+        missing = json.loads((out / "section" / "missing_items.json").read_text())["rows"]
+        quality = json.loads((out / "section" / "schedule_quality.json").read_text())["rows"]
+        by_store = {row["store"]: row["division"] for row in missing}
+        assert by_store["879"] == "Mountain West"
+        assert by_store["339"] == "Mountain West"
+        assert {row["store"]: row["division"] for row in quality}["4799"] == "Jewel Osco"
+        home = json.loads((out / "home.json").read_text())
+        labels = []
+        for line in home["regionLines"]:
+            if line["section"] not in {"missing_items", "schedule_quality"}:
+                continue
+            labels.extend(child["division"] for child in line["children"])
+        assert "DENVER" not in labels
+        assert "INTERMOUNTAIN" not in labels
+        assert "JEWEL" not in labels
+        assert "Mountain West" in labels
+        assert "Jewel Osco" in labels
+        print("raw sheet divisions ok")
+
+
 def blank_schedule_ok() -> None:
     schedule = {
         "markets": [{"label": "United", "under": None, "over": None, "eff": 100.0}],
@@ -408,4 +487,5 @@ def blank_schedule_ok() -> None:
 
 if __name__ == "__main__":
     main()
+    raw_sheet_divisions()
     blank_schedule_ok()

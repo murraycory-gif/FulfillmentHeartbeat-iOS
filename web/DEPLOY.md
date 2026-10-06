@@ -89,13 +89,61 @@ The current iPhone / iPad / Mac build still downloads packs from the public host
 
 Do that only when you are ready for the phone to miss packs. This change does not flip the switch and does not change the phone URL.
 
+## Data-only refresh (R2)
+
+A Pages upload always ships the Functions bundle. The Mac must not create a Pages deployment when the only change is the pack. It uploads JSON to R2. The Pages Function reads that pack after sign-in. An unsigned `/data` request stays `401` `{"error":"unauthorized"}` with `Cache-Control: private, no-store`.
+
+Binding name: `HEARTBEAT_PACKS`  
+Bucket name: `heartbeat-packs`
+
+Key layout:
+
+```text
+web-pack/pointer.json
+  { "current": "<40-hex cookSha>", "previous": "<40-hex cookSha or empty>" }
+
+web-pack/packs/<cookSha>/home.json
+web-pack/packs/<cookSha>/schedule.json
+web-pack/packs/<cookSha>/presub.json
+web-pack/packs/<cookSha>/section/<section>.json
+```
+
+`cookSha` is `metadata.cookSha` in `home.json`. The object paths under `web-pack/packs/<cookSha>/` match the paths under `/data/`.
+
+The function reads `pointer.json` only. It does not read a bare `web-pack/home.json` key. A September 2026 object at that key was an older pack with no `schemaVersion`, and serving it made `home.json` disagree with `schedule.json`. `current` has to pass `guardHome` in `web/functions/pack-store.js` (`schemaVersion`, `cookSha`, `laborMarket`, `regionTables`, `summaries`, `companyTiles`, `filters.stores`). If it fails, the function serves `previous`. If neither pack is valid, or the bucket has no pointer yet, `/data/*` falls through to the static files from the last full Pages deploy. Those static files are still behind the sign-in middleware.
+
+Every JSON file in one cook carries the same top-level `publishedAt`, `schemaVersion`, and `cookSha`. `publish-web.sh` prints those three fields for each file and refuses a deploy when they disagree, or when `publishedAt` is `2026-09-29` or `2026-09-30`.
+
+Upload with an API token that has **Account → Workers R2 Storage → Edit** on `heartbeat-packs`. Do not grant **Cloudflare Pages → Edit**. Then this token cannot create a Pages deployment.
+
+From the repo, after `node web/check_pack.mjs web/public/data` exits 0:
+
+```bash
+# HEARTBEAT_DATA_ONLY=1 never runs `wrangler pages deploy`.
+HEARTBEAT_DATA_ONLY=1 bash Tools/HeartbeatIngest/publish-web.sh
+```
+
+That command puts every pack JSON at `web-pack/packs/<cookSha>/` and writes `web-pack/pointer.json` last. `previous` becomes the prior `current`. A bad `home.json` stays in the bucket and the site keeps serving the previous good pack.
+
+A one-file upload, if you are not using the script:
+
+```bash
+SHA="$(python3 -c 'import json; print(json.load(open("web/public/data/home.json"))["metadata"]["cookSha"])')"
+npx wrangler r2 object put "heartbeat-packs/web-pack/packs/${SHA}/home.json" \
+  --file=web/public/data/home.json --remote
+# repeat for schedule.json, presub.json, and section/*.json
+# write pointer.json only after every object put succeeds
+```
+
+Do not run `wrangler pages deploy` for a pack refresh.
+
 ## Save in iCloud updates the site
 
 Cory does not ask Bot to deploy. A launchd watcher on the Mac cooks a saved workbook and uploads the site.
 
 What he clicks once:
 
-1. Cloudflare dashboard → My Profile → **API Tokens** → **Create Token**. Use a custom token with **Account / Cloudflare Pages / Edit**. Copy the token into `~/.config/heartbeat/cloudflare-api-token` and run `chmod 600` on that file. Do not commit it and do not paste it into chat.
+1. Cloudflare dashboard → My Profile → **API Tokens** → **Create Token**. Use a custom token with **Account / Workers R2 Storage / Edit** on bucket `heartbeat-packs`. Do not grant Cloudflare Pages Edit on the Mac token. Copy the token into `~/.config/heartbeat/cloudflare-api-token` and run `chmod 600` on that file. Do not commit it and do not paste it into chat.
 2. On the Mac, from this repo: `./Tools/HeartbeatIngest/setup-web-publish.sh`. If macOS asks for **Files and Folders** or iCloud Drive access, click **Allow**.
 
 After that, leave these files in iCloud Drive `Heartbeat_Reports`:
@@ -103,7 +151,7 @@ After that, leave these files in iCloud Drive `Heartbeat_Reports`:
 - `Heartbeat Daily Report.xlsx`
 - `Schedule Review Week NN - Summary.xlsx`
 
-Saving either workbook runs `Tools/HeartbeatIngest/cook-local.sh`. That cooks the Daily Report and the Schedule Review sheet into `current.sqlite`, checks the pack, and deploys **only** to Pages project `fulfillment-heartbeat-web` (`https://fulfillment-heartbeat-web.pages.dev`). Dynacap health is the cooked band (goal 65, risk 60). The schedule title on the site uses the week from the workbook tabs. The cook does not invent metrics. If the cook or the pack check fails, the script exits and does not deploy. If neither file changed since the last successful deploy, it does nothing.
+Saving either workbook runs `Tools/HeartbeatIngest/cook-local.sh`. That cooks the Daily Report and the Schedule Review sheet into `current.sqlite`, checks the pack, and uploads **only** the JSON pack to R2 bucket `heartbeat-packs` for Pages project `fulfillment-heartbeat-web` (`https://fulfillment-heartbeat-web.pages.dev`). It does not create a Pages deployment. Dynacap health is the cooked band (goal 65, risk 60). The schedule title on the site uses the week from the workbook tabs. The cook does not invent metrics. If the cook or the pack check fails, the script exits and does not upload. If neither file changed since the last successful upload, it does nothing.
 
 The Mac job signs in through the form and treats an unsigned `/data` response of `401` JSON `{"error":"unauthorized"}` as the lock. A UI deploy must not upload an older pack over the live one. `HEARTBEAT_UI_ONLY=1` skips the sqlite extract. Save the current pack in `web/public/data` and set `HEARTBEAT_USE_LOCAL_DATA=1`, or put the site login in `~/.config/heartbeat/web-email` and `web-password` so a newer live pack is downloaded first. A cook still passes `current.sqlite`. An older sqlite does not replace a newer pack already in `web/public/data`. After upload, `publish-web.sh` checks the unsigned `401` again.
 

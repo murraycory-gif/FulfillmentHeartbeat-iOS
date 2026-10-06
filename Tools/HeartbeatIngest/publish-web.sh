@@ -201,7 +201,7 @@ root = Path(sys.argv[1])
 home = json.loads((root / "home.json").read_text())
 schedule = json.loads((root / "schedule.json").read_text())
 published = str(home.get("publishedAt") or "")
-if len(published) < 20 or published == "2026-09-30T18:23:22Z":
+if len(published) < 20 or published.startswith("2026-09-29") or published.startswith("2026-09-30"):
     raise SystemExit(f"refusing deploy: publishedAt {published!r}")
 if len(home.get("summaries") or []) < 12:
     raise SystemExit("refusing deploy: dashboard summaries are incomplete")
@@ -237,6 +237,10 @@ fi
 cd "$WEB"
 npm test
 
+# The upload is dist/, after the test stages public/ into it. Check those files.
+node "$WEB/scripts/print_pack_stamp.mjs" "$WEB/dist/data"
+node "$WEB/check_pack.mjs" "$WEB/dist/data"
+
 # Session and setup secrets are created once. A later deploy must not rotate them.
 SECRET_LIST="$(npx wrangler pages secret list --project-name "$PROJECT" 2>/dev/null || true)"
 put_secret_if_missing() {
@@ -266,19 +270,57 @@ put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
 put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
 put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 
+node "$WEB/scripts/print_pack_stamp.mjs" "$DATA"
+
 if [[ -n "$DATA_ONLY" ]]; then
   python3 - "$DATA" << 'PY'
-import subprocess, sys
+import json, re, subprocess, sys, tempfile
 from pathlib import Path
+
 root = Path(sys.argv[1])
-files = [path for path in root.rglob("*.json") if path.is_file()]
+files = sorted(path for path in root.rglob("*.json") if path.is_file())
 if not files:
     raise SystemExit("data-only upload: no pack json")
+home_path = root / "home.json"
+if not home_path.is_file():
+    raise SystemExit("data-only upload: home.json is missing")
+home = json.loads(home_path.read_text())
+sha = str((home.get("metadata") or {}).get("cookSha") or "")
+if not re.fullmatch(r"[0-9a-f]{40}", sha):
+    raise SystemExit("data-only upload: cookSha missing")
+
+def wrangler(args, check=True):
+    return subprocess.run(["npx", "wrangler", *args], check=check)
+
 for path in files:
     rel = path.relative_to(root).as_posix()
-    key = f"heartbeat-packs/web-pack/{rel}"
-    subprocess.run(["npx", "wrangler", "r2", "object", "put", key, f"--file={path}", "--remote"], check=True)
-print(f"data-only upload: {len(files)} pack files, site tree not deployed")
+    key = f"heartbeat-packs/web-pack/packs/{sha}/{rel}"
+    wrangler(["r2", "object", "put", key, f"--file={path}", "--remote"])
+
+previous = ""
+with tempfile.TemporaryDirectory() as tmp:
+    pointer_file = Path(tmp) / "pointer.json"
+    got = wrangler(
+        ["r2", "object", "get", "heartbeat-packs/web-pack/pointer.json", f"--file={pointer_file}", "--remote"],
+        check=False,
+    )
+    if got.returncode == 0 and pointer_file.is_file():
+        try:
+            old = json.loads(pointer_file.read_text())
+        except json.JSONDecodeError:
+            old = {}
+        current = str(old.get("current") or "")
+        if re.fullmatch(r"[0-9a-f]{40}", current) and current != sha:
+            previous = current
+        else:
+            kept = str(old.get("previous") or "")
+            if re.fullmatch(r"[0-9a-f]{40}", kept):
+                previous = kept
+    new_pointer = Path(tmp) / "next-pointer.json"
+    new_pointer.write_text(json.dumps({"current": sha, "previous": previous}))
+    wrangler(["r2", "object", "put", "heartbeat-packs/web-pack/pointer.json", f"--file={new_pointer}", "--remote"])
+
+print(f"data-only upload: {len(files)} pack files at web-pack/packs/{sha}/, pointer updated, site tree not deployed")
 PY
   exit 0
 fi
