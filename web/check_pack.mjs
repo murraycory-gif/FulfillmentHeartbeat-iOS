@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SCHEMA_VERSION } from "./public/schema.js";
-import { guardHome, PINNED_LIVE_COOK_SHA, rawDivisionName } from "./functions/pack-store.js";
+import { guardHome, PACK_FILES, PINNED_LIVE_COOK_SHA, rawDivisionName } from "./functions/pack-store.js";
 
 function readJson(dir, name) {
   const file = join(dir, name);
@@ -73,6 +73,10 @@ export function packIdentityErrors(dir) {
     return ["pack directory is missing"];
   }
   if (!files.length) return ["pack directory has no json files"];
+  const present = new Set(files);
+  for (const rel of PACK_FILES) {
+    if (!present.has(rel)) errors.push(`${rel} is missing`);
+  }
   let expected = null;
   for (const rel of files) {
     const read = readJson(dir, rel);

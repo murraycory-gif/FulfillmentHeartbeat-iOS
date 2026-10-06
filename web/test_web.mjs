@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
@@ -22,7 +22,7 @@ import {
   verifyAccessJwt,
 } from "./functions/gate.js";
 import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors } from "./check_pack.mjs";
-import { PACK_POINTER_KEY, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache, sha256Hex } from "./functions/pack-store.js";
+import { PACK_FILES, PACK_POINTER_KEY, PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache, sha256Hex } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
@@ -165,7 +165,10 @@ assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "", repinne
 assert.equal(packMissPlan({ path: "section/labor", status: 500, pin: "cookSha=abc", repinned: false }), "retry");
 assert.match(app, /packMissPlan/);
 assert.match(app, /error\.status = response\.status/);
-assert.match(app, /state\.packs\.delete\("home"\)/);
+assert.match(app, /state\.packs\.clear\(\)/);
+assert.match(app, /state\.failedPacks\.clear\(\)/);
+assert.match(app, /acceptHome\(home\)/);
+assert.equal(app.includes('state.packs.delete("home")'), false);
 assert.match(app, /return fetchPack\(path, true\)/);
 assert.match(app, /packPinQuery/);
 assert.match(app, /state\.packPin/);
@@ -1115,8 +1118,11 @@ const publishScript = readFileSync(join(root, "../Tools/HeartbeatIngest/publish-
 assert.match(publishScript, /HEARTBEAT_UI_ONLY/);
 assert.match(publishScript, /HEARTBEAT_USE_LOCAL_DATA/);
 assert.match(publishScript, /fulfillment-heartbeat-web/);
-assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
-assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" --cooked-at "\$DATA"/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$PACK_DIR"/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" --cooked-at "\$PACK_DIR"/);
+assert.match(publishScript, /refusing deploy: pack data must publish through the pointer/);
+assert.equal(publishScript.includes('preflight "$DATA"'), false);
+assert.match(publishScript, /python3 - "\$PACK_DIR"/);
 assert.match(publishScript, /refusing publish: cookedAt is missing/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
@@ -1125,6 +1131,10 @@ assert.match(publishScript, /pack_publish\.py/);
 assert.match(publishScript, /cook-guard\.sh" --publish/);
 assert.match(publishScript, /cook-guard\.sh" --publish-data/);
 assert.match(publishScript, /pack_publish\.py" preflight/);
+assert.match(publishScript, /new cook stays out of tracked web\/public\/data/);
+assert.equal(publishScript.includes('cp -R "$EXTRACT" "$DATA"'), false);
+assert.match(publishScript, /pack_publish\.py" "\$PACK_DIR"/);
+assert.equal(publishScript.includes("migrate-pinned"), false);
 assert.equal(publishScript.includes("--commit-dirty"), false);
 assert.equal(publishScript.includes("cooked < have"), false);
 assert.equal(publishScript.includes("live_stamp <="), false);
@@ -1159,6 +1169,19 @@ assert.match(untrackedCook.stderr, /refusing an untracked cook path/);
 const otherDirty = decidePublish(0, " M web/public/app.js\n");
 assert.equal(otherDirty.status, 0, otherDirty.stderr);
 assert.equal(otherDirty.stdout.trim(), "cook");
+for (const path of ["web/functions/_middleware.js", "web/public/schema.js", "web/scripts/pack_publish.py"]) {
+  const dirtyPublishPath = decidePublish(0, ` M ${path}\n`);
+  assert.notEqual(dirtyPublishPath.status, 0, path);
+  assert.match(dirtyPublishPath.stderr, /refusing a dirty publish path/);
+}
+for (const name of ["HEARTBEAT_COOK_SHA", "HEARTBEAT_COOKED_AT"]) {
+  const uiOverride = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish"], {
+    encoding: "utf8",
+    env: { ...process.env, [name]: "1" },
+  });
+  assert.notEqual(uiOverride.status, 0, name);
+  assert.match(uiOverride.stderr, /refusing an env override/);
+}
 const envOverride = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish"], {
   encoding: "utf8",
   env: { ...process.env, HEARTBEAT_SKIP_GIT_CHECK: "1" },
@@ -1235,8 +1258,9 @@ with tempfile.TemporaryDirectory() as tmp:
     data = Path(tmp) / "data"
     data.mkdir()
     (data / "home.json").write_text(json.dumps({"cookSha": sha, "publishedAt": published, "cookedAt": cooked, "schemaVersion": 1}), encoding="utf-8")
-    message = refused(lambda: upload_pack(data, Path("check_pack.mjs"), fake_wrangler))
-assert "live pack folder" in message, message
+    same = upload_pack(data, Path("check_pack.mjs"), fake_wrangler)
+assert same["prefix"] == live, same
+assert same["cookSha"] == sha
 assert puts == []
 `,
   ],
@@ -1248,12 +1272,16 @@ const preflightPlan = spawnSync(
   [
     "-c",
     `
-import hashlib, json, sys
+import hashlib, json, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, "scripts")
-from pack_publish import PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, preflight_pointer
+from pack_publish import PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, migrate_pinned_pointer, preflight_pointer
 home = Path("public/data/home.json").read_bytes()
 assert hashlib.sha256(home).hexdigest() == PINNED_HOME_SHA256
+assert len(PINNED_FILE_SHA256) == 16
+for rel, digest in PINNED_FILE_SHA256.items():
+    blob = (Path("public/data") / rel).read_bytes()
+    assert hashlib.sha256(blob).hexdigest() == digest, rel
 pinned = {
     "prefix": PINNED_LIVE_PREFIX,
     "cookSha": PINNED_LIVE_COOK_SHA,
@@ -1278,48 +1306,59 @@ other = {
     "schemaVersion": 1,
 }
 
-def run(pointer, home_bytes):
+def bucket(pointer, files=None, missing_error="The specified key does not exist."):
     puts = []
+    store = {}
+    if files:
+        for key, blob in files.items():
+            store[key] = blob
+    if pointer is not None:
+        store["heartbeat-packs/web-pack/current.json"] = pointer if isinstance(pointer, bytes) else json.dumps(pointer).encode()
     def fake(args, check=True):
         class Result:
-            def __init__(self, code=0):
+            def __init__(self, code=0, err=""):
                 self.returncode = code
+                self.stderr = err
+                self.stdout = ""
         key = args[3]
         dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
-        if args[:3] == ["r2", "object", "get"] and key.endswith("current.json"):
-            if pointer is None:
-                return Result(1)
-            Path(dest).write_bytes(pointer if isinstance(pointer, bytes) else json.dumps(pointer).encode())
-            return Result(0)
-        if args[:3] == ["r2", "object", "get"] and key.endswith("home.json"):
-            if home_bytes is None:
-                return Result(1)
-            Path(dest).write_bytes(home_bytes)
+        if args[:3] == ["r2", "object", "get"]:
+            if key not in store:
+                return Result(1, missing_error)
+            Path(dest).write_bytes(store[key])
             return Result(0)
         if args[:3] == ["r2", "object", "put"]:
+            store[key] = Path(dest).read_bytes()
             puts.append(key)
             return Result(0)
-        return Result(1)
+        return Result(1, "temporary error")
     return fake, puts
 
-def refused(pointer, home_bytes=home):
-    fake, puts = run(pointer, home_bytes)
+def pinned_files():
+    files = {}
+    for rel, digest in PINNED_FILE_SHA256.items():
+        files[f"heartbeat-packs/{PINNED_LIVE_PREFIX}/{rel}"] = (Path("public/data") / rel).read_bytes()
+    return files
+
+def refused(pointer, files=None, error="The specified key does not exist."):
+    fake, puts = bucket(pointer, files, error)
     try:
         preflight_pointer(Path("public/data"), fake)
-    except SystemExit as error:
-        return (error.code if isinstance(error.code, str) else "", puts)
+    except SystemExit as exc:
+        return (exc.code if isinstance(exc.code, str) else "", puts)
     return ("", puts)
 
-migrated_fake, migrated_puts = run(None, home)
-assert preflight_pointer(Path("public/data"), migrated_fake) == "migrated", migrated_puts
-assert migrated_puts == ["heartbeat-packs/web-pack/current.json"]
-bad_hash, bad_puts = refused(None, b"{}")
-assert "sha256 does not match" in bad_hash, bad_hash
-assert bad_puts == []
-verified_fake, verified_puts = run(pinned, home)
+absent_fake, absent_puts = bucket(None)
+assert preflight_pointer(Path("public/data"), absent_fake) == "absent", absent_puts
+assert absent_puts == []
+temp_msg, temp_puts = refused(None, None, "connection reset by peer")
+assert "get failed" in temp_msg, temp_msg
+assert "connection reset" in temp_msg
+assert temp_puts == []
+verified_fake, verified_puts = bucket(pinned)
 assert preflight_pointer(Path("public/data"), verified_fake) == "verified"
 assert verified_puts == []
-cooked_fake, cooked_puts = run(cooked, home)
+cooked_fake, cooked_puts = bucket(cooked)
 assert preflight_pointer(Path("public/data"), cooked_fake) == "verified"
 assert cooked_puts == []
 other_msg, other_puts = refused(other)
@@ -1331,6 +1370,45 @@ assert corrupt_puts == []
 empty_msg, empty_puts = refused(b"")
 assert "empty" in empty_msg, empty_msg
 assert empty_puts == []
+migrate_fake, migrate_puts = bucket(None, pinned_files())
+assert migrate_pinned_pointer(Path("public/data"), migrate_fake) == "migrated"
+assert migrate_puts == ["heartbeat-packs/web-pack/current.json"]
+cut = pinned_files()
+cut[f"heartbeat-packs/{PINNED_LIVE_PREFIX}/section/labor.json"] = b'{"schemaVersion":1,"cookSha":"' + PINNED_LIVE_COOK_SHA.encode() + b'","rows":[]}'
+cut_fake, cut_puts = bucket(None, cut)
+try:
+    migrate_pinned_pointer(Path("public/data"), cut_fake)
+    raise SystemExit("cut-down labor was published")
+except SystemExit as exc:
+    assert "section/labor.json sha256 does not match" in str(exc.code), exc.code
+assert cut_puts == []
+exists_fake, exists_puts = bucket(pinned, pinned_files())
+try:
+    migrate_pinned_pointer(Path("public/data"), exists_fake)
+    raise SystemExit("existing pointer was overwritten")
+except SystemExit as exc:
+    assert "already exists" in str(exc.code), exc.code
+assert exists_puts == []
+from pack_publish import _put_pointer
+def mismatch(args, check=True):
+    class Result:
+        def __init__(self):
+            self.returncode = 0
+            self.stderr = ""
+            self.stdout = ""
+    if args[:3] == ["r2", "object", "get"]:
+        dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
+        Path(dest).write_text('{"prefix":"web-pack/wrong"}', encoding="utf-8")
+        return Result()
+    if args[:3] == ["r2", "object", "put"]:
+        return Result()
+    return Result()
+with tempfile.TemporaryDirectory() as tmp:
+    try:
+        _put_pointer(mismatch, Path(tmp), pinned)
+        raise SystemExit("bad readback was accepted")
+    except SystemExit as exc:
+        assert "readback does not match" in str(exc.code), exc.code
 `,
   ],
   { cwd: root, encoding: "utf8" },
@@ -1391,6 +1469,26 @@ writeFileSync(join(identDir, "home.json"), JSON.stringify({ ...identStamp, cooke
 writeFileSync(join(identDir, "schedule.json"), JSON.stringify(identStamp));
 assert.ok(packIdentityErrors(identDir).some((item) => item.includes("does not match")));
 rmSync(identDir, { recursive: true, force: true });
+const fifteen = mkdtempSync(join(tmpdir(), "hb-fifteen-"));
+const fifteenStamp = {
+  publishedAt: "2026-10-06T01:35:23Z",
+  schemaVersion: SCHEMA_VERSION,
+  cookSha: "a".repeat(40),
+  cookedAt: "2026-10-07T00:00:00Z",
+};
+for (const rel of PACK_FILES) {
+  if (rel === "section/pick_path.json") continue;
+  const dest = join(fifteen, rel);
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, JSON.stringify(fifteenStamp));
+}
+assert.ok(packIdentityErrors(fifteen).some((item) => item === "section/pick_path.json is missing"));
+rmSync(fifteen, { recursive: true, force: true });
+const fetchPackSrc = app.slice(app.indexOf("async function fetchPack"), app.indexOf("async function loadOptional"));
+assert.match(fetchPackSrc, /state\.packs\.clear\(\)/);
+assert.match(fetchPackSrc, /state\.failedPacks\.clear\(\)/);
+assert.match(fetchPackSrc, /acceptHome\(home\)/);
+assert.equal(fetchPackSrc.includes('state.packs.delete("home")'), false);
 const publishPy = readFileSync(join(root, "scripts/pack_publish.py"), "utf8");
 assert.match(publishPy, /web-pack\/current\.json/);
 assert.match(publishPy, /check_pack failed on the uploaded set/);
@@ -1910,6 +2008,13 @@ assert.deepEqual(await staticFallback.json(), { error: "NO DATA" });
 assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
 const pinnedPrefix = PINNED_LIVE_PREFIX;
 const pinnedHomeText = readFileSync(join(root, "public/data/home.json"), "utf8");
+function realPinnedPack() {
+  const files = {};
+  for (const rel of PACK_FILES) {
+    files[packObjectKey(pinnedPrefix, rel)] = readFileSync(join(root, "public/data", rel), "utf8");
+  }
+  return files;
+}
 const pinnedFiles = {
   [PACK_POINTER_KEY]: JSON.stringify({
     prefix: pinnedPrefix,
@@ -1932,8 +2037,46 @@ const pinnedServed = await basicGate({
   env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(pinnedFiles) }),
   next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
 });
-assert.equal(pinnedServed.status, 200);
-assert.match(await pinnedServed.text(), /United/);
+assert.equal(pinnedServed.status, 404);
+assert.equal((await pinnedServed.text()).includes("United"), false);
+resetPackCache();
+const realPinned = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: pinnedPrefix,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+  }),
+  ...realPinnedPack(),
+};
+const realLabor = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(realPinned) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(realLabor.status, 200);
+assert.equal(await sha256Hex(await realLabor.text()), PINNED_FILE_SHA256["section/labor.json"]);
+const cutLabor = {
+  ...realPinned,
+  [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    rows: [{ store: "1", division: "CUT-DOWN" }],
+  }),
+};
+resetPackCache();
+const cutServed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(cutLabor) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(cutServed.status, 404);
+assert.equal((await cutServed.text()).includes("CUT-DOWN"), false);
 const looseSha = "f".repeat(40);
 const loosePrefix = packPrefix(looseSha, publishedAt);
 const looseHome = {
@@ -1942,8 +2085,7 @@ const looseHome = {
   metadata: { schemaVersion: SCHEMA_VERSION, cookSha: looseSha },
 };
 delete looseHome.cookedAt;
-const pinnedObjects = { ...pinnedFiles };
-delete pinnedObjects[PACK_POINTER_KEY];
+const pinnedObjects = realPinnedPack();
 resetPackCache();
 const looseRefused = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
@@ -2007,7 +2149,8 @@ const pinnedTab = await basicGate({
   env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
   next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
 });
-assert.match(await pinnedTab.text(), /PINNED/);
+assert.equal(pinnedTab.status, 404);
+assert.equal((await pinnedTab.text()).includes("PINNED"), false);
 const currentQuery = `cookSha=${goodSha}&publishedAt=${encodeURIComponent(publishedAt)}&cookedAt=${encodeURIComponent(goodCookedAt)}`;
 resetPackCache();
 const currentTab = await basicGate({
@@ -2055,7 +2198,8 @@ const wholePrevious = await basicGate({
   }),
   next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
 });
-assert.match(await wholePrevious.text(), /PINNED/);
+assert.equal(wholePrevious.status, 404);
+assert.equal((await wholePrevious.text()).includes("PINNED"), false);
 const wrongPublished = "2026-11-01T00:00:00Z";
 resetPackCache();
 const wrongPin = await basicGate({

@@ -19,7 +19,26 @@ PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001"
 PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z"
 PINNED_LIVE_PREFIX = f"web-pack/{PINNED_LIVE_COOK_SHA}-{PINNED_LIVE_PUBLISHED_AT}"
 PINNED_HOME_SHA256 = "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a"
+PINNED_FILE_SHA256 = {
+    "home.json": "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a",
+    "presub.json": "4a6dae1b78bc7afdc112cfb01f35f74c030f67a7628f01d532d042c7a7d88012",
+    "schedule.json": "355d9380e063a6ed91b10f8eddd5e6b9e3b99029423951da38f685e382c482dd",
+    "section/dynacap.json": "74ddae60e9f08890eec74033b23a9b065ae898aded143c7c05e766389f16267f",
+    "section/five_star.json": "d897682fab9e9d4c99ef0a2233ac45e51162f7843846f380545151d8f656de1b",
+    "section/labor.json": "f5c13b9cfc27045ea956e1c91feb5deb595919ab88f82694a8135f78ff6d3ad6",
+    "section/lost_revenue.json": "ea5eb712edbedb5e29faca53711ff411b9e7bc0e4086d81bfb7e52bdae3fc997",
+    "section/missing_items.json": "0e36937798275be90eb43ac08c5a252e05faf2c4d72cd499eb0f54294fab0862",
+    "section/pick_path.json": "e015cd3fa533e4855ad424c17e9c582222735e2200a5302d6733a8c571adb6c2",
+    "section/pick_path_picker.json": "2ffa0122cca2023c22e58ce7cab3e424315d2c12b59f0a8add51a7c88c0b357d",
+    "section/picker_scorecard.json": "ed295d81358eb147913c1eb957c526b652b4b229a125605b35b6b00873b6c272",
+    "section/pph.json": "58b52591cdedd9369650f6981e0a82c0f60f86dfa0224cadbe841241bb0da40a",
+    "section/pre_sub_oos.json": "e991bdc34396bf4c832e117bbe910f22b89e09657f0a8afad4defe846d54094f",
+    "section/prep_not_ready.json": "9346af1bde88fd7eef9484218ef8fa0389968e2b6d10ed5c501c1458f718a9ec",
+    "section/sales.json": "b75d871813f5f29cbb7930792801c39d1e6533cda2e9f5d7a1ab725055a9eb7c",
+    "section/schedule_quality.json": "b77a0309c20cec4084aac27cc2cea3328fc7a0fcad25f8bdd1b0f29a89b0d62d",
+}
 POINTER_KEY = "heartbeat-packs/web-pack/current.json"
+NOT_FOUND_MARKERS = ("does not exist", "not found", "nosuchkey", "error 404", "status code: 404")
 
 
 def pointer_entry(old: dict) -> dict:
@@ -75,9 +94,7 @@ def plan_pointer(old: dict, sha: str, cooked: str, published: str, schema) -> di
 
 def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> dict:
     def run(args, check=True):
-        if wrangler is not None:
-            return wrangler(args, check=check)
-        return subprocess.run(["npx", "wrangler", *args], check=check)
+        return _run(wrangler, args, check=check)
 
     files = sorted(path for path in root.rglob("*.json") if path.is_file())
     if not files:
@@ -101,18 +118,23 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         pointer_file = tmp_path / "current.json"
-        got = run(
-            ["r2", "object", "get", "heartbeat-packs/web-pack/current.json", f"--file={pointer_file}", "--remote"],
-            check=False,
-        )
+        raw = _remote_bytes(run, POINTER_KEY, pointer_file)
         old = {}
-        if getattr(got, "returncode", 1) == 0 and pointer_file.is_file():
+        if raw is not None:
             try:
-                loaded = json.loads(pointer_file.read_text(encoding="utf-8"))
+                loaded = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError:
-                loaded = {}
-            if isinstance(loaded, dict):
-                old = loaded
+                raise SystemExit("data-only upload: current.json is not json")
+            if not isinstance(loaded, dict):
+                raise SystemExit("data-only upload: current.json is not an object")
+            old = loaded
+        old_cooked = str(old.get("cookedAt") or "")
+        old_sha = str(old.get("cookSha") or "")
+        if old_cooked and old_cooked > cooked:
+            raise SystemExit("data-only upload: refusing to replace a newer pointer")
+        if old_cooked and old_cooked == cooked and old_sha == sha:
+            print("data-only upload: pointer already has this cook")
+            return old
         plan = plan_pointer(old, sha, cooked, published, schema)
         prefix = plan["prefix"]
         for path in files:
@@ -132,9 +154,7 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
             checked = subprocess.run(["node", str(check_pack), str(downloaded)], check=False)
         if getattr(checked, "returncode", 1) != 0:
             raise SystemExit("data-only upload: check_pack failed on the uploaded set; current.json was not moved")
-        next_pointer = tmp_path / "next-current.json"
-        next_pointer.write_text(json.dumps(plan), encoding="utf-8")
-        run(["r2", "object", "put", "heartbeat-packs/web-pack/current.json", f"--file={next_pointer}", "--remote"])
+        _put_pointer(run, tmp_path, plan)
     print(
         f"data-only upload: {len(files)} pack files at {plan['prefix']}/, check_pack passed, current.json updated, site tree not deployed"
     )
@@ -144,21 +164,66 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
 def _run(wrangler, args, check=True):
     if wrangler is not None:
         return wrangler(args, check=check)
-    return subprocess.run(["npx", "wrangler", *args], check=check)
+    result = subprocess.run(["npx", "wrangler", *args], check=False, capture_output=True, text=True)
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
+    if check and result.returncode != 0:
+        raise SystemExit(result.returncode or 1)
+    return result
+
+
+def _result_text(result) -> str:
+    stdout = getattr(result, "stdout", "") or ""
+    stderr = getattr(result, "stderr", "") or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", "replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    return f"{stdout}\n{stderr}".lower()
+
+
+def _is_not_found(result) -> bool:
+    text = _result_text(result)
+    return any(marker in text for marker in NOT_FOUND_MARKERS)
 
 
 def _remote_bytes(run, key: str, dest: Path):
+    """Return bytes, or None only when the object is a definite not-found.
+
+    Any other get failure, including a temporary error that writes no file,
+    raises. It must not be treated as a missing pointer.
+    """
     if dest.exists():
         dest.unlink()
     got = run(["r2", "object", "get", key, f"--file={dest}", "--remote"], check=False)
     code = getattr(got, "returncode", 1)
+    wrote = dest.is_file() and dest.stat().st_size > 0
     if code != 0:
-        if dest.is_file() and dest.stat().st_size > 0:
-            raise SystemExit(f"pointer preflight: {key} get failed")
+        if wrote or not _is_not_found(got):
+            detail = _result_text(got).strip() or f"exit {code}"
+            raise SystemExit(f"pointer preflight: {key} get failed: {detail}")
         return None
     if not dest.is_file():
         raise SystemExit(f"pointer preflight: {key} get wrote nothing")
     return dest.read_bytes()
+
+
+def _put_pointer(run, tmp_path: Path, pointer: dict) -> dict:
+    dest = tmp_path / "next-current.json"
+    dest.write_text(json.dumps(pointer), encoding="utf-8")
+    run(["r2", "object", "put", POINTER_KEY, f"--file={dest}", "--remote"])
+    raw = _remote_bytes(run, POINTER_KEY, tmp_path / "readback-current.json")
+    if raw is None:
+        raise SystemExit("pointer write: current.json was not found after put")
+    try:
+        loaded = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError:
+        raise SystemExit("pointer write: current.json readback is not json")
+    if loaded != pointer:
+        raise SystemExit("pointer write: current.json readback does not match")
+    return loaded
 
 
 def pointer_servable(old: dict) -> bool:
@@ -177,34 +242,47 @@ def pointer_servable(old: dict) -> bool:
     return sha == PINNED_LIVE_COOK_SHA and published == PINNED_LIVE_PUBLISHED_AT and prefix == PINNED_LIVE_PREFIX
 
 
-def _migrate_pinned_pointer(run, tmp_path: Path) -> str:
-    home_key = f"heartbeat-packs/{PINNED_LIVE_PREFIX}/home.json"
-    raw = _remote_bytes(run, home_key, tmp_path / "home.json")
-    if raw is None:
-        raise SystemExit("pointer preflight: pinned home.json is missing")
-    digest = hashlib.sha256(raw).hexdigest()
-    if digest != PINNED_HOME_SHA256:
-        raise SystemExit("pointer preflight: pinned home.json sha256 does not match")
-    pointer = {
-        "prefix": PINNED_LIVE_PREFIX,
-        "cookSha": PINNED_LIVE_COOK_SHA,
-        "publishedAt": PINNED_LIVE_PUBLISHED_AT,
-        "cookedAt": "",
-        "schemaVersion": 1,
-    }
-    dest = tmp_path / "next-current.json"
-    dest.write_text(json.dumps(pointer), encoding="utf-8")
-    run(["r2", "object", "put", POINTER_KEY, f"--file={dest}", "--remote"])
-    print("pointer preflight: migrated pinned pointer")
+def migrate_pinned_pointer(root: Path, wrangler=None) -> str:
+    """Write the pinned pointer once. Never called from preflight or a deploy.
+
+    current.json must be a definite not-found. Every pinned pack file must
+    match PINNED_FILE_SHA256. The pointer is read back after the put.
+    """
+    if not root.is_dir():
+        raise SystemExit("pinned migration: data dir is missing")
+
+    def run(args, check=True):
+        return _run(wrangler, args, check=check)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        raw = _remote_bytes(run, POINTER_KEY, tmp_path / "current.json")
+        if raw is not None:
+            raise SystemExit("pinned migration: current.json already exists")
+        for rel, digest in PINNED_FILE_SHA256.items():
+            blob = _remote_bytes(run, f"heartbeat-packs/{PINNED_LIVE_PREFIX}/{rel}", tmp_path / "object")
+            if blob is None:
+                raise SystemExit(f"pinned migration: {rel} is missing")
+            if hashlib.sha256(blob).hexdigest() != digest:
+                raise SystemExit(f"pinned migration: {rel} sha256 does not match")
+        pointer = {
+            "prefix": PINNED_LIVE_PREFIX,
+            "cookSha": PINNED_LIVE_COOK_SHA,
+            "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+            "cookedAt": "",
+            "schemaVersion": 1,
+        }
+        _put_pointer(run, tmp_path, pointer)
+    print("pinned migration: wrote pinned pointer")
     return "migrated"
 
 
 def preflight_pointer(root: Path, wrangler=None) -> str:
-    """Verify current.json, or write the pinned pointer when it is absent.
+    """Verify current.json. A definite not-found is absent and is not written.
 
-    Absent means the get failed and wrote no object. Empty or corrupt JSON
-    is not absent. A cookedAt pack, or the pinned prefix, is verified with
-    no put. Any other pointer is refused with no put.
+    Any other read error fails closed. Empty or corrupt JSON is not absent.
+    A cookedAt pack, or the pinned prefix, is verified with no put. The
+    legacy pinned pointer is not written here.
     """
     if not root.is_dir():
         raise SystemExit("pointer preflight: data dir is missing")
@@ -215,7 +293,8 @@ def preflight_pointer(root: Path, wrangler=None) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         raw = _remote_bytes(run, POINTER_KEY, Path(tmp) / "current.json")
         if raw is None:
-            return _migrate_pinned_pointer(run, Path(tmp))
+            print("pointer preflight: current.json is absent")
+            return "absent"
         text = raw.decode("utf-8")
         if not text.strip():
             raise SystemExit("pointer preflight: current.json is empty")
@@ -238,8 +317,17 @@ def main() -> int:
             return 2
         preflight_pointer(Path(sys.argv[2]))
         return 0
+    if len(sys.argv) >= 2 and sys.argv[1] == "migrate-pinned":
+        if len(sys.argv) != 3:
+            print("usage: pack_publish.py migrate-pinned DATA_DIR", file=sys.stderr)
+            return 2
+        migrate_pinned_pointer(Path(sys.argv[2]))
+        return 0
     if len(sys.argv) != 3:
-        print("usage: pack_publish.py DATA_DIR check_pack.mjs | preflight DATA_DIR", file=sys.stderr)
+        print(
+            "usage: pack_publish.py DATA_DIR check_pack.mjs | preflight DATA_DIR | migrate-pinned DATA_DIR",
+            file=sys.stderr,
+        )
         return 2
     upload_pack(Path(sys.argv[1]), Path(sys.argv[2]))
     return 0

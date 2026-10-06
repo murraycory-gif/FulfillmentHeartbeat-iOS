@@ -267,11 +267,10 @@ async function fetchPack(path, repinned = false) {
       console.error("pack fetch failed", url, last);
       const plan = packMissPlan({ path, status: last.status, pin: state.packPin, repinned });
       if (plan === "repin") {
-        state.packs.delete("home");
-        state.failedPacks.delete("home");
+        state.packs.clear();
+        state.failedPacks.clear();
         const home = await fetchPack("home");
-        state.home = home;
-        state.packPin = packPinQuery(home);
+        acceptHome(home);
         return fetchPack(path, true);
       }
       if (plan === "fail" || last.authBlocked || attempt === 7) break;

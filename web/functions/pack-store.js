@@ -15,8 +15,8 @@
 // web-pack/home.json is not a pack.
 //
 // A pack with no cookedAt is not served, except the live cook pinned below.
-// That cook stays readable only at its exact prefix, and only when home.json
-// bytes hash to PINNED_HOME_SHA256. Nothing may publish a cookedAt-less pack.
+// That cook stays readable only at its exact prefix, and only when all 16
+// pack files hash to PINNED_FILE_SHA256. Nothing may publish a cookedAt-less pack.
 // A missing current.json is absent: /data falls through to the static tree.
 // A pointer that exists but cannot be served stays a 404.
 
@@ -26,6 +26,42 @@ export const PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001";
 export const PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z";
 export const PINNED_LIVE_PREFIX = `web-pack/${PINNED_LIVE_COOK_SHA}-${PINNED_LIVE_PUBLISHED_AT}`;
 export const PINNED_HOME_SHA256 = "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a";
+export const PACK_FILES = [
+  "home.json",
+  "presub.json",
+  "schedule.json",
+  "section/dynacap.json",
+  "section/five_star.json",
+  "section/labor.json",
+  "section/lost_revenue.json",
+  "section/missing_items.json",
+  "section/pick_path.json",
+  "section/pick_path_picker.json",
+  "section/picker_scorecard.json",
+  "section/pph.json",
+  "section/pre_sub_oos.json",
+  "section/prep_not_ready.json",
+  "section/sales.json",
+  "section/schedule_quality.json",
+];
+export const PINNED_FILE_SHA256 = {
+  "home.json": "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a",
+  "presub.json": "4a6dae1b78bc7afdc112cfb01f35f74c030f67a7628f01d532d042c7a7d88012",
+  "schedule.json": "355d9380e063a6ed91b10f8eddd5e6b9e3b99029423951da38f685e382c482dd",
+  "section/dynacap.json": "74ddae60e9f08890eec74033b23a9b065ae898aded143c7c05e766389f16267f",
+  "section/five_star.json": "d897682fab9e9d4c99ef0a2233ac45e51162f7843846f380545151d8f656de1b",
+  "section/labor.json": "f5c13b9cfc27045ea956e1c91feb5deb595919ab88f82694a8135f78ff6d3ad6",
+  "section/lost_revenue.json": "ea5eb712edbedb5e29faca53711ff411b9e7bc0e4086d81bfb7e52bdae3fc997",
+  "section/missing_items.json": "0e36937798275be90eb43ac08c5a252e05faf2c4d72cd499eb0f54294fab0862",
+  "section/pick_path.json": "e015cd3fa533e4855ad424c17e9c582222735e2200a5302d6733a8c571adb6c2",
+  "section/pick_path_picker.json": "2ffa0122cca2023c22e58ce7cab3e424315d2c12b59f0a8add51a7c88c0b357d",
+  "section/picker_scorecard.json": "ed295d81358eb147913c1eb957c526b652b4b229a125605b35b6b00873b6c272",
+  "section/pph.json": "58b52591cdedd9369650f6981e0a82c0f60f86dfa0224cadbe841241bb0da40a",
+  "section/pre_sub_oos.json": "e991bdc34396bf4c832e117bbe910f22b89e09657f0a8afad4defe846d54094f",
+  "section/prep_not_ready.json": "9346af1bde88fd7eef9484218ef8fa0389968e2b6d10ed5c501c1458f718a9ec",
+  "section/sales.json": "b75d871813f5f29cbb7930792801c39d1e6533cda2e9f5d7a1ab725055a9eb7c",
+  "section/schedule_quality.json": "b77a0309c20cec4084aac27cc2cea3328fc7a0fcad25f8bdd1b0f29a89b0d62d",
+};
 
 export function isPinnedLivePack(cookSha, publishedAt, cookedAt = "", prefix = "") {
   return (
@@ -244,6 +280,16 @@ async function prefixKeys(bucket, entry) {
   const keys = await listPackKeys(bucket, entry.prefix);
   if (!keys) return null;
   const base = `${entry.prefix.replace(/\/+$/, "")}/`;
+  if (!entry.cookedAt) {
+    if (!isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt, entry.prefix)) return null;
+    const present = new Set(keys.map((key) => key.slice(base.length)));
+    for (const rel of PACK_FILES) {
+      if (!present.has(rel)) return null;
+      const read = await readJson(bucket, `${base}${rel}`);
+      if (!read || !read.json || !fileMatches(read.json, entry)) return null;
+      if ((await sha256Hex(read.text)) !== PINNED_FILE_SHA256[rel]) return null;
+    }
+  }
   let homeSeen = false;
   for (const key of keys) {
     const rel = key.slice(base.length);
@@ -251,10 +297,6 @@ async function prefixKeys(bucket, entry) {
     if (!read || !read.json || !fileMatches(read.json, entry)) return null;
     if (rel !== "home.json") continue;
     homeSeen = true;
-    if (!entry.cookedAt) {
-      if (!isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt, entry.prefix)) return null;
-      if ((await sha256Hex(read.text)) !== PINNED_HOME_SHA256) return null;
-    }
     if (guardHome(read.json).length) return null;
     const metadata = read.json.metadata && typeof read.json.metadata === "object" ? read.json.metadata : {};
     if (metadata.cookSha !== entry.cookSha || metadata.schemaVersion !== entry.schemaVersion) return null;

@@ -67,6 +67,7 @@ fi
 
 WEB="$ROOT/web"
 DATA="$WEB/public/data"
+PACK_DIR="$DATA"
 CONFIG_DIR="${HOME}/.config/heartbeat"
 EMAIL_FILE="${HEARTBEAT_WEB_EMAIL_FILE:-$CONFIG_DIR/web-email}"
 PASS_FILE="${HEARTBEAT_WEB_PASSWORD_FILE:-$CONFIG_DIR/web-password}"
@@ -89,16 +90,15 @@ if [[ -z "$UI_ONLY" ]]; then
     exit 1
   fi
   if [[ "$decision" == "replace" ]]; then
-    if [[ -d "$DATA" ]]; then
-      rm -rf "$DATA"
-    fi
-    mkdir -p "$(dirname "$DATA")"
-    cp -R "$EXTRACT" "$DATA"
-    python3 "$ROOT/web/scripts/pack_identity.py" check "$DATA"
+    # cookedAt changes on every cook. Copying that into tracked web/public/data
+    # leaves the tree dirty and the next publish refuses. Upload from the extract.
+    PACK_DIR="$EXTRACT"
+    echo "publish-web: new cook stays out of tracked web/public/data"
+    python3 "$ROOT/web/scripts/pack_identity.py" check "$PACK_DIR"
   else
     echo "keeping pack $(python3 "$ROOT/web/scripts/pack_identity.py" check "$DATA")"
+    rm -rf "$EXTRACT"
   fi
-  rm -rf "$EXTRACT"
 else
   echo "UI-only deploy: not extracting sqlite"
 fi
@@ -214,14 +214,14 @@ fi
 
 # Every pack needs cookedAt, including the pinned live cook. The site may
 # keep serving that cook. This script must not publish it again.
-if ! node "$WEB/check_pack.mjs" --cooked-at "$DATA"; then
+if ! node "$WEB/check_pack.mjs" --cooked-at "$PACK_DIR"; then
   echo "refusing publish: cookedAt is missing" >&2
   exit 1
 fi
 
-node "$WEB/check_pack.mjs" "$DATA"
+node "$WEB/check_pack.mjs" "$PACK_DIR"
 
-python3 - "$DATA" << 'PY'
+python3 - "$PACK_DIR" << 'PY'
 import json
 import sys
 from pathlib import Path
@@ -273,6 +273,14 @@ fi
 cd "$WEB"
 npm test
 
+# The test stages the tracked pack into dist/. A new cook is not that tree.
+# Put it in dist only, which is gitignored, so the deployment matches the upload.
+if [[ "$PACK_DIR" != "$DATA" ]]; then
+  rm -rf "$WEB/dist/data"
+  mkdir -p "$WEB/dist"
+  cp -R "$PACK_DIR" "$WEB/dist/data"
+fi
+
 # The upload is dist/, after the test stages public/ into it. Check those files.
 node "$WEB/scripts/print_pack_stamp.mjs" "$WEB/dist/data"
 node "$WEB/check_pack.mjs" "$WEB/dist/data"
@@ -306,13 +314,31 @@ put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
 put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
 put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 
-node "$WEB/scripts/print_pack_stamp.mjs" "$DATA"
+node "$WEB/scripts/print_pack_stamp.mjs" "$PACK_DIR"
+
+# A full deploy used to pages-deploy static JSON and leave current.json alone.
+# Once a pointer exists, data has to move through that pointer or the deploy stops.
+# UI-only does not upload. A missing pointer is not filled with the legacy pin.
+publish_pack_pointer() {
+  python3 "$ROOT/web/scripts/pack_publish.py" "$PACK_DIR" "$WEB/check_pack.mjs"
+}
+require_verified_pointer() {
+  local pointer_state
+  pointer_state="$(python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR")"
+  printf '%s\n' "$pointer_state"
+  if [[ "$pointer_state" != *"verified"* ]]; then
+    echo "refusing deploy: pack data must publish through the pointer" >&2
+    exit 1
+  fi
+}
+if [[ -z "$UI_ONLY" ]]; then
+  publish_pack_pointer
+fi
 
 if [[ -n "$DATA_ONLY" ]]; then
-  python3 "$ROOT/web/scripts/pack_publish.py" preflight "$DATA"
-  python3 "$ROOT/web/scripts/pack_publish.py" "$DATA" "$WEB/check_pack.mjs"
+  require_verified_pointer
   if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
-    python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$DATA" << 'PY'
+    python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$PACK_DIR" << 'PY'
 import http.cookiejar
 import json
 import sys
@@ -379,7 +405,11 @@ PY
   exit 0
 fi
 
-python3 "$ROOT/web/scripts/pack_publish.py" preflight "$DATA"
+if [[ -z "$UI_ONLY" ]]; then
+  require_verified_pointer
+else
+  python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR"
+fi
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
   --branch main

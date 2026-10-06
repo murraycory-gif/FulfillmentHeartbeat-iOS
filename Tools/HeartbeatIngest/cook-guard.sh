@@ -80,6 +80,11 @@ decide_publish() {
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     path="$(porcelain_path "$line")"
+    if [[ "$path" == "web/functions/_middleware.js" || "$path" == "web/public/schema.js" || "$path" == web/scripts/* ]]; then
+      echo "refuse"
+      echo "cook guard: refusing a dirty publish path" >&2
+      return 1
+    fi
     if ! on_cook_path "$path"; then
       continue
     fi
@@ -143,7 +148,7 @@ if [[ "${1:-}" == "--decide-publish-data" ]]; then
 fi
 
 if [[ "${1:-}" == "--publish" ]]; then
-  if [[ -n "${HEARTBEAT_SKIP_GIT_CHECK:-}" || -n "${HEARTBEAT_SKIP_PACK_CHECK:-}" ]]; then
+  if [[ -n "${HEARTBEAT_SKIP_GIT_CHECK:-}" || -n "${HEARTBEAT_SKIP_PACK_CHECK:-}" || -n "${HEARTBEAT_COOK_SHA:-}" || -n "${HEARTBEAT_COOKED_AT:-}" ]]; then
     echo "refuse"
     echo "cook guard: refusing an env override" >&2
     exit 1
