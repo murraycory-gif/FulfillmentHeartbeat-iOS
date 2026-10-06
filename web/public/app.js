@@ -11,6 +11,7 @@ import {
   finestScope,
   searchScope,
   cascadePick,
+  regionStoreCount,
   scopeChips,
   filtersUpTo,
   browseLevel,
@@ -21,8 +22,8 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, lossPercentPoints, seatSummary } from "./seat.js";
-import { metricsInSource, pphBar, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
+import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./seat.js";
+import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -523,6 +524,11 @@ function shownTileLabel(section, label) {
 }
 
 function shownTileValue(section, label, raw) {
+  if (section === "labor" && label === "AIV") {
+    const market = state.home && state.home.laborMarket;
+    const aiv = market && market.aiv_impact_pct;
+    if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
+  }
   if (raw == null || raw === "") return "—";
   const text = String(raw).trim();
   return text.startsWith("$") ? money(raw) : text;
@@ -633,7 +639,9 @@ function displayDivision(row, known) {
 
 function shownMetric(section, row, column) {
   if (section === "labor" && row.sourceIssue) return "source data issue";
-  return column[2](cell(row, column[1]), row);
+  const value = cell(row, column[1]);
+  if ((column[1] || []).includes("pick_hours")) return shopperHoursText(value, (hours) => column[2](hours, row));
+  return column[2](value, row);
 }
 
 function table(section, rows) {
@@ -735,9 +743,10 @@ function regionCardsHtml() {
     .map((name) => {
       const rows = byRegion.get(name);
       const sales = rows.find((row) => row.section === "sales");
-      const storeCount = sales && sales.storeCount
+      const listed = regionStoreCount(roster(), name);
+      const storeCount = listed || (sales && sales.storeCount
         ? sales.storeCount
-        : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0);
+        : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0));
       const chips = rows
         .map((row) => {
           const raw = row.headline;
@@ -826,10 +835,15 @@ function shopperListHtml() {
   const head = ["", "Shopper", "Store", ...columns.map((column) => column.label)]
     .map((label) => `<th${label ? "" : ' class="bar"'}>${esc(label)}</th>`)
     .join("");
+  const hoursText = (column, row) => {
+    const value = cell(row, column.keys);
+    if ((column.keys || []).includes("pick_hours")) return shopperHoursText(value, (hours) => column.format(hours));
+    return column.format(value);
+  };
   const body = shown
     .map((row) => {
       const tone = pphBar(shopperPph(row));
-      const metrics = columns.map((column) => `<td>${esc(column.format(cell(row, column.keys)))}</td>`).join("");
+      const metrics = columns.map((column) => `<td>${esc(hoursText(column, row))}</td>`).join("");
       const name = shopperIdentity(row) || "—";
       return `<tr><td class="bar bar-${tone}"></td><td>${esc(name)}</td><td>${esc(canonicalStore(row.store))}</td>${metrics}</tr>`;
     })
@@ -840,7 +854,7 @@ function shopperListHtml() {
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column.label)}</span><strong>${esc(column.format(cell(row, column.keys)))}</strong></div>`,
+            `<div class="metric"><span>${esc(column.label)}</span><strong>${esc(hoursText(column, row))}</strong></div>`,
         )
         .join("");
       const name = shopperIdentity(row) || "—";

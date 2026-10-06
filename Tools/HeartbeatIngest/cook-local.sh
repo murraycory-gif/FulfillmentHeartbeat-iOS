@@ -14,6 +14,19 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+if [[ -z "${HEARTBEAT_SKIP_GIT_CHECK:-}" && "${1:-}" != "--install" ]]; then
+  git -C "$ROOT" fetch origin
+  BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
+  if ! git -C "$ROOT" rev-parse --verify --quiet "origin/${BRANCH}" >/dev/null; then
+    echo "refusing cook: origin/${BRANCH} is missing after fetch" >&2
+    exit 1
+  fi
+  BEHIND="$(git -C "$ROOT" rev-list --count "HEAD..origin/${BRANCH}")"
+  if [[ "$BEHIND" -gt 0 ]]; then
+    echo "refusing cook: ${BRANCH} is ${BEHIND} commit(s) behind origin/${BRANCH}" >&2
+    exit 1
+  fi
+fi
 ICLOUD="${HEARTBEAT_ICLOUD_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/Heartbeat_Reports}"
 MARKERS="${HEARTBEAT_COOK_MARKERS:-$HOME/Library/Application Support/Heartbeat/cook-markers}"
 OUT="${HEARTBEAT_COOK_OUT:-$HOME/Library/Application Support/Heartbeat}"
@@ -176,10 +189,10 @@ deploy_site() {
     return $?
   fi
   if [[ -n "$daily" && -f "$daily" ]]; then
-    HEARTBEAT_DAILY_XLSX="$daily" bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
+    HEARTBEAT_DATA_ONLY=1 HEARTBEAT_DAILY_XLSX="$daily" bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
     return $?
   fi
-  bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
+  HEARTBEAT_DATA_ONLY=1 bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
 }
 
 run_pipeline() {

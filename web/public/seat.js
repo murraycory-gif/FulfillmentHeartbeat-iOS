@@ -7,6 +7,12 @@
 
 import { filtersActive, includesScope, matchesDivision, regionLineInScope } from "./filters.js";
 
+export function formatCompanyAiv(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `${number.toFixed(2)}%`;
+}
+
 function field(row, keys) {
   const payload = (row && row.payload) || {};
   for (const key of keys) {

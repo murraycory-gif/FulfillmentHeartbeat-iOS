@@ -23,6 +23,21 @@ if [[ "${HEARTBEAT_PAGES_PROJECT:-$PROJECT}" != "$PROJECT" ]]; then
   echo "Refusing Pages project '${HEARTBEAT_PAGES_PROJECT}'. Only ${PROJECT} is allowed." >&2
   exit 1
 fi
+
+if [[ -z "${HEARTBEAT_SKIP_GIT_CHECK:-}" ]]; then
+  git -C "$ROOT" fetch origin
+  BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
+  if ! git -C "$ROOT" rev-parse --verify --quiet "origin/${BRANCH}" >/dev/null; then
+    echo "refusing publish: origin/${BRANCH} is missing after fetch" >&2
+    exit 1
+  fi
+  BEHIND="$(git -C "$ROOT" rev-list --count "HEAD..origin/${BRANCH}")"
+  if [[ "$BEHIND" -gt 0 ]]; then
+    echo "refusing publish: ${BRANCH} is ${BEHIND} commit(s) behind origin/${BRANCH}" >&2
+    exit 1
+  fi
+fi
+DATA_ONLY="${HEARTBEAT_DATA_ONLY:-}"
 if [[ -z "$UI_ONLY" && ( -z "$SQLITE" || ! -f "$SQLITE" ) ]]; then
   echo "publish-web: cooked sqlite is missing" >&2
   exit 1
@@ -250,6 +265,23 @@ fi
 put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
 put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
 put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
+
+if [[ -n "$DATA_ONLY" ]]; then
+  python3 - "$DATA" << 'PY'
+import subprocess, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+files = [path for path in root.rglob("*.json") if path.is_file()]
+if not files:
+    raise SystemExit("data-only upload: no pack json")
+for path in files:
+    rel = path.relative_to(root).as_posix()
+    key = f"heartbeat-packs/web-pack/{rel}"
+    subprocess.run(["npx", "wrangler", "r2", "object", "put", key, f"--file={path}", "--remote"], check=True)
+print(f"data-only upload: {len(files)} pack files, site tree not deployed")
+PY
+  exit 0
+fi
 
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \

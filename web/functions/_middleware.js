@@ -22,11 +22,14 @@ import {
   clearLoginFailures,
   loginThrottled,
   openInvite,
+  createSharedSession,
   legacyTokenRevoked,
   readAccountSession,
+  readSharedSession,
   recordLoginFailure,
   revokeLegacyToken,
   revokeSession,
+  revokeSharedSession,
   setupText,
   authenticateAccount,
 } from "./accounts.js";
@@ -307,7 +310,8 @@ async function submitLogin(request, env, db, now) {
   if (!authCutover(env)) {
     const account = matchedAccount(email, password, env);
     if (account) {
-      const token = await createSessionToken(env, account.user, account.pass, now);
+      if (!db) return loginResponse("Sign-in is unavailable.", "", 503);
+      const token = await createSharedSession(db, env, account.user, now);
       if (!token) return loginResponse("Sign-in is unavailable.", "", 503);
       if (db) {
         try {
@@ -401,6 +405,27 @@ async function accountResponse(request, env, db, session, now) {
   return htmlResponse(accountHTML(session.user, "", "", chrome));
 }
 
+async function packFromBucket(env, pathname) {
+  const bucket = env && env.HEARTBEAT_PACKS;
+  if (!bucket || typeof bucket.get !== "function") return null;
+  const rel = String(pathname || "").replace(/^\/data\//, "");
+  if (!rel || rel.includes("..") || rel.includes("\\") || !/^[\w./-]+$/.test(rel) || !rel.endsWith(".json")) return null;
+  try {
+    const object = await bucket.get(`web-pack/${rel}`);
+    if (!object) return null;
+    return new Response(object.body, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function onRequest(context) {
   const request = context.request;
   const env = (context && context.env) || {};
@@ -436,8 +461,12 @@ export async function onRequest(context) {
       const current = await readAccountSession(readyDb, request, env, now);
       if (current) await revokeSession(readyDb, current.sessionId, now);
       else {
-        const token = readCookie(request, COOKIE);
-        if (token) await revokeLegacyToken(readyDb, token, now);
+        const shared = await readSharedSession(readyDb, request, env, now);
+        if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
+        else {
+          const token = readCookie(request, COOKIE);
+          if (token) await revokeLegacyToken(readyDb, token, now);
+        }
       }
     }
     return redirect(request, "/login", clearCookie(), 302);
@@ -450,6 +479,7 @@ export async function onRequest(context) {
   }
 
   let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
+  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, env, now);
   if (!session && !authCutover(env)) {
     const token = readCookie(request, COOKIE);
     if (!(token && readyDb && (await legacyTokenRevoked(readyDb, token)))) {
@@ -464,6 +494,10 @@ export async function onRequest(context) {
   }
   if (pathname === "/login") return redirect(request, "/");
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session);
+  if (pathname.startsWith("/data/")) {
+    const packed = await packFromBucket(env, pathname);
+    if (packed) return packed;
+  }
 
   const response = await context.next();
   if (!pathname.startsWith("/data/")) return response;

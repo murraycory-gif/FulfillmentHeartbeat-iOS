@@ -58,6 +58,7 @@ export HEARTBEAT_COOK_MARKERS="$WORK/markers"
 export HEARTBEAT_SETTLE_SECONDS=0
 export HEARTBEAT_INGEST_BIN="$WORK/bin/fake-ingest"
 export HEARTBEAT_SCHEDULE_CMD="$WORK/bin/fake-schedule"
+export HEARTBEAT_SKIP_GIT_CHECK=1
 export HEARTBEAT_DEPLOY_CMD="$WORK/bin/fake-deploy"
 export HEARTBEAT_DEPLOY_LOG="$WORK/deploys.log"
 : > "$HEARTBEAT_DEPLOY_LOG"

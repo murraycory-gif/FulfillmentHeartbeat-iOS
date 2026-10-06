@@ -69,6 +69,8 @@ Do not upload `current.sqlite`. This extract is not wired into `.github/workflow
 
 ### 4. Deploy the site (manual)
 
+`npm test` needs Node >= 22.5 because the tests use `node:sqlite`. An older Node fails in `web/scripts/require-node.mjs` before the suite starts.
+
 From `web/`, only when you mean to publish. `npm run build` runs the tests and stages `web/dist` (`pages_build_output_dir`), including `public/data`. This repo does not run the upload:
 
 ```bash
