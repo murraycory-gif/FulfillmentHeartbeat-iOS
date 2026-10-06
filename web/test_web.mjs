@@ -960,7 +960,7 @@ assert.match(loginHTML, /src="\/nav-boot\.js\?v=2"/);
 assert.equal(loginHTML.includes('class="header-back"'), false);
 assert.match(accountsSrc, /class="header-back"/);
 assert.match(accountsSrc, />Dashboard</);
-assert.match(accountsSrc, /Back to Heartbeat/);
+assert.equal(accountsSrc.includes("Back to Heartbeat"), false);
 assert.match(accountsSrc, /aria-controls="drawer"/);
 assert.match(accountsSrc, /"\/\?page=pph"/);
 assert.match(accountsSrc, /"\/\?page=schedule"/);
@@ -1347,7 +1347,7 @@ assert.match(peopleHtml, /admin@example.com/);
 assert.match(peopleHtml, /src="\/auth-copy\.js"/);
 assert.match(peopleHtml, /class="header-back" href="\/"/);
 assert.match(peopleHtml, />Dashboard</);
-assert.match(peopleHtml, /Back to Heartbeat/);
+assert.equal(peopleHtml.includes("Back to Heartbeat"), false);
 assert.match(peopleHtml, /id="nav-toggle"/);
 assert.match(peopleHtml, /href="\/\?page=labor"/);
 assert.match(peopleHtml, /href="\/admin" aria-current="page">User management/);
@@ -1371,6 +1371,7 @@ assert.equal(viewerDenied.status, 403);
 const viewerDeniedHtml = await viewerDenied.text();
 assert.match(viewerDeniedHtml, /Admins only/);
 assert.match(viewerDeniedHtml, /class="header-back"/);
+assert.equal(viewerDeniedHtml.includes("Back to Heartbeat"), false);
 assert.match(viewerDeniedHtml, /href="\/account">Account/);
 assert.equal(viewerDeniedHtml.includes(">User management<"), false);
 const inviteReuse = await accountRequest(auth.db, `/invite/${viewerInvite}`, {
@@ -1533,6 +1534,8 @@ assert.equal(viewerAccount.status, 200);
 const viewerAccountHtml = await viewerAccount.text();
 assert.match(viewerAccountHtml, /Change password|Current password/);
 assert.match(viewerAccountHtml, /autocomplete="current-password"/);
+assert.match(viewerAccountHtml, /class="header-back"/);
+assert.equal(viewerAccountHtml.includes("Back to Heartbeat"), false);
 assert.equal(viewerAccountHtml.includes("Add a person"), false);
 const shortChange = await accountRequest(auth.db, "/account", {
   method: "POST",
@@ -1585,7 +1588,7 @@ const legacyAccountHtml = await legacyAccount.text();
 assert.match(legacyAccountHtml, /does not have its own password/);
 assert.match(legacyAccountHtml, /class="header-back"/);
 assert.match(legacyAccountHtml, /href="\/admin">User management/);
-assert.match(legacyAccountHtml, /Back to Heartbeat/);
+assert.equal(legacyAccountHtml.includes("Back to Heartbeat"), false);
 const sessionDenied = await accountRequest(auth.db, "/session");
 assert.equal(sessionDenied.status, 401);
 const nullOrigin = await accountRequest(auth.db, "/login", {

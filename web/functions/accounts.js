@@ -664,7 +664,7 @@ export function deniedHTML(chrome) {
   return shell(
     "People · Fulfillment Heartbeat",
     "People",
-    `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+    `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p></section>`,
     chrome || { admin: false, account: false, here: "" },
   );
 }
@@ -682,7 +682,6 @@ export function accountHTML(email, message, notice, chrome) {
       <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
       <p class="hint">At least 10 characters.</p>
       <button type="submit">Save password</button>
-      <p><a href="/">Back to Heartbeat</a></p>
     </form>`,
     chrome || { admin: false, account: true, here: "account" },
   );
@@ -692,7 +691,7 @@ export function accountSharedHTML(chrome) {
   return shell(
     "Account · Fulfillment Heartbeat",
     "Account",
-    `<section class="login-card"><h2>Shared sign-in</h2><p>This sign-in does not have its own password.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+    `<section class="login-card"><h2>Shared sign-in</h2><p>This sign-in does not have its own password.</p></section>`,
     chrome || { admin: false, account: false, here: "account" },
   );
 }
@@ -741,7 +740,6 @@ export function adminHTML({ users, notice, error, link, emailOn, chrome }) {
         <label>Role<select name="role"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
         <button type="submit">Create invite</button>
       </form>
-      <p><a href="/">Back to Heartbeat</a></p>
     </section>
     <div class="user-list">${cards}</div>
     <script src="/auth-copy.js"></script>`,
