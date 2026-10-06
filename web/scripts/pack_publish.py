@@ -10,9 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001"
@@ -39,6 +42,37 @@ PINNED_FILE_SHA256 = {
 }
 POINTER_KEY = "heartbeat-packs/web-pack/current.json"
 NOT_FOUND_LINE = "The specified key does not exist."
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_TEMP_PATHS: list[str] = []
+
+
+def _purge_temps() -> None:
+    while _TEMP_PATHS:
+        shutil.rmtree(_TEMP_PATHS.pop(), ignore_errors=True)
+
+
+def _on_term(signum, _frame) -> None:
+    """A bash-only SIGTERM used to orphan this process and leave its temp dir."""
+    _purge_temps()
+    raise SystemExit(128 + int(signum))
+
+
+signal.signal(signal.SIGTERM, _on_term)
+signal.signal(signal.SIGHUP, _on_term)
+
+
+@contextmanager
+def _temp_dir():
+    path = tempfile.mkdtemp(prefix="hb-pack-")
+    _TEMP_PATHS.append(path)
+    try:
+        yield Path(path)
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+        try:
+            _TEMP_PATHS.remove(path)
+        except ValueError:
+            pass
 
 
 def pointer_entry(old: dict) -> dict:
@@ -115,7 +149,7 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None, *, fi
     if not published or "/" in published or "\\" in published:
         raise SystemExit("data-only upload: publishedAt missing")
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temp_dir() as tmp:
         tmp_path = Path(tmp)
         pointer_file = tmp_path / "current.json"
         raw = _remote_bytes(run, POINTER_KEY, pointer_file)
@@ -203,9 +237,33 @@ def _output_lines(result) -> list[str]:
     return f"{stdout}\n{stderr}".splitlines()
 
 
+def _error_body(line: str) -> tuple[bool, str]:
+    """Strip ANSI, then an optional '✘ [ERROR] ' or '[ERROR] ' prefix."""
+    text = _ANSI.sub("", line).strip()
+    if text.startswith("✘ [ERROR] "):
+        return True, text[len("✘ [ERROR] ") :]
+    if text.startswith("[ERROR] "):
+        return True, text[len("[ERROR] ") :]
+    return "[ERROR]" in text, text
+
+
 def _is_not_found(result) -> bool:
-    """Only wrangler's exact missing-key line. A missing bucket is not a missing key."""
-    return any(line.strip() == NOT_FOUND_LINE for line in _output_lines(result))
+    """Wrangler's missing-key line, with or without its error prefix and colour.
+
+    Any other [ERROR] line in the same output is not a missing key. An auth
+    failure that also prints the key line must not count as absent.
+    """
+    saw_missing = False
+    for line in _output_lines(result):
+        if not _ANSI.sub("", line).strip():
+            continue
+        is_error, body = _error_body(line)
+        if body == NOT_FOUND_LINE:
+            saw_missing = True
+            continue
+        if is_error:
+            return False
+    return saw_missing
 
 
 def _remote_bytes(run, key: str, dest: Path):
@@ -245,11 +303,24 @@ def _put_pointer(run, tmp_path: Path, pointer: dict) -> dict:
     return loaded
 
 
+def _live_matches_previous(live, expected) -> bool:
+    """The deferred commit may write only if the live pointer is still plan previous."""
+    if expected is None:
+        return live is None or live == {}
+    if not isinstance(live, dict) or not isinstance(expected, dict):
+        return False
+    try:
+        return pointer_entry(live) == expected
+    except SystemExit:
+        return False
+
+
 def commit_pointer(plan_path: Path, wrangler=None) -> dict:
     """Move current.json after a pages deploy has succeeded.
 
     Data-only upload moves the pointer inside upload_pack. A full deploy
-    defers that put until wrangler pages deploy exits 0.
+    defers that put until wrangler pages deploy exits 0. The live pointer is
+    read again first and must still equal the plan's previous.
     """
     plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
     if not isinstance(plan, dict):
@@ -262,8 +333,20 @@ def commit_pointer(plan_path: Path, wrangler=None) -> dict:
     def run(args, check=True):
         return _run(wrangler, args, check=check)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        loaded = _put_pointer(run, Path(tmp), body)
+    with _temp_dir() as tmp_path:
+        raw = _remote_bytes(run, POINTER_KEY, tmp_path / "live-current.json")
+        if raw is None:
+            live = None
+        else:
+            try:
+                live = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                raise SystemExit("pointer commit: live current.json is not json")
+            if not isinstance(live, dict):
+                raise SystemExit("pointer commit: live current.json is not an object")
+        if not _live_matches_previous(live, body.get("previous")):
+            raise SystemExit("pointer commit: live pointer no longer matches the plan previous")
+        loaded = _put_pointer(run, tmp_path, body)
     print("pointer commit: current.json updated after the pages deploy")
     return loaded
 
@@ -296,7 +379,7 @@ def migrate_pinned_pointer(root: Path, wrangler=None) -> str:
     def run(args, check=True):
         return _run(wrangler, args, check=check)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temp_dir() as tmp:
         tmp_path = Path(tmp)
         raw = _remote_bytes(run, POINTER_KEY, tmp_path / "current.json")
         if raw is not None:
@@ -332,7 +415,7 @@ def preflight_pointer(root: Path, wrangler=None) -> str:
     def run(args, check=True):
         return _run(wrangler, args, check=check)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    with _temp_dir() as tmp:
         raw = _remote_bytes(run, POINTER_KEY, Path(tmp) / "current.json")
         if raw is None:
             print("pointer preflight: current.json is absent")
@@ -352,8 +435,36 @@ def preflight_pointer(root: Path, wrangler=None) -> str:
         raise SystemExit("pointer preflight: current.json is not a cooked pack or the pinned live pack")
 
 
+def print_pointer(wrangler=None) -> str:
+    """Canonical live pointer. UI-only deploys compare this before and after."""
+
+    def run(args, check=True):
+        return _run(wrangler, args, check=check)
+
+    with _temp_dir() as tmp:
+        raw = _remote_bytes(run, POINTER_KEY, tmp / "current.json")
+    if raw is None:
+        text = "absent"
+    else:
+        try:
+            loaded = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            raise SystemExit("pointer read: current.json is not json")
+        if not isinstance(loaded, dict):
+            raise SystemExit("pointer read: current.json is not an object")
+        text = json.dumps(pointer_entry(loaded), sort_keys=True)
+    print(text)
+    return text
+
+
 def main() -> int:
     argv = sys.argv[1:]
+    if argv[:1] == ["print-pointer"]:
+        if len(argv) != 1:
+            print("usage: pack_publish.py print-pointer", file=sys.stderr)
+            return 2
+        print_pointer()
+        return 0
     if argv[:1] == ["preflight"]:
         if len(argv) != 2:
             print("usage: pack_publish.py preflight DATA_DIR", file=sys.stderr)
@@ -389,7 +500,7 @@ def main() -> int:
         print(
             "usage: pack_publish.py [--first-publish] DATA_DIR check_pack.mjs"
             " | --defer-pointer DATA_DIR check_pack.mjs PLAN.json"
-            " | --commit-pointer PLAN.json | preflight DATA_DIR | migrate-pinned DATA_DIR",
+            " | --commit-pointer PLAN.json | preflight DATA_DIR | print-pointer | migrate-pinned DATA_DIR",
             file=sys.stderr,
         )
         return 2

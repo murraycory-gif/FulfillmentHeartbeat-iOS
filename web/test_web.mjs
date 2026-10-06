@@ -1392,7 +1392,7 @@ other = {
     "schemaVersion": 1,
 }
 
-def bucket(pointer, files=None, missing_error="The specified key does not exist."):
+def bucket(pointer, files=None, missing_error="\\x1b[31m✘ [ERROR] The specified key does not exist.\\x1b[0m"):
     puts = []
     store = {}
     if files:
@@ -1426,7 +1426,7 @@ def pinned_files():
         files[f"heartbeat-packs/{PINNED_LIVE_PREFIX}/{rel}"] = (Path("public/data") / rel).read_bytes()
     return files
 
-def refused(pointer, files=None, error="The specified key does not exist."):
+def refused(pointer, files=None, error="\\x1b[31m✘ [ERROR] The specified key does not exist.\\x1b[0m"):
     fake, puts = bucket(pointer, files, error)
     try:
         preflight_pointer(Path("public/data"), fake)
@@ -1502,6 +1502,14 @@ assert bucket_puts == []
 buried_fake, buried_puts = bucket(None, None, "warning\\nThe specified key does not exist.\\n")
 assert preflight_pointer(Path("public/data"), buried_fake) == "absent"
 assert buried_puts == []
+plain_fake, plain_puts = bucket(None, None, "[ERROR] The specified key does not exist.")
+assert preflight_pointer(Path("public/data"), plain_fake) == "absent"
+assert plain_puts == []
+auth_line = "\\x1b[31m✘ [ERROR] Authentication error\\x1b[0m\\n\\x1b[31m✘ [ERROR] The specified key does not exist.\\x1b[0m"
+auth_msg, auth_puts = refused(None, None, auth_line)
+assert "get failed" in auth_msg, auth_msg
+assert "absent" not in auth_msg
+assert auth_puts == []
 from pack_publish import upload_pack
 upload_sha = "c" * 40
 upload_cooked = "2026-10-07T02:00:00Z"
@@ -1539,6 +1547,50 @@ with tempfile.TemporaryDirectory() as tmp:
     first_plan = upload_pack(pack_dir(tmp), Path("check_pack.mjs"), first_fake, checker=lambda downloaded: Ok(), first_publish=True)
 assert first_plan["cookSha"] == upload_sha
 assert any(item.endswith("current.json") for item in first_puts), first_puts
+from pack_publish import commit_pointer, print_pointer
+previous = {
+    "prefix": PINNED_LIVE_PREFIX,
+    "cookSha": PINNED_LIVE_COOK_SHA,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "cookedAt": "",
+    "schemaVersion": 1,
+}
+commit_plan = {
+    "prefix": f"web-pack/{upload_sha}-{upload_cooked}",
+    "cookSha": upload_sha,
+    "cookedAt": upload_cooked,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "schemaVersion": 1,
+    "previous": previous,
+}
+moved_live = {
+    "prefix": "web-pack/" + ("d" * 40) + "-2026-10-08T00:00:00Z",
+    "cookSha": "d" * 40,
+    "cookedAt": "2026-10-08T00:00:00Z",
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "schemaVersion": 1,
+}
+moved_fake, moved_puts = bucket(moved_live)
+with tempfile.TemporaryDirectory() as tmp:
+    plan_path = Path(tmp) / "plan.json"
+    plan_path.write_text(json.dumps(commit_plan), encoding="utf-8")
+    try:
+        commit_pointer(plan_path, moved_fake)
+        raise SystemExit("moved pointer was committed")
+    except SystemExit as exc:
+        assert "no longer matches" in str(exc.code), exc.code
+assert moved_puts == []
+same_fake, same_puts = bucket(previous)
+with tempfile.TemporaryDirectory() as tmp:
+    plan_path = Path(tmp) / "plan.json"
+    plan_path.write_text(json.dumps(commit_plan), encoding="utf-8")
+    committed = commit_pointer(plan_path, same_fake)
+assert committed["cookSha"] == upload_sha
+assert any(item.endswith("current.json") for item in same_puts), same_puts
+shown_fake, shown_puts = bucket(previous)
+assert "PINNED_LIVE_COOK_SHA" not in print_pointer(shown_fake)
+assert PINNED_LIVE_COOK_SHA in print_pointer(shown_fake)
+assert shown_puts == []
 `,
   ],
   { cwd: root, encoding: "utf8" },
@@ -1640,11 +1692,6 @@ assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), 
 assert.match(readFileSync(join(root, "package.json"), "utf8"), />=22\.5\.0/);
 assert.match(publishScript, /\{"error":"unauthorized"\}/);
 assert.equal(publishScript.includes("--commit-dirty=true"), false);
-assert.match(publishScript, /refusing publish: git worktree is dirty/);
-const dirtyAt = publishScript.indexOf("refusing publish: git worktree is dirty");
-const npmAt = publishScript.indexOf("\nnpm test");
-const secretAt = publishScript.indexOf("put_secret_if_missing");
-assert.ok(dirtyAt !== -1 && dirtyAt < npmAt && dirtyAt < secretAt);
 assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
 assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);

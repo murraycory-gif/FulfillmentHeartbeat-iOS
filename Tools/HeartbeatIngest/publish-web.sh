@@ -19,7 +19,9 @@ SITE_URL="${HEARTBEAT_SITE_URL:-https://fulfillment-heartbeat-web.pages.dev}"
 UI_ONLY="${HEARTBEAT_UI_ONLY:-}"
 DATA_ONLY="${HEARTBEAT_DATA_ONLY:-}"
 USE_LOCAL="${HEARTBEAT_USE_LOCAL_DATA:-}"
-# A UI-only deploy may leave app files dirty. A data publish refuses every path.
+# UI-only skips the local pack check and does not move the pointer.
+# A dirty tree still refuses, so the build label matches the files that ship.
+# A data publish refuses every path.
 if [[ -n "$UI_ONLY" && -z "$DATA_ONLY" ]]; then
   if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish; then
     echo "refusing publish: cook guard" >&2
@@ -85,7 +87,14 @@ cleanup_stages() {
     rm -f "$POINTER_PLAN"
   fi
 }
+on_term() {
+  cleanup_stages
+  # SIGTERM to this shell alone used to leave pack_publish.py and one temp dir.
+  pkill -TERM -P $$ >/dev/null 2>&1 || true
+  exit 143
+}
 trap cleanup_stages EXIT
+trap on_term TERM
 
 if [[ -z "$UI_ONLY" ]]; then
   EXTRACT="$(mktemp -d)"
@@ -120,7 +129,9 @@ fi
 
 LIVE_CHECKED=0
 LIVE_STAGE="$(mktemp -d)"
-if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
+if [[ -n "$UI_ONLY" ]]; then
+  echo "UI-only deploy: skipping local pack check"
+elif [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
   python3 - "$PACK_DIR" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" "$LIVE_STAGE" << 'PY'
 import http.cookiejar
 import json
@@ -185,13 +196,10 @@ PY
   LIVE_CHECKED=1
 fi
 
-if [[ -n "$UI_ONLY" && "$LIVE_CHECKED" -ne 1 && "$USE_LOCAL" != "1" ]]; then
-  echo "publish-web: UI-only deploy needs the current pack in web/public/data (HEARTBEAT_USE_LOCAL_DATA=1) or a site login in ${EMAIL_FILE} and ${PASS_FILE}." >&2
-  exit 1
-fi
-
 # Every pack needs cookedAt, including the pinned live cook. The site may
 # keep serving that cook. This script must not publish it again.
+# UI-only does not re-check that local tree. It checks the live pointer instead.
+if [[ -z "$UI_ONLY" ]]; then
 if ! node "$WEB/check_pack.mjs" --cooked-at "$PACK_DIR"; then
   echo "refusing publish: cookedAt is missing" >&2
   exit 1
@@ -235,6 +243,7 @@ if not found:
     raise SystemExit("refusing deploy: cooked pack has no Mid-Atlantic dynacap line")
 print(f"pack ok publishedAt={published} week={week} stores={len(stores)}")
 PY
+fi
 
 if grep -q "dynacapHealth" "$WEB/public/seat.js"; then
   echo "refusing deploy: seat.js still overrides dynacap health" >&2
@@ -304,14 +313,22 @@ node "$WEB/scripts/print_pack_stamp.mjs" "$PACK_DIR"
 publish_pack_pointer() {
   python3 "$ROOT/web/scripts/pack_publish.py" "$PACK_DIR" "$WEB/check_pack.mjs"
 }
-require_verified_pointer() {
+pointer_is_verified() {
   local pointer_state
   pointer_state="$(python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR")"
   printf '%s\n' "$pointer_state"
-  if [[ "$pointer_state" != *"verified"* ]]; then
+  [[ "$pointer_state" == "pointer preflight: verified" ]]
+}
+require_verified_pointer() {
+  if ! pointer_is_verified; then
     echo "refusing deploy: pack data must publish through the pointer" >&2
     exit 1
   fi
+}
+fail_deploy_readback() {
+  echo "deploy failed: the new UI is live and the pack pointer read-back failed, so the site is serving the new UI on the old data" >&2
+  echo "rollback: cd \"$WEB\" && npx wrangler pages deployment rollback --project-name \"$PROJECT\"" >&2
+  exit 1
 }
 if [[ -n "$DATA_ONLY" ]]; then
   publish_pack_pointer
@@ -391,14 +408,27 @@ PY
 fi
 
 if [[ -n "$UI_ONLY" ]]; then
-  python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR"
+  LIVE_POINTER_BEFORE="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"
+  echo "UI-only deploy: live pointer ${LIVE_POINTER_BEFORE}"
 fi
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
   --branch main
 if [[ -n "$POINTER_PLAN" ]]; then
-  python3 "$ROOT/web/scripts/pack_publish.py" --commit-pointer "$POINTER_PLAN"
-  require_verified_pointer
+  if ! python3 "$ROOT/web/scripts/pack_publish.py" --commit-pointer "$POINTER_PLAN"; then
+    fail_deploy_readback
+  fi
+  if ! pointer_is_verified; then
+    fail_deploy_readback
+  fi
+fi
+if [[ -n "$UI_ONLY" ]]; then
+  LIVE_POINTER_AFTER="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"
+  if [[ "$LIVE_POINTER_BEFORE" != "$LIVE_POINTER_AFTER" ]]; then
+    echo "UI-only deploy changed the live pointer" >&2
+    fail_deploy_readback
+  fi
+  echo "UI-only deploy: live pointer unchanged"
 fi
 
 python3 - "$SITE_URL" << 'PY'

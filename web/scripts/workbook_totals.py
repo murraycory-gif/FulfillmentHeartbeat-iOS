@@ -16,16 +16,15 @@ CELL = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"
 ROW = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row"
 VALUE = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v"
 
-# section -> sheet, fixed Total row, field -> column. pph finds column A == Total.
+# section -> sheet and field -> column. The Total row is whichever column A
+# says Total, so a longer store list does not move the cook onto the wrong row.
 TOTALS = {
     "sales": {
         "sheet": "Sales",
-        "row": 2863,
         "fields": {"sales_dollars": "CH", "yoy_pct": "CI", "orders_yoy_pct": "CK"},
     },
     "lost_revenue": {
         "sheet": "Loss Revenue",
-        "row": 2169,
         "fields": {
             "ecomm_dollars": "C",
             "lost_dollars": "D",
@@ -38,7 +37,6 @@ TOTALS = {
     },
     "labor": {
         "sheet": "Labor",
-        "row": 2171,
         "fields": {
             "schedule_efficiency_pct": "B",
             "act_cost_dollars": "I",
@@ -50,11 +48,10 @@ TOTALS = {
             "target_vs_actual_pct": "O",
         },
     },
-    "missing_items": {"sheet": "MI", "row": 2427, "fields": {"missing_rate": "U"}},
-    "pre_sub_oos": {"sheet": "Pre-Sub OOS", "row": 2170, "fields": {"pre_sub_rate": "P"}},
+    "missing_items": {"sheet": "MI", "fields": {"missing_rate": "U"}},
+    "pre_sub_oos": {"sheet": "Pre-Sub OOS", "fields": {"pre_sub_rate": "P"}},
     "schedule_quality": {
         "sheet": "Schedule Quality",
-        "row": 2206,
         "fields": {
             "schedule_efficiency_pct": "D",
             "under_schedule_pct": "E",
@@ -62,9 +59,9 @@ TOTALS = {
             "staffing_efficiency_pct": "J",
         },
     },
-    "pick_path": {"sheet": "Pick Path", "row": 2148, "fields": {"compliance_pct": "E", "pph": "G"}},
-    "dynacap": {"sheet": "Dynacap", "row": 2166, "fields": {"pieces_per_hour": "D", "utilization_pct": "G"}},
-    "pph": {"sheet": "PPH", "find_total": "A", "column": "T", "field": "pph"},
+    "pick_path": {"sheet": "Pick Path", "fields": {"compliance_pct": "E", "pph": "G"}},
+    "dynacap": {"sheet": "Dynacap", "fields": {"pieces_per_hour": "D", "utilization_pct": "G"}},
+    "pph": {"sheet": "PPH", "column": "T", "field": "pph"},
 }
 
 
@@ -141,9 +138,11 @@ class WorkbookCells:
         return out
 
     def column_a_total(self, sheet: str) -> tuple[int, dict[str, str]]:
+        """Last column-A Total. An earlier label must not hide the company row."""
         path = self.sheets.get(sheet)
         if not path:
             raise SystemExit(f"workbook total: sheet {sheet} is missing")
+        found: tuple[int, dict[str, str]] | None = None
         with self.zip.open(path) as handle:
             for _event, elem in ET.iterparse(handle, events=("end",)):
                 if elem.tag != ROW:
@@ -157,10 +156,12 @@ class WorkbookCells:
                     cells[col] = value
                     if col == "A":
                         label = value
-                elem.clear()
                 if str(label).strip().lower() == "total":
-                    return number, cells
-        raise SystemExit(f"workbook total: {sheet} has no Total row in column A")
+                    found = (number, dict(cells))
+                elem.clear()
+        if found is None:
+            raise SystemExit(f"workbook total: {sheet} has no Total row in column A")
+        return found
 
 
 def read_workbook_totals(path: str | Path) -> dict:
@@ -168,21 +169,21 @@ def read_workbook_totals(path: str | Path) -> dict:
     try:
         totals = {}
         for section, spec in TOTALS.items():
-            if spec.get("find_total"):
-                _row, cells = book.column_a_total(spec["sheet"])
-                raw = cells.get(spec["column"], "")
-                totals[section] = {spec["field"]: float(raw)}
-                continue
-            rows = book.rows(spec["sheet"], {spec["row"]})
-            cells = rows.get(spec["row"]) or {}
+            row, cells = book.column_a_total(spec["sheet"])
             label = str(cells.get("A") or "").strip().lower()
             if label != "total":
-                raise SystemExit(f"workbook total: {spec['sheet']}!A{spec['row']} is {cells.get('A')!r}")
+                raise SystemExit(f"workbook total: {spec['sheet']}!A{row} is {cells.get('A')!r}")
+            if spec.get("column"):
+                raw = cells.get(spec["column"], "")
+                if raw == "":
+                    raise SystemExit(f"workbook total: {spec['sheet']}!{spec['column']}{row} is blank")
+                totals[section] = {spec["field"]: float(raw)}
+                continue
             fields = {}
             for name, col in spec["fields"].items():
                 raw = cells.get(col, "")
                 if raw == "":
-                    raise SystemExit(f"workbook total: {spec['sheet']}!{col}{spec['row']} is blank")
+                    raise SystemExit(f"workbook total: {spec['sheet']}!{col}{row} is blank")
                 fields[name] = float(raw)
             totals[section] = fields
         return totals

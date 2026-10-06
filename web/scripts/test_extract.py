@@ -738,14 +738,92 @@ def pack_identity_choice() -> None:
     print("pack identity ok")
 
 
+def _synthetic_workbook(path: Path, total_row: int) -> None:
+    """Tiny workbook. Total sits on total_row, with an earlier Total the cook must ignore."""
+    import zipfile
+
+    sheets = {
+        "Sales": {"CH": 81000, "CI": 0.17, "CK": 0.18},
+        "Loss Revenue": {"C": 82000, "D": 4200, "J": 2900, "M": 590, "V": 420, "Y": 270, "AC": 19},
+        "Labor": {"B": 0.88, "I": 1800, "J": 0.11, "K": -0.04, "L": 0.001, "M": 0.00002, "N": 0.07, "O": -0.04},
+        "MI": {"U": 0.07},
+        "Pre-Sub OOS": {"P": 0.05},
+        "Schedule Quality": {"D": 0.9, "E": 0.04, "F": 0.05, "J": 0.73},
+        "Pick Path": {"E": 0.8, "G": 75},
+        "Dynacap": {"D": 63, "G": 0.22},
+        "PPH": {"T": 73},
+    }
+    decoy = {"CH": 1, "CI": 1, "CK": 1, "C": 1, "D": 1, "J": 1, "M": 1, "V": 1, "Y": 1, "AC": 1, "B": 1, "I": 1, "K": 1, "L": 1, "N": 1, "O": 1, "U": 1, "P": 1, "E": 1, "F": 1, "G": 1, "T": 1}
+
+    def row_xml(number: int, cells: dict) -> str:
+        body = "".join(cells)
+        return f'<row r="{number}">{body}</row>'
+
+    def num(ref: str, value) -> str:
+        return f'<c r="{ref}"><v>{value}</v></c>'
+
+    def total_label(ref: str) -> str:
+        return f'<c r="{ref}" t="s"><v>0</v></c>'
+
+    sheet_xml = {}
+    for index, (name, fields) in enumerate(sheets.items(), start=1):
+        early = [total_label(f"A3")] + [num(f"{col}3", decoy[col]) for col in fields]
+        late = [total_label(f"A{total_row}")] + [num(f"{col}{total_row}", value) for col, value in fields.items()]
+        stores = ""
+        if name == "Labor":
+            stores = row_xml(2, [num("A2", 10)]) + row_xml(4, [num("A4", 866)])
+        sheet_xml[index] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+            + row_xml(3, early)
+            + stores
+            + row_xml(total_row, late)
+            + "</sheetData></worksheet>"
+        )
+    names = list(sheets)
+    sheet_tags = "".join(
+        f'<sheet name="{name}" sheetId="{index}" r:id="rId{index}"/>' for index, name in enumerate(names, start=1)
+    )
+    rels = "".join(
+        f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>'
+        for index in range(1, len(names) + 1)
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "xl/sharedStrings.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>Total</t></si></sst>',
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f"<sheets>{sheet_tags}</sheets></workbook>",
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f"{rels}</Relationships>",
+        )
+        for index, xml in sheet_xml.items():
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", xml)
+
+
 def workbook_total_sources() -> None:
     import math
     import os
 
     from workbook_totals import labor_store_ids, read_workbook_totals
 
+    parser = (ROOT.parents[1] / "FulfillmentHeartbeat" / "Storage" / "WorkbookParser.swift").read_text(encoding="utf-8")
+    assert "include: nil" in parser
+    assert "columnLooksLikeStore(data" not in parser
     path = os.environ.get("HEARTBEAT_DAILY_XLSX") or "/tmp/hb-icloud/Heartbeat Daily Report.xlsx"
-    assert Path(path).is_file(), path
+    if not Path(path).is_file():
+        print(f"workbook totals skipped: {path} is absent")
+        return
     got = read_workbook_totals(path)
     expected = {
         "sales": {
@@ -795,10 +873,56 @@ def workbook_total_sources() -> None:
     assert len(stores) == 2169, len(stores)
     for store in ["10", "23", "24", "25", "28", "31", "33", "42", "62", "63", "65", "66", "72", "73", "76", "91", "93", "94"]:
         assert store in stores, store
-    parser = (ROOT.parents[1] / "FulfillmentHeartbeat" / "Storage" / "WorkbookParser.swift").read_text(encoding="utf-8")
-    assert "include: nil" in parser
-    assert "columnLooksLikeStore(data" not in parser
     print("workbook totals ok")
+
+
+def workbook_total_shifted_row() -> None:
+    """The Total row is found by its label, including after extract writes home.workbookTotal."""
+    from workbook_totals import labor_store_ids, read_workbook_totals
+
+    with tempfile.TemporaryDirectory() as tmp:
+        book = Path(tmp) / "daily.xlsx"
+        _synthetic_workbook(book, 40)
+        got = read_workbook_totals(book)
+        assert got["sales"]["sales_dollars"] == 81000
+        assert got["sales"]["sales_dollars"] != 1
+        assert got["pph"]["pph"] == 73
+        assert got["labor"]["act_cost_pct"] == 0.07
+        assert got["lost_revenue"]["kill_dollars"] == 19
+        stores = labor_store_ids(book)
+        assert stores == ["10", "866"], stores
+        db_path = Path(tmp) / "current.sqlite"
+        out = Path(tmp) / "out"
+        db = sqlite3.connect(db_path)
+        db.executescript(
+            """
+            CREATE TABLE pack_meta (id INTEGER PRIMARY KEY, written_at TEXT);
+            CREATE TABLE dash_chrome (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE facts (
+              section TEXT, store_number TEXT, division TEXT, operations_om TEXT,
+              store_name TEXT, recorded_on TEXT, payload_json TEXT, text_json TEXT
+            );
+            """
+        )
+        db.execute("INSERT INTO pack_meta VALUES (1, '2026-10-07T00:00:00Z')")
+        db.execute(
+            "INSERT INTO dash_chrome VALUES (1, ?)",
+            (json.dumps({"publishedAt": "2026-10-06T01:35:23Z", "summaries": []}),),
+        )
+        db.commit()
+        db.close()
+        originals = (module.merge_off_roster_loss, module.read_roster_people)
+        module.merge_off_roster_loss = lambda latest, roster, path: (0, None)
+        module.read_roster_people = lambda path: {}
+        try:
+            module.extract(str(db_path), str(out), str(book))
+        finally:
+            module.merge_off_roster_loss, module.read_roster_people = originals
+        home = json.loads((out / "home.json").read_text())
+        assert home["workbookTotal"]["sales"]["sales_dollars"] == 81000
+        assert home["workbookTotal"]["labor"]["act_cost_dollars"] == 1800
+        assert home["workbookTotal"]["dynacap"]["pieces_per_hour"] == 63
+    print("workbook total shift ok")
 
 
 def labor_blanks_are_null() -> None:
@@ -893,4 +1017,5 @@ if __name__ == "__main__":
     lost_excl_rollup()
     pack_identity_choice()
     workbook_total_sources()
+    workbook_total_shifted_row()
     labor_blanks_are_null()
