@@ -231,6 +231,22 @@ export function checkPack(dir) {
     rosterCounts.set(division, (rosterCounts.get(division) || 0) + 1);
   }
   const lostRows = Array.isArray(lost.rows) ? lost.rows : [];
+  if (lostRows.length !== 2167) errors.push(`lost rows=${lostRows.length} sheet=2167`);
+  const lostByStore = new Map(lostRows.filter((row) => row && typeof row === "object").map((row) => [String(row.store), row]));
+  const loss210 = lostByStore.get("210");
+  const loss239 = lostByStore.get("239");
+  const loss1509 = lostByStore.get("1509");
+  if (!loss210 || loss210.division !== "United" || Number((loss210.payload || {}).lost_revenue) !== 263) {
+    errors.push(`lost 210=${loss210 && loss210.division},${loss210 && (loss210.payload || {}).lost_revenue}`);
+  }
+  if (!loss239 || loss239.division !== "Southwest" || Number((loss239.payload || {}).lost_revenue) !== 239) {
+    errors.push(`lost 239=${loss239 && loss239.division},${loss239 && (loss239.payload || {}).lost_revenue}`);
+  }
+  if ((loss210 && loss210.division === "Haggen") || (loss239 && loss239.division === "Haggen")) {
+    errors.push("lost 210/239 labeled Haggen");
+  }
+  const blankGoal = loss1509 && loss1509.payload ? loss1509.payload.lost_revenue_goal_pct : undefined;
+  if (blankGoal != null) errors.push(`store 1509 Goal %=${blankGoal}`);
   const lostCounts = new Map();
   for (const row of lostRows) {
     const division = row && row.division;

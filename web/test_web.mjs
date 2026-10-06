@@ -1412,8 +1412,17 @@ for (const row of laborFile.rows) {
 assert.ok(aivDen > 0);
 assert.ok(Math.abs(aivNum / aivDen - packHome.laborMarket.aiv_impact_pct) <= 0.001);
 const lostFile = JSON.parse(readFileSync(join(root, "dist/data/section/lost_revenue.json"), "utf8"));
+assert.equal(lostFile.rows.length, 2167);
 assert.ok(new Set(lostFile.rows.map((row) => row.division)).size > 8);
 assert.ok(lostFile.rows.filter((row) => row.division === "Haggen").length < 30);
+const lostByStore = Object.fromEntries(lostFile.rows.map((row) => [row.store, row]));
+assert.equal(lostByStore["210"].division, "United");
+assert.equal(lostByStore["210"].payload.lost_revenue, 263);
+assert.ok(Math.abs(lostByStore["210"].payload.lost_revenue_goal_pct - 0.051076243935462035) < 1e-12);
+assert.equal(lostByStore["239"].division, "Southwest");
+assert.equal(lostByStore["239"].payload.lost_revenue, 239);
+assert.ok(Math.abs(lostByStore["239"].payload.lost_revenue_goal_pct - 0.028608328507213076) < 1e-12);
+assert.equal(lostByStore["1509"].payload.lost_revenue_goal_pct, undefined);
 const unitedDyn = JSON.parse(readFileSync(join(root, "dist/data/section/dynacap.json"), "utf8")).rows.filter(
   (row) => row.division === "United",
 );

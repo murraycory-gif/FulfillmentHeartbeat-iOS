@@ -180,7 +180,13 @@ def is_total_store(store: str) -> bool:
 
 # South is 397 schedule stores. The older device list stopped at 395 and left out
 # store 210 (United, district U5, Andrew Quinn) and store 239 (Southwest, district N0, Ben Sarmadi).
-# Both stay on the site roster.
+# Both stay on the site roster. The Loss Revenue sheet stamps every store Haggen, including these two.
+SHEET_LOSS_IDENTITY = {
+    "210": {"division": "United", "district": "U5", "om": "Andrew Quinn"},
+    "239": {"division": "Southwest", "district": "N0", "om": "Ben Sarmadi"},
+}
+# Daily Loss Revenue store rows, excluding the Total row and the filter footer.
+LOSS_SHEET_STORE_COUNT = 2167
 
 
 def canonical_store(raw: str) -> str:
@@ -842,6 +848,127 @@ def is_person_om(raw: str) -> bool:
     return len(tokens) >= 2
 
 
+def _loss_header_key(header: str) -> str:
+    text = " ".join(str(header or "").lower().split())
+    if text in ("store", "store id", "store number", "store #"):
+        return "store"
+    if text in ("division", "first division"):
+        return "division"
+    if text in ("district",):
+        return "district"
+    return {
+        "ecomm sales": "ecomm_sales",
+        "total lost revenue (total opportunity)": "lost_revenue",
+        "total lost revenue % (total opportunity)": "lost_revenue_pct",
+        "total lost revenue (fy2026 goal)": "lost_revenue_goal",
+        "total lost revenue (fy2026 goal) %": "lost_revenue_goal_pct",
+        "post sub oos foregone revenue (total opportunity)": "post_sub_oos_foregone",
+        "refund $ - fulfillment reasons (total opportunity)": "refund_lost",
+        "capacity reduction (total opportunity)": "reduced_capacity",
+        "cancelled orders (ldap driven) - lost sales (total opportunity)": "cancelled_lost",
+        "kill switch lost sales (using $90) (total opportunity)": "kill_switch_lost",
+    }.get(text, "")
+
+
+def loss_sheet_division(store: str, sheet_division: str) -> str:
+    """The Loss sheet writes Haggen on every row. That is not the store's division."""
+    named = canonical_division(sheet_division)
+    if named and named != "Haggen":
+        return named
+    return str((SHEET_LOSS_IDENTITY.get(store) or {}).get("division") or "")
+
+
+def read_loss_sheet(path: str) -> list[dict]:
+    """Store rows on Daily Loss Revenue. Blank cells stay absent, including a blank Goal %."""
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if "Loss Revenue" not in workbook.sheetnames:
+            return []
+        sheet = workbook["Loss Revenue"]
+        rows = sheet.iter_rows(values_only=True)
+        header = next(rows, None)
+        if not header:
+            return []
+        keys = [_loss_header_key("" if value is None else str(value)) for value in header]
+        if "store" not in keys or "lost_revenue" not in keys:
+            return []
+        out = []
+        for line in rows:
+            cells = list(line)
+            store_raw = ""
+            division = ""
+            district = ""
+            payload: dict[str, float] = {}
+            for index, key in enumerate(keys):
+                if not key or index >= len(cells):
+                    continue
+                value = cells[index]
+                if key == "store":
+                    store_raw = "" if value is None else str(value).strip()
+                    continue
+                if key == "division":
+                    division = "" if value is None else str(value).strip()
+                    continue
+                if key == "district":
+                    district = "" if value is None else str(value).strip()
+                    continue
+                if value is None or value == "":
+                    continue
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if number != number or number in (float("inf"), float("-inf")):
+                    continue
+                if key not in payload:
+                    payload[key] = number
+            if not store_raw or "applied filter" in store_raw.lower() or is_total_store(store_raw):
+                continue
+            store = canonical_store(store_raw)
+            if not store or is_total_store(store):
+                continue
+            out.append(
+                {
+                    "store": store,
+                    "division": division,
+                    "district": district,
+                    "payload": payload,
+                }
+            )
+        return out
+    finally:
+        workbook.close()
+
+
+def merge_off_roster_loss(latest: dict, roster: dict, path: str) -> int:
+    """Keep every Loss Revenue store row. The sqlite cook drops stores that are off the old roster."""
+    added = 0
+    for row in read_loss_sheet(path):
+        store = row["store"]
+        if ("lost_revenue", store) in latest:
+            continue
+        ident = SHEET_LOSS_IDENTITY.get(store) or {}
+        division = loss_sheet_division(store, row.get("division") or "")
+        record = {
+            "store": store,
+            "name": "",
+            "division": division,
+            "district": ident.get("district") or row.get("district") or "",
+            "om": ident.get("om") or "",
+            "recorded": "",
+            "payload": row["payload"],
+            "section": "lost_revenue",
+        }
+        latest[("lost_revenue", store)] = record
+        seeded = dict(record)
+        seeded["division"] = division
+        _merge_roster(roster, seeded, prefer_roster=False)
+        added += 1
+    return added
+
+
 def read_roster_people(path: str) -> dict:
     """Daily Roster: OM_ID is the person. OM_AREA is the area and is not the OM."""
     import openpyxl
@@ -1072,6 +1199,8 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     for record in shoppers.values():
         if record.get("section") == "pick_path_picker" and record.get("store"):
             _merge_roster(roster, record, prefer_roster=False)
+    if roster_xlsx:
+        merge_off_roster_loss(latest, roster, roster_xlsx)
     records = list(latest.values()) + list(shoppers.values())
     prefer_pph_identity(roster, records)
     people = read_roster_people(roster_xlsx) if roster_xlsx else {}

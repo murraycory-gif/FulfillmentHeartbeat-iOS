@@ -501,7 +501,68 @@ def blank_schedule_ok() -> None:
     print("blank schedule ok")
 
 
+def off_roster_loss_ok() -> None:
+    import openpyxl
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "daily.xlsx"
+        book = openpyxl.Workbook()
+        sheet = book.active
+        sheet.title = "Loss Revenue"
+        sheet.append(
+            [
+                "Store",
+                "First DIVISION",
+                "eComm Sales",
+                "Total Lost Revenue (Total Opportunity)",
+                "Total Lost Revenue % (Total Opportunity)",
+                "Total Lost Revenue (FY2026 Goal)",
+                "Total Lost Revenue (FY2026 Goal) %",
+            ]
+        )
+        sheet.append(["210", "Haggen", 3545.2, 263, 0.07418481326864493, 181.0755, 0.051076243935462035])
+        sheet.append(["1", "Haggen", 100, 10, 0.1, 4, 0.04])
+        sheet.append(["1509", "Haggen", 349.72, 0, 0, None, None])
+        sheet.append(["Total", "Haggen", 80, 20, 0.05, 10, 0.03])
+        book.save(path)
+        book.close()
+        rows = module.read_loss_sheet(str(path))
+        assert [row["store"] for row in rows] == ["210", "1", "1509"]
+        assert rows[2]["payload"].get("lost_revenue_goal_pct") is None
+        latest = {
+            ("lost_revenue", "1"): {
+                "store": "1",
+                "division": "Jewel Osco",
+                "district": "J1",
+                "om": "Shelly Selof",
+                "payload": {"lost_revenue": 3530},
+                "section": "lost_revenue",
+            },
+            ("lost_revenue", "1509"): {
+                "store": "1509",
+                "division": "Mountain West",
+                "district": "I5",
+                "om": "Chris Banuelos",
+                "payload": {"lost_revenue": 0, "ecomm_sales": 349.72},
+                "section": "lost_revenue",
+            },
+        }
+        roster = {
+            "210": {"store": "210", "division": "United", "district": "U5", "om": "Andrew Quinn", "name": ""},
+        }
+        added = module.merge_off_roster_loss(latest, roster, str(path))
+        assert added == 1
+        kept = latest[("lost_revenue", "210")]
+        assert kept["division"] == "United"
+        assert kept["division"] != "Haggen"
+        assert kept["payload"]["lost_revenue"] == 263
+        assert latest[("lost_revenue", "1")]["division"] == "Jewel Osco"
+        assert "lost_revenue_goal_pct" not in latest[("lost_revenue", "1509")]["payload"]
+        print("off roster loss ok")
+
+
 if __name__ == "__main__":
     main()
     raw_sheet_divisions()
     blank_schedule_ok()
+    off_roster_loss_ok()
