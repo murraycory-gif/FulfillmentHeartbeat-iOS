@@ -461,30 +461,49 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
         block["values"] = values
 
 
-def LABOR_SOURCE_CHECK(record: dict) -> bool:
-    """Every flagged Labor row, not only the four source-issue stores.
+def _labor_number(payload: dict, key: str):
+    """None when the cell is missing or blank. Zero stays zero."""
+    if not isinstance(payload, dict) or key not in payload:
+        return None
+    raw = payload.get(key)
+    if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+        return None
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
 
-    The Oct 5 cook flags 57 of these. The UI store average skips them, so a
-    region line has to as well: East -5.62%, California -5.38%, West -4.62%,
-    South -3.43%. A source-issue row is flagged. So is an AIV of zero or a
-    blank AIV. A store with a nonzero AIV stays in the mean.
+
+def LABOR_SOURCE_CHECK(record: dict) -> bool:
+    """Rows left out of the Labor region mean. The pinned pack flags 57.
+
+    Flag a row when the weight is missing or 0, ActCost% is 0, blank, or over
+    100, the cost target is blank or over 100, or Target vs Actual is over 100.
+    ActCost% over 100 is what flags store 2280 (118.9% ActCost, 80.3% target).
+    Store 1834 stays in the West mean: scheduled hours are 0 and the row is a
+    source-issue row, but its weight, ActCost%, cost target, and Target vs
+    Actual are all inside this rule. meanOf in the page averages every labor
+    row; this check does not change that. It only builds the region line.
     """
     if not isinstance(record, dict):
         return False
-    if record.get("sourceIssue"):
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    weight = _labor_number(payload, "weight")
+    act = _labor_number(payload, "act_cost_pct")
+    cost = _labor_number(payload, "cost_trgt_pct")
+    target = _labor_number(payload, "target_vs_actual_pct")
+    if weight is None or weight == 0:
         return True
-    payload = record.get("payload") or {}
-    if not isinstance(payload, dict):
+    if act is None or act == 0 or act > 100:
         return True
-    if labor_source_issue(payload):
+    if cost is None or cost > 100:
         return True
-    aiv = payload.get("aiv_impact_pct")
-    if aiv is None or (isinstance(aiv, str) and not aiv.strip()):
+    if target is not None and target > 100:
         return True
-    try:
-        return float(aiv) == 0
-    except (TypeError, ValueError):
-        return True
+    return False
 
 
 def labor_source_issue(payload: dict) -> bool:
