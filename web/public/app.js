@@ -1916,7 +1916,7 @@ function renderPicker() {
     else if (!loaded) note = `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
     else note = shopperBlock(rows, SHOPPER_COLUMNS.scorecard, "");
   }
-  main.innerHTML = `${opsBanner(BANNER_TITLE.picker_scorecard, health)}<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${pickerBoardHtml(rows)}${grainBlock("picker_scorecard")}${note}`;
+  main.innerHTML = `${opsBanner(BANNER_TITLE.picker_scorecard, health)}<p class="section-kicker">Total Company</p><article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${pickerBoardHtml(rows)}${grainBlock("picker_scorecard")}${note}`;
 }
 
 function pickerBoardHtml(rows) {
@@ -2221,7 +2221,7 @@ function scorecardHtml(page, pendingStores) {
       : table(page.section, (pack && pack.rows) || []);
   const extra = page.section === "pre_sub_oos" ? presubNote() : "";
   const shoppers = page.section === "pph" || page.section === "pick_path" ? shopperNote(page.section) : "";
-  return `${opsBanner(BANNER_TITLE[page.id] || page.title, health)}<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
+  return `${opsBanner(BANNER_TITLE[page.id] || page.title, health)}<p class="section-kicker">Total Company</p><article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
 }
 
 function warmDashboard(token) {

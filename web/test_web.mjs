@@ -1206,6 +1206,8 @@ assert.match(css, /\.hero-grid/);
 assert.match(css, /\.glance-grid/);
 assert.match(css, /\.ops-banner/);
 assert.match(css, /\.audit-keep/);
+assert.match(app, /section-kicker/);
+assert.match(css, /\.glance-icon \{[^}]*stroke: currentColor/);
 assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
 assert.equal(statSync(join(root, "functions/_middleware.js")).isFile(), true);
 const middleware = readFileSync(join(root, "functions/_middleware.js"), "utf8");

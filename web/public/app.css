@@ -507,7 +507,7 @@ main { padding: 12px 16px 32px; }
 .scorecard {
   display: block;
   background: white;
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgba(0, 40, 92, 0.08);
   box-shadow: 0 4px 12px rgba(16, 32, 51, 0.06);
 }
@@ -1136,6 +1136,15 @@ td.none, .unscheduled { color: var(--none); }
 
 .share-pill svg { width: 16px; height: 16px; }
 
+.section-kicker {
+  margin: 8px 0 6px;
+  color: var(--navy);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .ops-banner {
   display: flex;
   align-items: center;
@@ -1283,6 +1292,11 @@ td.none, .unscheduled { color: var(--none); }
 .glance-icon {
   width: 36px;
   height: 36px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .glance-icon.good { color: var(--good); }
