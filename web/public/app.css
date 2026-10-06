@@ -311,9 +311,13 @@ h1 {
 }
 
 .scope-reset {
+  display: grid;
+  place-items: center;
   width: 44px;
   min-width: 44px;
   padding: 0;
+  font-size: 1.35rem;
+  line-height: 1;
 }
 
 .browse[hidden] { display: none !important; }
@@ -643,6 +647,18 @@ td.bar-none { background: var(--none); }
   background: var(--table);
   border: 1px solid var(--line);
   border-radius: 14px;
+}
+
+.scroll table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.scroll th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--table);
 }
 
 table {
