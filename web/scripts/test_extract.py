@@ -652,11 +652,11 @@ def pack_identity_choice() -> None:
     spec.loader.exec_module(choice)
     fresh = {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []}
     have = {"cookSha": "b" * 40, "cookedAt": "", "errors": []}
-    assert choice.prefer(fresh, have) == "replace"
+    assert choice.prefer(fresh, have) == "refuse"
     assert choice.prefer(fresh, {"cookSha": "a" * 40, "cookedAt": "2026-10-07T02:00:00Z", "errors": []}) == "keep"
     assert choice.prefer(
         {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
-        {"cookSha": "b" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "b" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
     ) == "refuse"
     pinned = "74d44dde02a0e1c6430a9a78b06034099c84e001"
     assert choice.prefer(
@@ -668,16 +668,20 @@ def pack_identity_choice() -> None:
         {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
     ) == "refuse"
     assert choice.prefer(fresh, {"cookSha": fresh["cookSha"], "cookedAt": fresh["cookedAt"], "errors": []}) == "keep"
-    assert choice.newer(
-        {"cookSha": "a" * 40, "cookedAt": "2026-10-07T03:00:00Z", "errors": []},
-        {"cookSha": "b" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
-    ) == "fetch"
+    later = {"cookSha": "a" * 40, "cookedAt": "2026-10-07T03:00:00Z", "errors": []}
+    earlier = {"cookSha": "b" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []}
+    assert choice.newer(later, earlier) == "refuse"
+    assert choice.newer(later, earlier, lambda sha: sha == later["cookSha"]) == "fetch"
     assert choice.newer(
         {"cookSha": "c" * 40, "cookedAt": "", "errors": []},
         {"cookSha": "d" * 40, "cookedAt": "", "errors": []},
     ) == "refuse"
     assert choice.newer(
-        {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "a" * 40, "cookedAt": "", "publishedAt": "2026-10-07T00:00:00Z", "errors": []},
+        {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
+    ) == "refuse"
+    assert choice.newer(
+        {"cookSha": pinned, "cookedAt": "", "publishedAt": "2026-10-06T01:35:23Z", "errors": []},
         {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
     ) == "keep"
     assert choice.newer(

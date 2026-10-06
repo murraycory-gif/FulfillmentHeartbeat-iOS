@@ -49,7 +49,7 @@ import {
   browseLevel,
   storeLabel,
 } from "./public/filters.js";
-import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
+import { FIGURE_SECTIONS, packPinQuery, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
@@ -145,6 +145,21 @@ assert.equal(packURL("presub"), "/data/presub.json");
 assert.equal(packURL("schedule"), "/data/schedule.json");
 assert.equal(packURL("packs/seat/company/all/current.sqlite"), null);
 assert.equal(packURL("https://example.r2.dev/current.sqlite"), null);
+assert.equal(
+  packURL("section/labor", "", "cookSha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&publishedAt=2026-10-06T01%3A35%3A23Z"),
+  "/data/section/labor.json?cookSha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&publishedAt=2026-10-06T01%3A35%3A23Z",
+);
+assert.equal(
+  packPinQuery({
+    cookSha: "a".repeat(40),
+    publishedAt: "2026-10-06T01:35:23Z",
+    cookedAt: "2026-10-07T00:00:00Z",
+  }),
+  `cookSha=${"a".repeat(40)}&publishedAt=2026-10-06T01%3A35%3A23Z&cookedAt=2026-10-07T00%3A00%3A00Z`,
+);
+assert.equal(packPinQuery({ cookSha: "a".repeat(40) }), "");
+assert.match(app, /packPinQuery/);
+assert.match(app, /state\.packPin/);
 assert.equal(FIGURE_SECTIONS.has("lost_revenue"), true);
 assert.equal(FIGURE_SECTIONS.has("five_star"), true);
 assert.equal(FIGURE_SECTIONS.has("pick_path"), true);
@@ -1096,9 +1111,9 @@ assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" --cooked-at "\$DATA"/
 assert.match(publishScript, /refusing publish: cookedAt is missing/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
-assert.match(publishScript, /web-pack\/\{sha\}-\{cooked\}/);
 assert.match(publishScript, /pack_identity\.py/);
-assert.match(publishScript, /refusing to write into the live pack folder/);
+assert.match(publishScript, /pack_publish\.py/);
+assert.match(publishScript, /cook-guard\.sh" --publish/);
 assert.equal(publishScript.includes("cooked < have"), false);
 assert.equal(publishScript.includes("live_stamp <="), false);
 const guardRun = (args) =>
@@ -1112,6 +1127,88 @@ assert.equal(cleanGuard.stdout.trim(), "cook");
 const reviewGuard = guardRun(["Tools/HeartbeatIngest/publish-web.sh"]);
 assert.equal(reviewGuard.status, 0);
 assert.equal(reviewGuard.stdout.trim(), "review");
+const decidePublish = (ahead, porcelain) =>
+  spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--decide-publish", String(ahead)], {
+    encoding: "utf8",
+    input: porcelain,
+  });
+const cleanPublish = decidePublish(0, "");
+assert.equal(cleanPublish.status, 0, cleanPublish.stderr);
+assert.equal(cleanPublish.stdout.trim(), "cook");
+const unpushedPublish = decidePublish(2, "");
+assert.notEqual(unpushedPublish.status, 0);
+assert.match(unpushedPublish.stderr, /refusing unpushed commits/);
+const dirtyPublisher = decidePublish(0, " M Tools/HeartbeatIngest/publish-web.sh\n");
+assert.notEqual(dirtyPublisher.status, 0);
+assert.match(dirtyPublisher.stderr, /refusing a dirty publish-web\.sh/);
+const untrackedCook = decidePublish(0, "?? Tools/HeartbeatIngest/notes.sh\n");
+assert.notEqual(untrackedCook.status, 0);
+assert.match(untrackedCook.stderr, /refusing an untracked cook path/);
+const otherDirty = decidePublish(0, " M web/public/app.js\n");
+assert.equal(otherDirty.status, 0, otherDirty.stderr);
+assert.equal(otherDirty.stdout.trim(), "cook");
+const envOverride = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish"], {
+  encoding: "utf8",
+  env: { ...process.env, HEARTBEAT_SKIP_GIT_CHECK: "1" },
+});
+assert.notEqual(envOverride.status, 0);
+assert.match(envOverride.stderr, /refusing an env override/);
+const publishPlan = spawnSync(
+  "python3",
+  [
+    "-c",
+    `
+import json, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from pack_publish import plan_pointer, upload_pack
+sha = "a" * 40
+other = "b" * 40
+cooked = "2026-10-07T01:00:00Z"
+published = "2026-10-06T01:35:23Z"
+live = f"web-pack/{sha}-{cooked}"
+fallback = f"web-pack/{other}-2026-10-06T00:00:00Z"
+old = {
+    "prefix": live,
+    "cookSha": sha,
+    "cookedAt": cooked,
+    "publishedAt": published,
+    "schemaVersion": 1,
+    "previous": {"prefix": fallback, "cookSha": other, "cookedAt": "2026-10-06T00:00:00Z", "publishedAt": published, "schemaVersion": 1},
+}
+def refused(fn):
+    try:
+        fn()
+    except SystemExit as error:
+        return error.code if isinstance(error.code, str) else ""
+    return ""
+assert "live pack folder" in refused(lambda: plan_pointer(old, sha, cooked, published, 1))
+assert "fallback pack folder" in refused(lambda: plan_pointer(old, other, "2026-10-06T00:00:00Z", published, 1))
+recook = plan_pointer(old, sha, "2026-10-08T00:00:00Z", published, 1)
+assert recook["previous"]["prefix"] == live, recook
+assert recook["previous"]["cookSha"] == sha
+puts = []
+def fake_wrangler(args, check=True):
+    class Result:
+        returncode = 0
+    if args[:3] == ["r2", "object", "get"] and "current.json" in args[3]:
+        dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
+        Path(dest).write_text(json.dumps(old), encoding="utf-8")
+    if args[:3] == ["r2", "object", "put"]:
+        puts.append(args[3])
+    return Result()
+with tempfile.TemporaryDirectory() as tmp:
+    data = Path(tmp) / "data"
+    data.mkdir()
+    (data / "home.json").write_text(json.dumps({"cookSha": sha, "publishedAt": published, "cookedAt": cooked, "schemaVersion": 1}), encoding="utf-8")
+    message = refused(lambda: upload_pack(data, Path("check_pack.mjs"), fake_wrangler))
+assert "live pack folder" in message, message
+assert puts == []
+`,
+  ],
+  { cwd: root, encoding: "utf8" },
+);
+assert.equal(publishPlan.status, 0, publishPlan.stderr || publishPlan.stdout);
 const lostRegions = [
   ["East", "$100.00"],
   ["South", "$200.00"],
@@ -1167,11 +1264,16 @@ writeFileSync(join(identDir, "home.json"), JSON.stringify({ ...identStamp, cooke
 writeFileSync(join(identDir, "schedule.json"), JSON.stringify(identStamp));
 assert.ok(packIdentityErrors(identDir).some((item) => item.includes("does not match")));
 rmSync(identDir, { recursive: true, force: true });
-assert.match(publishScript, /web-pack\/current\.json/);
-assert.match(publishScript, /check_pack failed on the uploaded set/);
+const publishPy = readFileSync(join(root, "scripts/pack_publish.py"), "utf8");
+assert.match(publishPy, /web-pack\/current\.json/);
+assert.match(publishPy, /check_pack failed on the uploaded set/);
+assert.match(publishPy, /refusing to write into the live pack folder/);
+assert.match(publishPy, /refusing to write into the fallback pack folder/);
 assert.equal(publishScript.includes("web-pack/packs/"), false);
+assert.equal(publishPy.includes("web-pack/packs/"), false);
 assert.equal(publishScript.includes("web-pack/pointer.json"), false);
-assert.match(publishScript, /site tree not deployed/);
+assert.equal(publishPy.includes("web-pack/pointer.json"), false);
+assert.match(publishPy, /site tree not deployed/);
 assert.match(publishScript, /print_pack_stamp\.mjs/);
 assert.match(publishScript, /signed-in compare/);
 assert.match(publishScript, /2026-09-29/);
@@ -1670,7 +1772,8 @@ const staticFallback = await basicGate({
   }),
   next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
 });
-assert.equal(await staticFallback.text(), "static-home");
+assert.equal(staticFallback.status, 404);
+assert.deepEqual(await staticFallback.json(), { error: "NO DATA" });
 assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
 const pinnedPrefix = `web-pack/${PINNED_LIVE_COOK_SHA}-${publishedAt}`;
 const pinnedHome = {
@@ -1742,6 +1845,110 @@ const looseText = await looseRefused.text();
 assert.equal(looseText.includes("Haggen"), false);
 assert.match(looseText, new RegExp(PINNED_LIVE_COOK_SHA));
 assert.equal(looseText.includes(looseSha), false);
+const tabCurrentPrefix = packPrefix(goodSha, publishedAt);
+const tabFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: tabCurrentPrefix,
+    cookSha: goodSha,
+    cookedAt: goodCookedAt,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+    previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
+  }),
+  [packObjectKey(tabCurrentPrefix, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(tabCurrentPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    cookedAt: goodCookedAt,
+    rows: [{ store: "1", division: "CURRENT" }],
+  }),
+  [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+  [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    rows: [{ store: "1", division: "PINNED" }],
+  }),
+};
+const pinnedQuery = `cookSha=${PINNED_LIVE_COOK_SHA}&publishedAt=${encodeURIComponent(publishedAt)}`;
+resetPackCache();
+const pinnedTab = await basicGate({
+  request: new Request(`https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json?${pinnedQuery}`, {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await pinnedTab.text(), /PINNED/);
+const currentQuery = `cookSha=${goodSha}&publishedAt=${encodeURIComponent(publishedAt)}&cookedAt=${encodeURIComponent(goodCookedAt)}`;
+resetPackCache();
+const currentTab = await basicGate({
+  request: new Request(`https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json?${currentQuery}`, {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await currentTab.text(), /CURRENT/);
+resetPackCache();
+const missingOnPin = await basicGate({
+  request: new Request(`https://fulfillment-heartbeat-web.pages.dev/data/section/sales.json?${currentQuery}`, {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(missingOnPin.status, 404);
+assert.deepEqual(await missingOnPin.json(), { error: "NO DATA" });
+resetPackCache();
+const wholePrevious = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: tabCurrentPrefix,
+        cookSha: goodSha,
+        cookedAt: goodCookedAt,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+        previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
+      }),
+      [packObjectKey(tabCurrentPrefix, "home.json")]: JSON.stringify(goodHome),
+      [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+      [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        cookSha: PINNED_LIVE_COOK_SHA,
+        publishedAt,
+        rows: [{ store: "1", division: "PINNED" }],
+      }),
+    }),
+  }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await wholePrevious.text(), /PINNED/);
+const wrongPublished = "2026-11-01T00:00:00Z";
+resetPackCache();
+const wrongPin = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: pinnedPrefix,
+        cookSha: PINNED_LIVE_COOK_SHA,
+        publishedAt: wrongPublished,
+        schemaVersion: SCHEMA_VERSION,
+      }),
+      [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+    }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wrongPin.status, 404);
+assert.equal((await wrongPin.text()).includes("static-home"), false);
 resetPackCache();
 const apiPacked = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/section/missing_items", {

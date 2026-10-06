@@ -19,7 +19,7 @@ import {
   canonicalDivision,
   regionForDivision,
 } from "./filters.js";
-import { packURL } from "./packs.js";
+import { packPinQuery, packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
 import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
@@ -117,6 +117,7 @@ const state = {
   scopeQuery: "",
   browseOpen: false,
   home: null,
+  packPin: "",
   homeError: "",
   packs: new Map(),
   scheduleTab: "summary",
@@ -249,7 +250,7 @@ async function load(path) {
 }
 
 async function fetchPack(path) {
-  const relative = packURL(path);
+  const relative = packURL(path, "", path === "home" ? "" : state.packPin);
   if (!relative) throw new Error("NO DATA");
   const url = new URL(relative, location.origin).href;
   let last = new Error("NO DATA");
@@ -2310,6 +2311,7 @@ document.body.addEventListener("click", (event) => {
 
 function acceptHome(home) {
   state.home = home;
+  state.packPin = packPinQuery(home);
   state.homeError = "";
   applyPackStamp(home && home.publishedAt);
   const staleSchema = schemaWarning(home);

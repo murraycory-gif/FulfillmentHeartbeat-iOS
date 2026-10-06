@@ -8,9 +8,11 @@
 //
 // current.json is written last, after check_pack on the uploaded set. The
 // prefix is the pointer's stored prefix. A prefix is one cook: if any JSON
-// file under it fails the pointer, every read uses the previous pack. No
-// pointer yet falls through to the static /data files from the last full
-// deploy. A bare web-pack/home.json is not a pack.
+// file under it fails the pointer, every read uses the previous pack. A
+// missing file is refused or served from that whole previous pack. It is
+// not filled from the static /data tree. The client pins the pack id it
+// read from home, and later section reads stay on that prefix. A bare
+// web-pack/home.json is not a pack.
 //
 // A pack with no cookedAt is not served, except the live cook pinned below.
 // That cook stays readable. Nothing may publish it again.
@@ -18,6 +20,11 @@
 import { SCHEMA_VERSION } from "../public/schema.js";
 
 export const PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001";
+export const PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z";
+
+export function isPinnedLivePack(cookSha, publishedAt, cookedAt = "") {
+  return cookSha === PINNED_LIVE_COOK_SHA && publishedAt === PINNED_LIVE_PUBLISHED_AT && !cookedAt;
+}
 export const PACK_POINTER_KEY = "web-pack/current.json";
 
 const SHA = /^[0-9a-f]{40}$/;
@@ -108,16 +115,18 @@ function pointerEntry(value) {
   const prefix = typeof value.prefix === "string" && value.prefix ? value.prefix : packPrefix(cookSha, publishedAt);
   if (!SHA.test(cookSha) || schemaVersion !== SCHEMA_VERSION) return null;
   if (!prefix.startsWith("web-pack/") || prefix.includes("..") || /[\\]/.test(prefix)) return null;
-  if (!cookedAt && cookSha !== PINNED_LIVE_COOK_SHA) return null;
+  if (!cookedAt && !isPinnedLivePack(cookSha, publishedAt, cookedAt)) return null;
   return { prefix, cookSha, publishedAt, cookedAt, schemaVersion };
 }
 
 function fileStamp(json) {
   const metadata = json.metadata && typeof json.metadata === "object" ? json.metadata : {};
   const cookedAt = typeof json.cookedAt === "string" ? json.cookedAt : typeof metadata.cookedAt === "string" ? metadata.cookedAt : "";
+  const publishedAt = typeof json.publishedAt === "string" ? json.publishedAt : typeof metadata.publishedAt === "string" ? metadata.publishedAt : "";
   return {
     schemaVersion: json.schemaVersion != null ? json.schemaVersion : metadata.schemaVersion,
     cookSha: json.cookSha != null ? json.cookSha : metadata.cookSha,
+    publishedAt,
     cookedAt,
   };
 }
@@ -127,7 +136,8 @@ function fileMatches(json, entry) {
   const stamp = fileStamp(json);
   if (stamp.schemaVersion !== entry.schemaVersion || stamp.cookSha !== entry.cookSha) return false;
   if ((stamp.cookedAt || "") !== (entry.cookedAt || "")) return false;
-  if (!entry.cookedAt && entry.cookSha !== PINNED_LIVE_COOK_SHA) return false;
+  if (!entry.cookedAt && !isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt)) return false;
+  if (!stamp.cookedAt && stamp.publishedAt && stamp.publishedAt !== entry.publishedAt) return false;
   return true;
 }
 
@@ -207,7 +217,8 @@ async function prefixKeys(bucket, entry) {
     if (guardHome(read.json).length) return null;
     const metadata = read.json.metadata && typeof read.json.metadata === "object" ? read.json.metadata : {};
     if (metadata.cookSha !== entry.cookSha || metadata.schemaVersion !== entry.schemaVersion) return null;
-    if (entry.cookedAt && fileStamp(read.json).cookedAt !== entry.cookedAt) return null;
+    if (fileStamp(read.json).cookedAt !== entry.cookedAt) return null;
+    if (!entry.cookedAt && !isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt)) return null;
   }
   if (!homeSeen) return null;
   cache.acceptedPrefix = entry.prefix;
@@ -236,21 +247,55 @@ export function packApiPath(pathname) {
   return `section/${match[1]}.json`;
 }
 
-export async function readPackObject(bucket, pathname) {
-  const rel = dataPath(pathname.startsWith("/data/") ? pathname : `/data/${pathname}`);
-  if (!rel || !bucket || typeof bucket.get !== "function") return null;
+function requestTarget(url) {
+  let parsed;
+  try {
+    parsed = new URL(url, "https://fulfillment-heartbeat-web.pages.dev");
+  } catch {
+    return null;
+  }
+  let pathname = parsed.pathname;
+  if (pathname.startsWith("/api/")) {
+    const rel = packApiPath(pathname);
+    if (!rel) return null;
+    pathname = `/data/${rel}`;
+  }
+  const pin = {
+    cookSha: parsed.searchParams.get("cookSha") || "",
+    publishedAt: parsed.searchParams.get("publishedAt") || "",
+    cookedAt: parsed.searchParams.get("cookedAt") || "",
+  };
+  return { rel: dataPath(pathname), pin };
+}
+
+function samePinnedPack(entry, pin) {
+  if (!pin.cookSha) return false;
+  return (
+    entry.cookSha === pin.cookSha &&
+    entry.publishedAt === pin.publishedAt &&
+    (entry.cookedAt || "") === (pin.cookedAt || "")
+  );
+}
+
+export async function readPackObject(bucket, url) {
+  const target = requestTarget(url);
+  if (!target || !target.rel || !bucket || typeof bucket.get !== "function") return null;
   const { current, previous } = await loadPointer(bucket);
   const candidates = [];
   if (current && cache.rejectedPrefix !== current.prefix) candidates.push(current);
   if (previous && cache.rejectedPrefix !== previous.prefix) candidates.push(previous);
-  if (cache.entry) {
-    const pinned = candidates.find((item) => item.prefix === cache.entry.prefix);
+  let list = candidates;
+  if (target.pin.cookSha) {
+    list = candidates.filter((entry) => samePinnedPack(entry, target.pin));
+    if (!list.length) return { missing: true };
+  } else if (cache.entry) {
+    const pinned = list.find((item) => item.prefix === cache.entry.prefix);
     if (pinned) {
-      candidates.splice(candidates.indexOf(pinned), 1);
-      candidates.unshift(pinned);
+      list.splice(list.indexOf(pinned), 1);
+      list.unshift(pinned);
     }
   }
-  for (const entry of candidates) {
+  for (const entry of list) {
     const keys = await prefixKeys(bucket, entry);
     if (!keys) {
       if (cache.acceptedPrefix === entry.prefix) {
@@ -258,22 +303,26 @@ export async function readPackObject(bucket, pathname) {
         cache.acceptedKeys = null;
       }
       if (current && entry.prefix === current.prefix) cache.rejectedPrefix = current.prefix;
+      if (target.pin.cookSha) return { missing: true };
       continue;
     }
-    const key = packObjectKey(entry.prefix, rel);
+    const key = packObjectKey(entry.prefix, target.rel);
     if (!key || !keys.has(key)) {
-      // This prefix is one cook. A file it does not contain is not filled from the other pack.
-      return null;
+      // This prefix is one cook. A missing file is not filled from static /data.
+      // Without a client pin, the whole previous pack is the only fallback.
+      if (target.pin.cookSha) return { missing: true };
+      continue;
     }
-    const object = await readGuardedObject(bucket, entry, rel);
+    const object = await readGuardedObject(bucket, entry, target.rel);
     if (!object) {
       if (current && entry.prefix === current.prefix) cache.rejectedPrefix = current.prefix;
       cache.acceptedPrefix = "";
       cache.acceptedKeys = null;
+      if (target.pin.cookSha) return { missing: true };
       continue;
     }
     cache.entry = entry;
     return object;
   }
-  return null;
+  return { missing: true };
 }

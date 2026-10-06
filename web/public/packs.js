@@ -11,7 +11,21 @@ export const FIGURE_SECTIONS = new Set([
   "labor",
 ]);
 
-export function packURL(path, origin) {
+export function packPinQuery(home) {
+  if (!home || typeof home !== "object") return "";
+  const meta = home.metadata && typeof home.metadata === "object" ? home.metadata : {};
+  const cookSha = String(home.cookSha || meta.cookSha || "");
+  const publishedAt = String(home.publishedAt || "");
+  const cookedAt = String(home.cookedAt || meta.cookedAt || "");
+  if (!/^[0-9a-f]{40}$/.test(cookSha) || !publishedAt) return "";
+  const params = new URLSearchParams();
+  params.set("cookSha", cookSha);
+  params.set("publishedAt", publishedAt);
+  if (cookedAt) params.set("cookedAt", cookedAt);
+  return params.toString();
+}
+
+export function packURL(path, origin, pin) {
   const clean = String(path || "")
     .replace(/^\/+/, "")
     .split("?")[0];
@@ -27,6 +41,8 @@ export function packURL(path, origin) {
     if (match) relative = `/data/section/${match[1]}.json`;
   }
   if (!relative) return null;
+  const extra = String(pin || "").replace(/^\?/, "");
+  if (extra) relative += `?${extra}`;
   if (!origin) return relative;
   // location.origin has no user:pass. Strip again in case the base still has them.
   try {

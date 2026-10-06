@@ -13,6 +13,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish; then
+  echo "refusing publish: cook guard" >&2
+  exit 1
+fi
 SQLITE="${1:-}"
 PROJECT="fulfillment-heartbeat-web"
 SITE_URL="${HEARTBEAT_SITE_URL:-https://fulfillment-heartbeat-web.pages.dev}"
@@ -297,105 +301,7 @@ put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 node "$WEB/scripts/print_pack_stamp.mjs" "$DATA"
 
 if [[ -n "$DATA_ONLY" ]]; then
-  python3 - "$DATA" "$WEB/check_pack.mjs" << 'PY'
-import json, re, subprocess, sys, tempfile
-from pathlib import Path
-
-root = Path(sys.argv[1])
-check_pack = sys.argv[2]
-files = sorted(path for path in root.rglob("*.json") if path.is_file())
-if not files:
-    raise SystemExit("data-only upload: no pack json")
-home_path = root / "home.json"
-if not home_path.is_file():
-    raise SystemExit("data-only upload: home.json is missing")
-home = json.loads(home_path.read_text())
-meta = home.get("metadata") or {}
-sha = str(meta.get("cookSha") or home.get("cookSha") or "")
-published = str(home.get("publishedAt") or "")
-cooked = str(home.get("cookedAt") or meta.get("cookedAt") or "")
-schema = home.get("schemaVersion")
-if schema is None:
-    schema = meta.get("schemaVersion")
-if not re.fullmatch(r"[0-9a-f]{40}", sha):
-    raise SystemExit("data-only upload: cookSha missing")
-if not published or "/" in published or "\\" in published:
-    raise SystemExit("data-only upload: publishedAt missing")
-if not cooked or "/" in cooked or "\\" in cooked:
-    raise SystemExit("data-only upload: cookedAt missing")
-if cooked == published:
-    raise SystemExit("data-only upload: cookedAt must not copy publishedAt")
-prefix = f"web-pack/{sha}-{cooked}"
-
-def wrangler(args, check=True):
-    return subprocess.run(["npx", "wrangler", *args], check=check)
-
-def pointer_entry(old):
-    entry = {
-        "prefix": old.get("prefix") or f"web-pack/{old.get('cookSha')}-{old.get('publishedAt')}",
-        "cookSha": old.get("cookSha"),
-        "publishedAt": old.get("publishedAt"),
-        "schemaVersion": old.get("schemaVersion"),
-    }
-    if old.get("cookedAt"):
-        entry["cookedAt"] = old.get("cookedAt")
-    return entry
-
-with tempfile.TemporaryDirectory() as tmp:
-    pointer_file = Path(tmp) / "current.json"
-    got = wrangler(
-        ["r2", "object", "get", "heartbeat-packs/web-pack/current.json", f"--file={pointer_file}", "--remote"],
-        check=False,
-    )
-    old = {}
-    if got.returncode == 0 and pointer_file.is_file():
-        try:
-            loaded = json.loads(pointer_file.read_text())
-        except json.JSONDecodeError:
-            loaded = {}
-        if isinstance(loaded, dict):
-            old = loaded
-    live_prefix = str(old.get("prefix") or "")
-    if live_prefix and live_prefix == prefix:
-        raise SystemExit("data-only upload: refusing to write into the live pack folder")
-
-    for path in files:
-        rel = path.relative_to(root).as_posix()
-        key = f"heartbeat-packs/{prefix}/{rel}"
-        wrangler(["r2", "object", "put", key, f"--file={path}", "--remote"])
-
-    downloaded = Path(tmp) / "uploaded"
-    for path in files:
-        rel = path.relative_to(root).as_posix()
-        dest = downloaded / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        key = f"heartbeat-packs/{prefix}/{rel}"
-        wrangler(["r2", "object", "get", key, f"--file={dest}", "--remote"])
-    checked = subprocess.run(["node", check_pack, str(downloaded)], check=False)
-    if checked.returncode != 0:
-        raise SystemExit("data-only upload: check_pack failed on the uploaded set; current.json was not moved")
-
-    previous = None
-    if re.fullmatch(r"[0-9a-f]{40}", str(old.get("cookSha") or "")) and old.get("cookSha") != sha:
-        previous = pointer_entry(old)
-    elif isinstance(old.get("previous"), dict):
-        kept = old["previous"]
-        if re.fullmatch(r"[0-9a-f]{40}", str(kept.get("cookSha") or "")) and kept.get("cookSha") != sha:
-            previous = pointer_entry(kept)
-    new_pointer = {
-        "prefix": prefix,
-        "cookSha": sha,
-        "cookedAt": cooked,
-        "publishedAt": published,
-        "schemaVersion": schema,
-        "previous": previous,
-    }
-    next_pointer = Path(tmp) / "next-current.json"
-    next_pointer.write_text(json.dumps(new_pointer))
-    wrangler(["r2", "object", "put", "heartbeat-packs/web-pack/current.json", f"--file={next_pointer}", "--remote"])
-
-print(f"data-only upload: {len(files)} pack files at {prefix}/, check_pack passed, current.json updated, site tree not deployed")
-PY
+  python3 "$ROOT/web/scripts/pack_publish.py" "$DATA" "$WEB/check_pack.mjs"
   if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
     python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$DATA" << 'PY'
 import http.cookiejar
@@ -449,9 +355,7 @@ for rel in files:
         live = json.loads(raw)
     except json.JSONDecodeError:
         raise SystemExit(f"signed-in compare: /data/{rel} was not json")
-    keys = ["publishedAt", "schemaVersion", "cookSha"]
-    if local.get("cookedAt") or live.get("cookedAt"):
-        keys.append("cookedAt")
+    keys = ["publishedAt", "schemaVersion", "cookSha", "cookedAt"]
     for key in keys:
         if live.get(key) != local.get(key):
             raise SystemExit(
@@ -565,9 +469,7 @@ for rel in files:
         live = json.loads(raw)
     except json.JSONDecodeError:
         raise SystemExit(f"signed-in compare: /data/{rel} was not json")
-    keys = ["publishedAt", "schemaVersion", "cookSha"]
-    if local.get("cookedAt") or live.get("cookedAt"):
-        keys.append("cookedAt")
+    keys = ["publishedAt", "schemaVersion", "cookSha", "cookedAt"]
     for key in keys:
         if live.get(key) != local.get(key):
             raise SystemExit(

@@ -46,6 +46,78 @@ classify_one() {
   echo refuse
 }
 
+on_cook_path() {
+  local path="${1#./}"
+  [[ "$path" == "Tools/HeartbeatIngest/publish-web.sh" \
+    || "$path" == "web/scripts/extract_web_pack.py" \
+    || "$path" == "Tools/HeartbeatIngest/cook-local.sh" \
+    || "$path" == Tools/HeartbeatIngest/* \
+    || "$path" == "web/check_pack.mjs" \
+    || "$path" == "web/functions/pack-store.js" ]]
+}
+
+porcelain_path() {
+  local rest="${1:3}"
+  if [[ "$rest" == *" -> "* ]]; then
+    printf '%s' "${rest##* -> }"
+  else
+    printf '%s' "$rest"
+  fi
+}
+
+# --decide-publish AHEAD reads porcelain lines on stdin.
+# --publish checks this repo: env overrides, unpushed commits, and dirty cook paths.
+decide_publish() {
+  local ahead="$1"
+  local line path
+  if [[ "$ahead" -gt 0 ]]; then
+    echo "refuse"
+    echo "cook guard: refusing unpushed commits" >&2
+    return 1
+  fi
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    path="$(porcelain_path "$line")"
+    if ! on_cook_path "$path"; then
+      continue
+    fi
+    echo "refuse"
+    if [[ "$path" == "Tools/HeartbeatIngest/publish-web.sh" ]]; then
+      echo "cook guard: refusing a dirty publish-web.sh" >&2
+    elif [[ "$line" == "?? "* ]]; then
+      echo "cook guard: refusing an untracked cook path" >&2
+    else
+      echo "cook guard: refusing a dirty cook path" >&2
+    fi
+    return 1
+  done
+  echo "cook"
+  return 0
+}
+
+if [[ "${1:-}" == "--decide-publish" ]]; then
+  decide_publish "${2:-0}"
+  exit
+fi
+
+if [[ "${1:-}" == "--publish" ]]; then
+  if [[ -n "${HEARTBEAT_SKIP_GIT_CHECK:-}" || -n "${HEARTBEAT_SKIP_PACK_CHECK:-}" ]]; then
+    echo "refuse"
+    echo "cook guard: refusing an env override" >&2
+    exit 1
+  fi
+  root="$(cd "$(dirname "$0")/../.." && pwd)"
+  branch="$(git -C "$root" rev-parse --abbrev-ref HEAD)"
+  ahead=0
+  if git -C "$root" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+    ahead="$(git -C "$root" rev-list --count "origin/${branch}..HEAD")"
+  else
+    ahead=1
+  fi
+  git -C "$root" status --porcelain | decide_publish "$ahead"
+  exit
+fi
+
 result="cook"
 for path in "$@"; do
   one="$(classify_one "$path")"

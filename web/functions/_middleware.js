@@ -352,11 +352,11 @@ function packJSON(body, status = 200) {
 }
 
 // HEARTBEAT_PACKS is read here, after the session check, and nowhere else.
-async function packFromBucket(env, pathname) {
+async function packFromBucket(env, url) {
   const bucket = env && env.HEARTBEAT_PACKS;
   if (!bucket || typeof bucket.get !== "function") return null;
-  const object = await readPackObject(bucket, pathname);
-  if (!object) return null;
+  const object = await readPackObject(bucket, url);
+  if (!object || object.missing || object.body == null) return null;
   return new Response(object.body, { status: 200, headers: packHeaders() });
 }
 
@@ -365,8 +365,8 @@ async function apiPackResponse(request, env, pathname) {
   const rel = packApiPath(pathname);
   if (!rel) return packJSON({ error: "NO DATA" }, 404);
   const bucket = env && env.HEARTBEAT_PACKS;
-  const object = await readPackObject(bucket, `/data/${rel}`);
-  if (!object) return packJSON({ error: "NO DATA" }, 404);
+  const object = await readPackObject(bucket, request.url);
+  if (!object || object.missing || object.body == null) return packJSON({ error: "NO DATA" }, 404);
   if (request.method === "HEAD") return new Response(null, { status: 200, headers: packHeaders() });
   return new Response(object.body, { status: 200, headers: packHeaders() });
 }
@@ -445,8 +445,12 @@ async function routeRequest(context) {
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session);
   if (pathname.startsWith("/api/")) return apiPackResponse(request, env, pathname);
   if (pathname.startsWith("/data/")) {
-    const packed = await packFromBucket(env, pathname);
-    if (packed) return packed;
+    const bucket = env && env.HEARTBEAT_PACKS;
+    if (bucket && typeof bucket.get === "function") {
+      const packed = await packFromBucket(env, request.url);
+      if (packed) return packed;
+      return packJSON({ error: "NO DATA" }, 404);
+    }
   }
 
   const response = await context.next();

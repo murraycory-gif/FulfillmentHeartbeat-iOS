@@ -2,16 +2,22 @@
 """Choose a pack by cookSha + cookedAt. publishedAt is the workbook time and is not a newer-than key.
 
 Every JSON file in one directory must agree. A pack with no cookedAt is never
-published, including the live cook 74d44dde02a0e1c6430a9a78b06034099c84e001.
-The site may keep serving that cook. An extract with no cookedAt does not
-replace a pack that already has one.
+published. The site may still serve the live cook pinned in pack-store.js
+(cookSha 74d44dde02a0e1c6430a9a78b06034099c84e001, publishedAt 2026-10-06T01:35:23Z).
+A later live cookedAt is fetched only when that cookSha is HEAD or an ancestor.
 """
 
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import sys
 from pathlib import Path
+
+PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001"
+PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z"
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _stamp(payload: dict) -> tuple[str, str]:
@@ -52,8 +58,25 @@ def load_identity(root: Path) -> dict:
 
 
 def identity_of(payload: dict) -> dict:
-    sha, cooked = _stamp(payload if isinstance(payload, dict) else {})
-    return {"cookSha": sha, "cookedAt": cooked, "errors": [] if sha else ["cookSha missing"]}
+    body = payload if isinstance(payload, dict) else {}
+    sha, cooked = _stamp(body)
+    published = str(body.get("publishedAt") or "")
+    return {
+        "cookSha": sha,
+        "cookedAt": cooked,
+        "publishedAt": published,
+        "errors": [] if sha else ["cookSha missing"],
+    }
+
+
+def is_pinned_live(item: dict | None) -> bool:
+    if not item:
+        return False
+    return (
+        str(item.get("cookSha") or "") == PINNED_LIVE_COOK_SHA
+        and str(item.get("publishedAt") or "") == PINNED_LIVE_PUBLISHED_AT
+        and not str(item.get("cookedAt") or "")
+    )
 
 
 def prefer(fresh: dict, have: dict | None) -> str:
@@ -62,27 +85,27 @@ def prefer(fresh: dict, have: dict | None) -> str:
         return "refuse"
     fresh_at = str(fresh.get("cookedAt") or "")
     fresh_sha = str(fresh.get("cookSha") or "")
-    if not fresh_sha:
+    if not fresh_sha or not fresh_at:
         return "refuse"
     if have is None:
-        return "replace" if fresh_at else "refuse"
+        return "replace"
     if have.get("errors"):
         return "refuse"
     have_at = str(have.get("cookedAt") or "")
     have_sha = str(have.get("cookSha") or "")
-    if not have_sha:
+    if not have_sha or not have_at:
         return "refuse"
-    if not fresh_at:
-        return "refuse" if not have_at else "keep"
-    if not have_at:
-        return "replace"
     if fresh_at == have_at:
         return "keep" if fresh_sha == have_sha else "refuse"
     return "replace" if fresh_at > have_at else "keep"
 
 
-def newer(live: dict, local: dict) -> str:
-    """fetch, keep, or refuse. live is the site home. local is the pack on disk."""
+def newer(live: dict, local: dict, ancestor_ok=None) -> str:
+    """fetch, keep, or refuse. live is the site home. local is the pack on disk.
+
+    ancestor_ok(cookSha) is true when that commit is HEAD or an ancestor of HEAD.
+    A later live cookedAt is refused when the callback is missing or false.
+    """
     if live.get("errors") or local.get("errors"):
         return "refuse"
     live_at = str(live.get("cookedAt") or "")
@@ -91,15 +114,27 @@ def newer(live: dict, local: dict) -> str:
     local_sha = str(local.get("cookSha") or "")
     if not live_sha or not local_sha:
         return "refuse"
-    if not live_at and not local_at:
-        return "refuse"
-    if live_at and not local_at:
-        return "fetch"
-    if local_at and not live_at:
+    if is_pinned_live(live) and local_at:
         return "keep"
+    if not live_at or not local_at:
+        return "refuse"
     if live_at == local_at:
         return "keep" if live_sha == local_sha else "refuse"
-    return "fetch" if live_at > local_at else "keep"
+    if live_at > local_at:
+        if ancestor_ok is None or not ancestor_ok(live_sha):
+            return "refuse"
+        return "fetch"
+    return "keep"
+
+
+def commit_is_ancestor(sha: str, root: Path = ROOT) -> bool:
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return False
+    proc = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
+        capture_output=True,
+    )
+    return proc.returncode == 0
 
 
 def main() -> int:
@@ -130,7 +165,7 @@ def main() -> int:
         except (OSError, json.JSONDecodeError):
             print("refuse")
             return 1
-        decision = newer(identity_of(live_payload), load_identity(local_path))
+        decision = newer(identity_of(live_payload), load_identity(local_path), commit_is_ancestor)
         print(decision)
         return 0 if decision in {"fetch", "keep"} else 1
     print(f"unknown command {command}", file=sys.stderr)
