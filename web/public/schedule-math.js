@@ -33,7 +33,11 @@ export function qualifies(sales, under, fourUnder, over) {
 
 export function notScheduled(store) {
   if (store.under == null || store.eff == null) return false;
-  return Number(store.under) >= 99.5 && Math.abs(Number(store.eff)) < 0.05;
+  const under = Number(store.under);
+  const eff = Number(store.eff);
+  if (under < 99.5) return false;
+  // Eff at 0 is the blank placeholder. A negative eff with 100% under is the same unscheduled row.
+  return Math.abs(eff) < 0.05 || eff < 0;
 }
 
 // High under with almost no efficiency. Same shape as not scheduled, short of that gate.

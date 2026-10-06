@@ -1,6 +1,9 @@
 try {
-  if (location.username || location.password) {
-    location.replace(location.origin + location.pathname + location.search + location.hash);
+  const url = new URL(location.href);
+  if (url.username || url.password) {
+    url.username = "";
+    url.password = "";
+    location.replace(url.href);
   }
 } catch (e) {
   /* location is unavailable */

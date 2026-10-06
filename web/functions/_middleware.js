@@ -22,8 +22,10 @@ import {
   clearLoginFailures,
   loginThrottled,
   openInvite,
+  legacyTokenRevoked,
   readAccountSession,
   recordLoginFailure,
+  revokeLegacyToken,
   revokeSession,
   setupText,
   authenticateAccount,
@@ -273,17 +275,13 @@ async function readForm(request) {
   return new URLSearchParams(text);
 }
 
-function sessionIsAdmin(session, env) {
-  if (!session) return false;
-  if (session.account) return session.role === "admin";
-  if (authCutover(env)) return false;
-  const master = envSecret(env, "BASIC_USER");
-  return Boolean(master) && session.user === master;
+function sessionIsAdmin(session) {
+  return Boolean(session && session.account && session.role === "admin");
 }
 
-function settingsChrome(session, env, here) {
+function settingsChrome(session, here) {
   return {
-    admin: sessionIsAdmin(session, env),
+    admin: sessionIsAdmin(session),
     account: Boolean(session && session.account),
     here,
   };
@@ -341,7 +339,7 @@ async function inviteResponse(request, env, db, token, now) {
 }
 
 async function adminResponse(request, env, db, session, now) {
-  const chrome = settingsChrome(session, env, "admin");
+  const chrome = settingsChrome(session, "admin");
   if (!chrome.admin) return htmlResponse(deniedHTML(chrome), 403);
   if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", emailOn: false, chrome }), 503);
   let notice = "";
@@ -360,17 +358,16 @@ async function adminResponse(request, env, db, session, now) {
   return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env), chrome }));
 }
 
-function sessionPayload(session, env) {
-  const admin = sessionIsAdmin(session, env);
+function sessionPayload(session) {
   return {
     email: session.user,
-    role: session.account ? session.role : admin ? "admin" : "viewer",
+    role: session.account && session.role === "admin" ? "admin" : session.account ? session.role : "viewer",
     account: Boolean(session.account),
   };
 }
 
-function sessionJSON(session, env) {
-  return new Response(JSON.stringify(sessionPayload(session, env)), {
+function sessionJSON(session) {
+  return new Response(JSON.stringify(sessionPayload(session)), {
     status: 200,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
@@ -381,7 +378,7 @@ function sessionJSON(session, env) {
 
 async function accountResponse(request, env, db, session, now) {
   if (!session) return loginResponse("", "", 200);
-  const chrome = settingsChrome(session, env, "account");
+  const chrome = settingsChrome(session, "account");
   if (!session.account) return htmlResponse(accountSharedHTML(chrome));
   if (!db) return htmlResponse(accountHTML(session.user, "Accounts are not set up yet.", "", chrome), 503);
   if (request.method === "POST") {
@@ -438,6 +435,10 @@ export async function onRequest(context) {
     if (readyDb) {
       const current = await readAccountSession(readyDb, request, env, now);
       if (current) await revokeSession(readyDb, current.sessionId, now);
+      else {
+        const token = readCookie(request, COOKIE);
+        if (token) await revokeLegacyToken(readyDb, token, now);
+      }
     }
     return redirect(request, "/login", clearCookie(), 302);
   }
@@ -449,7 +450,12 @@ export async function onRequest(context) {
   }
 
   let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
-  if (!session && !authCutover(env)) session = await readSession(request, env, now);
+  if (!session && !authCutover(env)) {
+    const token = readCookie(request, COOKIE);
+    if (!(token && readyDb && (await legacyTokenRevoked(readyDb, token)))) {
+      session = await readSession(request, env, now);
+    }
+  }
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {
@@ -457,7 +463,7 @@ export async function onRequest(context) {
     return loginResponse("", "", 200);
   }
   if (pathname === "/login") return redirect(request, "/");
-  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session, env);
+  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session);
 
   const response = await context.next();
   if (!pathname.startsWith("/data/")) return response;

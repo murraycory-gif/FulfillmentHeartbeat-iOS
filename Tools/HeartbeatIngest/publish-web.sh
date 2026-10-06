@@ -46,7 +46,12 @@ PASS_FILE="${HEARTBEAT_WEB_PASSWORD_FILE:-$CONFIG_DIR/web-password}"
 
 if [[ -z "$UI_ONLY" ]]; then
   EXTRACT="$(mktemp -d)"
-  python3 "$ROOT/web/scripts/extract_web_pack.py" "$SQLITE" "$EXTRACT"
+  DAILY_XLSX="${HEARTBEAT_DAILY_XLSX:-}"
+  if [[ -n "$DAILY_XLSX" && -f "$DAILY_XLSX" ]]; then
+    python3 "$ROOT/web/scripts/extract_web_pack.py" "$SQLITE" "$EXTRACT" "$DAILY_XLSX"
+  else
+    python3 "$ROOT/web/scripts/extract_web_pack.py" "$SQLITE" "$EXTRACT"
+  fi
   python3 - "$DATA" "$EXTRACT" << 'PY'
 import json, shutil, sys
 from pathlib import Path

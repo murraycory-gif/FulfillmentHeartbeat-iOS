@@ -170,8 +170,13 @@ cook_schedule_file() {
 }
 
 deploy_site() {
+  local daily="${1:-}"
   if [[ -n "${HEARTBEAT_DEPLOY_CMD:-}" ]]; then
     bash -lc "$HEARTBEAT_DEPLOY_CMD"
+    return $?
+  fi
+  if [[ -n "$daily" && -f "$daily" ]]; then
+    HEARTBEAT_DAILY_XLSX="$daily" bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
     return $?
   fi
   bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
@@ -226,7 +231,7 @@ run_pipeline() {
     fi
   fi
 
-  deploy_site || return 1
+  deploy_site "$daily" || return 1
   published_at > "$deploy_marker"
   echo "deployed $(cat "$deploy_marker")"
   return 0

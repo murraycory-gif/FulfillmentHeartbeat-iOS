@@ -34,7 +34,7 @@ import {
   barelyScheduled,
   percentHealth,
   effHealth,
-} from "./schedule-math.js?v=2";
+} from "./schedule-math.js?v=3";
 
 let packStamp = "";
 
@@ -1253,9 +1253,13 @@ function closeDrawer() {
   if (!desktopNav()) navToggle.setAttribute("aria-expanded", "false");
 }
 
-async function ensureSeatRows() {
+async function ensureSeatRows(pages) {
+  const shared = Array.isArray(pages) ? pages : [];
+  const needPicker = shared.some((page) => page.section === "picker_scorecard");
   await Promise.all(
-    PAGES.filter((page) => page.section).map((page) => load(`section/${page.section}`).catch(() => null)),
+    PAGES.filter((page) => page.section && (needPicker || page.section !== "picker_scorecard")).map((page) =>
+      load(`section/${page.section}`).catch(() => null),
+    ),
   );
 }
 
@@ -1422,7 +1426,7 @@ async function sendShare() {
   shareSend.disabled = true;
   try {
     if (filtersActive(state.filters) && pages.some((page) => page.section || page.id === "dashboard")) {
-      await ensureSeatRows();
+      await ensureSeatRows(pages);
     }
     if (pages.some((page) => page.id === "schedule" || page.id === "dashboard")) {
       await load("schedule").catch(() => null);
@@ -1691,8 +1695,20 @@ function applyPageQuery() {
   history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
-if (location.username || location.password) {
-  location.replace(location.origin + location.pathname + location.search + location.hash);
+function pageHasCredentials() {
+  try {
+    const url = new URL(location.href);
+    return Boolean(url.username || url.password);
+  } catch (e) {
+    return false;
+  }
+}
+
+if (pageHasCredentials()) {
+  const url = new URL(location.href);
+  url.username = "";
+  url.password = "";
+  location.replace(url.href);
 } else {
   applyPageQuery();
   renderNav();

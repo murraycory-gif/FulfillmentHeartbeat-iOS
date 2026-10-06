@@ -782,17 +782,20 @@ def read_roster_people(path: str) -> dict:
                 division = canonical_division(div)
             if dist and dist.lower() != "total":
                 district = dist
-            if om_raw and om_raw.lower() != "total":
-                om = om_raw if is_person_om(om_raw) else ""
+            if om_raw and om_raw.lower() != "total" and is_person_om(om_raw):
+                om = om_raw
+            elif om_raw:
+                om = ""
             if not store_raw or store_raw.lower() == "total":
                 continue
             store = canonical_store(store_raw)
             if not store or is_total_store(store):
                 continue
+            # A blank OM_ID on this store does not inherit the previous person.
             people[store] = {
                 "division": division,
                 "district": district,
-                "om": om if is_person_om(om) else "",
+                "om": om if (om_raw and is_person_om(om_raw)) else "",
             }
         return people
     finally:
@@ -822,23 +825,67 @@ def apply_roster_people(roster: dict, records: list, people: dict) -> dict:
                 current["division"] = ident["division"]
             if ident.get("district"):
                 current["district"] = ident["district"]
-            current["om"] = person
-    known = set(people)
+            if person:
+                current["om"] = person
     for record in records:
         ident = people.get(record["store"])
-        if ident:
-            if ident.get("division"):
-                record["division"] = ident["division"]
-            if ident.get("district"):
-                record["district"] = ident["district"]
-            record["om"] = ident.get("om") or ""
-        else:
-            # The Daily roster is the OM source. A stray section name is not a seat.
-            record["om"] = ""
-    for current in roster.values():
-        if current["store"] not in known:
-            current["om"] = ""
+        if not ident:
+            continue
+        if ident.get("division"):
+            record["division"] = ident["division"]
+        if ident.get("district"):
+            record["district"] = ident["district"]
+        if ident.get("om"):
+            record["om"] = ident["om"]
     return {"stores": len(people), "named": named}
+
+
+def prefer_pph_identity(roster: dict, records: list) -> None:
+    """PPH names the store when the Daily Roster sheet has no row for it."""
+    for record in records:
+        if record.get("section") != "pph":
+            continue
+        current = roster.get(record.get("store") or "")
+        if not current:
+            continue
+        if record.get("division"):
+            current["division"] = canonical_division(record["division"])
+        if record.get("district"):
+            current["district"] = record["district"]
+        if is_person_om(record.get("om") or ""):
+            current["om"] = record["om"]
+
+
+def apply_pph_summary(summaries: list, records: list) -> None:
+    """80 and above is the goal. 74 up to 80 is the gap. Below 74 is the risk count."""
+    values = []
+    for record in records:
+        if record.get("section") != "pph":
+            continue
+        raw = (record.get("payload") or {}).get("pph")
+        if raw is None:
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return
+    at_goal = sum(value >= 80 for value in values)
+    between = sum(74 <= value < 80 for value in values)
+    below = sum(value < 74 for value in values)
+    average = sum(values) / len(values)
+    if average >= 80:
+        health = "good"
+    elif average >= 74:
+        health = "watch"
+    else:
+        health = "risk"
+    secondary = f"{at_goal} of {len(values)} at 80 · {between} between 74 and 80 · {below} below 74"
+    for item in summaries:
+        if item.get("section") == "pph":
+            item["secondary"] = secondary
+            item["health"] = health
 
 
 def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> None:
@@ -934,6 +981,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         if record.get("section") == "pick_path_picker" and record.get("store"):
             _merge_roster(roster, record, prefer_roster=False)
     records = list(latest.values()) + list(shoppers.values())
+    prefer_pph_identity(roster, records)
     people = read_roster_people(roster_xlsx) if roster_xlsx else {}
     if people:
         stats = apply_roster_people(roster, records, people)
@@ -981,6 +1029,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "riskCount": item.get("riskCount") or 0,
             }
         )
+    apply_pph_summary(summaries, records)
     company_tiles = json.loads(json.dumps(chrome.get("companyTiles") or {}))
     apply_lost_tile_scale(company_tiles, lost_market_payload(db))
     labor_market = labor_market_payload(db)
@@ -1059,6 +1108,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
     _write(out / "presub.json", {"scopes": presub})
     db.close()
+    assert_pack(out)
 
 
 def attach_unique_scorecard_store(shoppers: dict) -> int:
@@ -1144,6 +1194,151 @@ def _table(db: sqlite3.Connection, name: str) -> bool:
 
 def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _blend(stores: list, markets: dict, region: str, field: str):
+    scoped = [store for store in stores if store.get("region") == region]
+    weight = 0
+    total = 0.0
+    for division in {store.get("division") for store in scoped}:
+        market = markets.get(division) or {}
+        value = market.get(field)
+        if value is None:
+            continue
+        count = sum(1 for store in scoped if store.get("division") == division)
+        if not count:
+            continue
+        weight += count
+        total += float(value) * count
+    return None if not weight else total / weight
+
+
+def assert_pack(out: Path) -> None:
+    """Refuse a pack that is missing the keys a later cook already depends on."""
+    errors = []
+    home = loads((out / "home.json").read_text(encoding="utf-8"), {})
+    schedule = loads((out / "schedule.json").read_text(encoding="utf-8"), {})
+    lost = loads((out / "section" / "lost_revenue.json").read_text(encoding="utf-8"), {})
+    dynacap = loads((out / "section" / "dynacap.json").read_text(encoding="utf-8"), {})
+    if not isinstance(home, dict) or not isinstance(schedule, dict):
+        raise SystemExit("pack schema: home or schedule is not an object")
+
+    labor = home.get("laborMarket") if isinstance(home.get("laborMarket"), dict) else {}
+    aiv = labor.get("aiv_impact_pct")
+    if not isinstance(aiv, (int, float)) or not 0.20 <= float(aiv) <= 0.40:
+        errors.append(f"laborMarket.aiv_impact_pct={aiv}")
+    tiles = home.get("companyTiles") if isinstance(home.get("companyTiles"), dict) else {}
+    labor_tiles = tiles.get("labor") if isinstance(tiles.get("labor"), dict) else {}
+    labor_labels = list(labor_tiles.get("labels") or [])
+    labor_values = list(labor_tiles.get("values") or [])
+    aiv_tile = labor_values[labor_labels.index("AIV")] if "AIV" in labor_labels else None
+    if aiv_tile != "0.26%":
+        errors.append(f"AIV tile={aiv_tile}")
+    tables = home.get("regionTables")
+    if not isinstance(tables, list) or len(tables) < 10:
+        errors.append("regionTables missing")
+    lost_tiles = tiles.get("lost_revenue") if isinstance(tiles.get("lost_revenue"), dict) else {}
+    lost_labels = list(lost_tiles.get("labels") or [])
+    lost_values = list(lost_tiles.get("values") or [])
+
+    def lost_tile(name: str):
+        return lost_values[lost_labels.index(name)] if name in lost_labels else None
+
+    if lost_tile("Goal %") != "3.06%":
+        errors.append(f"Goal %={lost_tile('Goal %')}")
+    if lost_tile("Lost %") != "5.19%":
+        errors.append(f"Lost %={lost_tile('Lost %')}")
+    missed = str(lost_tile("Missed") or "")
+    if not missed.startswith("$"):
+        errors.append(f"Missed={missed}")
+    summaries = {item.get("section"): item for item in home.get("summaries") or [] if isinstance(item, dict)}
+    pph = summaries.get("pph") or {}
+    if "between 74 and 80" not in str(pph.get("secondary") or ""):
+        errors.append(f"pph secondary={pph.get('secondary')}")
+    if pph.get("health") == "risk":
+        errors.append("pph health is risk at a 74+ average")
+
+    roster = home.get("filters", {}).get("stores") or []
+    by_store = {str(item.get("store")): item for item in roster if isinstance(item, dict)}
+    expected = {
+        "233": ("Seattle", "28", "Ryan Burns"),
+        "339": ("Mountain West", "I5", "Chris Banuelos"),
+        "879": ("Mountain West", "66", "Ellas Ware"),
+        "1509": ("Mountain West", "I5", "Chris Banuelos"),
+        "4799": ("Jewel Osco", "J6", "Mike Macdonald"),
+        "210": ("United", "U5", "Andrew Quinn"),
+        "239": ("Southwest", "N0", "Ben Sarmadi"),
+    }
+    for store, ident in expected.items():
+        row = by_store.get(store) or {}
+        got = (row.get("division"), row.get("district"), row.get("om"))
+        if got != ident:
+            errors.append(f"roster {store}={got}")
+
+    roster_counts: dict[str, int] = {}
+    for item in roster:
+        division = item.get("division") or ""
+        if division:
+            roster_counts[division] = roster_counts.get(division, 0) + 1
+    lost_rows = lost.get("rows") if isinstance(lost, dict) else []
+    lost_counts: dict[str, int] = {}
+    for row in lost_rows or []:
+        division = row.get("division") or ""
+        if division:
+            lost_counts[division] = lost_counts.get(division, 0) + 1
+    haggen_roster = roster_counts.get("Haggen", 0)
+    if lost_counts.get("Haggen", 0) > haggen_roster + 5:
+        errors.append(f"lost Haggen rows={lost_counts.get('Haggen', 0)} roster={haggen_roster}")
+    if len(lost_counts) < 8:
+        errors.append(f"lost divisions={sorted(lost_counts)}")
+    for division, count in roster_counts.items():
+        if count < 20:
+            continue
+        if lost_counts.get(division, 0) <= 0:
+            errors.append(f"{division} roster {count} has no lost rows")
+
+    markets = {item.get("label"): item for item in (schedule.get("markets") or []) if isinstance(item, dict)}
+    united = markets.get("United") or {}
+    if united.get("eff") is not None or united.get("under") is not None or united.get("over") is not None:
+        errors.append(f"United market={united.get('under'), united.get('over'), united.get('eff')}")
+    if int(schedule.get("week") or 0) != 32:
+        errors.append(f"week={schedule.get('week')}")
+    schedule_stores = schedule.get("stores") or []
+    if len(schedule_stores) < 2100:
+        errors.append(f"schedule stores={len(schedule_stores)}")
+    schedule_by = {str(item.get("store")): item for item in schedule_stores if isinstance(item, dict)}
+    for store in ("210", "239"):
+        row = schedule_by.get(store) or {}
+        if (row.get("division"), row.get("district"), row.get("om")) != expected[store]:
+            errors.append(f"schedule {store}={(row.get('division'), row.get('district'), row.get('om'))}")
+    south_eff = _blend(schedule_stores, markets, "South Region", "eff")
+    south_under = _blend(schedule_stores, markets, "South Region", "under")
+    south_over = _blend(schedule_stores, markets, "South Region", "over")
+    if south_eff is None or abs(south_eff - 91.04) > 0.02:
+        errors.append(f"South eff={south_eff}")
+    if south_under is None or abs(south_under - 3.05) > 0.02:
+        errors.append(f"South under={south_under}")
+    if south_over is None or abs(south_over - 5.91) > 0.02:
+        errors.append(f"South over={south_over}")
+
+    dyn_rows = dynacap.get("rows") if isinstance(dynacap, dict) else []
+    united_dyn = [row for row in dyn_rows or [] if row.get("division") == "United"]
+    if len(united_dyn) < 50:
+        errors.append(f"United dynacap rows={len(united_dyn)}")
+    missing_caps = [
+        row.get("store")
+        for row in united_dyn
+        if "eot_capacity" not in (row.get("payload") or {}) or "used_capacity" not in (row.get("payload") or {})
+    ]
+    if missing_caps:
+        errors.append(f"United dynacap missing EOT/Used on {len(missing_caps)} rows")
+
+    if errors:
+        raise SystemExit("pack schema check failed:\n- " + "\n- ".join(errors))
+    print(
+        f"pack schema ok stores={len(roster)} schedule={len(schedule_stores)} "
+        f"lost={len(lost_rows or [])} aiv={aiv_tile} south_eff={south_eff:.2f}"
+    )
 
 
 def main() -> None:

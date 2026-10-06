@@ -43,6 +43,10 @@ const SCHEMA = [
     window_start INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
   )`,
+  `CREATE TABLE IF NOT EXISTS revoked_legacy (
+    token_hash TEXT PRIMARY KEY,
+    revoked_at INTEGER NOT NULL
+  )`,
   "CREATE INDEX IF NOT EXISTS invites_user ON invites (user_id, used_at)",
   "CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, revoked_at)",
 ];
@@ -369,6 +373,23 @@ export async function revokeSession(db, sessionId, now) {
   await db.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
 }
 
+export async function revokeLegacyToken(db, token, now) {
+  if (!db || !token) return;
+  const hash = await sha256Hex(token);
+  await db
+    .prepare(
+      "INSERT INTO revoked_legacy (token_hash, revoked_at) VALUES (?, ?) ON CONFLICT(token_hash) DO UPDATE SET revoked_at = excluded.revoked_at",
+    )
+    .bind(hash, now)
+    .run();
+}
+
+export async function legacyTokenRevoked(db, token) {
+  if (!db || !token) return false;
+  const row = await db.prepare("SELECT token_hash FROM revoked_legacy WHERE token_hash = ?").bind(await sha256Hex(token)).first();
+  return Boolean(row);
+}
+
 export async function changePassword(db, env, request, session, current, password, confirm, now) {
   if (!session || !session.account) return { error: "This sign-in does not have its own password." };
   if (await loginThrottled(db, request, session.user, now)) return { error: "Too many attempts. Try again later.", status: 429 };
@@ -619,7 +640,7 @@ function shell(title, heading, body, chrome) {
   <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/login.css?v=2">
-  <script src="/nav-boot.js?v=2"></script>
+  <script src="/nav-boot.js?v=3"></script>
 </head>
 <body>
   ${head}
