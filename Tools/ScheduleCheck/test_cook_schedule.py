@@ -157,7 +157,7 @@ class CookArgsTests(unittest.TestCase):
                 "crossCheck": self.sample_report(),
             }
             original = cook.cook_workbook
-            cook.cook_workbook = lambda path: pack
+            cook.cook_workbook = lambda path, previous_stores=None, **kwargs: pack
             try:
                 code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest])
             finally:
@@ -215,7 +215,7 @@ class CookArgsTests(unittest.TestCase):
                 "crossCheck": self.sample_report(marketUnder=5.01, marketOver=6.55, pch=70.67),
             }
             original = cook.cook_workbook
-            cook.cook_workbook = lambda path: pack
+            cook.cook_workbook = lambda path, previous_stores=None, **kwargs: pack
             try:
                 code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest, "--publish-sheet"])
             finally:
@@ -237,7 +237,7 @@ class CookArgsTests(unittest.TestCase):
             sqlite3.connect(dest).close()
             pack = {"week": 32, "stores": [], "crossCheck": self.sample_report(scope=1)}
             original = cook.cook_workbook
-            cook.cook_workbook = lambda path: pack
+            cook.cook_workbook = lambda path, previous_stores=None, **kwargs: pack
             try:
                 code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest, "--publish-sheet"])
             finally:
@@ -260,7 +260,7 @@ class CookArgsTests(unittest.TestCase):
             sqlite3.connect(dest).close()
             pack = {"week": 32, "stores": [], "crossCheck": self.sample_report(scope=1)}
             original = cook.cook_workbook
-            cook.cook_workbook = lambda path: pack
+            cook.cook_workbook = lambda path, previous_stores=None, **kwargs: pack
             try:
                 code = cook.main(["/tmp/unused.xlsx", "--sqlite", dest])
             finally:
@@ -281,7 +281,7 @@ class CookArgsTests(unittest.TestCase):
             out = os.path.join(folder, "schedule-check.json")
             pack = {"week": 32, "stores": [], "crossCheck": self.sample_report()}
             original = cook.cook_workbook
-            cook.cook_workbook = lambda path: pack
+            cook.cook_workbook = lambda path, previous_stores=None, **kwargs: pack
             try:
                 code = cook.main(["/tmp/unused.xlsx", out])
             finally:
@@ -296,7 +296,7 @@ class CookArgsTests(unittest.TestCase):
             out = os.path.join(folder, "schedule-check.json")
             pack = {"week": 32, "stores": [], "crossCheck": self.sample_report(scope=1)}
             original = cook.cook_workbook
-            cook.cook_workbook = lambda path: pack
+            cook.cook_workbook = lambda path, previous_stores=None, **kwargs: pack
             try:
                 code = cook.main(["/tmp/unused.xlsx", out])
             finally:
@@ -316,6 +316,303 @@ class CookArgsTests(unittest.TestCase):
     def test_missing_path_exits_nonzero(self):
         code = cook.main([])
         self.assertEqual(code, 2)
+
+
+class WeekFooterTests(unittest.TestCase):
+    def write_workbook(
+        self,
+        folder,
+        *,
+        week_name=34,
+        footer="202634",
+        current_footer=None,
+        omit_current_footer=False,
+        title=None,
+        calc=None,
+        k1=None,
+        over=0.06,
+        under=0.04,
+        eff=0.80,
+    ):
+        import openpyxl
+
+        path = os.path.join(folder, f"Schedule Review Week {week_name} - Summary.xlsx")
+        book = openpyxl.Workbook()
+        current = book.active
+        current.title = "Stores Current Week"
+        current.append(["Division", "District", "Store", "Over", "Under", "Eff"])
+        current.append(["Shaws", "B5", 117, over, under, eff])
+        if not omit_current_footer:
+            current_id = footer if current_footer is None else current_footer
+            current.append([f"Applied filters: WEEK_ID is {current_id}"])
+
+        for name in (
+            "Last 4 Week Quality",
+            "Sales AVG Last 4 Wks",
+            "5 Star Last 5 Weeks",
+            "Roster",
+            "ACTION NEEDED",
+        ):
+            book.create_sheet(name)
+        for name in ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"):
+            book.create_sheet(name)
+
+        market = book.create_sheet("Market Look WK33")
+        market.append(["Market", "Under", "Over", "Eff"])
+        market.append(["Total", 0.05, 0.04, 0.91])
+        market.append([f"Applied filters: WEEK_ID is {footer}"])
+
+        store_look = book.create_sheet("Store Look WK33")
+        store_look.append([f"Applied filters: WEEK_ID is {footer}"])
+
+        summary = book.create_sheet("Summary")
+        shown = title or f"Schedule Review Summary — Week {week_name} (WK{week_name})"
+        summary["C1"] = shown
+        if k1 is not None:
+            summary["K1"] = k1
+
+        if calc is not None:
+            hidden = book.create_sheet("_Calc")
+            hidden["M2"] = calc["M2"]
+            hidden["N2"] = calc["N2"]
+            hidden["O2"] = calc["O2"]
+            hidden.sheet_state = "hidden"
+
+        book.save(path)
+        return path
+
+    def test_renamed_file_uses_footer_week_not_tab_names(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            pack = cook.cook_workbook(path)
+        self.assertEqual(pack["week"], 34)
+        self.assertIn("Week 34", pack["filename"])
+        self.assertTrue(any(item["label"] == "Total" for item in pack["markets"]))
+        store = pack["stores"][0]
+        self.assertEqual(store["store"], "117")
+        self.assertEqual(store["under"], 4.0)
+        self.assertEqual(store["over"], 6.0)
+        self.assertEqual(store["eff"], 80.0)
+
+    def test_filename_footer_mismatch_fails(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, footer="202633")
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        message = str(caught.exception)
+        self.assertIn("33", message)
+        self.assertIn("34", message)
+        self.assertIn("WEEK_ID", message)
+
+    def published_sqlite(self, folder, week):
+        import sqlite3
+
+        dest = os.path.join(folder, "current.sqlite")
+        connection = sqlite3.connect(dest)
+        connection.executescript(cook.SCHEDULE_DDL)
+        connection.execute(
+            """
+            INSERT INTO schedule_pack(id, published_at, week, filename, summary_title)
+            VALUES (1, '', ?, 'Schedule Review Week published.xlsx', '')
+            """,
+            (week,),
+        )
+        connection.execute(
+            """
+            INSERT INTO schedule_store(
+                store, region, division, district, om, under, over, eff, day_under_json, day_over_json
+            ) VALUES ('117', '', '', '', '', 4.0, 6.0, 80.0, '[]', '[]')
+            """
+        )
+        connection.commit()
+        connection.close()
+        return dest
+
+    def test_stale_identical_store_rows_fail(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            dest = self.published_sqlite(folder, 33)
+            with self.assertRaises(SystemExit) as caught:
+                cook.main([path, "--sqlite", dest, "--publish-sheet"])
+        self.assertIn("byte-identical", str(caught.exception))
+        self.assertIn("previous published week", str(caught.exception))
+
+    def test_snapshot_of_previous_week_rejects_stale_rows(self):
+        import json
+        import sqlite3
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            dest = os.path.join(folder, "current.sqlite")
+            sqlite3.connect(dest).close()
+            snap_dir = os.path.join(folder, "schedule-weeks")
+            os.makedirs(snap_dir)
+            with open(os.path.join(snap_dir, "33.json"), "w", encoding="utf-8") as handle:
+                json.dump(
+                    {"week": 33, "stores": [{"store": "117", "under": 4.0, "over": 6.0, "eff": 80.0}]},
+                    handle,
+                )
+            with self.assertRaises(SystemExit) as caught:
+                cook.main([path, "--sqlite", dest, "--publish-sheet"])
+        self.assertIn("byte-identical", str(caught.exception))
+
+    def test_changed_store_rows_are_not_stale(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            pack = cook.cook_workbook(
+                path,
+                previous_stores=[{"store": "117", "under": 4.0, "over": 6.0, "eff": 70.0}],
+            )
+        self.assertEqual(pack["week"], 34)
+
+    def test_current_week_footer_disagrees(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, current_footer="202633")
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        self.assertIn("Stores Current Week", str(caught.exception))
+        self.assertIn("202633", str(caught.exception))
+
+    def test_calc_sheet_agreement_passes_as_footer_week(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, calc={"M2": 34, "N2": 34, "O2": 34})
+            pack = cook.cook_workbook(path)
+        self.assertEqual(pack["week"], 34)
+
+    def test_calc_sheet_disagreement_fails(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, calc={"M2": 34, "N2": 33, "O2": 34})
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        message = str(caught.exception)
+        self.assertIn("disagreement", message)
+        self.assertIn("N2 33", message)
+        self.assertIn("footer 34", message)
+
+    def test_summary_k1_warning_fails(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(
+                folder,
+                calc={"M2": 34, "N2": 34, "O2": 34},
+                k1="Filename week does not match the Market Look week",
+            )
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        self.assertIn("Summary K1", str(caught.exception))
+
+    def test_two_market_look_sheets_fail(self):
+        import openpyxl
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            book = openpyxl.load_workbook(path)
+            book.create_sheet("Market Look WK34")
+            book.save(path)
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        self.assertIn("Market Look", str(caught.exception))
+        self.assertNotIn("Market Look*", str(caught.exception))
+
+    def test_market_look_notes_is_not_a_look_sheet(self):
+        import openpyxl
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            book = openpyxl.load_workbook(path)
+            book.create_sheet("Market Look Notes")
+            book.save(path)
+            pack = cook.cook_workbook(path)
+        self.assertEqual(pack["week"], 34)
+
+    def test_whitespace_only_k1_fails(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, k1="   ")
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        self.assertIn("Summary K1", str(caught.exception))
+
+    def test_missing_current_week_footer_is_logged(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, omit_current_footer=True)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                pack = cook.cook_workbook(path)
+        self.assertEqual(pack["week"], 34)
+        self.assertIn("Stores Current Week has no WEEK_ID footer", buffer.getvalue())
+
+    def test_fallback_without_calc_still_fails_on_k1(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, k1="Filename week does not match the Market Look week")
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        self.assertIn("Summary K1", str(caught.exception))
+
+    def test_year_rollover_week_id(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder, week_name=1, footer="202701")
+            pack = cook.cook_workbook(path)
+        self.assertEqual(pack["week"], 1)
+        self.assertIn("Week 1", pack["filename"])
+
+    def test_same_workbook_recook_passes(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(folder)
+            dest = self.published_sqlite(folder, 34)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = cook.main([path, "--sqlite", dest, "--publish-sheet"])
+        self.assertEqual(code, 0)
+        self.assertIn("Stale-row check skipped", buffer.getvalue())
+        self.assertNotIn("byte-identical", buffer.getvalue())
+
+    def test_blank_calc_shows_stale_current_week_first(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = self.write_workbook(
+                folder,
+                current_footer="202633",
+                calc={"M2": None, "N2": None, "O2": None},
+            )
+            with self.assertRaises(SystemExit) as caught:
+                cook.cook_workbook(path)
+        message = str(caught.exception)
+        self.assertIn("Stores Current Week", message)
+        self.assertIn("202633", message)
+        self.assertNotIn("blank", message)
 
 
 if __name__ == "__main__":

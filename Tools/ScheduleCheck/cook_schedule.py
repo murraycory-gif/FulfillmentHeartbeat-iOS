@@ -14,7 +14,6 @@ the Heartbeat pack.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import os
 import sys
@@ -182,20 +181,226 @@ def rows_of(workbook, name):
     return [tuple(row) for row in sheet.iter_rows(values_only=True)]
 
 
-def find_week(sheet_names):
+def one_look_sheet(workbook, kind: str) -> str:
+    """Match 'Market Look' or 'Store Look' with an optional ' WK##' suffix.
+
+    'Market Look Notes' is not a look sheet.
+    """
+    import re
+
+    pattern = re.compile(rf"{re.escape(kind)}(?: WK\d+)?\Z")
+    names = [name for name in workbook.sheetnames if pattern.fullmatch(name)]
+    if len(names) != 1:
+        raise SystemExit(f"Expected exactly one {kind} sheet, found {len(names)}: {names}")
+    return names[0]
+
+
+def footer_week_ids(table) -> list[str]:
     import re
 
     found = []
-    for name in sheet_names:
-        match = re.search(r"(?:Store|Market) Look WK(\d+)", name, re.IGNORECASE)
-        if match:
-            found.append(int(match.group(1)))
-    if not found:
-        raise SystemExit("No Store Look WK## / Market Look WK## tab. Week number is unknown.")
-    week = found[0]
-    if any(item != week for item in found):
-        raise SystemExit(f"Week tabs disagree: {found}")
+    for row in table:
+        for cell in row:
+            if isinstance(cell, str):
+                found.extend(re.findall(r"WEEK_ID is\s+(\d+)", cell, flags=re.IGNORECASE))
+    return found
+
+
+def week_from_week_id(token: str) -> int:
+    if not token.isdigit() or len(token) < 5:
+        raise SystemExit(f"WEEK_ID {token} is not a YYYYNN week")
+    year = int(token[:4])
+    week = int(token[4:])
+    if year < 1000 or year > 9999 or week < 1 or week > 53:
+        raise SystemExit(f"WEEK_ID {token} is not a week number")
     return week
+
+
+def sheet_footer_week(label: str, table) -> int:
+    tokens = footer_week_ids(table)
+    if not tokens:
+        raise SystemExit(f"{label} has no 'WEEK_ID is YYYYNN' footer")
+    weeks = [week_from_week_id(token) for token in tokens]
+    if any(item != weeks[0] for item in weeks):
+        raise SystemExit(f"{label} WEEK_ID footers disagree: {tokens}")
+    return weeks[0]
+
+
+def filename_week(path: str) -> int:
+    import re
+
+    name = os.path.basename(path)
+    found = [int(item) for item in re.findall(r"Week\s+(\d+)", name, flags=re.IGNORECASE)]
+    if not found:
+        raise SystemExit(f"Filename {name} has no Week NN")
+    if any(item != found[0] for item in found):
+        raise SystemExit(f"Filename {name} week numbers disagree: {found}")
+    return found[0]
+
+
+def cell_value(table, row_number: int, column_number: int):
+    row_index = row_number - 1
+    column_index = column_number - 1
+    if row_index < 0 or row_index >= len(table):
+        return None
+    row = table[row_index]
+    if column_index < 0 or column_index >= len(row):
+        return None
+    return row[column_index]
+
+
+def cached_week_number(value, label: str) -> int:
+    if value is None or value == "":
+        raise SystemExit(f"{label} is blank. Excel has not cached that week cell.")
+    if isinstance(value, bool) or isinstance(value, str):
+        text = value.strip() if isinstance(value, str) else ""
+        if not text.isdigit():
+            raise SystemExit(f"{label} is not a week number: {value!r}")
+        number = int(text)
+    else:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise SystemExit(f"{label} is not a week number: {value!r}")
+        if number != int(number):
+            raise SystemExit(f"{label} is not a week number: {value!r}")
+        number = int(number)
+    if number < 1 or number > 53:
+        raise SystemExit(f"{label} is not a week number: {value!r}")
+    return number
+
+
+def summary_warning(table) -> str:
+    """Summary K1 is the filename-vs-footer warning. A blank cell is no warning.
+
+    Whitespace is still a warning. Only None or an empty string is blank.
+    """
+    value = cell_value(table, 1, 11)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        if value.strip() == "":
+            return value
+        return value.strip()
+    text = str(value).strip()
+    return text
+
+
+def title_weeks(title: str) -> list[int]:
+    import re
+
+    if not title:
+        return []
+    found = [int(item) for item in re.findall(r"Week\s+(\d+)", title, flags=re.IGNORECASE)]
+    found.extend(int(item) for item in re.findall(r"WK\s*(\d+)", title, flags=re.IGNORECASE))
+    return found
+
+
+def current_week_footer_error(table, week: int):
+    """Stale Stores Current Week WEEK_ID, or None. A missing footer is logged."""
+    tokens = footer_week_ids(table)
+    if not tokens:
+        print(
+            f"Stores Current Week has no WEEK_ID footer. "
+            f"Data week {week} was not confirmed on that sheet."
+        )
+        return None
+    weeks = [week_from_week_id(token) for token in tokens]
+    if any(item != week for item in weeks):
+        return f"Stores Current Week WEEK_ID {tokens} disagrees with data week {week}"
+    return None
+
+
+def calc_week_error(calc, footer_week: int, named_week: int):
+    cells = (
+        ("_Calc M2", cell_value(calc, 2, 13)),
+        ("_Calc N2", cell_value(calc, 2, 14)),
+        ("_Calc O2", cell_value(calc, 2, 15)),
+    )
+    blanks = [label for label, value in cells if value is None or value == ""]
+    if blanks:
+        return f"{', '.join(blanks)} is blank. Excel has not cached that week cell."
+    resolved = cached_week_number(cells[0][1], cells[0][0])
+    from_name = cached_week_number(cells[1][1], cells[1][0])
+    from_footer = cached_week_number(cells[2][1], cells[2][0])
+    compared = {
+        "footer": footer_week,
+        "filename": named_week,
+        "_Calc M2": resolved,
+        "_Calc N2": from_name,
+        "_Calc O2": from_footer,
+    }
+    if len(set(compared.values())) != 1:
+        detail = ", ".join(f"{label} {value}" for label, value in compared.items())
+        return f"Schedule week disagreement: {detail}"
+    return None
+
+
+def find_week(workbook, path: str) -> int:
+    """Week comes from the WEEK_ID footer. Tab names are not the week.
+
+    _Calc M2/N2/O2 are a cross-check when that sheet exists. Older files have no
+    _Calc sheet and fall back to the footer and the filename. Summary K1 and the
+    Summary title are checked on both paths.
+    """
+    market_name = one_look_sheet(workbook, "Market Look")
+    store_name = one_look_sheet(workbook, "Store Look")
+    market_week = sheet_footer_week(market_name, rows_of(workbook, market_name))
+    store_week = sheet_footer_week(store_name, rows_of(workbook, store_name))
+    if market_week != store_week:
+        raise SystemExit(
+            f"Market Look WEEK_ID week {market_week} differs from Store Look WEEK_ID week {store_week}"
+        )
+    footer_week = market_week
+    named_week = filename_week(path)
+    if "Stores Current Week" in workbook.sheetnames:
+        stale_footer = current_week_footer_error(rows_of(workbook, "Stores Current Week"), footer_week)
+        if stale_footer:
+            raise SystemExit(stale_footer)
+    if "_Calc" not in workbook.sheetnames:
+        week_error = None
+        if named_week != footer_week:
+            week_error = (
+                f"Data week {footer_week} from WEEK_ID differs from filename week {named_week} "
+                f"({os.path.basename(path)})"
+            )
+    else:
+        week_error = calc_week_error(rows_of(workbook, "_Calc"), footer_week, named_week)
+    summary = rows_of(workbook, "Summary") if "Summary" in workbook.sheetnames else []
+    warning = summary_warning(summary)
+    if warning:
+        raise SystemExit(f"Summary K1 is not empty: {warning}")
+    if week_error:
+        raise SystemExit(week_error)
+    title = summary_title(summary)
+    titled = title_weeks(title)
+    if titled and any(item != footer_week for item in titled):
+        raise SystemExit(f"Summary title week {sorted(set(titled))} differs from data week {footer_week}: {title}")
+    return footer_week
+
+
+def store_metric_bytes(stores) -> bytes:
+    rows = []
+    for store in stores:
+        rows.append(
+            [
+                "" if store.get("store") is None else str(store.get("store")),
+                store.get("under"),
+                store.get("over"),
+                store.get("eff"),
+            ]
+        )
+    rows.sort(key=lambda item: (len(item[0]), item[0]))
+    return json.dumps(rows, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+
+
+def refuse_stale_store_rows(stores, previous_stores) -> None:
+    if not previous_stores:
+        return
+    if store_metric_bytes(stores) == store_metric_bytes(previous_stores):
+        raise SystemExit(
+            "Stores Current Week Under/Over/Eff rows are byte-identical to the previous published week"
+        )
 
 
 def index_by_store(table, store_column, skip_rows=1):
@@ -379,12 +584,12 @@ def measured_schedule(under, over, eff, detail_under=None, detail_over=None):
     return fill_metric(under, detail_under), fill_metric(over, detail_over), eff
 
 
-def cook_workbook(path: str) -> dict:
+def cook_workbook(path: str, previous_stores=None, previous_week=None, sqlite_path=None, published_pack=None) -> dict:
     import openpyxl
 
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        week = find_week(workbook.sheetnames)
+        week = find_week(workbook, path)
         current = rows_of(workbook, "Stores Current Week")
         quality = load_quality(rows_of(workbook, "Last 4 Week Quality"))
         sales = load_sales(rows_of(workbook, "Sales AVG Last 4 Wks"))
@@ -392,7 +597,7 @@ def cook_workbook(path: str) -> dict:
         stars = load_stars(rows_of(workbook, "5 Star Last 5 Weeks"))
         roster = load_roster(rows_of(workbook, "Roster"))
         detail = load_store_detail(rows_of(workbook, "Store Detail")) if "Store Detail" in workbook.sheetnames else {}
-        markets = load_markets(rows_of(workbook, f"Market Look WK{week}"))
+        markets = load_markets(rows_of(workbook, one_look_sheet(workbook, "Market Look")))
         banner = banner_count(rows_of(workbook, "ACTION NEEDED"))
         title = summary_title(rows_of(workbook, "Summary"))
     finally:
@@ -440,6 +645,14 @@ def cook_workbook(path: str) -> dict:
             }
         )
     stores.sort(key=lambda item: int(item["store"]))
+    prior = previous_week_stores(
+        week,
+        sqlite_path=sqlite_path,
+        published_pack=published_pack,
+        explicit_stores=previous_stores,
+        explicit_week=previous_week,
+    )
+    refuse_stale_store_rows(stores, prior)
     mtime = os.path.getmtime(path)
     published = datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     pack = {
@@ -555,12 +768,12 @@ def print_cross_check(report: dict) -> bool:
             f" The workbook banner said {report['bannerCount']}."
         )
     print(f"  Not scheduled yet (under 100 / eff 0): {report['notScheduled']}")
-    print(f"  Week from tabs: {report['week']}  Summary title: {report['summaryTitle']}")
+    print(f"  Week from WEEK_ID: {report['week']}  Summary title: {report['summaryTitle']}")
     title = report["summaryTitle"] or ""
     if title and f"Week {report['week']}" not in title:
         print(
-            f"  informational: Summary title week does not match the WK tabs."
-            f" The app uses week {report['week']} from the tabs."
+            f"  informational: Summary title week does not match the data week."
+            f" The app uses week {report['week']} from the WEEK_ID footer."
         )
     print(f"  Region scopes: {report['regions']}")
     if not ok:
@@ -712,6 +925,140 @@ def write_sqlite(pack: dict, dest: str) -> None:
         connection.close()
 
 
+def snapshot_directories(sqlite_path, published_pack):
+    directories = []
+    for path in (sqlite_path, published_pack):
+        if not path:
+            continue
+        directory = os.path.dirname(os.path.abspath(path))
+        if directory and directory not in directories:
+            directories.append(directory)
+    return directories
+
+
+def week_snapshot_path(directory: str, week: int) -> str:
+    return os.path.join(directory, "schedule-weeks", f"{int(week)}.json")
+
+
+def read_week_snapshot(directory: str, week: int):
+    path = week_snapshot_path(directory, week)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or int(payload.get("week") or 0) != int(week):
+        return None
+    stores = payload.get("stores")
+    return stores if isinstance(stores, list) else None
+
+
+def write_week_snapshot(directory: str, pack: dict) -> None:
+    week = int(pack.get("week") or 0)
+    if week <= 0 or not directory:
+        return
+    path = week_snapshot_path(directory, week)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    stores = [
+        {
+            "store": store.get("store"),
+            "under": store.get("under"),
+            "over": store.get("over"),
+            "eff": store.get("eff"),
+        }
+        for store in pack.get("stores") or []
+        if isinstance(store, dict)
+    ]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"week": week, "stores": stores}, handle, separators=(",", ":"))
+        handle.write("\n")
+
+
+def persist_week_snapshots(pack: dict, sqlite_path, published_pack) -> None:
+    for directory in snapshot_directories(sqlite_path, published_pack):
+        write_week_snapshot(directory, pack)
+
+
+def read_published_pack(path):
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or "week" not in payload:
+        return None
+    return payload
+
+
+def sqlite_schedule(sqlite_path):
+    """(week, store rows) from the pack in current.sqlite, or (None, None)."""
+    import sqlite3
+
+    if not sqlite_path or not os.path.isfile(sqlite_path):
+        return None, None
+    connection = sqlite3.connect(sqlite_path)
+    try:
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if "schedule_pack" not in names or "schedule_store" not in names:
+            return None, None
+        week_row = connection.execute("SELECT week FROM schedule_pack WHERE id = 1").fetchone()
+        if week_row is None or week_row[0] is None:
+            return None, None
+        found = connection.execute("SELECT store, under, over, eff FROM schedule_store").fetchall()
+    except sqlite3.Error:
+        return None, None
+    finally:
+        connection.close()
+    stores = [
+        {"store": store, "under": under, "over": over, "eff": eff}
+        for store, under, over, eff in found
+    ]
+    return int(week_row[0]), stores
+
+
+def previous_week_stores(data_week, sqlite_path=None, published_pack=None, explicit_stores=None, explicit_week=None):
+    """Under/Over/Eff for the week below data_week.
+
+    Same-week rows are a re-cook, not the previous week. None means that week
+    was not published; the caller logs and continues.
+    """
+    try:
+        week = int(data_week)
+    except (TypeError, ValueError):
+        print("No previous published week. Stale-row check skipped.")
+        return None
+    if week <= 1:
+        print(f"No previous week below week {week}. Stale-row check skipped.")
+        return None
+    target = week - 1
+    if explicit_stores is not None:
+        if explicit_week is None or int(explicit_week) == target:
+            return explicit_stores
+        if int(explicit_week) == week:
+            return None
+        print(f"No published store rows for week {target}. Stale-row check skipped.")
+        return None
+    for directory in snapshot_directories(sqlite_path, published_pack):
+        stores = read_week_snapshot(directory, target)
+        if stores:
+            return stores
+    pack = read_published_pack(published_pack)
+    if pack is not None and int(pack.get("week") or 0) == target:
+        return pack.get("stores") or []
+    sql_week, sql_stores = sqlite_schedule(sqlite_path)
+    if sql_week == target and sql_stores:
+        return sql_stores
+    print(f"No published store rows for week {target}. Stale-row check skipped.")
+    return None
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Cook a Schedule Review workbook into current.sqlite")
     parser.add_argument("workbook", nargs="?", help="xlsx path. Omit with --find.")
@@ -748,7 +1095,7 @@ def main(argv=None) -> int:
     if not path:
         print("workbook path or --find is required", file=sys.stderr)
         return 2
-    pack = cook_workbook(path)
+    pack = cook_workbook(path, sqlite_path=args.sqlite, published_pack=args.output)
     report = pack["crossCheck"]
     ok = print_cross_check(report)
     if args.check and not ok:
@@ -764,14 +1111,19 @@ def main(argv=None) -> int:
             "Historical company lock missed. Publishing this workbook's own rows. "
             "Lock numbers were not substituted."
         )
+    wrote = False
     if args.output:
         write_pack(pack, args.output)
         print(f"Wrote {args.output} ({os.path.getsize(args.output)} bytes, {report['scope']} stores)")
+        wrote = True
     if args.sqlite:
         write_sqlite(pack, args.sqlite)
         print(f"Cooked schedule rows into {args.sqlite} ({report['scope']} stores)")
+        wrote = True
     elif not args.output:
         print("No output path. Nothing written.")
+    if wrote:
+        persist_week_snapshots(pack, args.sqlite, args.output)
     return 0
 
 
