@@ -3,7 +3,9 @@
 // store average — Sales and Loss dollars are the workbook company tiles.
 // Labor at region scope uses the regionTables callout, the same figure as the card.
 // Lost revenue below company is Lost $ excl. Missed from this section's rows.
-// Other region and division seats use the cooked chrome line.
+// Other region and division seats use the cooked chrome line for the metric.
+// Their store counts, and every picker shopper count, come from section rows.
+// Picker shoppers are distinct shopperId values in scope.
 // District, OM, and Store rebuild from fact rows in scope. They never keep
 // the company number. A missing rate stays blank.
 
@@ -94,6 +96,91 @@ function lossPct(dollars, sales, stored) {
 
 export function rowsInScope(rows, filters, roster, section) {
   return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster, section));
+}
+
+export function shopperIdKey(row) {
+  return String((row && row.shopperId) || "").trim();
+}
+
+// One picker count: distinct shopperId on the rows in scope.
+export function distinctShopperCount(rows) {
+  const ids = new Set();
+  for (const row of rows || []) {
+    const id = shopperIdKey(row);
+    if (id) ids.add(id);
+  }
+  return ids.size;
+}
+
+const PICKER_HEALTH_RANK = { none: 0, good: 1, watch: 2, risk: 3 };
+
+function starHealth(value, full, half, invert) {
+  if (value == null || Number.isNaN(Number(value))) return "none";
+  if (invert) {
+    if (value < full) return "good";
+    if (value <= half) return "watch";
+    return "risk";
+  }
+  if (value >= full) return "good";
+  if (value >= half) return "watch";
+  return "risk";
+}
+
+function pickerHasVolume(row) {
+  const orders = field(row, ["orders"]);
+  const picks = field(row, ["picks"]);
+  const hours = field(row, ["pick_hours"]);
+  if (orders != null && orders > 0) return true;
+  if (picks != null && picks > 0) return true;
+  if (hours != null && hours > 0) return true;
+  return field(row, ["pph"]) != null;
+}
+
+function pickerRowHealth(row) {
+  const flags = [];
+  const pph = field(row, ["pph"]);
+  if (pph != null) flags.push(band(pph, 80, 74));
+  const presub = field(row, ["presub_pct"]);
+  if (presub != null) flags.push(starHealth(presub, 5, 6, true));
+  const oos = field(row, ["oos_pct"]);
+  if (oos != null) flags.push(starHealth(oos, 3, 5, true));
+  const oth = field(row, ["oth5_pct"]);
+  if (oth != null) flags.push(starHealth(oth, 92, 78, false));
+  const coe = field(row, ["coe_pct"]);
+  if (coe != null) flags.push(starHealth(coe, 20, 0, false));
+  const ott = field(row, ["ott_pct"]);
+  if (ott != null) flags.push(starHealth(ott, 95, 90, false));
+  if (flags.includes("risk")) return "risk";
+  if (flags.includes("watch")) return "watch";
+  if (flags.includes("good")) return "good";
+  return "none";
+}
+
+function pickerStatusTone(row) {
+  const health = pickerRowHealth(row);
+  if (health === "none" && pickerHasVolume(row)) return "watch";
+  return health;
+}
+
+// Worst tone per shopperId, so Healthy + Watch + At Risk equals the shopper count.
+export function pickerShopperBands(rows) {
+  const worst = new Map();
+  for (const row of rows || []) {
+    const id = shopperIdKey(row);
+    if (!id) continue;
+    const tone = pickerStatusTone(row);
+    const prev = worst.get(id);
+    if (!prev || PICKER_HEALTH_RANK[tone] > PICKER_HEALTH_RANK[prev]) worst.set(id, tone);
+  }
+  let healthy = 0;
+  let watch = 0;
+  let risk = 0;
+  for (const tone of worst.values()) {
+    if (tone === "good") healthy += 1;
+    else if (tone === "watch") watch += 1;
+    else if (tone === "risk") risk += 1;
+  }
+  return { shoppers: worst.size, healthy, watch, risk };
 }
 
 export function sectionStoreCount(rows, filters, roster, section) {
@@ -250,6 +337,9 @@ export function summarizeSeat(section, rows) {
         secondary: `${healthy} healthy · ${watch} watch · ${risk} over 6.50%`,
         health: band(average(values), 5, 6.5, true),
         storeCount: scored.length,
+        healthyCount: healthy,
+        watchCount: watch,
+        riskCount: risk,
       };
     }
     case "five_star": {
@@ -345,6 +435,9 @@ export function summarizeSeat(section, rows) {
         secondary: `${atGoal} of ${scored.length} at 80 · ${between} between 74 and 80 · ${atRisk} below 74`,
         health: headline != null && headline >= 80 ? "good" : band(headline, 80, 74),
         storeCount: scored.length,
+        atGoalCount: atGoal,
+        betweenCount: between,
+        riskCount: atRisk,
       };
     }
     case "labor": {
@@ -369,12 +462,15 @@ export function summarizeSeat(section, rows) {
     }
     case "picker_scorecard": {
       if (!latest.length) return empty("No shopper rows in this filter");
-      const stores = new Set(latest.map((row) => row.store).filter(Boolean));
+      const bands = pickerShopperBands(latest);
       return {
-        headline: latest.length,
-        secondary: `${stores.size} ${stores.size === 1 ? "store" : "stores"}`,
+        headline: bands.shoppers,
+        secondary: `${bands.risk} opportunity · ${bands.healthy} doing well`,
         health: "none",
-        storeCount: latest.length,
+        storeCount: bands.shoppers,
+        healthyCount: bands.healthy,
+        watchCount: bands.watch,
+        riskCount: bands.risk,
       };
     }
     default:
@@ -469,6 +565,87 @@ export function lostGrainRows(rows, filters, roster) {
   return out;
 }
 
+function regionLabel(raw) {
+  return String(raw || "").replace(/\s*region$/i, "");
+}
+
+function chromeGrainValue(lines, section, region, division) {
+  const line = (lines || []).find((item) => item && item.section === section && regionLabel(item.region) === region);
+  if (!line) return "";
+  if (!division) return line.value != null ? line.value : "";
+  const child = (line.children || []).find((item) => matchesDivision(item.division, division));
+  if (!child || child.value == null) return "";
+  return child.value;
+}
+
+function orderedDivisionKeys(lines, section, region, divisionMap) {
+  const line = (lines || []).find((item) => item && item.section === section && regionLabel(item.region) === region);
+  const names = [];
+  const seen = new Set();
+  for (const child of (line && line.children) || []) {
+    const label = canonicalDivision(child.division) || child.division;
+    const key = [...divisionMap.keys()].find((item) => matchesDivision(item, label));
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    names.push(key);
+  }
+  for (const key of divisionMap.keys()) {
+    if (!seen.has(key)) names.push(key);
+  }
+  return names;
+}
+
+// Region and division counts from section rows. Lost revenue keeps lostGrainRows.
+// Picker's value is the same distinct shopperId count, labeled shoppers.
+// Other values stay on the cooked metric line; the count does not.
+export function sectionRowGrain(section, rows, filters, roster, lines) {
+  if (!filters || filters.district || filters.om || filters.store) return [];
+  const scoped = rowsInScope(rows, filters, roster, section);
+  const grouped = new Map();
+  for (const row of scoped) {
+    const division = canonicalDivision(row.division) || row.division || "";
+    const region = regionLabel(regionForDivision(division));
+    if (!LOST_REGIONS.includes(region) || !division) continue;
+    if (!grouped.has(region)) grouped.set(region, new Map());
+    const divisions = grouped.get(region);
+    if (!divisions.has(division)) divisions.set(division, []);
+    divisions.get(division).push(row);
+  }
+  const out = [];
+  for (const region of LOST_REGIONS) {
+    const divisions = grouped.get(region);
+    if (!divisions) continue;
+    const regionRows = [];
+    const children = [];
+    for (const division of orderedDivisionKeys(lines, section, region, divisions)) {
+      if (filters.division && !matchesDivision(division, filters.division)) continue;
+      const bucket = divisions.get(division) || [];
+      if (!bucket.length) continue;
+      regionRows.push(...bucket);
+      const count = section === "picker_scorecard" ? distinctShopperCount(bucket) : bucket.length;
+      children.push({
+        grain: "division",
+        label: division,
+        value: section === "picker_scorecard" ? `${count} shoppers` : chromeGrainValue(lines, section, region, division),
+        count,
+        region,
+      });
+    }
+    if (!children.length) continue;
+    if (!filters.division) {
+      const count = section === "picker_scorecard" ? distinctShopperCount(regionRows) : regionRows.length;
+      out.push({
+        grain: "region",
+        label: region,
+        value: section === "picker_scorecard" ? `${count} shoppers` : chromeGrainValue(lines, section, region, ""),
+        count,
+      });
+    }
+    out.push(...children);
+  }
+  return out;
+}
+
 export function seatSummary(section, { company, lines, rows, filters, roster, tables }) {
   if (!filtersActive(filters)) {
     return {
@@ -485,7 +662,9 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     return lostScopeSeat(scoped);
   }
   const built = summarizeSeat(section, scoped);
-  const chrome = chromeSeat(lines, section, filters);
+  // Picker chrome value and count are cooked shopper totals. The card uses
+  // distinct shopperId from these rows instead.
+  const chrome = section === "picker_scorecard" ? null : chromeSeat(lines, section, filters);
   if (chrome) {
     // regionLines labor is the unweighted average of store Target vs Actual
     // (East -8.59%). The dashboard region card reads regionTables, the cooked

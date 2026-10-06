@@ -425,10 +425,14 @@ PY
   exit 0
 fi
 
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "refusing publish: git worktree is dirty, so the build label would show a commit that does not match this tree" >&2
+  exit 1
+fi
+
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
-  --branch main \
-  --commit-dirty=true
+  --branch main
 
 python3 - "$SITE_URL" << 'PY'
 import sys

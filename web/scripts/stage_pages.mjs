@@ -10,6 +10,8 @@ const dist = join(web, "dist");
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 cpSync(join(web, "public"), dist, { recursive: true });
+// Build-label only. The short sha replaces __BUILD_SHA__ in the staged app.js
+// so the drawer can name this commit. It does not change pack data.
 const buildSha = execSync("git rev-parse --short=7 HEAD", { cwd: web, encoding: "utf8" }).trim();
 const stagedApp = join(dist, "app.js");
 writeFileSync(stagedApp, readFileSync(stagedApp, "utf8").replaceAll("__BUILD_SHA__", buildSha));
