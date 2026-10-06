@@ -188,6 +188,7 @@ function sameOrigin(request) {
   const origin = (request.headers.get("origin") || "").trim();
   if (!origin || origin.toLowerCase() === "null") {
     const site = (request.headers.get("sec-fetch-site") || "").trim().toLowerCase();
+    if (site === "cross-site" || site === "same-site") return false;
     if (site === "same-origin") return true;
     return refererMatches(request, host);
   }

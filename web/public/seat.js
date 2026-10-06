@@ -1,11 +1,13 @@
 // Filter seat for scorecards.
 // Company (no filter) keeps the cooked chrome headline. That figure is not a
-// store average — Sales and Loss are fixed by the cook.
-// Region and Division use the cooked chrome line, not a fresh average.
+// store average — Sales and Loss dollars are the workbook company tiles.
+// Labor at region scope uses the regionTables callout, the same figure as the card.
+// Lost revenue below company is Lost $ excl. Missed from this section's rows.
+// Other region and division seats use the cooked chrome line.
 // District, OM, and Store rebuild from fact rows in scope. They never keep
 // the company number. A missing rate stays blank.
 
-import { filtersActive, includesScope, matchesDivision, regionLineInScope } from "./filters.js";
+import { canonicalDivision, filtersActive, includesScope, matchesDivision, regionForDivision, regionLineInScope } from "./filters.js";
 
 export function formatCompanyAiv(value) {
   const number = Number(value);
@@ -344,6 +346,86 @@ function laborRegionHeadline(tables, region) {
   return row ? String(row.headline) : "";
 }
 
+export const LOST_EXCL_LABEL = "Lost $ excl. Missed";
+
+const LOST_REGIONS = ["East", "South", "California", "West"];
+
+function lostParts(row) {
+  const lost = field(row, ["lost_revenue"]);
+  const missed = field(row, ["missed_sales"]);
+  return (lost == null ? 0 : lost) - (missed == null ? 0 : missed);
+}
+
+export function lostExclMissed(rows) {
+  let sum = 0;
+  for (const row of rows || []) sum += lostParts(row);
+  return { sum, count: (rows || []).length };
+}
+
+function lostScopeSeat(rows) {
+  const roll = lostExclMissed(rows);
+  return {
+    fixedCompany: false,
+    headline: roll.sum,
+    headlineText: null,
+    figureLabel: LOST_EXCL_LABEL,
+    missed: "Not available",
+    secondary: "",
+    health: "none",
+    storeCount: roll.count,
+  };
+}
+
+export function laborGrainValue(tables, row) {
+  if (!row || row.grain !== "region") return row && row.value != null ? row.value : "";
+  const callout = laborRegionHeadline(tables, row.label);
+  return callout || (row.value != null ? row.value : "");
+}
+
+export function lostGrainRows(rows, filters, roster) {
+  if (!filters || filters.district || filters.om || filters.store) return [];
+  const scoped = rowsInScope(rows, filters, roster, "lost_revenue");
+  const grouped = new Map();
+  for (const row of scoped) {
+    const division = canonicalDivision(row.division) || row.division || "";
+    const region = String(regionForDivision(division) || "").replace(/\s*region$/i, "");
+    if (!LOST_REGIONS.includes(region)) continue;
+    if (!grouped.has(region)) grouped.set(region, new Map());
+    const divisions = grouped.get(region);
+    if (!divisions.has(division)) divisions.set(division, { sum: 0, count: 0 });
+    const slot = divisions.get(division);
+    slot.sum += lostParts(row);
+    slot.count += 1;
+  }
+  const out = [];
+  for (const region of LOST_REGIONS) {
+    const divisions = grouped.get(region);
+    if (!divisions) continue;
+    let sum = 0;
+    let count = 0;
+    const children = [];
+    for (const [division, slot] of divisions) {
+      if (filters.division && !matchesDivision(division, filters.division)) continue;
+      sum += slot.sum;
+      count += slot.count;
+      children.push({
+        grain: "division",
+        label: division,
+        value: slot.sum,
+        count: slot.count,
+        region,
+        title: LOST_EXCL_LABEL,
+      });
+    }
+    if (!children.length) continue;
+    if (!filters.division) {
+      out.push({ grain: "region", label: region, value: sum, count, title: LOST_EXCL_LABEL });
+    }
+    out.push(...children);
+  }
+  return out;
+}
+
 export function seatSummary(section, { company, lines, rows, filters, roster, tables }) {
   if (!filtersActive(filters)) {
     return {
@@ -356,6 +438,9 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     };
   }
   const scoped = rowsInScope(rows, filters, roster, section);
+  if (section === "lost_revenue" && !(filters && filters.store)) {
+    return lostScopeSeat(scoped);
+  }
   const built = summarizeSeat(section, scoped);
   const chrome = chromeSeat(lines, section, filters);
   if (chrome) {
