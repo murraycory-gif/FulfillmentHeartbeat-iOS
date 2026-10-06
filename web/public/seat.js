@@ -1,10 +1,10 @@
 // Filter seat for scorecards.
-// Company (no filter) keeps the cooked chrome headline. That figure is not a
-// store average — Sales and Loss dollars are the workbook company tiles.
-// Labor at region scope uses the regionTables callout, the same figure as the card.
+// Company (no filter) keeps the cooked chrome headline. That figure is the
+// workbook company total. The workbook has no region subtotal, so a region
+// or division figure is the store rows in that scope.
 // Lost revenue below company is Lost $ excl. Missed from this section's rows.
-// Other region and division seats use the cooked chrome line for the metric.
-// Their store counts, and every picker shopper count, come from section rows.
+// Money and counts are store sums. Rates are store averages. Labor averages
+// leave out check-source rows.
 // Picker shoppers are distinct shopperId values in scope.
 // District, OM, and Store rebuild from fact rows in scope. They never keep
 // the company number. A missing rate stays blank.
@@ -41,10 +41,14 @@ export function shownRate(section, value) {
   return pct(value);
 }
 
+// Pack aiv_impact_pct is already Labor column M times 100 (percent points).
+// Company 0.0026% rounds to 0.00% at two decimals, so keep the precise points.
+// Do not multiply or divide by 100 again.
 export function formatCompanyAiv(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
-  return `${number.toFixed(2)}%`;
+  const sign = number > 0 ? "+" : "";
+  return `${number.toFixed(2)}% (${sign}${number.toFixed(4)}%)`;
 }
 
 function field(row, keys) {
@@ -294,9 +298,20 @@ export function pickerShopperBands(rows) {
   return { shoppers: worst.size, healthy, watch, risk };
 }
 
+// Sales rows with no division and zero sales and orders are not stores. They are
+// not in any region, so the company count has to leave them out too.
+function salesRowCounts(row) {
+  if (String((row && row.division) || "").trim()) return true;
+  const dollars = field(row, ["sales_dollars"]) || 0;
+  const orders = field(row, ["sales_orders"]) || 0;
+  return dollars !== 0 || orders !== 0;
+}
+
 export function sectionStoreCount(rows, filters, roster, section) {
   if (!Array.isArray(rows)) return null;
-  return rowsInScope(rows, filters, roster, section).length;
+  const scoped = rowsInScope(rows, filters, roster, section);
+  if (section !== "sales") return scoped.length;
+  return scoped.filter(salesRowCounts).length;
 }
 
 function countText(count) {
@@ -418,7 +433,7 @@ export function summarizeSeat(section, rows) {
         headline: dollars,
         secondary: `${up} up · ${flat} flat · ${down} down`,
         health: salesHealth(salesRollupYoY(scored)),
-        storeCount: scored.length,
+        storeCount: scored.filter(salesRowCounts).length,
       };
     }
     case "lost_revenue": {
@@ -709,49 +724,35 @@ function regionLabel(raw) {
   return String(raw || "").replace(/\s*region$/i, "");
 }
 
-function chromeGrainValue(lines, section, region, division) {
-  const line = (lines || []).find((item) => item && item.section === section && regionLabel(item.region) === region);
-  if (!line) return "";
-  if (!division) return line.value != null ? line.value : "";
-  const child = (line.children || []).find((item) => matchesDivision(item.division, division));
-  if (!child || child.value == null) return "";
-  return child.value;
-}
-
-function grainMetric(section, bucket, lines, region, division) {
-  const count = section === "picker_scorecard" ? distinctShopperCount(bucket) : bucket.length;
+function grainMetric(section, bucket) {
   if (section === "picker_scorecard") {
+    const count = distinctShopperCount(bucket);
     return { value: `${countText(count)} shoppers`, count, workbook: false };
   }
-  if (section === "sales" && division) {
+  if (section === "sales") {
     const built = summarizeSeat(section, bucket);
     return {
       value: built.headline == null ? "Not available" : shownRate(section, built.headline),
-      count,
+      count: built.storeCount || 0,
       workbook: false,
     };
   }
-  if (section === "sales") {
-    return { value: chromeGrainValue(lines, section, region, ""), count, workbook: true };
-  }
-  if (section === "labor" && !division) {
-    return { value: chromeGrainValue(lines, section, region, ""), count, workbook: false };
-  }
-  if (section === "labor" && division) {
+  if (section === "labor") {
     const built = summarizeSeat(section, bucket);
     const rolled = laborScopeAverage(bucket);
     const suffix = rolled.mode === "weighted" ? "cost-weighted store roll-up" : "store average, excl. check source";
     return {
       value: built.headline == null ? "—" : `${shownRate(section, built.headline)} ${suffix}`,
-      count,
+      count: bucket.length,
       workbook: false,
     };
   }
-  if (ROW_RATE_SECTIONS.has(section)) {
-    const built = summarizeSeat(section, bucket);
-    return { value: shownRate(section, built.headline), count, workbook: false };
-  }
-  return { value: chromeGrainValue(lines, section, region, division), count, workbook: false };
+  const built = summarizeSeat(section, bucket);
+  return {
+    value: built.headline == null ? "—" : shownRate(section, built.headline),
+    count: built.storeCount || bucket.length,
+    workbook: false,
+  };
 }
 
 function orderedDivisionKeys(lines, section, region, divisionMap) {
@@ -771,9 +772,9 @@ function orderedDivisionKeys(lines, section, region, divisionMap) {
   return names;
 }
 
-// Region and division counts from section rows. Lost revenue keeps lostGrainRows.
-// Picker's value is the same distinct shopperId count, labeled shoppers.
-// Other values stay on the cooked metric line; the count does not.
+// Region and division figures from section rows. Lost revenue keeps lostGrainRows.
+// Picker's value is the distinct shopperId count, labeled shoppers.
+// Money is a store sum. Rates are a store average. Nothing here reads a region line.
 export function sectionRowGrain(section, rows, filters, roster, lines) {
   if (!filters || filters.district || filters.om || filters.store) return [];
   const scoped = rowsInScope(rows, filters, roster, section);
@@ -798,7 +799,7 @@ export function sectionRowGrain(section, rows, filters, roster, lines) {
       const bucket = divisions.get(division) || [];
       if (!bucket.length) continue;
       regionRows.push(...bucket);
-      const counted = grainMetric(section, bucket, lines, region, division);
+      const counted = grainMetric(section, bucket);
       children.push({
         grain: "division",
         label: division,
@@ -810,7 +811,7 @@ export function sectionRowGrain(section, rows, filters, roster, lines) {
     }
     if (!children.length) continue;
     if (!filters.division) {
-      const counted = grainMetric(section, regionRows, lines, region, "");
+      const counted = grainMetric(section, regionRows);
       out.push({
         grain: "region",
         label: region,
@@ -868,51 +869,16 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
   }
   // Picker chrome value and count are cooked shopper totals. The card uses
   // distinct shopperId from these rows instead.
-  const chrome = section === "picker_scorecard" ? null : chromeSeat(lines, section, filters);
-  if (chrome) {
-    // regionLines labor is the unweighted average of store Target vs Actual
-    // (East -8.59%). The region callout is the weighted workbook figure
-    // (East -3.97%). It cannot be rebuilt from the rows, so the region seat
-    // keeps the callout and the page labels it workbook total. A division seat is
-    // the average of that division's rows. Sales at division scope is that
-    // division's own row sum, never the parent region dollar.
-    let headlineText = chrome.value;
-    let workbook = section === "sales";
-    let calloutHealth = null;
-    if (section === "labor" && chrome.grain === "region") {
-      const callout = laborRegionHeadline(tables, chrome.label);
-      if (callout) {
-        headlineText = callout;
-        workbook = true;
-        const number = Number(String(callout).replace(/[%,\s]/g, ""));
-        calloutHealth = scopeHealth("labor", number);
-      }
-    }
-    if (
-      (section === "labor" || section === "sales") &&
-      chrome.grain === "division" &&
-      scoped.length &&
-      built.headline != null
-    ) {
-      return {
-        fixedCompany: false,
-        headline: built.headline,
-        headlineText: shownRate(section, built.headline),
-        secondary: built.secondary,
-        health: built.health,
-        storeCount: built.storeCount,
-        workbook: false,
-      };
-    }
+  // The workbook has no region subtotal. Region and division figures are these store rows.
+  if (scoped.length && built.headline != null) {
     return {
       fixedCompany: false,
-      headline: null,
-      headlineText,
-      secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
-      // Same rows as the chip. A region line's health must not paint the badge a different color.
-      health: calloutHealth || (scoped.length ? built.health : chrome.health && chrome.health !== "none" ? chrome.health : built.health),
-      storeCount: chrome.count || built.storeCount,
-      workbook,
+      headline: built.headline,
+      headlineText: shownRate(section, built.headline),
+      secondary: built.secondary,
+      health: built.health,
+      storeCount: built.storeCount,
+      workbook: false,
     };
   }
   return {

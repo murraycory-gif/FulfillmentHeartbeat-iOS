@@ -156,17 +156,22 @@ body { margin: 0; }
   text-transform: uppercase;
 }
 
+.drawer-logout-form { margin: 0; }
+
 .drawer-logout {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   min-height: 44px;
+  border: 0;
   border-radius: 10px;
   background: #eef2fb;
   color: #00285c;
+  font: inherit;
   font-weight: 750;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .brand-lockup {

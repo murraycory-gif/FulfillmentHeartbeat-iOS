@@ -569,6 +569,31 @@ function expectChips(chips, expected, where) {
   }
 }
 
+async function pickStore(client, prefix) {
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector("#scope-search");
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+      proto.set.call(input, ${JSON.stringify(prefix)});
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`,
+  );
+  await sleep(250);
+  const clicked = await evaluate(
+    client,
+    `(() => {
+      const rows = [...document.querySelectorAll("#scope-results [data-hit]")];
+      const hit = rows.find((row) => row.textContent.trim().startsWith(${JSON.stringify(prefix)}));
+      if (!hit) return rows.map((row) => row.textContent.trim()).slice(0, 6).join(" | ") || "no hits";
+      hit.click();
+      return "ok";
+    })()`,
+  );
+  if (clicked !== "ok") throw new Error(`store search missed ${prefix}: ${clicked}`);
+  await settle(client);
+}
+
 async function searchStore(client, query) {
   await evaluate(
     client,
@@ -599,14 +624,67 @@ async function searchStore(client, query) {
   if (!String(chips).includes("0688")) throw new Error(`store scope is not 0688: ${chips}`);
 }
 
+async function assertSearchWaits(client, port) {
+  const added = await client.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `(() => {
+      const orig = window.fetch;
+      window.__holdHome = true;
+      window.fetch = function (input, opts) {
+        const url = typeof input === "string" ? input : input && input.url;
+        if (window.__holdHome && String(url || "").includes("home.json")) {
+          return new Promise((resolve, reject) => {
+            window.__releaseHome = () => orig(input, opts).then(resolve, reject);
+          });
+        }
+        return orig(input, opts);
+      };
+    })();`,
+  });
+  try {
+    await client.send("Page.navigate", { url: `http://127.0.0.1:${port}/` });
+    const started = Date.now();
+    while (Date.now() - started < 15000) {
+      const ready = await evaluate(client, `Boolean(document.querySelector("#scope-search"))`);
+      if (ready) break;
+      await sleep(50);
+    }
+    const typedAt = Date.now();
+    let text = "";
+    while (Date.now() - typedAt < 8000) {
+      text = await evaluate(
+        client,
+        `(() => {
+          const input = document.querySelector("#scope-search");
+          const node = document.querySelector("#scope-results");
+          if (!input || !node) return "";
+          const shown = (node.textContent || "").replace(/\\s+/g, " ").trim();
+          if (shown) return shown;
+          const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+          proto.set.call(input, "688");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          return (node.textContent || "").replace(/\\s+/g, " ").trim();
+        })()`,
+      );
+      if (String(text || "").trim()) break;
+      await sleep(40);
+    }
+    const shown = String(text || "");
+    if (!shown.toLowerCase().includes("loading")) throw new Error(`search while loading said ${JSON.stringify(text)}`);
+    if (shown.toLowerCase().includes("no matches")) throw new Error("search said No matches before home loaded");
+  } finally {
+    await client.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: added.identifier });
+  }
+}
+
 async function assertDynacapDirect(client, port) {
   const url = `http://127.0.0.1:${port}/?page=dynacap`;
   await client.send("Page.navigate", { url });
   await settle(client, 90000);
   const opened = await readChip(client, "PPH");
-  if (!opened || opened.value === "Loading…" || opened.value === "—" || !opened.label.toLowerCase().includes("store average")) {
+  if (!opened || opened.value !== "74.2 store average") {
     throw new Error(`direct dynacap PPH ${opened ? `${opened.label} ${opened.value}` : "missing"}`);
   }
+  console.log(`dynacap cold load: ${opened.label} ${opened.value}`);
   const pcs = await readChip(client, "Pcs/Hr");
   if (!pcs || pcs.value !== "67.8" || !pcs.label.toLowerCase().includes("store average")) {
     throw new Error(`direct dynacap Pcs/Hr ${pcs ? `${pcs.label} ${pcs.value}` : "missing"}`);
@@ -614,7 +692,7 @@ async function assertDynacapDirect(client, port) {
   await client.send("Page.reload", { ignoreCache: true });
   await settle(client, 90000);
   const again = await readChip(client, "PPH");
-  if (!again || again.value === "Loading…" || again.value === "—") {
+  if (!again || again.value !== "74.2 store average") {
     throw new Error(`reloaded dynacap PPH ${again ? `${again.label} ${again.value}` : "missing"}`);
   }
   const href = await evaluate(client, "location.search");
@@ -662,6 +740,7 @@ export async function runFakeCountLab(publicDir) {
     await client.ready;
     await client.send("Runtime.enable");
     await client.send("Page.enable");
+    await assertSearchWaits(client, port);
     await assertDynacapDirect(client, port);
     const widths = [
       [1280, 800],
@@ -713,11 +792,35 @@ export async function runFakeCountLab(publicDir) {
       if (!ord || ord.value === "16.61%" || !ord.label.toLowerCase().includes("workbook total")) {
         throw new Error(`${width}px company Ord YoY ${ord ? `${ord.label} ${ord.value}` : "missing"}`);
       }
-      if (!dashboard.toLowerCase().includes("workbook roll-up")) {
-        throw new Error(`${width}px dashboard missing workbook roll-up`);
+      const companyLabor = await readChip(client, "Target Vs Actual");
+      if (!companyLabor || !companyLabor.label.toLowerCase().includes("workbook total")) {
+        throw new Error(`${width}px company Target vs Actual ${companyLabor ? companyLabor.label : "missing"}`);
       }
-      if (!dashboard.toLowerCase().includes("pph store average")) {
-        throw new Error(`${width}px dashboard missing PPH store average`);
+      const regionLabor = await evaluate(
+        client,
+        `(() => [...document.querySelectorAll(".region-cards article")].map((card) => {
+          const name = card.querySelector("h2") ? card.querySelector("h2").textContent.trim() : "";
+          const chip = [...card.querySelectorAll(".chip")].find((node) => {
+            const span = node.querySelector("span");
+            return span && span.textContent.trim().toLowerCase().startsWith("labor");
+          });
+          const span = chip && chip.querySelector("span");
+          const strong = chip && chip.querySelector("strong");
+          return { name, label: span ? span.textContent.trim() : "", value: strong ? strong.textContent.trim() : "" };
+        }))()`,
+      );
+      const laborGold = { East: "-5.62%", South: "-3.43%", California: "-5.38%", West: "-4.62%" };
+      for (const [name, value] of Object.entries(laborGold)) {
+        const chip = (regionLabor || []).find((row) => row.name === name);
+        if (!chip || chip.value !== value || !chip.label.toLowerCase().includes("store average")) {
+          throw new Error(`${width}px ${name} labor chip ${chip ? `${chip.label} ${chip.value}` : "missing"}`);
+        }
+        if (chip.label.toLowerCase().includes("workbook")) {
+          throw new Error(`${width}px ${name} labor chip still says workbook`);
+        }
+      }
+      if (!dashboard.includes("74.2 store average")) {
+        throw new Error(`${width}px dashboard missing 74.2 store average`);
       }
       for (const [label, rowSum] of [
         ["Post Sub", "$2,944,940.00"],
@@ -792,6 +895,11 @@ export async function runFakeCountLab(publicDir) {
             if (!text.includes("57 stores flagged check source")) {
               throw new Error(`${where} missing the check-source note`);
             }
+            if (!text.includes("0.00% (+0.0026%)")) throw new Error(`${where} company AIV missing precise points`);
+            await pickStore(client, "0001");
+            const storeLabor = await visibleText(client);
+            if (!storeLabor.includes("-0.39%")) throw new Error(`${where} store 1 AIV ${storeLabor.includes("AIV") ? "unlabeled" : "missing"}`);
+            await clearScope(client);
           }
           if (index === 0 && id === "dynacap") {
             const pcsChip = await readChip(client, "Pcs/Hr");
@@ -820,6 +928,55 @@ export async function runFakeCountLab(publicDir) {
             if (!over || over.value !== "6.09%" || !over.label.toLowerCase().includes("store average")) {
               throw new Error(`${where} Over ${over ? `${over.label} ${over.value}` : "missing"}`);
             }
+            await pickStore(client, "0053");
+            const named = await visibleText(client);
+            if (!named.includes("A1 NE PHILA SUBURB")) throw new Error(`${where} missing the A1 district name`);
+            await clearScope(client);
+          }
+          if (index === 0 && id === "pph") {
+            for (const phrase of [
+              "74.2 store average",
+              "73.68 shopper average, excl. check source",
+              "73.93 hours-weighted shopper average, excl. check source",
+            ]) {
+              if (!text.includes(phrase)) throw new Error(`${where} missing ${phrase}`);
+            }
+            await evaluate(
+              client,
+              `(() => {
+                const input = document.querySelector("[data-shopper-search]");
+                if (!input) throw new Error("no shopper search");
+                input.value = "GRIC122";
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+              })()`,
+            );
+            await sleep(300);
+            const found = await visibleText(client);
+            if (!found.includes("GRIC122") || !found.toLowerCase().includes("check source")) {
+              throw new Error(`${where} search missed the check-source row`);
+            }
+            await evaluate(
+              client,
+              `(() => {
+                const button = document.querySelector('[data-pph-drill="region"][data-pph-value="East Region"]');
+                if (!button) throw new Error("missing East drill");
+                button.click();
+              })()`,
+            );
+            await settle(client);
+            const east = await visibleText(client);
+            if (!east.includes("9,368")) throw new Error(`${where} east drill missing 9,368 shoppers`);
+            if (east.includes("9,391")) throw new Error(`${where} east drill still counts shopper rows`);
+            await clearScope(client);
+          }
+          if (index === 4 && id !== "dashboard" && id !== "schedule" && id !== "picker_scorecard") {
+            const figure = await evaluate(
+              client,
+              `(() => { const node = document.querySelector("#main .score-face .figure"); return node ? node.textContent.trim() : ""; })()`,
+            );
+            if (figure && /\d/.test(figure) && !/store average|store sum|workbook|target/i.test(figure)) {
+              throw new Error(`${where} headline unlabeled: ${figure}`);
+            }
           }
           if (index === 0 && id === "lost_revenue") {
             const ecomm = await readChip(client, "eComm");
@@ -844,9 +1001,25 @@ export async function runFakeCountLab(publicDir) {
           }
           if (index === 1 && id === "labor") {
             if (text.includes("At risk")) throw new Error(`${where} labor badge contradicts the chip`);
-            if (!text.toLowerCase().includes("workbook roll-up")) {
-              throw new Error(`${where} labor callout is not labeled workbook roll-up`);
+            const target = await readChip(client, "Target Vs Actual");
+            if (!target || target.value !== "-5.62%" || !target.label.toLowerCase().includes("store average, excl. check source")) {
+              throw new Error(`${where} Target vs Actual ${target ? `${target.label} ${target.value}` : "missing"}`);
             }
+            if (!text.includes("17 check source")) throw new Error(`${where} East labor missing 17 flagged`);
+            if (text.toLowerCase().includes("workbook roll-up")) {
+              throw new Error(`${where} labor still uses the region roll-up`);
+            }
+          }
+          if (index === 0 && id === "sales") {
+            const salesCount = await evaluate(
+              client,
+              `(() => { const sub = document.querySelector("#main .score-face .sub"); return sub ? sub.textContent.trim() : ""; })()`,
+            );
+            if (salesCount !== "2,168 stores") throw new Error(`${where} sales card ${salesCount || "missing"}`);
+          }
+          if (index === 1 && id === "sales") {
+            if (!text.includes("$23,372,961.03")) throw new Error(`${where} East sales is not the store sum`);
+            if (text.toLowerCase().includes("workbook total")) throw new Error(`${where} East sales still says workbook total`);
           }
           if (index === 2 && id === "labor" && !text.toLowerCase().includes("store average")) {
             throw new Error(`${where} filtered labor rate is unlabeled`);
@@ -867,6 +1040,44 @@ export async function runFakeCountLab(publicDir) {
           }
           if (index === 0 && id === "sales" && !text.toLowerCase().includes("orders workbook total")) {
             throw new Error(`${where} missing workbook total label`);
+          }
+          if (index === 0 && id === "sales") {
+            const regionChips = await evaluate(
+              client,
+              `(() => {
+                const button = document.querySelector('[data-pph-drill="region"][data-pph-value="East Region"]');
+                if (!button) return "missing-east";
+                button.click();
+                return [...document.querySelectorAll("#scope-chips .scope-chip")].map((chip) => chip.textContent.trim() + (chip.getAttribute("aria-current") ? "*" : "")).join(">");
+              })()`,
+            );
+            await settle(client);
+            const afterRegion = await evaluate(
+              client,
+              `(() => [...document.querySelectorAll("#scope-chips .scope-chip")].map((chip) => chip.textContent.trim() + (chip.getAttribute("aria-current") ? "*" : "")).join(">"))()`,
+            );
+            if (regionChips === "missing-east" || afterRegion !== "Company>East*") {
+              throw new Error(`${where} region row set ${afterRegion || regionChips}`);
+            }
+            await clearScope(client);
+            const divisionChips = await evaluate(
+              client,
+              `(() => {
+                const button = document.querySelector('[data-pph-drill="division"][data-pph-value="Mid-Atlantic"]');
+                if (!button) return "missing-division";
+                button.click();
+                return "clicked";
+              })()`,
+            );
+            await settle(client);
+            const afterDivision = await evaluate(
+              client,
+              `(() => [...document.querySelectorAll("#scope-chips .scope-chip")].map((chip) => chip.textContent.trim() + (chip.getAttribute("aria-current") ? "*" : "")).join(">"))()`,
+            );
+            if (divisionChips !== "clicked" || afterDivision !== "Company>East>Mid-Atlantic*") {
+              throw new Error(`${where} division row set ${afterDivision || divisionChips}`);
+            }
+            await clearScope(client);
           }
         }
       }

@@ -33,15 +33,45 @@ Do these in order. Pages, the existing R2 bucket, and one D1 database for accoun
    - Variable name: `HEARTBEAT_PACKS`
    - Bucket: the existing bucket `heartbeat-packs`
    - Do not create a new bucket. Do not turn on public access here.
-4. **Settings** → **Bindings** → **Add** → **D1 database**, if the deploy did not attach it from `wrangler.toml`.
-   - Variable name: `HB_AUTH`
-   - Database: `fulfillment-heartbeat-auth`
-   - Production and Preview both use that database
-5. Pages secrets, set once and not rotated on later deploys: `SESSION_SECRET` (signs the cookie), `ADMIN_EMAIL` (the first admin's address), `SETUP_SECRET` (bearer token for the one-time `GET /setup` link). Do not put a password in the repo. Optional mail is off unless `INVITE_EMAIL` is `1` and `INVITE_EMAIL_URL` is a webhook. Copying the invite link works without mail.
+4. **Settings** → **Bindings** → **Add** → **D1 database**. Production and Preview are separate databases. The binding name is `HB_AUTH` in both environments. Repeat `HEARTBEAT_PACKS` in both environments too. An env block that omits R2 drops the pack bucket.
+   - Production variable name: `HB_AUTH`. Database name: `fulfillment-heartbeat-auth`. Database id: `646c017a-802f-4395-b635-d4b5bd66c1cb`.
+   - Preview variable name: `HB_AUTH`. Database name: `hb-auth-preview`. Database id: `291dfe6d-fcc1-4b15-90c7-768db26d1f8e`.
+   - Those ids are already in `web/wrangler.toml`. Preview must stay on `291dfe6d`. Do not point Preview at `646c017a`.
+   - `web/migrations/0001_accounts.sql` adds columns to the tables already in that database. It does not seed a user or a password. The function applies the same statements on the first request. To apply them yourself, use the dashboard console or the D1 HTTP API below. Do not use `wrangler d1` for this; the account token has no D1 permission.
+5. Pages secrets: `BASIC_USER`, `BASIC_PASS`, `BASIC_PASS_TESTER`, `SESSION_SECRET`, `SETUP_SECRET`, and `ADMIN_EMAIL`. Do not put a password in the repo. `ADMIN_EMAIL` is the first admin address. Leave `AUTH_CUTOVER` unset until an account sign-in has been verified. The shared password is a viewer and cannot open user management.
 6. Do **not** set `HEARTBEAT_WEB_DEV`. That flag only bypasses an old localhost check.
-7. Do **not** set `AUTH_CUTOVER` until an account sign-in has been verified. Until then the shared `BASIC_PASS` login still works.
+7. Do **not** set `AUTH_CUTOVER` until an account sign-in has been verified. Until then the shared `BASIC_PASS` login still works, as a viewer.
 8. Do **not** add a custom domain. Leave the `*.pages.dev` hostname. Do not change DNS.
 9. Do **not** attach Cloudflare Access to this hostname. A PIN in front of the HTML, or a 401 on `/api/section`, is what left every scorecard on "Sign in with the email PIN".
+
+The databases already exist. Apply `web/migrations/0001_accounts.sql` to preview (`291dfe6d-fcc1-4b15-90c7-768db26d1f8e`) from the dashboard: **D1** → **hb-auth-preview** → **Console**, one statement at a time. `ALTER` errors that say the column already exists mean that statement is done. The same console on `fulfillment-heartbeat-auth` is production; leave it until preview sign-in works. The Pages function also runs those statements on the first request.
+
+The HTTP API is the other path. Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. One statement per request:
+
+```bash
+curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database/291dfe6d-fcc1-4b15-90c7-768db26d1f8e/query" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"sql":"ALTER TABLE users ADD COLUMN password_algo TEXT NOT NULL DEFAULT '\''PBKDF2-SHA256'\''"}'
+```
+
+Mint the first admin on the preview database only. Both commands run on your machine and use that HTTP API. The site does not serve them.
+
+```bash
+ADMIN_EMAIL=you@example.com node admin-scripts/hb-setup.mjs --database hb-auth-preview --origin https://YOUR-PREVIEW.pages.dev
+node admin-scripts/hb-user.mjs create --email qc-viewer@example.com --role viewer --database hb-auth-preview
+node admin-scripts/hb-user.mjs create --email qc-admin@example.com --role admin --database hb-auth-preview
+```
+
+`hb-setup.mjs` prints a one-time link for `ADMIN_EMAIL` to stdout. It expires in 24 hours, works once, and only while no active admin exists. `hb-user.mjs` prints a random password once. Neither command writes the secret into the repo. `fulfillment-heartbeat-auth` and database id `646c017a-802f-4395-b635-d4b5bd66c1cb` are production; both scripts refuse them unless `HB_ALLOW_PROD=1`.
+
+Preview deploy, from `web/`:
+
+```bash
+npx wrangler pages deploy dist --project-name fulfillment-heartbeat-web --branch cursor/user-accounts-93a9
+```
+
+That is a branch deployment. Do not omit `--branch`. Do not deploy production from this change. Preview's `HB_AUTH` binding stays on `291dfe6d-fcc1-4b15-90c7-768db26d1f8e`.
 
 ### 3. Cook the pack into the site
 

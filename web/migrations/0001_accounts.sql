@@ -1,8 +1,11 @@
--- Heartbeat accounts. Same statements as web/migrations/0001_accounts.sql.
--- Production database: fulfillment-heartbeat-auth.
--- Preview database: hb-auth-preview.
--- Existing rows stay. New columns are added forward-only.
+-- Forward-only migration for the existing HB_AUTH database.
+-- Production: fulfillment-heartbeat-auth (646c017a-802f-4395-b635-d4b5bd66c1cb).
+-- Preview: hb-auth-preview (291dfe6d-fcc1-4b15-90c7-768db26d1f8e).
+-- CREATE statements match the tables already in production. ALTER statements add columns.
 -- No users, passwords, salts, or invite tokens are seeded.
+-- The Pages function applies the same statements on the first request.
+-- To apply them by hand, use the D1 HTTP API or the dashboard console (see web/DEPLOY.md).
+-- Do not point preview at the production database id.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,

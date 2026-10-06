@@ -1,14 +1,33 @@
 import assert from "node:assert/strict";
+import { timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hashPassword, verifyPassword } from "./functions/accounts.js";
+import {
+  IDLE_TTL,
+  IP_WINDOW,
+  SEEN_INTERVAL,
+  SCHEMA_VERSION as AUTH_SCHEMA_VERSION,
+  backoffSeconds,
+  hashPassword,
+  ensureSchema,
+  issueFirstAdminLink,
+  loginThrottled,
+  recordLoginFailure,
+  verifyPassword,
+} from "./functions/accounts.js";
+import { paintWhileLoading, afterPackStatus } from "./public/auth-boot.js";
+import { generatePassword, userInsertSql } from "./admin-scripts/hb-user.mjs";
+import { productionBlocked } from "./admin-scripts/d1-http.mjs";
+
+const ADMIN_EMAIL = "admin@example.com";
 import {
   basicAuthOk,
   onRequest as basicGate,
+  setAuthClock,
   timingSafeEqualString,
 } from "./functions/_middleware.js";
 import {
@@ -52,7 +71,7 @@ import {
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
-import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
+import { metricsInSource, pphBar, PPH_SOURCE_CHECK, PPH_SOURCE_HIGH, PPH_SOURCE_LOW, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -262,7 +281,10 @@ const eastSeat = seatSummary("sales", {
   filters: filters({ region: "East Region" }),
 });
 assert.equal(eastSeat.fixedCompany, false);
-assert.equal(eastSeat.headlineText, "$10,706,607.64");
+assert.equal(eastSeat.headlineText, "$30.00");
+assert.equal(eastSeat.headline, 30);
+assert.equal(eastSeat.storeCount, 2);
+assert.equal(eastSeat.workbook, false);
 const laborLines = [
   {
     section: "labor",
@@ -280,20 +302,23 @@ const laborEast = seatSummary("labor", {
   rows: [],
   filters: filters({ region: "East Region" }),
 });
-assert.equal(laborEast.headlineText, "-3.97%");
+assert.equal(laborEast.headlineText, null);
+assert.equal(laborEast.workbook, false);
 const laborEastLine = seatSummary("labor", {
   lines: laborLines,
   rows: [],
   filters: filters({ region: "East Region" }),
 });
-assert.equal(laborEastLine.headlineText, "-8.59%");
+assert.equal(laborEastLine.headlineText, null);
+assert.equal(laborEastLine.workbook, false);
 const laborDivision = seatSummary("labor", {
   lines: laborLines,
   tables: laborTables,
   rows: [],
   filters: filters({ division: "Mid-Atlantic" }),
 });
-assert.equal(laborDivision.headlineText, "-13.59%");
+assert.equal(laborDivision.headlineText, null);
+assert.equal(laborDivision.workbook, false);
 assert.equal(laborGrainValue(laborTables, { grain: "region", label: "East", value: "-8.59%" }), "-3.97%");
 assert.equal(laborGrainValue(laborTables, { grain: "division", label: "Mid-Atlantic", value: "-13.59%" }), "-13.59%");
 const lostScopeRows = [
@@ -313,9 +338,7 @@ assert.equal(eastLost.missed, "Not available");
 assert.equal(eastLost.storeCount, 2);
 assert.deepEqual(lostExclMissed(lostScopeRows), { sum: 373, count: 3 });
 assert.equal(lostGrainRows(lostScopeRows, filters({}), lostScopeRows).find((row) => row.label === "South").value, 263);
-assert.equal(eastSeat.headline, null);
 assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
-assert.equal(eastSeat.storeCount, 615);
 const shawsSeat = seatSummary("sales", {
   company: companySales,
   lines: eastLines,
@@ -336,8 +359,9 @@ const districtSeat = seatSummary("sales", {
   rows: eastStores,
   filters: filters({ region: "East Region", district: "03" }),
 });
-assert.equal(districtSeat.headlineText, null);
+assert.equal(districtSeat.headlineText, "$10.00");
 assert.equal(districtSeat.headline, 10);
+assert.equal(districtSeat.workbook, false);
 assert.equal(districtSeat.secondary, "1 up · 0 flat · 0 down");
 const blankDynacap = seatSummary("dynacap", {
   company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
@@ -406,8 +430,8 @@ const midAtlantic = seatSummary("dynacap", {
   rows: [],
   filters: filters({ division: "Mid-Atlantic" }),
 });
-assert.equal(midAtlantic.headlineText, "100.0");
-assert.equal(midAtlantic.health, "watch");
+assert.equal(midAtlantic.headlineText, null);
+assert.equal(midAtlantic.workbook, false);
 assert.equal(
   scheduleVisibleTitle("Schedule Review Summary — Week 31 (WK31)", 32),
   "Schedule Review Summary — Week 32 (WK32)",
@@ -431,7 +455,7 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=29/);
+assert.match(pageHtml, /app\.css\?v=31/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
@@ -442,12 +466,12 @@ assert.match(css, /\.scope-chip \{[^}]*flex:\s*none/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.css\?v=29/);
-assert.match(pageHtml, /app\.js\?v=47/);
+assert.match(pageHtml, /app\.css\?v=31/);
+assert.match(pageHtml, /app\.js\?v=49/);
 assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
 assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
 assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
-assert.match(app, /const APP_VERSION = "47"/);
+assert.match(app, /const APP_VERSION = "49"/);
 assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
 assert.match(app, /id="build-stamp"/);
 assert.match(app, /Build \$\{esc\(buildLine\)\}/);
@@ -553,7 +577,18 @@ const rankedShoppers = sortShoppersByPph([
   { store: "1", shopper: "Low", shopperId: "Low", payload: { pph: 22.7, pick_hours: 0.9, orders: 1 } },
   { store: "1", shopper: "Zero", shopperId: "Zero", payload: { pph: 0, pick_hours: 1, orders: 1 } },
 ]);
-assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Zero", "Low", "High", "Blank"]);
+assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Low", "High", "Blank", "Zero"]);
+assert.equal(PPH_SOURCE_LOW, 0);
+assert.equal(PPH_SOURCE_HIGH, 300);
+assert.equal(PPH_SOURCE_CHECK(PPH_SOURCE_LOW), true);
+assert.equal(PPH_SOURCE_CHECK(PPH_SOURCE_HIGH), false);
+assert.equal(PPH_SOURCE_CHECK(0), true);
+assert.equal(PPH_SOURCE_CHECK(-1), true);
+assert.equal(PPH_SOURCE_CHECK(300), false);
+assert.equal(PPH_SOURCE_CHECK(300.01), true);
+assert.equal(PPH_SOURCE_CHECK(80), false);
+assert.equal(shopperPphLabel(0, (value) => Number(value).toFixed(1)), "0.0 check source");
+assert.equal(shopperPphLabel(81.2, (value) => Number(value).toFixed(1)), "81.2");
 assert.deepEqual(
   metricsInSource(rankedShoppers, [
     { label: "PPH", keys: ["pph"] },
@@ -567,7 +602,7 @@ assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/
 assert.equal(app.includes("Labor Sch Eff workbook total"), false);
 assert.match(app, /workbook roll-up/);
 assert.match(app, /store average/);
-assert.match(app, /PPH store average/);
+assert.match(app, /\$\{shownRate\("pph", built\.headline\)\} store average/);
 assert.match(app, /store sum/);
 assert.equal(divisionChipTitle("sales", "Sales"), "Sales store sum");
 assert.equal(divisionChipTitle("labor", "Labor"), "Labor store average");
@@ -580,7 +615,13 @@ assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Sch
 assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /export function formatCompanyAiv/);
 assert.match(app, /formatCompanyAiv\(aiv\)/);
 assert.match(app, /laborMarket/);
-assert.equal(formatCompanyAiv(0.002610916545167652), "0.00%");
+assert.equal(formatCompanyAiv(0.002610916545167652), "0.00% (+0.0026%)");
+assert.notEqual(formatCompanyAiv(0.002610916545167652), "0.26%");
+assert.notEqual(formatCompanyAiv(0.002610916545167652), "0.0000%");
+assert.equal(pct(-0.38645958215580284), "-0.39%");
+assert.notEqual(pct(-0.38645958215580284 * 100), "-0.39%");
+assert.equal(pct(-0.38645958215580284 / 100), "-0.00%");
+assert.match(app, /\["AIV", \["aiv_impact_pct"\], pct\]/);
 assert.equal(shopperHoursText(-0.45583333333333337, (value) => value.toFixed(1)), "source data issue");
 assert.equal(shopperHoursText(1.2, (value) => value.toFixed(1)), "1.2");
 assert.match(css, /\.share\[hidden\]/);
@@ -592,6 +633,11 @@ assert.match(phoneCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(phoneCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
 assert.match(deskCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(deskCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
+assert.match(phoneCss, /\.wordmark \{ font-size: 1\.48rem; \}/);
+assert.match(deskCss, /\.wordmark \{ font-size: 1\.48rem; \}/);
+assert.match(phoneCss, /\.heart \{ width: 32px; height: 29px; \}/);
+assert.match(deskCss, /\.heart \{ width: 32px; height: 29px; \}/);
+assert.match(deskCss, /\.brand-lockup \{[^}]*justify-self:\s*center/);
 assert.equal(phoneCss.includes("min-height: 32px"), false);
 assert.equal(deskCss.includes("min-height: 22px"), false);
 assert.match(css, /grid-template-areas:\s*"lockup"\s*"title"\s*"foot"/);
@@ -607,10 +653,10 @@ assert.equal(app.includes("worstHealth"), false);
 assert.equal(pageHtml.includes('id="stamp"'), false);
 assert.equal(pageHtml.includes('class="stamp"'), false);
 assert.match(pageHtml, /class="header-foot"/);
-assert.match(deskCss, /\.wordmark \{ font-size: 1\.55rem/);
-assert.match(deskCss, /h1 \{ font-size: 1\.05rem/);
-assert.match(deskCss, /#updated \{ font-size: 0\.78rem/);
-assert.match(deskCss, /\.pulse \{[^}]*margin-left:\s*-28px/);
+assert.match(deskCss, /\.wordmark \{ font-size: 1\.48rem/);
+assert.match(deskCss, /h1 \{\s*font-size: 0\.98rem/);
+assert.match(deskCss, /#updated \{[^}]*font-size: 0\.72rem/);
+assert.match(deskCss, /\.pulse \{[^}]*margin-left:\s*-26px/);
 assert.equal(deskCss.includes('"nav stamp"'), false);
 assert.equal(app.includes("Hide pages"), false);
 assert.equal(deskCss.includes(".chip strong"), false);
@@ -794,6 +840,20 @@ assert.deepEqual(scopeChips(store53).map((chip) => chip.label), ["Company", "Eas
 const eastBrowse = browseLevel(packRoster, { region: "", division: "", district: "", om: "", store: "" });
 assert.equal(eastBrowse.level, "region");
 assert.ok(eastBrowse.rows.every((row) => row.count > 0));
+const eastSearch = searchScope(packRoster, empty, "East");
+const regionGroup = eastSearch.find((group) => group.group === "Region");
+assert.ok(regionGroup, "typing East offers a Region group");
+assert.equal(eastSearch[0].group, "Region");
+const eastHit = regionGroup.hits.find((hit) => hit.label === "East");
+assert.ok(eastHit, "Region group offers East");
+assert.equal(eastHit.kind, "region");
+assert.equal(eastHit.value, "East Region");
+const browseEast = eastBrowse.rows.find((row) => row.label === "East");
+assert.deepEqual(cascadePick(packRoster, eastHit), cascadePick(packRoster, browseEast));
+assert.equal(cascadePick(packRoster, eastHit).region, "East Region");
+assert.equal(cascadePick(packRoster, eastHit).division, "");
+const eastScoped = searchScope(packRoster, filters({ region: "East Region" }), "East");
+assert.equal(eastScoped.some((group) => group.group === "Region"), false);
 const a1Browse = browseLevel(packRoster, { region: "East Region", division: "Mid-Atlantic", district: "", om: "", store: "" });
 assert.equal(a1Browse.level, "district");
 assert.ok(a1Browse.rows.some((row) => row.value === "A1" && row.count > 0 && row.label.includes("PHILA")));
@@ -1079,32 +1139,43 @@ assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
 assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
 assert.match(wrangler, /pages_build_output_dir = "dist"/);
-assert.match(wrangler, /binding = "HB_AUTH"/);
-assert.match(wrangler, /database_name = "fulfillment-heartbeat-auth"/);
-assert.match(wrangler, /database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
-assert.match(wrangler, /preview_database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
-assert.match(wrangler, /database_name = "hb-auth-preview"/);
-assert.equal(wrangler.includes('preview_database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"'), false);
-const wranglerEnvs = new Set([...wrangler.matchAll(/\[\[env\.([^.]+)\./g)].map((match) => match[1]));
-assert.deepEqual([...wranglerEnvs].sort(), ["preview", "production"]);
-function wranglerBlock(text, header) {
-  const start = text.indexOf(header);
-  assert.notEqual(start, -1, header);
-  const rest = text.slice(start + header.length);
-  const next = rest.search(/\n\[\[/);
-  return next < 0 ? text.slice(start) : text.slice(start, start + header.length + next);
-}
-for (const name of wranglerEnvs) {
-  const block = wranglerBlock(wrangler, `[[env.${name}.r2_buckets]]`);
-  assert.equal(block.includes(`[[env.`), true);
-  assert.equal((block.match(/\[\[env\./g) || []).length, 1, name);
-  assert.match(block, /binding = "HEARTBEAT_PACKS"/);
-  assert.match(block, /bucket_name = "heartbeat-packs"/);
-}
-assert.match(wranglerBlock(wrangler, "[[env.preview.d1_databases]]"), /database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
-assert.match(wranglerBlock(wrangler, "[[env.production.d1_databases]]"), /database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
-assert.equal(wranglerBlock(wrangler, "[[env.preview.d1_databases]]").includes("646c017a-802f-4395-b635-d4b5bd66c1cb"), false);
 assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
+const wranglerBlocks = [];
+{
+  let current = null;
+  for (const line of wrangler.split("\n")) {
+    const header = line.match(/^\[\[([^\]]+)\]\]\s*$/);
+    if (header) {
+      current = { name: header[1], values: {} };
+      wranglerBlocks.push(current);
+      continue;
+    }
+    if (!current || !line.trim() || line.trim().startsWith("#")) continue;
+    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]*)"\s*$/);
+    if (match) current.values[match[1]] = match[2];
+  }
+}
+const wranglerEnv = (name) => (name.startsWith("env.") ? name.split(".")[1] : "top");
+const wranglerEnvs = new Set(wranglerBlocks.map((block) => wranglerEnv(block.name)));
+assert.ok(wranglerEnvs.has("top") && wranglerEnvs.has("production") && wranglerEnvs.has("preview"));
+for (const envName of wranglerEnvs) {
+  const packs = wranglerBlocks.find(
+    (block) => wranglerEnv(block.name) === envName && block.name.endsWith("r2_buckets") && block.values.binding === "HEARTBEAT_PACKS",
+  );
+  assert.ok(packs, `${envName} is missing HEARTBEAT_PACKS`);
+  assert.equal(packs.values.bucket_name, "heartbeat-packs");
+}
+const d1Ids = (envName, key) =>
+  wranglerBlocks
+    .filter((block) => wranglerEnv(block.name) === envName && block.name.endsWith("d1_databases") && block.values.binding === "HB_AUTH")
+    .map((block) => block.values[key])
+    .filter(Boolean);
+const productionD1 = [...d1Ids("top", "database_id"), ...d1Ids("production", "database_id")];
+const previewD1 = [...d1Ids("top", "preview_database_id"), ...d1Ids("preview", "database_id")];
+assert.deepEqual(productionD1, ["646c017a-802f-4395-b635-d4b5bd66c1cb", "646c017a-802f-4395-b635-d4b5bd66c1cb"]);
+assert.deepEqual(previewD1, ["291dfe6d-fcc1-4b15-90c7-768db26d1f8e", "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"]);
+for (const previewId of previewD1) assert.equal(productionD1.includes(previewId), false);
+assert.equal(wrangler.includes("HB_USERS"), false);
 const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
 assert.equal(built.status, 0, built.stderr.toString());
 const distIndex = readFileSync(join(root, "dist/index.html"), "utf8");
@@ -1114,8 +1185,8 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
-assert.match(distIndex, /app\.css\?v=29/);
-assert.match(distIndex, /app\.js\?v=47/);
+assert.match(distIndex, /app\.css\?v=31/);
+assert.match(distIndex, /app\.js\?v=49/);
 assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
 const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
 assert.equal(distApp.includes("__BUILD_SHA__"), false);
@@ -1199,7 +1270,7 @@ assert.match(accountsSrc, /autocomplete="current-password"/);
 assert.match(accountsSrc, /autocomplete="username"/);
 assert.match(accountsSrc, /autocomplete="new-password"/);
 assert.match(accountsSrc, /name="email"/);
-assert.match(accountsSrc, /minlength="10"/);
+assert.match(accountsSrc, /minlength="12"/);
 assert.match(accountsSrc, /PBKDF2/);
 assert.match(app, /drawer-label">Settings/);
 assert.match(app, /href="\/admin">User management/);
@@ -1211,6 +1282,12 @@ assert.match(css, /\.drawer-label/);
 assert.match(app, /authBlocked/);
 assert.match(app, /retryHomeAfterAuth/);
 assert.match(app, /location\.assign\("\/login"\)/);
+assert.match(app, /addEventListener\("pageshow"/);
+assert.match(app, /event\.persisted/);
+assert.match(app, /confirmStoredSession/);
+assert.match(app, /new URL\("\/session", location\.origin\)/);
+assert.match(app, /cache: "no-store"/);
+assert.equal(app.includes("location.reload"), false);
 assert.match(app, /new URL\("\/logout", location\.origin\)/);
 assert.equal(app.includes('location.assign("/logout")'), false);
 assert.equal(app.includes("logout:logout"), false);
@@ -1316,13 +1393,14 @@ const signedIn = await basicGate({
 assert.equal(signedIn.status, 303);
 assert.match(signedIn.headers.get("location"), /\/$/);
 const setCookie = signedIn.headers.get("set-cookie") || "";
-assert.match(setCookie, /hb_session=/);
+assert.match(setCookie, /hb_shared=/);
 assert.match(setCookie, /HttpOnly/);
 assert.match(setCookie, /Secure/);
 assert.match(setCookie, /SameSite=Lax/);
-assert.match(setCookie, /Max-Age=2592000/);
+assert.match(setCookie, /Max-Age=604800/);
 const sessionCookie = setCookie.split(";")[0];
-assert.match(sessionCookie.split("=")[1], /^[a-f0-9]{64}\.[a-f0-9]{64}$/);
+assert.match(sessionCookie, /^hb_shared=/);
+assert.match(sessionCookie.split("=")[1], /^[a-f0-9]{64}$/);
 const opened = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: sessionCookie } }),
   env: accountEnv(signedAuth.db),
@@ -1539,7 +1617,7 @@ const rotated = await basicGate({
   env: accountEnv(signedAuth.db, { BASIC_PASS: "rotated-secret" }),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(await rotated.text(), "page");
+assert.match(await rotated.text(), /action="\/login"/);
 const testerIn = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
@@ -1551,19 +1629,23 @@ const testerIn = await basicGate({
 });
 assert.equal(testerIn.status, 303);
 const testerCookie = (testerIn.headers.get("set-cookie") || "").split(";")[0];
-assert.match(testerCookie.split("=")[1], /^[a-f0-9]{64}\.[a-f0-9]{64}$/);
+assert.match(testerCookie, /^hb_shared=/);
+assert.match(testerCookie.split("=")[1], /^[a-f0-9]{64}$/);
 const testerAfterRotate = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: testerCookie } }),
   env: accountEnv(signedAuth.db, { BASIC_PASS_TESTER: "rotated-tester" }),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(await testerAfterRotate.text(), "page");
+assert.match(await testerAfterRotate.text(), /action="\/login"/);
 const testerLogout = await basicGate({
-  request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", { method: "POST", headers: { cookie: testerCookie } }),
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", {
+    method: "POST",
+    headers: { cookie: testerCookie, "sec-fetch-site": "same-origin" },
+  }),
   env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(testerLogout.status, 302);
+assert.equal(testerLogout.status, 303);
 const testerReplay = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: testerCookie } }),
   env: accountEnv(signedAuth.db),
@@ -1590,11 +1672,14 @@ const tampered = await basicGate({
 });
 assert.match(await tampered.text(), /action="\/login"/);
 const loggedOut = await basicGate({
-  request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", { headers: { cookie: sessionCookie } }),
-  env: gateEnv,
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", {
+    method: "POST",
+    headers: { cookie: sessionCookie, "sec-fetch-site": "same-origin" },
+  }),
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(loggedOut.status, 302);
+assert.equal(loggedOut.status, 303);
 assert.match(loggedOut.headers.get("location"), /\/login$/);
 assert.match(loggedOut.headers.get("set-cookie") || "", /Max-Age=0/);
 const iconRedirect = await basicGate({
@@ -1724,8 +1809,81 @@ else if (midRate >= 60) assert.equal(cookedMidAtlantic.health, "watch");
 else assert.equal(cookedMidAtlantic.health, "risk");
 const schedule = JSON.parse(readFileSync(join(root, "dist/data/schedule.json"), "utf8"));
 const pickerFile = JSON.parse(readFileSync(join(root, "dist/data/section/picker_scorecard.json"), "utf8"));
-assert.ok(pickerFile.rows.length > 1000);
+assert.equal(pickerFile.rows.length, 29923);
 assert.ok(pickerFile.rows.some((row) => row.shopper));
+const pickerSummary = shopperPphSummary(pickerFile.rows);
+assert.equal(pickerSummary.withPph, 29906);
+assert.equal(pickerSummary.atGoal, 9973);
+assert.equal(pickerSummary.between, 3470);
+assert.equal(pickerSummary.below, 16463);
+assert.equal(pickerSummary.missing, 17);
+assert.equal(pickerSummary.flagged, 27);
+assert.equal(pickerSummary.average.toFixed(2), "73.68");
+assert.equal(pickerSummary.hoursWeighted.toFixed(2), "73.93");
+let negativePph = 0;
+let zeroPph = 0;
+let highPph = 0;
+for (const row of pickerFile.rows) {
+  const pph = shopperPph(row);
+  if (pph == null || !PPH_SOURCE_CHECK(pph)) continue;
+  if (pph < 0) negativePph += 1;
+  else if (pph === 0) zeroPph += 1;
+  else highPph += 1;
+}
+assert.equal(negativePph, 1);
+assert.equal(zeroPph, 9);
+assert.equal(highPph, 17);
+const store688 = pickerFile.rows.filter((row) => canonicalStore(row.store) === "688");
+const store688Summary = shopperPphSummary(store688);
+assert.equal(store688.length, 31);
+assert.equal(store688Summary.withPph, 29);
+assert.equal(store688Summary.atGoal, 14);
+assert.equal(store688Summary.between, 2);
+assert.equal(store688Summary.below, 13);
+assert.equal(store688Summary.missing, 2);
+assert.equal(store688Summary.flagged, 0);
+const lowest688 = sortShoppersByPph(store688).find((row) => {
+  const pph = shopperPph(row);
+  return pph != null && !PPH_SOURCE_CHECK(pph);
+});
+assert.equal(lowest688.shopperId, "CPAD103");
+assert.equal(lowest688.payload.pph.toFixed(2), "51.88");
+const gric = pickerFile.rows.find((row) => row.shopperId === "GRIC122");
+const trowe = pickerFile.rows.find((row) => row.shopperId === "TROWE26");
+assert.equal(gric.store, "617");
+assert.equal(trowe.store, "2675");
+assert.equal(PPH_SOURCE_CHECK(gric.payload.pph), true);
+assert.equal(PPH_SOURCE_CHECK(trowe.payload.pph), true);
+assert.match(shopperPphLabel(gric.payload.pph, (value) => Number(value).toFixed(2)), /-169\.41 check source/);
+assert.match(shopperPphLabel(trowe.payload.pph, (value) => Number(value).toFixed(1)), /5,?142\.9 check source/);
+assert.equal(shopperMatchesQuery(gric, "GRIC122"), true);
+assert.equal(shopperMatchesQuery(trowe, "TROWE26"), true);
+assert.equal(sortShoppersByPph(pickerFile.rows).filter((row) => shopperMatchesQuery(row, "GRIC122")).length, 1);
+assert.equal(sortShoppersByPph(pickerFile.rows).filter((row) => shopperMatchesQuery(row, "TROWE26")).length, 1);
+assert.equal(PPH_SOURCE_CHECK(shopperPph(sortShoppersByPph(pickerFile.rows)[0])), false);
+assert.equal(app.includes("GRIC122"), false);
+assert.equal(app.includes("TROWE26"), false);
+assert.equal(readFileSync(join(root, "public/shoppers.js"), "utf8").includes("GRIC122"), false);
+assert.match(app, /shopper average, excl\. check source/);
+assert.match(app, /hours-weighted shopper average, excl\. check source/);
+assert.equal(app.includes("summary.workbookTotal"), false);
+assert.equal(app.includes('class="metric person"'), false);
+assert.match(app, /OM \$\{seat\.om\}/);
+assert.match(app, /Tap a region or store to see its shoppers/);
+assert.match(app, /data-pph-drill/);
+const qualityFile = JSON.parse(readFileSync(join(root, "public/data/section/schedule_quality.json"), "utf8"));
+const rosterDistrict = Object.fromEntries(packRoster.map((row) => [canonicalStore(row.store), row.district]));
+let acmeDistricts = 0;
+for (const row of qualityFile.rows) {
+  const rosterCode = rosterDistrict[canonicalStore(row.store)];
+  if (!rosterCode || !/^A\d$/i.test(rosterCode)) continue;
+  const shown = shownDistrict("schedule_quality", row.district, rosterCode);
+  acmeDistricts += 1;
+  assert.match(shown, new RegExp(`^${rosterCode}\\b`));
+  assert.equal(/^H/i.test(shown), false);
+}
+assert.ok(acmeDistricts > 100);
+assert.equal(pct(laborByStore["1"].payload.aiv_impact_pct), "-0.39%");
 const pathPickers = JSON.parse(readFileSync(join(root, "dist/data/section/pick_path_picker.json"), "utf8"));
 assert.ok(pathPickers.rows.length > 1000);
 assert.equal(schedule.empty, undefined);
@@ -1913,10 +2071,41 @@ const southLaborSeat = seatSummary("labor", {
   filters: filters({ region: "South Region" }),
   roster: packRoster,
 });
-assert.equal(eastLaborSeat.headlineText, "-3.97%");
-assert.equal(eastLaborSeat.workbook, true);
-assert.equal(southLaborSeat.headlineText, "-3.64%");
-assert.equal(southLaborSeat.workbook, true);
+assert.equal(eastLaborSeat.headlineText, "-5.62%");
+assert.equal(eastLaborSeat.workbook, false);
+assert.equal(eastLaborSeat.storeCount, 593);
+assert.equal(eastLaborAvg.flagged, 17);
+assert.equal(southLaborSeat.headlineText, "-3.43%");
+assert.equal(southLaborSeat.workbook, false);
+assert.equal(southLaborSeat.storeCount, 392);
+assert.equal(southLaborAvg.flagged, 0);
+const californiaLaborSeat = seatSummary("labor", {
+  company: laborCompany,
+  lines: packHome.regionLines,
+  tables: packHome.regionTables,
+  rows: laborRows,
+  filters: filters({ region: "California Region" }),
+  roster: packRoster,
+});
+const westLaborSeat = seatSummary("labor", {
+  company: laborCompany,
+  lines: packHome.regionLines,
+  tables: packHome.regionTables,
+  rows: laborRows,
+  filters: filters({ region: "West Region" }),
+  roster: packRoster,
+});
+assert.equal(californiaLaborSeat.headlineText, "-5.38%");
+assert.equal(californiaLaborSeat.workbook, false);
+assert.equal(californiaLaborSeat.storeCount, 571);
+assert.equal(californiaLaborAvg.flagged, 28);
+assert.equal(westLaborSeat.headlineText, "-4.62%");
+assert.equal(westLaborSeat.workbook, false);
+assert.equal(westLaborSeat.storeCount, 538);
+assert.equal(westLaborAvg.flagged, 10);
+assert.equal(app.includes("laborRegionRollup"), false);
+assert.match(app, /function laborFilteredAverage\(\) \{\n  return filtersActive\(state\.filters\);\n\}/);
+assert.match(app, /\$\{num\(count, 0\)\} check source/);
 const eastSalesRows = summarizeSeat(
   "sales",
   rowsInScope(salesRows, filters({ region: "East Region" }), packRoster, "sales"),
@@ -1938,6 +2127,81 @@ assert.equal(metricCountLine(dynRows, ["dynacap_rate", "pieces_per_hour"]), "2,0
 assert.equal(metricCountLine(dynRows, ["utilization_pct", "pickup_util_pct"]), "2,089 of 2,164");
 assert.equal(metricCountLine(dynRows, ["eot_capacity", "used_capacity"]), "");
 assert.match(app, /metricCountLine\(/);
+const missingRows = JSON.parse(readFileSync(join(root, "public/data/section/missing_items.json"), "utf8")).rows;
+const blankSalesIds = ["378", "797", "1734", "1777", "1787", "2156", "2258", "2796", "3067", "3610", "3964", "4187", "4270"];
+const blankSales = salesRows.filter((row) => {
+  const division = String(row.division || "").trim();
+  const dollars = Number(row.payload && row.payload.sales_dollars) || 0;
+  const orders = Number(row.payload && row.payload.sales_orders) || 0;
+  return !division && dollars === 0 && orders === 0;
+});
+assert.deepEqual(
+  blankSales.map((row) => String(Number(row.store))).sort(),
+  blankSalesIds.slice().sort(),
+);
+assert.equal(sectionStoreCount(salesRows, noScope, packRoster, "sales"), 2168);
+const regionGold = [
+  ["East", 23372961.03, 613, 249680, 5600031, 1369516.37, 613, 9368, 81.28, 612, 8.49, 613],
+  ["South", 14749116.96, 397, 177060, 3971682, 684390, 397, 5476, 59.41, 325, 7.05, 397],
+  ["California", 23804503.18, 601, 264534, 4961901, 1014772.91, 600, 8125, 59.14, 600, 8.05, 600],
+  ["West", 19907309.4, 557, 213760, 4728751, 759943.27, 557, 6869, 67.39, 552, 6.36, 557],
+];
+const salesCompany = packHome.summaries.find((item) => item.section === "sales");
+let regionSales = 0;
+let regionOrders = 0;
+let regionItems = 0;
+for (const [name, sales, salesN, orders, items, lost, lostN, shoppers, pcs, pcsN, missing, missingN] of regionGold) {
+  const scope = filters({ region: `${name} Region` });
+  const salesScoped = rowsInScope(salesRows, scope, packRoster, "sales");
+  const salesBuilt = summarizeSeat("sales", salesScoped);
+  assert.equal(money(salesBuilt.headline), money(sales), `${name} sales`);
+  assert.equal(salesBuilt.storeCount, salesN, `${name} sales stores`);
+  assert.equal(payloadSum(salesScoped, "sales_orders").sum, orders, `${name} orders`);
+  assert.equal(payloadSum(salesScoped, "sales_items").sum, items, `${name} items`);
+  const lostRoll = lostExclMissed(rowsInScope(lostRows, scope, packRoster, "lost_revenue"));
+  assert.equal(money(lostRoll.sum), money(lost), `${name} lost`);
+  assert.equal(lostRoll.count, lostN, `${name} lost stores`);
+  assert.equal(
+    distinctShopperCount(rowsInScope(pickerRows, scope, packRoster, "picker_scorecard")),
+    shoppers,
+    `${name} shoppers`,
+  );
+  const pcsBuilt = summarizeSeat("dynacap", rowsInScope(dynRows, scope, packRoster, "dynacap"));
+  assert.equal(Number(pcsBuilt.headline).toFixed(2), Number(pcs).toFixed(2), `${name} pcs/hr`);
+  assert.equal(pcsBuilt.storeCount, pcsN, `${name} pcs/hr stores`);
+  const missingBuiltRegion = summarizeSeat("missing_items", rowsInScope(missingRows, scope, packRoster, "missing_items"));
+  assert.equal(pct(missingBuiltRegion.headline), pct(missing), `${name} missing`);
+  assert.equal(missingBuiltRegion.storeCount, missingN, `${name} missing stores`);
+  const salesSeat = seatSummary("sales", {
+    company: salesCompany,
+    lines: packHome.regionLines,
+    tables: packHome.regionTables,
+    rows: salesRows,
+    filters: scope,
+    roster: packRoster,
+  });
+  assert.equal(salesSeat.workbook, false, `${name} sales workbook`);
+  assert.equal(money(salesSeat.headline), money(sales), `${name} sales seat`);
+  assert.equal(salesSeat.storeCount, salesN, `${name} sales seat stores`);
+  regionSales += salesBuilt.headline;
+  regionOrders += orders;
+  regionItems += items;
+}
+assert.equal(money(regionSales), "$81,833,890.57");
+assert.equal(regionOrders, 905034);
+assert.equal(regionItems, 19262365);
+const salesGrain = sectionRowGrain("sales", salesRows, noScope, packRoster, packHome.regionLines);
+for (const row of salesGrain) {
+  assert.equal(row.workbook, false);
+  assert.equal(String(row.value).toLowerCase().includes("workbook"), false);
+}
+assert.equal(salesGrain.find((row) => row.grain === "region" && row.label === "East").count, 613);
+assert.equal(salesGrain.find((row) => row.grain === "region" && row.label === "South").count, 397);
+const laborValueGrain = sectionRowGrain("labor", laborRows, noScope, packRoster, packHome.regionLines);
+const eastLaborGrain = laborValueGrain.find((row) => row.grain === "region" && row.label === "East");
+assert.equal(eastLaborGrain.workbook, false);
+assert.match(eastLaborGrain.value, /^-5\.62% store average/);
+assert.equal(eastLaborGrain.value.toLowerCase().includes("workbook"), false);
 assert.match(app, /<small class="count">/);
 assert.match(css, /\.chip small\.count/);
 assert.match(app, /Loading shopper rows…/);
@@ -2134,20 +2398,43 @@ assert.ok(quinnStores.length > 1);
 assert.ok(countStores(cooked.filters.stores, filters({ region: "East Region" })) > 400);
 
 function d1From(raw) {
-  return {
+  const db = {
+    batches: 0,
+    batchSql: [],
+    reads: 0,
     prepare(sql) {
-      const prepared = raw.prepare(sql);
       const bound = (params) => ({
-        first: async () => prepared.get(...params) ?? null,
-        all: async () => ({ results: prepared.all(...params) }),
+        sql,
+        first: async () => {
+          db.reads += 1;
+          return raw.prepare(sql).get(...params) ?? null;
+        },
+        all: async () => ({ results: raw.prepare(sql).all(...params) }),
         run: async () => {
-          const info = prepared.run(...params);
+          const info = raw.prepare(sql).run(...params);
           return { success: true, meta: { changes: info.changes ?? 0 } };
         },
       });
-      return { bind: (...params) => bound(params), ...bound([]) };
+      return { sql, bind: (...params) => bound(params), ...bound([]) };
+    },
+    async batch(statements) {
+      db.batches += 1;
+      db.batchSql.push(statements.map((statement) => statement.sql));
+      raw.exec("BEGIN");
+      try {
+        for (const statement of statements) await statement.run();
+        raw.exec("COMMIT");
+      } catch (error) {
+        try {
+          raw.exec("ROLLBACK");
+        } catch {
+          // The transaction is already closed.
+        }
+        throw error;
+      }
     },
   };
+  return db;
 }
 
 function openAuth() {
@@ -2158,15 +2445,20 @@ function openAuth() {
 function accountEnv(db, extra = {}) {
   return {
     ...gateEnv,
-    ADMIN_EMAIL: "admin@example.com",
-    SETUP_SECRET: "setup-secret-value",
+    ADMIN_EMAIL,
     HB_AUTH: db,
     ...extra,
   };
 }
 
-async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null, fetchSite = "same-origin" } = {}) {
+let accountRequestIp = 1;
+
+async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null, fetchSite = "same-origin", waitUntil = null } = {}) {
   const requestHeaders = { ...headers };
+  if (!headers["cf-connecting-ip"] && !headers["x-forwarded-for"]) {
+    accountRequestIp += 1;
+    requestHeaders["cf-connecting-ip"] = `198.51.100.${(accountRequestIp % 200) + 1}`;
+  }
   if (fetchSite && !Object.prototype.hasOwnProperty.call(headers, "sec-fetch-site")) {
     requestHeaders["sec-fetch-site"] = fetchSite;
   }
@@ -2179,6 +2471,7 @@ async function accountRequest(db, path, { method = "GET", body = "", cookie = ""
       body: body || undefined,
     }),
     env: env || accountEnv(db),
+    waitUntil,
     next: async () => new Response("page", { status: 200 }),
   });
 }
@@ -2194,32 +2487,40 @@ function inviteToken(text) {
 }
 
 const passwordHash = await hashPassword("correct-horse");
-assert.equal(await verifyPassword("correct-horse", passwordHash.salt, passwordHash.hash, passwordHash.iterations), true);
-assert.equal(await verifyPassword("other-horse!!", passwordHash.salt, passwordHash.hash, passwordHash.iterations), false);
+assert.equal(passwordHash.algo, "PBKDF2-SHA256");
+assert.equal(passwordHash.salt.length, 32);
+assert.equal(passwordHash.hash.length, 64);
+assert.equal(await verifyPassword("correct-horse", passwordHash.salt, passwordHash.hash, passwordHash.iterations, passwordHash.algo), true);
+assert.equal(await verifyPassword("other-horse!!", passwordHash.salt, passwordHash.hash, passwordHash.iterations, passwordHash.algo), false);
 assert.equal(passwordHash.iterations, 100000);
+assert.equal(backoffSeconds(1), 1);
+assert.equal(backoffSeconds(2), 2);
+assert.equal(backoffSeconds(3), 4);
+assert.equal(backoffSeconds(20) <= 15 * 60, true);
 
 const auth = openAuth();
 const setupDenied = await accountRequest(auth.db, "/setup");
 assert.equal(setupDenied.status, 404);
 assert.equal(setupDenied.headers.get("cache-control"), "no-store");
-const setupWrong = await accountRequest(auth.db, "/setup", { headers: { authorization: "Bearer not-the-secret-value" } });
-assert.equal(setupWrong.status, 404);
-const setupOk = await accountRequest(auth.db, "/setup", { headers: { authorization: "Bearer setup-secret-value" } });
-assert.equal(setupOk.status, 200);
-const setupBody = await setupOk.text();
-assert.match(setupBody, /^email: admin@example.com/);
-const adminInvite = inviteToken(setupBody);
+const setupPost = await accountRequest(auth.db, "/setup", { method: "POST", body: "email=person@example.com" });
+assert.equal(setupPost.status, 404);
+const adminScripts = await accountRequest(auth.db, "/admin-scripts/hb-user.mjs");
+assert.equal(adminScripts.status, 404);
+await ensureSchema(auth.db);
+const issued = await issueFirstAdminLink(auth.db, accountEnv(auth.db), Math.floor(Date.now() / 1000));
+assert.equal(issued.email, ADMIN_EMAIL);
+const adminInvite = issued.token;
 const inviteForm = await accountRequest(auth.db, `/invite/${adminInvite}`);
 const inviteHtml = await inviteForm.text();
 assert.match(inviteHtml, /name="confirm"/);
-assert.match(inviteHtml, /minlength="10"/);
+assert.match(inviteHtml, /minlength="12"/);
 assert.match(inviteHtml, /autocomplete="new-password"/);
 const tooShort = await accountRequest(auth.db, `/invite/${adminInvite}`, {
   method: "POST",
   body: "password=short&confirm=short",
 });
 assert.equal(tooShort.status, 400);
-assert.match(await tooShort.text(), /at least 10 characters/);
+assert.match(await tooShort.text(), /at least 12 characters/);
 const mismatch = await accountRequest(auth.db, `/invite/${adminInvite}`, {
   method: "POST",
   body: "password=long-enough-1&confirm=long-enough-2",
@@ -2232,14 +2533,44 @@ const joined = await accountRequest(auth.db, `/invite/${adminInvite}`, {
 });
 assert.equal(joined.status, 303);
 const adminCookie = cookieHeader(joined);
-assert.match(adminCookie, /^hb_session=[a-f0-9]{64}\.[a-f0-9]{64}$/);
+assert.match(adminCookie, /^hb_session=[a-f0-9]{64}$/);
+const readsBeforeHome = auth.db.reads;
 const signedHome = await accountRequest(auth.db, "/", { cookie: adminCookie });
 assert.equal(await signedHome.text(), "page");
+assert.equal(auth.db.reads - readsBeforeHome, 1);
+const sealedPage = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+    headers: { cookie: adminCookie, "sec-fetch-site": "same-origin" },
+  }),
+  env: accountEnv(auth.db),
+  next: async () => new Response("sales", { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }),
+});
+assert.equal(sealedPage.headers.get("cache-control"), "private, no-store");
+assert.equal(await sealedPage.text(), "sales");
+const sealedScript = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/draw", {
+    headers: { cookie: adminCookie, "sec-fetch-site": "same-origin" },
+  }),
+  env: accountEnv(auth.db),
+  next: async () => new Response("draw", { status: 200, headers: { "content-type": "text/javascript" } }),
+});
+assert.equal(sealedScript.headers.get("cache-control"), "private, no-store");
+const scriptAsset = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/app.js"),
+  env: accountEnv({
+    prepare() {
+      throw new Error("static asset touched D1");
+    },
+  }),
+  next: async () => new Response("script", { status: 200, headers: { "content-type": "text/javascript" } }),
+});
+assert.equal(scriptAsset.status, 200);
+assert.equal(await scriptAsset.text(), "script");
 const people = await accountRequest(auth.db, "/admin", { cookie: adminCookie });
 assert.equal(people.status, 200);
 const peopleHtml = await people.text();
 assert.match(peopleHtml, /Email is off\. Copy the invite link\./);
-assert.match(peopleHtml, /admin@example.com/);
+assert.match(peopleHtml, new RegExp(ADMIN_EMAIL));
 assert.match(peopleHtml, /src="\/auth-copy\.js"/);
 assert.match(peopleHtml, /class="header-back" href="\/"/);
 assert.match(peopleHtml, />Dashboard</);
@@ -2285,11 +2616,17 @@ const pendingId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get("
 const copied = await accountRequest(auth.db, "/admin", {
   method: "POST",
   cookie: adminCookie,
-  body: `action=copy&user=${encodeURIComponent(pendingId)}`,
+  body: `action=resend&user=${encodeURIComponent(pendingId)}`,
 });
 const copiedHtml = await copied.text();
-assert.match(copiedHtml, /Copy this invite link/);
-assert.match(copiedHtml, new RegExp(`/invite/${pendingToken}`));
+assert.match(copiedHtml, /previous link no longer works/);
+const resentToken = inviteToken(copiedHtml);
+assert.notEqual(resentToken, pendingToken);
+const staleInvite = await accountRequest(auth.db, `/invite/${pendingToken}`, {
+  method: "POST",
+  body: "password=viewer-pass-4&confirm=viewer-pass-4",
+});
+assert.equal(staleInvite.status, 400);
 const viewerId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get("viewer@example.com").id;
 const disabled = await accountRequest(auth.db, "/admin", {
   method: "POST",
@@ -2310,6 +2647,7 @@ const enabled = await accountRequest(auth.db, "/admin", {
   body: `action=enable&user=${encodeURIComponent(viewerId)}`,
 });
 assert.match(await enabled.text(), /viewer@example.com is active/);
+auth.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const viewerAgain = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=viewer@example.com&password=viewer-pass-1",
@@ -2328,13 +2666,19 @@ const oldPassword = await accountRequest(auth.db, "/login", {
   body: "email=viewer@example.com&password=viewer-pass-1",
 });
 assert.equal(oldPassword.status, 401);
-assert.match(await oldPassword.text(), /invite link/);
+assert.match(await oldPassword.text(), /That email or password is wrong/);
 const resetJoin = await accountRequest(auth.db, `/invite/${resetToken}`, {
   method: "POST",
   body: "password=viewer-pass-2&confirm=viewer-pass-2",
 });
 assert.equal(resetJoin.status, 303);
-const adminId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get("admin@example.com").id;
+const adminId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get(ADMIN_EMAIL).id;
+const demoteAdmin = await accountRequest(auth.db, "/admin", {
+  method: "POST",
+  cookie: adminCookie,
+  body: `action=role&role=viewer&user=${encodeURIComponent(adminId)}`,
+});
+assert.match(await demoteAdmin.text(), /at least one admin/);
 const keepAdmin = await accountRequest(auth.db, "/admin", {
   method: "POST",
   cookie: adminCookie,
@@ -2347,8 +2691,8 @@ const removed = await accountRequest(auth.db, "/admin", {
   body: `action=remove&user=${encodeURIComponent(pendingId)}`,
 });
 assert.match(await removed.text(), /pending@example.com was removed/);
-const accountLoggedOut = await accountRequest(auth.db, "/logout", { cookie: adminCookie });
-assert.equal(accountLoggedOut.status, 302);
+const accountLoggedOut = await accountRequest(auth.db, "/logout", { method: "POST", cookie: adminCookie });
+assert.equal(accountLoggedOut.status, 303);
 assert.match(accountLoggedOut.headers.get("set-cookie") || "", /Max-Age=0/);
 const afterLogout = await accountRequest(auth.db, "/", { cookie: adminCookie });
 assert.match(await afterLogout.text(), /action="\/login"/);
@@ -2359,31 +2703,59 @@ assert.equal(privateData.headers.get("WWW-Authenticate"), null);
 assert.equal(privateData.headers.get("set-cookie"), null);
 
 const throttle = openAuth();
-let throttleStatus = 0;
-for (let attempt = 0; attempt < 8; attempt += 1) {
-  const failed = await accountRequest(throttle.db, "/login", {
-    method: "POST",
-    body: "email=nobody@example.com&password=not-a-real-password",
-  });
-  throttleStatus = failed.status;
-}
-assert.equal(throttleStatus, 401);
+const throttleIp = "203.0.113.10";
+const throttleHeaders = { "cf-connecting-ip": throttleIp };
+setAuthClock(() => 1_800_000_000);
+const firstFail = await accountRequest(throttle.db, "/login", {
+  method: "POST",
+  body: "email=nobody@example.com&password=not-a-real-password",
+  headers: throttleHeaders,
+});
+assert.equal(firstFail.status, 401);
 const throttled = await accountRequest(throttle.db, "/login", {
   method: "POST",
   body: "email=nobody@example.com&password=not-a-real-password",
+  headers: throttleHeaders,
 });
 assert.equal(throttled.status, 429);
-const otherIp = await accountRequest(throttle.db, "/login", {
+const otherEmail = await accountRequest(throttle.db, "/login", {
   method: "POST",
-  body: "email=nobody@example.com&password=not-a-real-password",
+  body: "email=someone-else@example.com&password=not-a-real-password",
   headers: { "x-forwarded-for": "203.0.113.9" },
 });
-assert.equal(otherIp.status, 401);
+assert.equal(otherEmail.status, 401);
+const sameEmailOtherIp = await accountRequest(throttle.db, "/login", {
+  method: "POST",
+  body: "email=nobody@example.com&password=not-a-real-password",
+  headers: { "x-forwarded-for": "203.0.113.8" },
+});
+assert.equal(sameEmailOtherIp.status, 429);
 const heartbeatSameIp = await accountRequest(throttle.db, "/login", {
   method: "POST",
   body: "email=heartbeat&password=not-the-shared-password",
+  headers: throttleHeaders,
 });
-assert.equal(heartbeatSameIp.status, 401);
+assert.equal(heartbeatSameIp.status, 429);
+throttle.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
+const afterWait = await accountRequest(throttle.db, "/login", {
+  method: "POST",
+  body: "email=nobody@example.com&password=not-a-real-password",
+  headers: throttleHeaders,
+});
+assert.equal(afterWait.status, 401);
+const backoffNow = 1_800_000_000;
+const backoffReq = new Request("https://fulfillment-heartbeat-web.pages.dev/login", { headers: { "cf-connecting-ip": "203.0.113.77" } });
+await recordLoginFailure(throttle.db, backoffReq, "slow@example.com", backoffNow);
+assert.equal(await loginThrottled(throttle.db, backoffReq, "slow@example.com", backoffNow), true);
+assert.equal(await loginThrottled(throttle.db, backoffReq, "slow@example.com", backoffNow + 1), false);
+await recordLoginFailure(throttle.db, backoffReq, "slow@example.com", backoffNow + 1);
+const emailAttempt = throttle.raw.prepare("SELECT failures, next_at FROM login_attempts WHERE bucket = ?").get("email:slow@example.com");
+const ipAttempt = throttle.raw.prepare("SELECT failures, next_at FROM login_attempts WHERE bucket = ?").get("ip:203.0.113.77");
+assert.equal(emailAttempt.failures, 2);
+assert.equal(emailAttempt.next_at, backoffNow + 1 + backoffSeconds(2));
+assert.equal(ipAttempt.failures, 2);
+assert.equal(await loginThrottled(throttle.db, backoffReq, "slow@example.com", emailAttempt.next_at), false);
+setAuthClock(null);
 
 const legacy = openAuth();
 const legacyIn = await accountRequest(legacy.db, "/login", {
@@ -2402,7 +2774,7 @@ const sharedAdmin = await accountRequest(auth.db, "/admin", { cookie: cookieHead
 assert.equal(sharedAdmin.status, 403);
 const sharedCookie = cookieHeader(sharedWhileAccounts);
 const sharedLogout = await accountRequest(auth.db, "/logout", { method: "POST", cookie: sharedCookie });
-assert.equal(sharedLogout.status, 302);
+assert.equal(sharedLogout.status, 303);
 assert.match(sharedLogout.headers.get("set-cookie") || "", /Max-Age=0/);
 const sharedReplay = await accountRequest(auth.db, "/session", { cookie: sharedCookie });
 assert.equal(sharedReplay.status, 401);
@@ -2425,7 +2797,7 @@ const cutoverDenied = await accountRequest(cutover.db, "/login", {
 assert.equal(cutoverDenied.status, 401);
 const crossSite = await accountRequest(auth.db, "/login", {
   method: "POST",
-  body: "email=admin@example.com&password=long-enough-1",
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
   headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
 });
 assert.equal(crossSite.status, 403);
@@ -2435,13 +2807,14 @@ assert.equal(crossSiteHtml.includes("That email or password is wrong."), false);
 
 const adminBack = await accountRequest(auth.db, "/login", {
   method: "POST",
-  body: "email=admin@example.com&password=long-enough-1",
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
 });
 assert.equal(adminBack.status, 303);
 const adminSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(adminBack) });
 assert.equal(adminSession.status, 200);
 assert.equal(adminSession.headers.get("cache-control"), "private, no-store");
-assert.deepEqual(await adminSession.json(), { email: "admin@example.com", role: "admin", account: true });
+assert.deepEqual(await adminSession.json(), { email: ADMIN_EMAIL, role: "admin", account: true });
+auth.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const viewerBack = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=viewer@example.com&password=viewer-pass-2",
@@ -2475,6 +2848,7 @@ const wrongCurrent = await accountRequest(auth.db, "/account", {
   body: "current=not-the-password&password=viewer-pass-3&confirm=viewer-pass-3",
 });
 assert.equal(wrongCurrent.status, 401);
+auth.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const secondViewer = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=viewer@example.com&password=viewer-pass-2",
@@ -2489,13 +2863,16 @@ assert.equal(changed.status, 200);
 assert.match(await changed.text(), /Password saved/);
 const oldSession = await accountRequest(auth.db, "/", { cookie: cookieHeader(secondViewer) });
 assert.match(await oldSession.text(), /action="\/login"/);
-const stillHere = await accountRequest(auth.db, "/", { cookie: cookieHeader(viewerBack) });
+const replacedSession = await accountRequest(auth.db, "/", { cookie: cookieHeader(viewerBack) });
+assert.match(await replacedSession.text(), /action="\/login"/);
+const stillHere = await accountRequest(auth.db, "/", { cookie: cookieHeader(changed) });
 assert.equal(await stillHere.text(), "page");
 const oldViewerPass = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=viewer@example.com&password=viewer-pass-2",
 });
 assert.equal(oldViewerPass.status, 401);
+auth.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const newViewerPass = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=viewer@example.com&password=viewer-pass-3",
@@ -2521,7 +2898,7 @@ const nullOrigin = await accountRequest(browserLogin.db, "/login", {
   headers: { origin: "null", "sec-fetch-site": "same-origin" },
 });
 assert.equal(nullOrigin.status, 303);
-assert.match(nullOrigin.headers.get("set-cookie") || "", /^hb_session=/);
+assert.match(nullOrigin.headers.get("set-cookie") || "", /^hb_shared=/);
 const nullOriginWrong = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=not-the-shared-password",
@@ -2559,6 +2936,7 @@ for (const site of ["cross-site", "same-site"]) {
   assert.equal(blockedHtml.includes("That email or password is wrong."), false);
 }
 assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, blockedBefore);
+browserLogin.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const refererLogin = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
@@ -2575,7 +2953,7 @@ assert.equal(missingFetchBlocked.status, 403);
 const missingFetchBlockedHtml = await missingFetchBlocked.text();
 assert.match(missingFetchBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
 assert.equal(missingFetchBlockedHtml.includes("That email or password is wrong."), false);
-assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = 'email:heartbeat'").get().n, 0);
 const missingFetchWrongHost = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
@@ -2584,7 +2962,7 @@ const missingFetchWrongHost = await accountRequest(browserLogin.db, "/login", {
 });
 assert.equal(missingFetchWrongHost.status, 403);
 assert.match(await missingFetchWrongHost.text(), /Sign-in blocked: please open the site directly and try again/);
-assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = 'email:heartbeat'").get().n, 0);
 const missingFetch = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
@@ -2592,7 +2970,7 @@ const missingFetch = await accountRequest(browserLogin.db, "/login", {
   fetchSite: false,
 });
 assert.equal(missingFetch.status, 303);
-assert.match(missingFetch.headers.get("set-cookie") || "", /^hb_session=/);
+assert.match(missingFetch.headers.get("set-cookie") || "", /^hb_shared=/);
 const sameOriginLogin = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
@@ -2626,8 +3004,9 @@ assert.match(await sameSiteOwnOrigin.text(), /Sign-in blocked: please open the s
 assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, ownOriginAttempts);
 
 const formOrigin = openAuth();
-const formSetup = await accountRequest(formOrigin.db, "/setup", { headers: { authorization: "Bearer setup-secret-value" } });
-const formAdminInvite = inviteToken(await formSetup.text());
+await ensureSchema(formOrigin.db);
+const formIssued = await issueFirstAdminLink(formOrigin.db, accountEnv(formOrigin.db), Math.floor(Date.now() / 1000));
+const formAdminInvite = formIssued.token;
 const formJoined = await accountRequest(formOrigin.db, `/invite/${formAdminInvite}`, {
   method: "POST",
   body: "password=long-enough-1&confirm=long-enough-1",
@@ -2684,7 +3063,9 @@ const formAccount = await accountRequest(formOrigin.db, "/account", {
 });
 assert.equal(formAccount.status, 200);
 assert.match(await formAccount.text(), /Password saved/);
-const formStill = await accountRequest(formOrigin.db, "/", { cookie: formViewer });
+const formOld = await accountRequest(formOrigin.db, "/", { cookie: formViewer });
+assert.match(await formOld.text(), /action="\/login"/);
+const formStill = await accountRequest(formOrigin.db, "/", { cookie: cookieHeader(formAccount) });
 assert.equal(await formStill.text(), "page");
 
 async function legacyPasswordCookie(env, user, pass) {
@@ -2707,6 +3088,538 @@ async function legacyPasswordCookie(env, user, pass) {
   const sig = [...new Uint8Array(signed)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return `${encoded}.${sig}`;
 }
+
+const repeatDb = openAuth();
+for (let run = 0; run < 20; run += 1) {
+  const logged = await accountRequest(repeatDb.db, "/login", {
+    method: "POST",
+    body: "username=heartbeat&password=test-only-secret",
+    headers: { "cf-connecting-ip": `203.0.113.${run + 20}` },
+  });
+  assert.equal(logged.status, 303, `login run ${run}`);
+  const cookie = cookieHeader(logged);
+  const loaded = await accountRequest(repeatDb.db, "/data/home.json", { cookie });
+  assert.equal(loaded.status, 200, `data run ${run}`);
+  assert.equal(loaded.headers.get("cache-control"), "private, no-store");
+  const unsigned = await accountRequest(repeatDb.db, "/data/home.json");
+  assert.equal(unsigned.status, 401, `unsigned run ${run}`);
+  assert.equal(unsigned.headers.get("vary"), "Cookie");
+  assert.equal(unsigned.headers.get("cdn-cache-control"), "no-store");
+}
+for (let run = 0; run < 20; run += 1) {
+  assert.equal(paintWhileLoading(null, false), "loading");
+  assert.equal(afterPackStatus(401, 0), "retry");
+  assert.equal(afterPackStatus(401, 3), "login");
+  assert.equal(paintWhileLoading({ schemaVersion: 1 }, true), "dashboard");
+}
+
+const enumDb = openAuth();
+const enumNow = Math.floor(Date.now() / 1000);
+await ensureSchema(enumDb.db);
+const enumIssued = await issueFirstAdminLink(enumDb.db, accountEnv(enumDb.db), enumNow);
+const enumJoined = await accountRequest(enumDb.db, `/invite/${enumIssued.token}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-1",
+});
+assert.equal(enumJoined.status, 303);
+async function spyPasswordLogin(run) {
+  const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+  const timingSafeEqual = crypto.subtle.timingSafeEqual;
+  const calls = [];
+  const compares = [];
+  crypto.subtle.deriveBits = async (algorithm, key, length) => {
+    calls.push(algorithm);
+    return deriveBits(algorithm, key, length);
+  };
+  crypto.subtle.timingSafeEqual = (left, right) => {
+    compares.push(left.byteLength === 32 && right.byteLength === 32);
+    if (typeof timingSafeEqual === "function") return timingSafeEqual.call(crypto.subtle, left, right);
+    return nodeTimingSafeEqual(left, right);
+  };
+  try {
+    const response = await run();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, "PBKDF2");
+    assert.equal(calls[0].iterations, 100000);
+    assert.equal(calls[0].hash, "SHA-256");
+    assert.equal(calls[0].salt.byteLength, 16);
+    assert.equal(compares.filter(Boolean).length, 1);
+    return response;
+  } finally {
+    crypto.subtle.deriveBits = deriveBits;
+    crypto.subtle.timingSafeEqual = timingSafeEqual;
+  }
+}
+
+const missingLogin = await spyPasswordLogin(() =>
+  accountRequest(enumDb.db, "/login", {
+    method: "POST",
+    body: "email=missing@example.com&password=not-the-password",
+    headers: { "cf-connecting-ip": "203.0.113.80" },
+  }),
+);
+const missingText = await missingLogin.text();
+const knownLogin = await spyPasswordLogin(() =>
+  accountRequest(enumDb.db, "/login", {
+    method: "POST",
+    body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=not-the-password`,
+    headers: { "cf-connecting-ip": "203.0.113.81" },
+  }),
+);
+assert.equal(missingLogin.status, 401);
+assert.equal(knownLogin.status, 401);
+assert.equal(await knownLogin.text(), missingText);
+assert.match(missingText, /That email or password is wrong/);
+assert.equal(missingText.includes(ADMIN_EMAIL), false);
+
+const replay = await accountRequest(enumDb.db, `/invite/${enumIssued.token}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-1",
+});
+assert.equal(replay.status, 400);
+const secondSetup = await issueFirstAdminLink(enumDb.db, accountEnv(enumDb.db), enumNow);
+assert.equal(secondSetup, null);
+
+const enumCookie = cookieHeader(enumJoined);
+const enumViewer = await accountRequest(enumDb.db, "/admin", {
+  method: "POST",
+  cookie: enumCookie,
+  body: "action=add&email=qc-viewer@example.com&role=viewer&password=viewer-pass-1",
+});
+assert.equal(enumViewer.status, 200);
+const qcId = enumDb.raw.prepare("SELECT id FROM users WHERE email = ?").get("qc-viewer@example.com").id;
+const qcLogin = await accountRequest(enumDb.db, "/login", {
+  method: "POST",
+  body: "email=qc-viewer@example.com&password=viewer-pass-1",
+});
+assert.equal(qcLogin.status, 303);
+const qcCookie = cookieHeader(qcLogin);
+const promoted = await accountRequest(enumDb.db, "/admin", {
+  method: "POST",
+  cookie: enumCookie,
+  body: `action=role&role=admin&user=${encodeURIComponent(qcId)}`,
+});
+assert.match(await promoted.text(), /qc-viewer@example.com is admin/);
+const qcAfterRole = await accountRequest(enumDb.db, "/", { cookie: qcCookie });
+assert.match(await qcAfterRole.text(), /action="\/login"/);
+const sharedFallback = await accountRequest(enumDb.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+});
+assert.equal(sharedFallback.status, 303);
+assert.match(cookieHeader(sharedFallback), /^hb_shared=/);
+const sharedDenied = await accountRequest(enumDb.db, "/admin", { cookie: cookieHeader(sharedFallback) });
+assert.equal(sharedDenied.status, 403);
+const sharedUsers = await accountRequest(enumDb.db, "/admin", {
+  method: "POST",
+  cookie: cookieHeader(sharedFallback),
+  body: "action=add&email=nope@example.com&role=admin",
+});
+assert.equal(sharedUsers.status, 403);
+
+const postRoutes = [
+  ["/login", "email=missing@example.com&password=not-the-password"],
+  ["/logout", ""],
+  ["/account", "current=long-enough-1&password=long-enough-2&confirm=long-enough-2"],
+  ["/admin", "action=add&email=cross@example.com&role=viewer"],
+  [`/invite/${enumIssued.token}`, "password=long-enough-3&confirm=long-enough-3"],
+];
+for (const [path, body] of postRoutes) {
+  for (const site of ["cross-site", "same-site"]) {
+    const blocked = await accountRequest(enumDb.db, path, {
+      method: "POST",
+      body,
+      cookie: enumCookie,
+      headers: { origin: "https://evil.example", "sec-fetch-site": site },
+    });
+    assert.equal(blocked.status, 403, `${site} ${path}`);
+  }
+}
+const getLogout = await accountRequest(enumDb.db, "/logout", { cookie: enumCookie });
+assert.equal(getLogout.status, 405);
+const stillSignedIn = await accountRequest(enumDb.db, "/session", { cookie: enumCookie });
+assert.equal(stillSignedIn.status, 200);
+
+const idleRaw = enumDb.raw.prepare("SELECT id FROM sessions WHERE revoked_at IS NULL").get();
+enumDb.raw.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(enumNow - IDLE_TTL - 5, idleRaw.id);
+const idled = await accountRequest(enumDb.db, "/session", { cookie: enumCookie });
+assert.equal(idled.status, 401);
+
+enumDb.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
+const fresh = await accountRequest(enumDb.db, "/login", {
+  method: "POST",
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
+  headers: { "cf-connecting-ip": "203.0.113.90" },
+});
+assert.equal(fresh.status, 303);
+const freshCookie = cookieHeader(fresh);
+enumDb.raw.prepare("UPDATE sessions SET expires_at = ?").run(Math.floor(Date.now() / 1000) - 5);
+const absoluteExpired = await accountRequest(enumDb.db, "/session", { cookie: freshCookie });
+assert.equal(absoluteExpired.status, 401);
+
+const created = generatePassword(20);
+assert.equal(created.length >= 16, true);
+const createdHash = await hashPassword(created);
+const insert = userInsertSql({
+  id: "user-1",
+  email: "qc@example.com",
+  role: "viewer",
+  hash: createdHash.hash,
+  salt: createdHash.salt,
+  now: enumNow,
+});
+assert.equal(insert.includes(created), false);
+assert.match(insert, /PBKDF2-SHA256/);
+assert.equal(middleware.includes("hb-user.mjs"), false);
+assert.equal(accountsSrc.includes("hb-user.mjs"), false);
+assert.equal(accountsSrc.includes("murraycory@icloud.com"), false);
+assert.match(accountsSrc, /env\.HB_AUTH/);
+assert.match(accountsSrc, /ADMIN_EMAIL/);
+assert.equal(productionBlocked("fulfillment-heartbeat-auth", false), true);
+assert.equal(productionBlocked("646c017a-802f-4395-b635-d4b5bd66c1cb", false), true);
+assert.equal(productionBlocked("hb-users", false), true);
+assert.equal(productionBlocked("hb-auth-preview", false), false);
+assert.equal(productionBlocked("291dfe6d-fcc1-4b15-90c7-768db26d1f8e", false), false);
+
+const prior = new DatabaseSync(":memory:");
+prior.exec(`CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL DEFAULT '',
+  password_salt TEXT NOT NULL DEFAULT '',
+  password_iterations INTEGER NOT NULL DEFAULT 100000,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+  status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
+  created_at INTEGER NOT NULL,
+  last_login_at INTEGER
+)`);
+prior.exec(`CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  created_at INTEGER NOT NULL
+)`);
+const priorHash = await hashPassword("long-enough-1");
+const priorNow = Math.floor(Date.now() / 1000);
+prior
+  .prepare(
+    "INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at) VALUES (?, ?, ?, ?, 100000, 'admin', 'active', ?)",
+  )
+  .run("prior-user", ADMIN_EMAIL, priorHash.hash, priorHash.salt, priorNow - 60);
+const priorDb = d1From(prior);
+await ensureSchema(priorDb);
+const kept = prior.prepare("SELECT password_algo, password_hash FROM users WHERE id = ?").get("prior-user");
+assert.equal(kept.password_algo, "PBKDF2-SHA256");
+assert.equal(kept.password_hash, priorHash.hash);
+const rawSession = "ab".repeat(32);
+prior
+  .prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, ?, ?, NULL, ?, NULL)")
+  .run(rawSession, "prior-user", priorNow + 20 * 24 * 3600, priorNow - 60);
+const sigKey = await crypto.subtle.importKey(
+  "raw",
+  new TextEncoder().encode(gateEnv.SESSION_SECRET),
+  { name: "HMAC", hash: "SHA-256" },
+  false,
+  ["sign"],
+);
+const sigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", sigKey, new TextEncoder().encode(rawSession)));
+const sigHex = [...sigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const bareLegacy = await accountRequest(priorDb, "/session", { cookie: `hb_session=${rawSession}` });
+assert.equal(bareLegacy.status, 401);
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(rawSession).revoked_at, null);
+const priorSession = await accountRequest(priorDb, "/session", { cookie: `hb_session=${rawSession}.${sigHex}` });
+assert.equal(priorSession.status, 200);
+assert.deepEqual(await priorSession.json(), { email: ADMIN_EMAIL, role: "admin", account: true });
+assert.match(priorSession.headers.get("set-cookie") || "", /^hb_session=[a-f0-9]{64};/);
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(rawSession).revoked_at == null, false);
+const priorLogin = await accountRequest(priorDb, "/login", {
+  method: "POST",
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
+});
+assert.equal(priorLogin.status, 303);
+
+const ipKeep = "203.0.113.91";
+await recordLoginFailure(
+  enumDb.db,
+  new Request("https://fulfillment-heartbeat-web.pages.dev/login", { headers: { "cf-connecting-ip": ipKeep } }),
+  "other@example.com",
+  enumNow,
+);
+enumDb.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
+const ipBefore = enumDb.raw.prepare("SELECT failures FROM login_attempts WHERE bucket = ?").get(`ip:${ipKeep}`).failures;
+const signedKeep = await accountRequest(enumDb.db, "/login", {
+  method: "POST",
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
+  headers: { "cf-connecting-ip": ipKeep },
+});
+assert.equal(signedKeep.status, 303);
+assert.equal(enumDb.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = ?").get(`ip:${ipKeep}`).n, 0);
+assert.equal(enumDb.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = ?").get(`email:${ADMIN_EMAIL}`).n, 0);
+
+const gated = openAuth();
+await ensureSchema(gated.db);
+assert.equal(gated.db.batches, 1);
+assert.equal(gated.db.batchSql[0].some((sql) => sql.startsWith("ALTER TABLE")), true);
+assert.equal(gated.db.batchSql[0].some((sql) => sql.includes("schema_version")), true);
+await ensureSchema(gated.db);
+assert.equal(gated.db.batches, 1);
+const gatedAgain = d1From(gated.raw);
+await ensureSchema(gatedAgain);
+assert.equal(gatedAgain.batches, 0);
+assert.equal(Number(gated.raw.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value), AUTH_SCHEMA_VERSION);
+
+const syntaxDb = {
+  prepare() {
+    return { bind() { return this; }, async first() { return null; }, async run() {} };
+  },
+  async batch() {
+    throw new Error("near \"nope\": syntax error");
+  },
+};
+await assert.rejects(() => ensureSchema(syntaxDb), /syntax error/);
+
+let duplicateBatches = 0;
+const duplicateDb = {
+  prepare(sql) {
+    return {
+      sql,
+      bind() { return this; },
+      async first() { return null; },
+      async run() {},
+    };
+  },
+  async batch() {
+    duplicateBatches += 1;
+    if (duplicateBatches === 1) throw new Error("duplicate column name: password_algo");
+  },
+};
+await ensureSchema(duplicateDb);
+assert.equal(duplicateBatches, 2);
+await ensureSchema(duplicateDb);
+assert.equal(duplicateBatches, 2);
+
+const fed = new DatabaseSync(":memory:");
+fed.exec(`CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL DEFAULT '',
+  password_salt TEXT NOT NULL DEFAULT '',
+  password_iterations INTEGER NOT NULL DEFAULT 100000,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+  status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
+  created_at INTEGER NOT NULL,
+  last_login_at INTEGER
+)`);
+fed.exec(`CREATE TABLE invites (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_enc TEXT NOT NULL DEFAULT '',
+  purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset', 'setup')),
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  created_at INTEGER NOT NULL
+)`);
+fed.exec(`CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  created_at INTEGER NOT NULL
+)`);
+fed.exec(`CREATE TABLE login_attempts (
+  bucket TEXT PRIMARY KEY,
+  failures INTEGER NOT NULL,
+  window_start INTEGER NOT NULL,
+  locked_until INTEGER NOT NULL DEFAULT 0
+)`);
+fed.prepare("INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at) VALUES ('kept', 'kept@example.com', 'abc', 'def', 100000, 'viewer', 'active', 1)").run();
+const fedDb = d1From(fed);
+await ensureSchema(fedDb);
+assert.equal(fed.prepare("SELECT email FROM users WHERE id = 'kept'").get().email, "kept@example.com");
+assert.equal(fed.prepare("SELECT password_algo FROM users WHERE id = 'kept'").get().password_algo, "PBKDF2-SHA256");
+assert.equal(fed.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('sessions') WHERE name = 'last_seen_at'").get().n, 1);
+assert.equal(fed.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('login_attempts') WHERE name = 'next_at'").get().n, 1);
+assert.equal(fed.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('shared_sessions') WHERE name = 'pass_mark'").get().n, 1);
+assert.equal(fedDb.batches, 1);
+
+const setupNow = Math.floor(Date.now() / 1000);
+const setupDb = openAuth();
+await ensureSchema(setupDb.db);
+const setupIssued = await issueFirstAdminLink(setupDb.db, accountEnv(setupDb.db), setupNow);
+setupDb.raw.prepare("UPDATE invites SET expires_at = ?").run(setupNow - 5);
+const setupExpired = await accountRequest(setupDb.db, `/invite/${setupIssued.token}`);
+assert.equal(setupExpired.status, 400);
+assert.match(await setupExpired.text(), /no longer valid/);
+
+const guardDb = openAuth();
+await ensureSchema(guardDb.db);
+const guardIssued = await issueFirstAdminLink(guardDb.db, accountEnv(guardDb.db), setupNow);
+const guardJoin = await accountRequest(guardDb.db, `/invite/${guardIssued.token}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-1",
+});
+assert.equal(guardJoin.status, 303);
+guardDb.raw.prepare(
+  "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at) VALUES ('invited-admin', 'invited-admin@example.com', '', '', 'PBKDF2-SHA256', 100000, 'admin', 'invited', ?)",
+).run(setupNow);
+const guardCookie = cookieHeader(guardJoin);
+const guardId = guardDb.raw.prepare("SELECT id FROM users WHERE email = ?").get(ADMIN_EMAIL).id;
+const guardDemote = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: `action=role&role=viewer&user=${encodeURIComponent(guardId)}`,
+});
+assert.match(await guardDemote.text(), /at least one admin/);
+const guardReset = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: `action=reset&user=${encodeURIComponent(guardId)}`,
+});
+assert.match(await guardReset.text(), /at least one admin/);
+const guardShow = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: "action=show&user=invited-admin",
+});
+assert.match(await guardShow.text(), /only shown when it was created/);
+const guardAdd = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: "action=add&email=link@example.com&role=viewer",
+});
+const guardAddHtml = await guardAdd.text();
+const guardLink = inviteToken(guardAddHtml);
+const linkUser = guardDb.raw.prepare("SELECT id FROM users WHERE email = 'link@example.com'").get().id;
+const storedEnc = guardDb.raw.prepare("SELECT token_enc FROM invites WHERE user_id = ? AND used_at IS NULL").get(linkUser).token_enc;
+assert.equal(storedEnc.includes(guardLink), false);
+assert.ok(storedEnc.length > 20);
+const guardShown = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: `action=show&user=${encodeURIComponent(linkUser)}`,
+});
+assert.match(await guardShown.text(), new RegExp(guardLink.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+const decayDb = openAuth();
+await ensureSchema(decayDb.db);
+const decayNow = setupNow;
+const decayRequest = new Request("https://fulfillment-heartbeat-web.pages.dev/login", { headers: { "cf-connecting-ip": "203.0.113.77" } });
+await recordLoginFailure(decayDb.db, decayRequest, "one@example.com", decayNow);
+await recordLoginFailure(decayDb.db, decayRequest, "two@example.com", decayNow);
+assert.equal(await loginThrottled(decayDb.db, decayRequest, "three@example.com", decayNow), true);
+decayDb.raw.prepare("UPDATE login_attempts SET window_start = ? WHERE bucket = ?").run(decayNow - IP_WINDOW - 1, "ip:203.0.113.77");
+assert.equal(await loginThrottled(decayDb.db, decayRequest, "three@example.com", decayNow), false);
+await recordLoginFailure(decayDb.db, decayRequest, "three@example.com", decayNow);
+assert.equal(decayDb.raw.prepare("SELECT failures FROM login_attempts WHERE bucket = ?").get("ip:203.0.113.77").failures, 1);
+
+const lowHash = await hashPassword("long-enough-1", 1000);
+const lowDb = openAuth();
+await ensureSchema(lowDb.db);
+lowDb.raw.prepare(
+  "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at) VALUES ('low', 'low@example.com', ?, ?, 'PBKDF2-SHA256', 1000, 'viewer', 'active', ?)",
+).run(lowHash.hash, lowHash.salt, setupNow);
+const lowLogin = await accountRequest(lowDb.db, "/login", {
+  method: "POST",
+  body: "email=low@example.com&password=long-enough-1",
+});
+assert.equal(lowLogin.status, 303);
+assert.equal(lowDb.raw.prepare("SELECT password_iterations FROM users WHERE id = 'low'").get().password_iterations, 100000);
+const lowToken = cookieHeader(lowLogin).slice("hb_session=".length);
+const lowStored = lowDb.raw.prepare("SELECT id FROM sessions WHERE user_id = 'low' AND revoked_at IS NULL").get();
+assert.notEqual(lowStored.id, lowToken);
+const lowDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(lowToken)));
+const lowId = [...lowDigest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(lowStored.id, lowId);
+
+const badInvite = await accountRequest(lowDb.db, "/invite/%E0%A4%A");
+assert.equal(badInvite.status, 400);
+
+const sharedIn = await accountRequest(lowDb.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+});
+assert.equal(sharedIn.status, 303);
+const sharedPassCookie = cookieHeader(sharedIn);
+const sharedToken = sharedPassCookie.slice("hb_shared=".length);
+const sharedStored = lowDb.raw.prepare("SELECT id FROM shared_sessions WHERE revoked_at IS NULL").get();
+assert.notEqual(sharedStored.id, sharedToken);
+const sharedDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sharedToken)));
+const sharedHash = [...sharedDigest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(sharedStored.id, sharedHash);
+const sharedOk = await accountRequest(lowDb.db, "/session", { cookie: sharedPassCookie });
+assert.equal(sharedOk.status, 200);
+const sharedStale = await accountRequest(lowDb.db, "/session", {
+  cookie: sharedPassCookie,
+  env: accountEnv(lowDb.db, { BASIC_PASS: "rotated-shared-secret" }),
+});
+assert.equal(sharedStale.status, 401);
+
+const oldId = "cd".repeat(32);
+const oldCap = priorNow - 8 * 24 * 3600;
+prior.prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, 'prior-user', ?, NULL, ?, NULL)").run(oldId, priorNow + 10 * 24 * 3600, oldCap);
+const oldKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(gateEnv.SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+const oldSigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", oldKey, new TextEncoder().encode(oldId)));
+const oldSig = [...oldSigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const cappedSession = await accountRequest(priorDb, "/session", { cookie: `hb_session=${oldId}.${oldSig}` });
+assert.equal(cappedSession.status, 401);
+const idleId = "ef".repeat(32);
+const idleCap = priorNow - IDLE_TTL - 60;
+prior.prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, 'prior-user', ?, NULL, ?, NULL)").run(idleId, priorNow + 10 * 24 * 3600, idleCap);
+const idleSigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", oldKey, new TextEncoder().encode(idleId)));
+const idleSig = [...idleSigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const idleLegacy = await accountRequest(priorDb, "/session", { cookie: `hb_session=${idleId}.${idleSig}` });
+assert.equal(idleLegacy.status, 401);
+const legacyRotated = (priorSession.headers.get("set-cookie") || "").match(/hb_session=([a-f0-9]{64})/);
+const legacyRotatedLogin = await accountRequest(priorDb, "/login", {
+  method: "POST",
+  cookie: `hb_session=${legacyRotated[1]}`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
+});
+assert.equal(legacyRotatedLogin.status, 303);
+const legacyRotatedHashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(legacyRotated[1])));
+const legacyRotatedHash = [...legacyRotatedHashBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotatedHash).revoked_at == null, false);
+
+const seenDb = openAuth();
+await ensureSchema(seenDb.db);
+const seenHash = await hashPassword("long-enough-1");
+const seenNow = 1_800_100_000;
+seenDb.raw
+  .prepare(
+    "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at) VALUES ('seen', 'seen@example.com', ?, ?, 'PBKDF2-SHA256', 100000, 'viewer', 'active', ?)",
+  )
+  .run(seenHash.hash, seenHash.salt, seenNow - 60);
+setAuthClock(() => seenNow);
+const seenLogin = await accountRequest(seenDb.db, "/login", {
+  method: "POST",
+  body: "email=seen@example.com&password=long-enough-1",
+});
+assert.equal(seenLogin.status, 303);
+const seenCookie = cookieHeader(seenLogin);
+const seenRow = seenDb.raw.prepare("SELECT id, last_seen_at FROM sessions WHERE user_id = 'seen' AND revoked_at IS NULL").get();
+assert.equal(seenRow.last_seen_at, seenNow);
+seenDb.raw.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(seenNow - SEEN_INTERVAL - 1, seenRow.id);
+const seenJobs = [];
+const seenTouch = await accountRequest(seenDb.db, "/session", {
+  cookie: seenCookie,
+  waitUntil: (job) => seenJobs.push(job),
+});
+assert.equal(seenTouch.status, 200);
+assert.equal(seenJobs.length, 1);
+await seenJobs[0];
+assert.equal(seenDb.raw.prepare("SELECT last_seen_at FROM sessions WHERE id = ?").get(seenRow.id).last_seen_at, seenNow);
+setAuthClock(() => seenNow + 60);
+const seenQuietJobs = [];
+const seenQuiet = await accountRequest(seenDb.db, "/session", {
+  cookie: seenCookie,
+  waitUntil: (job) => seenQuietJobs.push(job),
+});
+assert.equal(seenQuiet.status, 200);
+assert.equal(seenQuietJobs.length, 0);
+assert.equal(seenDb.raw.prepare("SELECT last_seen_at FROM sessions WHERE id = ?").get(seenRow.id).last_seen_at, seenNow);
+setAuthClock(null);
 
 const { runFakeCountLab } = await import("./test_fake_counts.mjs");
 await runFakeCountLab(join(root, "public"));

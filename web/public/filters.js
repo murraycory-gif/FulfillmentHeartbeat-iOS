@@ -497,6 +497,7 @@ export function sectionGrainRows(lines, section, filters, roster) {
   return rows;
 }
 
+// TODO: District names move into cooked rows with the PR #57 cook. Drop DISTRICT_NAMES then.
 export const DISTRICT_NAMES = {
   "10": "CENTRAL CALIF.",
   "11": "SACRAMENTO",
@@ -719,6 +720,17 @@ export function searchScope(roster, filters, query, names = DISTRICT_NAMES) {
   const rows = rosterRows(roster).filter((row) => includesScope(row, { ...scope, store: "" }));
   const groups = [];
   const take = (hits) => hits.slice(0, 6);
+
+  if (!scope.region) {
+    const hits = regions()
+      .filter((id) => {
+        const label = regionShort(id);
+        if (!`${label} ${id}`.toLowerCase().includes(q)) return false;
+        return rows.some((row) => regionForDivision(row.division) === id);
+      })
+      .map((id) => ({ kind: "region", value: id, label: regionShort(id) }));
+    if (hits.length) groups.push({ group: "Region", hits: take(hits) });
+  }
 
   if (!scope.division) {
     const hits = divisionsFor(scope)
