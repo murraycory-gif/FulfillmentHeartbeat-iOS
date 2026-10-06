@@ -21,6 +21,7 @@ import {
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
 import { lossPercentPoints, seatSummary } from "./seat.js";
+import { metricsInSource, pphBar, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -118,6 +119,10 @@ const state = {
   scheduleTab: "summary",
   bannerTimer: 0,
   tableWindow: ROW_PAGE,
+  shopperWindow: ROW_PAGE,
+  shopperQuery: "",
+  shopperPrepared: [],
+  shopperColumns: [],
 };
 
 const drawer = document.querySelector("#drawer");
@@ -330,6 +335,8 @@ function applyScope(next) {
   state.scopeQuery = "";
   if (scopeSearch) scopeSearch.value = "";
   state.tableWindow = ROW_PAGE;
+  state.shopperWindow = ROW_PAGE;
+  state.shopperQuery = "";
   if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(next)}`;
   render();
 }
@@ -734,55 +741,90 @@ function shopperSeat(filters) {
   return Boolean(filters.division || filters.district || filters.om || filters.store);
 }
 
-function shopperTable(rows, kind) {
-  const matched = (rows || []).filter((row) => row.store && includesScope(row, state.filters, roster()));
-  if (!matched.length) return `<p class="note">No shopper rows in this scope.</p>`;
-  const shown = matched.slice(0, state.tableWindow);
-  const shopperNoun = kind === "scorecard" ? "shopper rows" : "shoppers";
+const SHOPPER_COLUMNS = {
+  pph: [
+    ["PPH", ["pph"], (value) => num(value, 1)],
+    ["Hours", ["pick_hours"], (value) => num(value, 1)],
+    ["Orders", ["orders"], (value) => num(value, 0)],
+  ],
+  path: [
+    ["Path %", ["compliance_pct"], pct],
+    ["PPH", ["pph"], (value) => num(value, 1)],
+    ["Orders", ["orders"], (value) => num(value, 0)],
+  ],
+  scorecard: [
+    ["PPH", ["pph"], (value) => num(value, 1)],
+    ["Hours", ["pick_hours"], (value) => num(value, 1)],
+    ["Orders", ["orders"], (value) => num(value, 0)],
+    ["Presub", ["presub_pct"], pct],
+    ["OOS", ["oos_pct"], pct],
+    ["OTT", ["ott_pct"], pct],
+    ["OTH", ["oth5_pct"], pct],
+    ["COE", ["coe_pct"], pct],
+  ],
+};
+
+function shopperListHtml() {
+  const query = state.shopperQuery || "";
+  const filtered = (state.shopperPrepared || []).filter((row) => shopperMatchesQuery(row, query));
+  if (!filtered.length) {
+    const message = query.trim() ? "No shoppers match this search." : "No shopper data";
+    return `<p class="note">${esc(message)}</p>`;
+  }
+  const columns = state.shopperColumns || [];
+  const shown = filtered.slice(0, state.shopperWindow);
   const more =
-    matched.length > shown.length
-      ? `<p class="note">${num(shown.length, 0)} of ${num(matched.length, 0)} ${shopperNoun}</p><button type="button" class="more" data-more="1">Show more</button>`
-      : `<p class="note">${num(matched.length, 0)} ${shopperNoun} in this scope.</p>`;
-  const columns =
-    kind === "path"
-      ? [
-          ["Path %", ["compliance_pct"], pct],
-          ["PPH", ["pph"], (value) => num(value, 1)],
-          ["Orders", ["orders"], (value) => num(value, 0)],
-        ]
-      : [
-          ["PPH", ["pph"], (value) => num(value, 1)],
-          ["Presub", ["presub_pct"], pct],
-          ["OOS", ["oos_pct"], pct],
-          ["Hours", ["pick_hours"], (value) => num(value, 1)],
-          ["Orders", ["orders"], (value) => num(value, 0)],
-          ["OTT", ["ott_pct"], pct],
-          ["OTH", ["oth5_pct"], pct],
-          ["COE", ["coe_pct"], pct],
-        ];
-  const head = ["Shopper", "Store", ...columns.map((column) => column[0])]
-    .map((label) => `<th>${esc(label)}</th>`)
+    filtered.length > shown.length
+      ? `<p class="note">${num(shown.length, 0)} of ${num(filtered.length, 0)} shoppers</p><button type="button" class="more" data-more="shoppers">Show more</button>`
+      : `<p class="note">${num(filtered.length, 0)} shoppers in this scope.</p>`;
+  const head = ["", "Shopper", "Store", ...columns.map((column) => column.label)]
+    .map((label) => `<th${label ? "" : ' class="bar"'}>${esc(label)}</th>`)
     .join("");
   const body = shown
     .map((row) => {
-      const metrics = columns.map((column) => `<td>${esc(column[2](cell(row, column[1])))}</td>`).join("");
-      const name = row.shopper || row.shopperId || "—";
-      return `<tr><td>${esc(name)}</td><td>${esc(canonicalStore(row.store))}</td>${metrics}</tr>`;
+      const tone = pphBar(shopperPph(row));
+      const metrics = columns.map((column) => `<td>${esc(column.format(cell(row, column.keys)))}</td>`).join("");
+      const name = shopperIdentity(row) || "—";
+      return `<tr><td class="bar bar-${tone}"></td><td>${esc(name)}</td><td>${esc(canonicalStore(row.store))}</td>${metrics}</tr>`;
     })
     .join("");
   const cards = shown
     .map((row) => {
+      const tone = pphBar(shopperPph(row));
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1]), row))}</strong></div>`,
+            `<div class="metric"><span>${esc(column.label)}</span><strong>${esc(column.format(cell(row, column.keys)))}</strong></div>`,
         )
         .join("");
-      const name = row.shopper || row.shopperId || "—";
-      return `<li class="store-card"><p class="store-id">${esc(name)}</p><p class="sub">Store ${esc(canonicalStore(row.store))}</p><div class="metric-row">${metrics}</div></li>`;
+      const name = shopperIdentity(row) || "—";
+      return `<li class="store-card bar-${tone}"><p class="store-id">${esc(name)}</p><p class="sub">Store ${esc(canonicalStore(row.store))}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
+}
+
+function paintShopperList() {
+  const slot = document.querySelector("[data-shopper-list]");
+  if (slot) slot.innerHTML = shopperListHtml();
+}
+
+function shopperBlock(rows, columns, sourceNote) {
+  const matched = sortShoppersByPph(
+    (rows || []).filter(
+      (row) => row.store && (row.shopper || row.shopperId) && includesScope(row, state.filters, roster()),
+    ),
+  );
+  const shaped = (columns || []).map((column) => ({ label: column[0], keys: column[1], format: column[2] }));
+  state.shopperPrepared = matched;
+  state.shopperColumns = metricsInSource(matched, shaped);
+  if (!matched.length) return `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
+  const search =
+    matched.length > ROW_PAGE
+      ? `<input class="shopper-find" data-shopper-search type="search" enterkeyhint="search" value="${esc(state.shopperQuery)}" placeholder="Search shopper or store" aria-label="Search shopper or store">`
+      : "";
+  const note = sourceNote ? `<p class="note">${esc(sourceNote)}</p>` : "";
+  return `<section class="shoppers"><h2>Shoppers</h2>${note}${search}<div data-shopper-list>${shopperListHtml()}</div></section>`;
 }
 
 function renderPicker() {
@@ -795,7 +837,7 @@ function renderPicker() {
   }
   const health = rows.length && ((summary && summary.health) || "none") === "none" ? "" : (summary && summary.health) || "none";
   const note = shopperSeat(state.filters)
-    ? shopperTable(rows, "scorecard")
+    ? shopperBlock(rows, SHOPPER_COLUMNS.scorecard, "")
     : `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
   main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${grainBlock("picker_scorecard")}${note}`;
 }
@@ -1096,13 +1138,24 @@ async function render() {
     }
   }
   let shoppers = "";
-  if (page.section === "pick_path" && shopperSeat(state.filters)) {
-    try {
-      const pathShoppers = await load("section/pick_path_picker");
-      if (token !== renderToken) return;
-      shoppers = `<h2>Shoppers</h2>${shopperTable((pathShoppers && pathShoppers.rows) || [], "path")}`;
-    } catch {
-      shoppers = "";
+  if (page.section === "pph" || page.section === "pick_path") {
+    if (!shopperSeat(state.filters)) {
+      shoppers = `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
+    } else {
+      const packPath = page.section === "pph" ? "section/picker_scorecard" : "section/pick_path_picker";
+      const sourceNote =
+        page.section === "pph" ? "Shopper PPH, hours, and orders are from the Picker ScoreCard." : "";
+      try {
+        const shopperPack = await load(packPath);
+        if (token !== renderToken) return;
+        shoppers = shopperBlock(
+          (shopperPack && shopperPack.rows) || [],
+          SHOPPER_COLUMNS[page.section === "pph" ? "pph" : "path"],
+          sourceNote,
+        );
+      } catch {
+        shoppers = `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
+      }
     }
   }
   if (token !== renderToken) return;
@@ -1458,6 +1511,14 @@ window.addEventListener("resize", syncNavToggle);
 syncNavToggle();
 scrim.addEventListener("click", closeDrawer);
 
+document.body.addEventListener("input", (event) => {
+  const box = event.target.closest("[data-shopper-search]");
+  if (!box) return;
+  state.shopperQuery = box.value;
+  state.shopperWindow = ROW_PAGE;
+  paintShopperList();
+});
+
 document.body.addEventListener("click", (event) => {
   const hit = event.target.closest("[data-hit]");
   if (hit) {
@@ -1502,6 +1563,11 @@ document.body.addEventListener("click", (event) => {
   }
   const more = event.target.closest("[data-more]");
   if (more) {
+    if (more.getAttribute("data-more") === "shoppers") {
+      state.shopperWindow += ROW_PAGE;
+      paintShopperList();
+      return;
+    }
     state.tableWindow += ROW_PAGE;
     render();
     return;
@@ -1512,6 +1578,8 @@ document.body.addEventListener("click", (event) => {
     if (nextPage === "schedule") state.scheduleTab = "summary";
     state.page = nextPage;
     state.tableWindow = ROW_PAGE;
+    state.shopperWindow = ROW_PAGE;
+    state.shopperQuery = "";
     closeDrawer();
     render();
     return;

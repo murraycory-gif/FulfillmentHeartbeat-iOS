@@ -48,6 +48,7 @@ import {
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
+import { metricsInSource, pphBar, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -346,12 +347,12 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=19/);
+assert.match(pageHtml, /app\.css\?v=20/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=25/);
+assert.match(pageHtml, /app\.js\?v=26/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
@@ -360,6 +361,42 @@ assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
 assert.match(pageHtml, /<script src="\/nav-boot\.js\?v=2"><\/script>/);
 assert.match(app, /· OM \$\{seat\.om\}/);
 assert.match(app, /section === "schedule_quality"[\s\S]*OM \$\{esc\(manager\)\}/);
+assert.match(app, /section\/picker_scorecard/);
+assert.match(app, /No shopper data/);
+assert.match(app, /data-shopper-search/);
+assert.match(app, /data-more="shoppers"/);
+assert.match(app, /Shopper PPH, hours, and orders are from the Picker ScoreCard/);
+assert.match(css, /td\.bar-risk/);
+assert.match(css, /\.store-card\.bar-good/);
+assert.equal(pphBar(80), "good");
+assert.equal(pphBar(74), "watch");
+assert.equal(pphBar(73.99), "risk");
+assert.equal(pphBar(null), "none");
+assert.equal(pphBar(0), "risk");
+assert.equal(shopperIdentity({ shopper: "Ava Lane", shopperId: "ALANE1" }), "Ava Lane · ALANE1");
+assert.equal(shopperIdentity({ shopper: "AVELJ03", shopperId: "AVELJ03" }), "AVELJ03");
+assert.equal(shopperMatchesQuery({ shopper: "AVELJ03", shopperId: "AVELJ03", store: "1" }, "vel"), true);
+assert.equal(shopperMatchesQuery({ shopper: "AVELJ03", shopperId: "AVELJ03", store: "1" }, "99" ), false);
+const pphPack = JSON.parse(readFileSync(join(root, "public/data/section/pph.json"), "utf8"));
+assert.equal(pphPack.rows.some((row) => row.shopper || row.shopperId), false);
+assert.equal(pphPack.rows.every((row) => row.payload && Object.prototype.hasOwnProperty.call(row.payload, "pph")), true);
+assert.equal(pphPack.rows.some((row) => row.payload.pick_hours != null || row.payload.orders != null), false);
+const rankedShoppers = sortShoppersByPph([
+  { store: "2", shopper: "High", shopperId: "High", payload: { pph: 90, pick_hours: 4, orders: 3 } },
+  { store: "1", shopper: "Blank", shopperId: "Blank", payload: { orders: 1 } },
+  { store: "1", shopper: "Low", shopperId: "Low", payload: { pph: 22.7, pick_hours: 0.9, orders: 1 } },
+  { store: "1", shopper: "Zero", shopperId: "Zero", payload: { pph: 0, pick_hours: 1, orders: 1 } },
+]);
+assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Zero", "Low", "High", "Blank"]);
+assert.deepEqual(
+  metricsInSource(rankedShoppers, [
+    { label: "PPH", keys: ["pph"] },
+    { label: "Hours", keys: ["pick_hours"] },
+    { label: "Orders", keys: ["orders"] },
+    { label: "Path %", keys: ["compliance_pct"] },
+  ]).map((column) => column.label),
+  ["PPH", "Hours", "Orders"],
+);
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
 assert.equal(readFileSync(join(root, "public/seat.js"), "utf8").includes("formatCompanyAiv"), false);
