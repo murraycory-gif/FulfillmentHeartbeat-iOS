@@ -801,6 +801,90 @@ def workbook_total_sources() -> None:
     print("workbook totals ok")
 
 
+def labor_blanks_are_null() -> None:
+    """Store 866's blank ActCost% is null, not the 0 that cost + target-vs-actual used to invent."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "current.sqlite"
+        out = Path(tmp) / "out"
+        db = sqlite3.connect(db_path)
+        db.executescript(
+            """
+            CREATE TABLE pack_meta (id INTEGER PRIMARY KEY, written_at TEXT);
+            CREATE TABLE dash_chrome (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE facts (
+              section TEXT, store_number TEXT, division TEXT, operations_om TEXT,
+              store_name TEXT, recorded_on TEXT, payload_json TEXT, text_json TEXT
+            );
+            """
+        )
+        db.execute("INSERT INTO pack_meta VALUES (1, '2026-10-07T00:00:00Z')")
+        db.execute(
+            "INSERT INTO dash_chrome VALUES (1, ?)",
+            (json.dumps({"publishedAt": "2026-10-06T01:35:23Z", "summaries": []}),),
+        )
+        db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "labor",
+                "866",
+                "Mid-Atlantic",
+                "Quyen Truong",
+                "",
+                "2026-10-07",
+                json.dumps(
+                    {
+                        "schedule_efficiency_pct": 91.6,
+                        "sch_hrs": 122,
+                        "cost_trgt_pct": 247.99,
+                        "target_vs_actual_pct": -247.99,
+                        "uplh_impact_pct": -247.99,
+                        "act_hrs": "",
+                        "act_cost_dollar": None,
+                    }
+                ),
+                json.dumps({"labor_grain": "store", "district": "87"}),
+            ),
+        )
+        db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "labor",
+                "1",
+                "Jewel Osco",
+                "Ada",
+                "",
+                "2026-10-07",
+                json.dumps(
+                    {
+                        "act_cost_pct": 0,
+                        "act_hrs": 0,
+                        "act_cost_dollars": 0,
+                        "cost_trgt_pct": 0,
+                    }
+                ),
+                json.dumps({"labor_grain": "store", "district": "01"}),
+            ),
+        )
+        db.commit()
+        db.close()
+        module.extract(str(db_path), str(out))
+        labor = json.loads((out / "section" / "labor.json").read_text())
+        rows = {row["store"]: row["payload"] for row in labor["rows"]}
+        blank = rows["866"]
+        assert blank["act_cost_pct"] is None, blank
+        assert blank["act_hrs"] is None, blank
+        assert blank["act_cost_dollars"] is None, blank
+        assert blank["cost_trgt_pct"] == 247.99
+        assert "weight" not in blank
+        zero = rows["1"]
+        assert zero["act_cost_pct"] == 0
+        assert zero["act_hrs"] == 0
+        assert zero["act_cost_dollars"] == 0
+        assert zero["cost_trgt_pct"] == 0
+        assert zero["weight"] == 0
+    print("labor blanks ok")
+
+
 if __name__ == "__main__":
     main()
     raw_sheet_divisions()
@@ -809,3 +893,4 @@ if __name__ == "__main__":
     lost_excl_rollup()
     pack_identity_choice()
     workbook_total_sources()
+    labor_blanks_are_null()

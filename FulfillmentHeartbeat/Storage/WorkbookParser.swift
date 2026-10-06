@@ -2143,11 +2143,6 @@ enum WorkbookParser {
                 metric("Q", "AIV Impact", "aivimpact")
                 metric("R", "ActCost%", "actcost")
                 metric("S", "Target vs Actual%", "targetvsactual")
-                if payload["act_cost_pct"] == nil,
-                   let cost = payload["cost_trgt_pct"],
-                   let tva = payload["target_vs_actual_pct"] {
-                    payload["act_cost_pct"] = cost + tva
-                }
                 stores[key] = (
                     division: SheetXML.rawCell(data, letter: "B", strings: strings),
                     district: SheetXML.rawCell(data, letter: "C", strings: strings),
@@ -2450,11 +2445,6 @@ enum WorkbookParser {
             laborMetric(&payload, header: rawHeader, key: key, value: number)
         }
         guard !payload.isEmpty else { return nil }
-        if payload["act_cost_pct"] == nil,
-           let cost = payload["cost_trgt_pct"],
-           let tva = payload["target_vs_actual_pct"] {
-            payload["act_cost_pct"] = cost + tva
-        }
         return ParsedWorkbookRow(
             division: "",
             operationsOM: "",
@@ -2614,9 +2604,6 @@ enum WorkbookParser {
                 if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
                 if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
                 if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
-                if let cost = bucket.cost, let tva = bucket.tva {
-                    payload["act_cost_pct"] = cost + tva
-                }
                 let uniqueDays: [LaborDay] = {
                     var latest: [String: LaborDay] = [:]
                     for day in bucket.days where !day.date.isEmpty {
@@ -2689,9 +2676,7 @@ enum WorkbookParser {
                 storePayload["over_schedule_pct"] = (sumSch - sumEmp) / sumEmp * 100
             }
             if effWeight > 0 { storePayload["schedule_efficiency_pct"] = weightedEff / effWeight }
-            if let cost = storePayload["cost_trgt_pct"], let tva = storePayload["target_vs_actual_pct"] {
-                storePayload["act_cost_pct"] = cost + tva
-            } else if sumCharged > 0 {
+            if sumCharged > 0 {
                 var mixed = 0.0
                 var weight = 0.0
                 for week in ordered {

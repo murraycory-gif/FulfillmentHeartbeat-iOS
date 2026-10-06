@@ -369,6 +369,44 @@ def format_company_aiv(value: float) -> str:
     return f"{float(value):.2f}%"
 
 
+# Blank cells stay null. A real 0 is a measurement and is not a blank.
+LABOR_BLANK_NULLS = ("act_cost_pct", "act_hrs", "act_cost_dollars", "cost_trgt_pct")
+
+
+def labor_blank_number(raw: dict, key: str):
+    """None when the cell is missing or blank. Zero stays zero."""
+    names = ("act_cost_dollars", "act_cost_dollar") if key == "act_cost_dollars" else (key,)
+    seen = False
+    value = None
+    for name in names:
+        if isinstance(raw, dict) and name in raw:
+            seen = True
+            value = raw.get(name)
+            break
+    if not seen or value is None:
+        return None
+    if isinstance(value, str):
+        if not value.strip():
+            return None
+        try:
+            value = float(value)
+        except ValueError:
+            return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    return value
+
+
+def apply_labor_blanks(payload: dict, raw: dict) -> None:
+    """Store 866's blank ActCost% cooked as 0. A blank is null, the same for ActHrs, ActCost$, and CostTrgt%."""
+    if not isinstance(payload, dict):
+        return
+    for key in LABOR_BLANK_NULLS:
+        payload[key] = labor_blank_number(raw, key)
+
+
 def labor_act_hours(raw: dict) -> float | None:
     """Labor!E is actual hours. The company ActHrs cell is the sum of that column.
 
@@ -1316,11 +1354,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 hours = labor_act_hours(raw_payload)
                 if hours is not None:
                     record["payload"]["weight"] = hours
-                dollars = raw_payload.get("act_cost_dollars")
-                if dollars is None:
-                    dollars = raw_payload.get("act_cost_dollar")
-                if isinstance(dollars, (int, float)) and not isinstance(dollars, bool):
-                    record["payload"]["act_cost_dollars"] = dollars
+                apply_labor_blanks(record["payload"], raw_payload)
             if section in SHOPPER_SECTIONS:
                 # Path Picker rows have no store until the scorecard join below.
                 if not store and section != "pick_path_picker":
