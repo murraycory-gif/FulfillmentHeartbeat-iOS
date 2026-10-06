@@ -258,6 +258,7 @@ async function fetchPack(path) {
       const data = await readPack(url);
       state.packs.set(path, data);
       state.failedPacks.delete(path);
+      if (state.browseOpen) paintBrowse();
       return data;
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
@@ -275,6 +276,7 @@ async function loadOptional(path) {
     return await load(path);
   } catch {
     state.failedPacks.add(path);
+    if (state.browseOpen) paintBrowse();
     return null;
   }
 }
@@ -1369,9 +1371,11 @@ async function render() {
   if (page.section === "picker_scorecard") {
     renderPicker();
     const path = "section/picker_scorecard";
-    if (shopperSeat(state.filters) && !state.packs.has(path) && !state.failedPacks.has(path)) {
+    if (!state.packs.has(path) && !state.failedPacks.has(path)) {
       loadOptional(path).then(() => {
-        if (token === renderToken && state.page === "picker_scorecard") renderPicker();
+        if (token !== renderToken || state.page !== "picker_scorecard") return;
+        renderPicker();
+        paintBrowse();
       });
     }
     return;
