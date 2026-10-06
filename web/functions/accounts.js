@@ -1,6 +1,6 @@
 // Per-user accounts on the existing HB_AUTH D1 binding.
-// Passwords are PBKDF2-SHA256. Invite tokens are stored only as SHA-256.
-// A session cookie is the sessions primary key, so a check is one indexed read and does not hash.
+// Passwords are PBKDF2-SHA256. Invite tokens and session ids are stored only as SHA-256.
+// A session check hashes the cookie once and reads that primary key. It does not run PBKDF2.
 // Rows already in fulfillment-heartbeat-auth keep their columns; new columns are added forward-only.
 // Nothing in this file is a password, a session token, or an invite token.
 
@@ -498,12 +498,13 @@ export async function acceptInvite(db, token, password, confirm, now) {
 
 export async function createAccountSession(db, userId, now) {
   const token = cookieToken();
+  const id = await sha256Hex(token);
   const exp = now + ABSOLUTE_TTL;
   await db
     .prepare(
       "INSERT INTO sessions (id, user_id, expires_at, last_seen_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
     )
-    .bind(token, userId, exp, now, now)
+    .bind(id, userId, exp, now, now)
     .run();
   return token;
 }
@@ -524,7 +525,7 @@ function sessionFresh(row, now, legacy) {
 }
 
 async function sessionIdForCookie(token, env) {
-  if (accountCookie(token)) return token;
+  if (accountCookie(token)) return sha256Hex(token);
   return legacyRawId(token, env);
 }
 
@@ -545,7 +546,7 @@ export async function revokePresentedSessions(db, request, now, env) {
   const accountId = await sessionIdForCookie(accountToken, env);
   if (accountId) await revokeSession(db, accountId, now);
   const sharedToken = readCookie(request, SHARED_COOKIE);
-  if (accountCookie(sharedToken)) await revokeSharedSession(db, sharedToken, now);
+  if (accountCookie(sharedToken)) await revokeSharedSession(db, await sha256Hex(sharedToken), now);
   const legacy = await legacyRawId(accountToken, env);
   if (legacy) await revokeSharedSession(db, legacy, now);
 }
@@ -571,7 +572,7 @@ export async function readAccountSession(db, request, now, env, rotate = true) {
       user: row.email,
       role: row.role,
       exp: now + ABSOLUTE_TTL,
-      sessionId: fresh,
+      sessionId: await sha256Hex(fresh),
       account: true,
       rotate: fresh,
     };
@@ -592,13 +593,14 @@ export async function createSharedSession(db, subject, now, pass) {
   const name = String(subject || "").trim();
   if (!db || !name || /[|\r\n]/.test(name)) return "";
   const token = cookieToken();
+  const id = await sha256Hex(token);
   const exp = now + ABSOLUTE_TTL;
   const mark = await secretMark(pass);
   await db
     .prepare(
       "INSERT INTO shared_sessions (id, subject, expires_at, last_seen_at, revoked_at, created_at, pass_mark) VALUES (?, ?, ?, ?, NULL, ?, ?)",
     )
-    .bind(token, name, exp, now, now, mark)
+    .bind(id, name, exp, now, now, mark)
     .run();
   return token;
 }
@@ -631,7 +633,7 @@ async function passForMark(env, mark) {
 export async function readSharedSession(db, request, now, env, rotate = true) {
   const token = readCookie(request, SHARED_COOKIE);
   const legacyToken = readCookie(request, ACCOUNT_COOKIE);
-  let id = accountCookie(token) ? token : "";
+  let id = accountCookie(token) ? await sha256Hex(token) : "";
   if (!id) id = await legacyRawId(legacyToken, env);
   if (!db || !id) return null;
   const row = await db
@@ -651,7 +653,7 @@ export async function readSharedSession(db, request, now, env, rotate = true) {
       user: row.subject,
       role: "viewer",
       exp: now + ABSOLUTE_TTL,
-      sessionId: fresh,
+      sessionId: await sha256Hex(fresh),
       account: false,
       shared: true,
       rotate: fresh,

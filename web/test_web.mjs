@@ -3323,6 +3323,9 @@ const sigKey = await crypto.subtle.importKey(
 );
 const sigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", sigKey, new TextEncoder().encode(rawSession)));
 const sigHex = [...sigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const bareLegacy = await accountRequest(priorDb, "/session", { cookie: `hb_session=${rawSession}` });
+assert.equal(bareLegacy.status, 401);
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(rawSession).revoked_at, null);
 const priorSession = await accountRequest(priorDb, "/session", { cookie: `hb_session=${rawSession}.${sigHex}` });
 assert.equal(priorSession.status, 200);
 assert.deepEqual(await priorSession.json(), { email: ADMIN_EMAIL, role: "admin", account: true });
@@ -3521,6 +3524,12 @@ const lowLogin = await accountRequest(lowDb.db, "/login", {
 });
 assert.equal(lowLogin.status, 303);
 assert.equal(lowDb.raw.prepare("SELECT password_iterations FROM users WHERE id = 'low'").get().password_iterations, 100000);
+const lowToken = cookieHeader(lowLogin).slice("hb_session=".length);
+const lowStored = lowDb.raw.prepare("SELECT id FROM sessions WHERE user_id = 'low' AND revoked_at IS NULL").get();
+assert.notEqual(lowStored.id, lowToken);
+const lowDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(lowToken)));
+const lowId = [...lowDigest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(lowStored.id, lowId);
 
 const badInvite = await accountRequest(lowDb.db, "/invite/%E0%A4%A");
 assert.equal(badInvite.status, 400);
@@ -3531,6 +3540,12 @@ const sharedIn = await accountRequest(lowDb.db, "/login", {
 });
 assert.equal(sharedIn.status, 303);
 const sharedPassCookie = cookieHeader(sharedIn);
+const sharedToken = sharedPassCookie.slice("hb_shared=".length);
+const sharedStored = lowDb.raw.prepare("SELECT id FROM shared_sessions WHERE revoked_at IS NULL").get();
+assert.notEqual(sharedStored.id, sharedToken);
+const sharedDigest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sharedToken)));
+const sharedHash = [...sharedDigest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(sharedStored.id, sharedHash);
 const sharedOk = await accountRequest(lowDb.db, "/session", { cookie: sharedPassCookie });
 assert.equal(sharedOk.status, 200);
 const sharedStale = await accountRequest(lowDb.db, "/session", {
@@ -3561,7 +3576,9 @@ const legacyRotatedLogin = await accountRequest(priorDb, "/login", {
   body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
 });
 assert.equal(legacyRotatedLogin.status, 303);
-assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotated[1]).revoked_at == null, false);
+const legacyRotatedHashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(legacyRotated[1])));
+const legacyRotatedHash = [...legacyRotatedHashBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotatedHash).revoked_at == null, false);
 
 const { runFakeCountLab } = await import("./test_fake_counts.mjs");
 await runFakeCountLab(join(root, "public"));
