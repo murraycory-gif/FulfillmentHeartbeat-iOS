@@ -370,3 +370,69 @@ if (
     raise SystemExit("refusing: /login must accept a username or an email")
 print('gate ok unsigned /data {"error":"unauthorized"}')
 PY
+
+# The upload already happened. Read the live files back through sign-in and
+# compare them to dist/data, which is what wrangler just uploaded.
+if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
+  python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$WEB/dist/data" << 'PY'
+import http.cookiejar
+import json
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+site = sys.argv[1].rstrip("/")
+email = Path(sys.argv[2]).read_text().strip()
+password = Path(sys.argv[3]).read_text().strip()
+root = Path(sys.argv[4])
+ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+files = sorted(path.relative_to(root).as_posix() for path in root.rglob("*.json") if path.is_file())
+if not files:
+    raise SystemExit("signed-in compare: dist data has no json")
+
+jar = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+def call(path, data=None):
+    body = urllib.parse.urlencode(data).encode() if data is not None else None
+    req = urllib.request.Request(
+        site + path,
+        data=body,
+        headers={
+            "User-Agent": ua,
+            "Accept": "application/json,text/html",
+            "Origin": site,
+        },
+        method="POST" if data is not None else "GET",
+    )
+    try:
+        with opener.open(req) as res:
+            return res.status, res.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+status, _ = call("/login", {"email": email, "password": password})
+if status not in (200, 302, 303):
+    raise SystemExit(f"signed-in compare: login returned {status}")
+for rel in files:
+    local = json.loads((root / rel).read_text())
+    status, raw = call("/data/" + rel)
+    if status != 200:
+        raise SystemExit(f"signed-in compare: /data/{rel} returned {status}")
+    try:
+        live = json.loads(raw)
+    except json.JSONDecodeError:
+        raise SystemExit(f"signed-in compare: /data/{rel} was not json")
+    for key in ("publishedAt", "schemaVersion", "cookSha"):
+        if live.get(key) != local.get(key):
+            raise SystemExit(
+                f"signed-in compare: /data/{rel} {key}={live.get(key)!r} uploaded {local.get(key)!r}"
+            )
+    print(f"live {rel} publishedAt={live.get('publishedAt')} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
+print(f"signed-in pack matches {len(files)} files")
+PY
+else
+  echo "publish-web: signed-in compare needs ${EMAIL_FILE} and ${PASS_FILE}; dist stamps were printed above" >&2
+fi

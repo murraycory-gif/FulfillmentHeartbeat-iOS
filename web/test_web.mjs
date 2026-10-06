@@ -892,6 +892,7 @@ assert.match(publishScript, /web-pack\/packs\//);
 assert.match(publishScript, /web-pack\/pointer\.json/);
 assert.match(publishScript, /site tree not deployed/);
 assert.match(publishScript, /print_pack_stamp\.mjs/);
+assert.match(publishScript, /signed-in compare/);
 assert.match(publishScript, /2026-09-29/);
 assert.match(publishScript, /2026-09-30/);
 assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), "utf8"), /HEARTBEAT_DATA_ONLY=1/);
