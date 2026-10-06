@@ -352,7 +352,7 @@ assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filter
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=28/);
+assert.match(pageHtml, /app\.js\?v=29/);
 const renderSrc = app.slice(app.indexOf("async function render("), app.indexOf("function desktopNav("));
 assert.equal(renderSrc.includes("await ensureSeatRows"), false);
 assert.match(renderSrc, /renderDashboard\(\);\s*warmDashboard\(token\)/);
@@ -1159,14 +1159,35 @@ assert.equal(pct(liveCompany.eff), "88.44%");
 const southSched = rankedRegions(schedule, empty, []).find((row) => row.region === "South Region");
 assert.equal(pct(southSched.eff), "92.64%");
 assert.equal(southSched.scope, 397);
-assert.equal(pct(southSched.under), "3.06%");
-assert.equal(pct(southSched.over), "5.90%");
+assert.equal(pct(southSched.under), "3.05%");
+assert.equal(pct(southSched.over), "5.91%");
 assert.notEqual(pct(southSched.under), "34.28%");
 const eastSched = rankedRegions(schedule, empty, []).find((row) => row.region === "East Region");
 assert.notEqual(pct(eastSched.under), "29.40%");
 const southOnly = summary(schedule, filters({ region: "South Region" }), []);
 assert.equal(southOnly.scope, 397);
-assert.equal(pct(southOnly.under), "3.06%");
+assert.equal(pct(southOnly.under), "3.05%");
+const weightedPack = {
+  markets: [
+    { label: "Southern", under: 4, over: 5, eff: 90 },
+    { label: "Southwest", under: 2, over: 6, eff: 92 },
+  ],
+  stores: [
+    { store: "1", region: "South Region", division: "Southern", under: 4, over: 5, eff: 90 },
+    { store: "2", region: "South Region", division: "Southern", under: 4, over: 5, eff: 90 },
+    { store: "3", region: "South Region", division: "Southern", under: 100, over: 0, eff: 0 },
+    { store: "4", region: "South Region", division: "Southwest", under: 2, over: 6, eff: 92 },
+  ],
+};
+const weightedSouth = rankedRegions(weightedPack, empty, [])[0];
+assert.equal(weightedSouth.under, 3.5);
+assert.equal(weightedSouth.over, 5.25);
+assert.equal(weightedSouth.eff, 90.5);
+const weightedSummary = summary(weightedPack, empty, []);
+assert.equal(weightedSummary.underCount, 3);
+assert.equal(weightedSummary.storeUnder, 10 / 3);
+assert.match(app, /function scheduleRate/);
+assert.match(app, /if \(notScheduled\(store\)\) return "—"/);
 assert.equal(pct(southOnly.eff), "92.64%");
 const southDivisions = rankedDivisions(schedule, filters({ region: "South Region" }), []);
 assert.equal(southDivisions.find((row) => row.division === "Southwest").scope, 190);

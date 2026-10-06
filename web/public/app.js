@@ -34,7 +34,7 @@ import {
   barelyScheduled,
   percentHealth,
   effHealth,
-} from "./schedule-math.js";
+} from "./schedule-math.js?v=2";
 
 let packStamp = "";
 
@@ -1011,6 +1011,11 @@ function schedulePct(value, blank) {
   return blank ? "No data" : pct(value);
 }
 
+function scheduleRate(store, value) {
+  if (notScheduled(store)) return "—";
+  return schedulePct(value, scheduleMetricsBlank(store));
+}
+
 function scheduleSummaryHtml(pack, card) {
   const blankCard = scheduleMetricsBlank(card);
   const kpis = [
@@ -1075,8 +1080,7 @@ function scheduleDetailHtml(pack) {
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
       const seat = scheduleSeat(store);
-      const blank = scheduleMetricsBlank(store);
-      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(schedulePct(store.under, blank))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(schedulePct(store.over, blank))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(schedulePct(store.eff, blank))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
+      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(scheduleRate(store, store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(scheduleRate(store, store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(scheduleRate(store, store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
   const cards = rows
@@ -1089,8 +1093,7 @@ function scheduleDetailHtml(pack) {
         : thin
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
-      const blank = scheduleMetricsBlank(store);
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(schedulePct(store.under, blank))}</strong></div><div class="metric"><span>Over</span><strong>${esc(schedulePct(store.over, blank))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(schedulePct(store.eff, blank))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;

@@ -118,8 +118,8 @@ export function summary(pack, filters, roster) {
     over,
     pch: average(rows.map((row) => row.pch)),
     eff,
-    underCount: rows.filter((row) => Number(row.under) > 0).length,
-    overCount: rows.filter((row) => Number(row.over) > 0).length,
+    underCount: rows.filter((row) => !notScheduled(row) && Number(row.under) > 0).length,
+    overCount: rows.filter((row) => !notScheduled(row) && Number(row.over) > 0).length,
     scope: rows.length,
     usesMarketLook: usesMarket,
     storeUnder,
@@ -147,7 +147,12 @@ function explicitMarketNumber(market, field) {
   return Number.isFinite(value) ? value : null;
 }
 
-// South blends division Market Look eff by store count. United's eff is blank, so it drops out.
+function divisionScheduleWeight(rows, division) {
+  return rows.filter((row) => row.division === division).length;
+}
+
+// South blends division Market Look eff by every schedule store in the division.
+// United's eff is blank, so it drops out.
 function regionMarketEff(pack, rows) {
   const divisions = [...new Set(rows.map((row) => row.division).filter(Boolean))];
   let weight = 0;
@@ -155,14 +160,15 @@ function regionMarketEff(pack, rows) {
   for (const division of divisions) {
     const eff = explicitMarketEff(marketLabeled(pack, division));
     if (eff == null) continue;
-    const count = rows.filter((row) => row.division === division).length;
+    const count = divisionScheduleWeight(rows, division);
     weight += count;
     sum += eff * count;
   }
   return weight ? sum / weight : null;
 }
 
-// Same Market Look blend as Eff. Weight is scheduled stores with data, so an unscheduled 100% under cannot move the region.
+// Same store-count weight as Eff. The averaged number is the division Market Look
+// rate. An unscheduled store's placeholder 100% under is not that rate.
 function regionMarketBlend(pack, rows, field) {
   const divisions = [...new Set(rows.map((row) => row.division).filter(Boolean))];
   let weight = 0;
@@ -170,7 +176,7 @@ function regionMarketBlend(pack, rows, field) {
   for (const division of divisions) {
     const value = explicitMarketNumber(marketLabeled(pack, division), field);
     if (value == null) continue;
-    const count = measuredStores(rows.filter((row) => row.division === division)).length;
+    const count = divisionScheduleWeight(rows, division);
     if (!count) continue;
     weight += count;
     sum += value * count;
