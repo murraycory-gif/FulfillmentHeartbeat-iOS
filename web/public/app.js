@@ -1303,7 +1303,6 @@ function grainBlock(section) {
       : sectionRowGrain(section, pack.rows, state.filters, roster(), (state.home && state.home.regionLines) || []);
   if (!rows.length) return "";
   const grainName = (row) => {
-    if (section !== "pph") return esc(row.label);
     const kind = row.grain === "region" ? "region" : "division";
     const value = row.grain === "region" ? `${row.label} Region` : row.label;
     return pphDrillButton(kind, value, row.label);
@@ -2452,7 +2451,7 @@ document.body.addEventListener("click", (event) => {
     return;
   }
   const drill = event.target.closest("[data-pph-drill]");
-  if (drill && state.page === "pph") {
+  if (drill) {
     const kind = drill.getAttribute("data-pph-drill");
     const value = drill.getAttribute("data-pph-value");
     if (kind && value) applyScope(scopeFromPick({ kind, value }));

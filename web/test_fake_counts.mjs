@@ -995,6 +995,44 @@ export async function runFakeCountLab(publicDir) {
           if (index === 0 && id === "sales" && !text.toLowerCase().includes("orders workbook total")) {
             throw new Error(`${where} missing workbook total label`);
           }
+          if (index === 0 && id === "sales") {
+            const regionChips = await evaluate(
+              client,
+              `(() => {
+                const button = document.querySelector('[data-pph-drill="region"][data-pph-value="East Region"]');
+                if (!button) return "missing-east";
+                button.click();
+                return [...document.querySelectorAll("#scope-chips .scope-chip")].map((chip) => chip.textContent.trim() + (chip.getAttribute("aria-current") ? "*" : "")).join(">");
+              })()`,
+            );
+            await settle(client);
+            const afterRegion = await evaluate(
+              client,
+              `(() => [...document.querySelectorAll("#scope-chips .scope-chip")].map((chip) => chip.textContent.trim() + (chip.getAttribute("aria-current") ? "*" : "")).join(">"))()`,
+            );
+            if (regionChips === "missing-east" || afterRegion !== "Company>East*") {
+              throw new Error(`${where} region row set ${afterRegion || regionChips}`);
+            }
+            await clearScope(client);
+            const divisionChips = await evaluate(
+              client,
+              `(() => {
+                const button = document.querySelector('[data-pph-drill="division"][data-pph-value="Mid-Atlantic"]');
+                if (!button) return "missing-division";
+                button.click();
+                return "clicked";
+              })()`,
+            );
+            await settle(client);
+            const afterDivision = await evaluate(
+              client,
+              `(() => [...document.querySelectorAll("#scope-chips .scope-chip")].map((chip) => chip.textContent.trim() + (chip.getAttribute("aria-current") ? "*" : "")).join(">"))()`,
+            );
+            if (divisionChips !== "clicked" || afterDivision !== "Company>East>Mid-Atlantic*") {
+              throw new Error(`${where} division row set ${afterDivision || divisionChips}`);
+            }
+            await clearScope(client);
+          }
         }
       }
     }

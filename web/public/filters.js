@@ -721,6 +721,17 @@ export function searchScope(roster, filters, query, names = DISTRICT_NAMES) {
   const groups = [];
   const take = (hits) => hits.slice(0, 6);
 
+  if (!scope.region) {
+    const hits = regions()
+      .filter((id) => {
+        const label = regionShort(id);
+        if (!`${label} ${id}`.toLowerCase().includes(q)) return false;
+        return rows.some((row) => regionForDivision(row.division) === id);
+      })
+      .map((id) => ({ kind: "region", value: id, label: regionShort(id) }));
+    if (hits.length) groups.push({ group: "Region", hits: take(hits) });
+  }
+
   if (!scope.division) {
     const hits = divisionsFor(scope)
       .filter((name) => name.toLowerCase().includes(q) && rows.some((row) => matchesDivision(row.division, name)))
