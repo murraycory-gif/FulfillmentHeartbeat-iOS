@@ -6,7 +6,6 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  FIRST_ADMIN_EMAIL,
   IDLE_TTL,
   backoffSeconds,
   hashPassword,
@@ -18,6 +17,9 @@ import {
 } from "./functions/accounts.js";
 import { paintWhileLoading, afterPackStatus } from "./public/auth-boot.js";
 import { generatePassword, userInsertSql } from "./scripts/hb-user.mjs";
+import { productionBlocked } from "./scripts/d1-http.mjs";
+
+const ADMIN_EMAIL = "admin@example.com";
 import {
   basicAuthOk,
   onRequest as basicGate,
@@ -1132,32 +1134,43 @@ assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
 assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
 assert.match(wrangler, /pages_build_output_dir = "dist"/);
-assert.match(wrangler, /binding = "HB_AUTH"/);
-assert.match(wrangler, /database_name = "fulfillment-heartbeat-auth"/);
-assert.match(wrangler, /database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
-assert.match(wrangler, /preview_database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
-assert.match(wrangler, /database_name = "hb-auth-preview"/);
-assert.equal(wrangler.includes('preview_database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"'), false);
-const wranglerEnvs = new Set([...wrangler.matchAll(/\[\[env\.([^.]+)\./g)].map((match) => match[1]));
-assert.deepEqual([...wranglerEnvs].sort(), ["preview", "production"]);
-function wranglerBlock(text, header) {
-  const start = text.indexOf(header);
-  assert.notEqual(start, -1, header);
-  const rest = text.slice(start + header.length);
-  const next = rest.search(/\n\[\[/);
-  return next < 0 ? text.slice(start) : text.slice(start, start + header.length + next);
-}
-for (const name of wranglerEnvs) {
-  const block = wranglerBlock(wrangler, `[[env.${name}.r2_buckets]]`);
-  assert.equal(block.includes(`[[env.`), true);
-  assert.equal((block.match(/\[\[env\./g) || []).length, 1, name);
-  assert.match(block, /binding = "HEARTBEAT_PACKS"/);
-  assert.match(block, /bucket_name = "heartbeat-packs"/);
-}
-assert.match(wranglerBlock(wrangler, "[[env.preview.d1_databases]]"), /database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
-assert.match(wranglerBlock(wrangler, "[[env.production.d1_databases]]"), /database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
-assert.equal(wranglerBlock(wrangler, "[[env.preview.d1_databases]]").includes("646c017a-802f-4395-b635-d4b5bd66c1cb"), false);
 assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
+const wranglerBlocks = [];
+{
+  let current = null;
+  for (const line of wrangler.split("\n")) {
+    const header = line.match(/^\[\[([^\]]+)\]\]\s*$/);
+    if (header) {
+      current = { name: header[1], values: {} };
+      wranglerBlocks.push(current);
+      continue;
+    }
+    if (!current || !line.trim() || line.trim().startsWith("#")) continue;
+    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]*)"\s*$/);
+    if (match) current.values[match[1]] = match[2];
+  }
+}
+const wranglerEnv = (name) => (name.startsWith("env.") ? name.split(".")[1] : "top");
+const wranglerEnvs = new Set(wranglerBlocks.map((block) => wranglerEnv(block.name)));
+assert.ok(wranglerEnvs.has("top") && wranglerEnvs.has("production") && wranglerEnvs.has("preview"));
+for (const envName of wranglerEnvs) {
+  const packs = wranglerBlocks.find(
+    (block) => wranglerEnv(block.name) === envName && block.name.endsWith("r2_buckets") && block.values.binding === "HEARTBEAT_PACKS",
+  );
+  assert.ok(packs, `${envName} is missing HEARTBEAT_PACKS`);
+  assert.equal(packs.values.bucket_name, "heartbeat-packs");
+}
+const d1Ids = (envName, key) =>
+  wranglerBlocks
+    .filter((block) => wranglerEnv(block.name) === envName && block.name.endsWith("d1_databases") && block.values.binding === "HB_AUTH")
+    .map((block) => block.values[key])
+    .filter(Boolean);
+const productionD1 = [...d1Ids("top", "database_id"), ...d1Ids("production", "database_id")];
+const previewD1 = [...d1Ids("top", "preview_database_id"), ...d1Ids("preview", "database_id")];
+assert.deepEqual(productionD1, ["646c017a-802f-4395-b635-d4b5bd66c1cb", "646c017a-802f-4395-b635-d4b5bd66c1cb"]);
+assert.deepEqual(previewD1, ["291dfe6d-fcc1-4b15-90c7-768db26d1f8e", "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"]);
+for (const previewId of previewD1) assert.equal(productionD1.includes(previewId), false);
+assert.equal(wrangler.includes("HB_USERS"), false);
 const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
 assert.equal(built.status, 0, built.stderr.toString());
 const distIndex = readFileSync(join(root, "dist/index.html"), "utf8");
@@ -2398,8 +2411,8 @@ function openAuth() {
 function accountEnv(db, extra = {}) {
   return {
     ...gateEnv,
-    ADMIN_EMAIL: FIRST_ADMIN_EMAIL,
-    HB_USERS: db,
+    ADMIN_EMAIL,
+    HB_AUTH: db,
     ...extra,
   };
 }
@@ -2456,8 +2469,8 @@ assert.equal(setupDenied.status, 404);
 assert.equal(setupDenied.headers.get("cache-control"), "no-store");
 const setupPost = await accountRequest(auth.db, "/setup", { method: "POST", body: "email=person@example.com" });
 assert.equal(setupPost.status, 404);
-const issued = await issueFirstAdminLink(auth.db, Math.floor(Date.now() / 1000));
-assert.equal(issued.email, FIRST_ADMIN_EMAIL);
+const issued = await issueFirstAdminLink(auth.db, accountEnv(auth.db), Math.floor(Date.now() / 1000));
+assert.equal(issued.email, ADMIN_EMAIL);
 const adminInvite = issued.token;
 const inviteForm = await accountRequest(auth.db, `/invite/${adminInvite}`);
 const inviteHtml = await inviteForm.text();
@@ -2489,7 +2502,7 @@ const people = await accountRequest(auth.db, "/admin", { cookie: adminCookie });
 assert.equal(people.status, 200);
 const peopleHtml = await people.text();
 assert.match(peopleHtml, /Email is off\. Copy the invite link\./);
-assert.match(peopleHtml, new RegExp(FIRST_ADMIN_EMAIL));
+assert.match(peopleHtml, new RegExp(ADMIN_EMAIL));
 assert.match(peopleHtml, /src="\/auth-copy\.js"/);
 assert.match(peopleHtml, /class="header-back" href="\/"/);
 assert.match(peopleHtml, />Dashboard</);
@@ -2591,7 +2604,7 @@ const resetJoin = await accountRequest(auth.db, `/invite/${resetToken}`, {
   body: "password=viewer-pass-2&confirm=viewer-pass-2",
 });
 assert.equal(resetJoin.status, 303);
-const adminId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get(FIRST_ADMIN_EMAIL).id;
+const adminId = auth.raw.prepare("SELECT id FROM users WHERE email = ?").get(ADMIN_EMAIL).id;
 const demoteAdmin = await accountRequest(auth.db, "/admin", {
   method: "POST",
   cookie: adminCookie,
@@ -2714,7 +2727,7 @@ const cutoverDenied = await accountRequest(cutover.db, "/login", {
 assert.equal(cutoverDenied.status, 401);
 const crossSite = await accountRequest(auth.db, "/login", {
   method: "POST",
-  body: `email=${encodeURIComponent(FIRST_ADMIN_EMAIL)}&password=long-enough-1`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
   headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
 });
 assert.equal(crossSite.status, 403);
@@ -2724,13 +2737,13 @@ assert.equal(crossSiteHtml.includes("That email or password is wrong."), false);
 
 const adminBack = await accountRequest(auth.db, "/login", {
   method: "POST",
-  body: `email=${encodeURIComponent(FIRST_ADMIN_EMAIL)}&password=long-enough-1`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
 });
 assert.equal(adminBack.status, 303);
 const adminSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(adminBack) });
 assert.equal(adminSession.status, 200);
 assert.equal(adminSession.headers.get("cache-control"), "private, no-store");
-assert.deepEqual(await adminSession.json(), { email: FIRST_ADMIN_EMAIL, role: "admin", account: true });
+assert.deepEqual(await adminSession.json(), { email: ADMIN_EMAIL, role: "admin", account: true });
 auth.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const viewerBack = await accountRequest(auth.db, "/login", {
   method: "POST",
@@ -2922,7 +2935,7 @@ assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts"
 
 const formOrigin = openAuth();
 await ensureSchema(formOrigin.db);
-const formIssued = await issueFirstAdminLink(formOrigin.db, Math.floor(Date.now() / 1000));
+const formIssued = await issueFirstAdminLink(formOrigin.db, accountEnv(formOrigin.db), Math.floor(Date.now() / 1000));
 const formAdminInvite = formIssued.token;
 const formJoined = await accountRequest(formOrigin.db, `/invite/${formAdminInvite}`, {
   method: "POST",
@@ -3033,7 +3046,7 @@ for (let run = 0; run < 20; run += 1) {
 const enumDb = openAuth();
 const enumNow = Math.floor(Date.now() / 1000);
 await ensureSchema(enumDb.db);
-const enumIssued = await issueFirstAdminLink(enumDb.db, enumNow);
+const enumIssued = await issueFirstAdminLink(enumDb.db, accountEnv(enumDb.db), enumNow);
 const enumJoined = await accountRequest(enumDb.db, `/invite/${enumIssued.token}`, {
   method: "POST",
   body: "password=long-enough-1&confirm=long-enough-1",
@@ -3050,7 +3063,7 @@ const missingText = await missingLogin.text();
 const knownStarted = Date.now();
 const knownLogin = await accountRequest(enumDb.db, "/login", {
   method: "POST",
-  body: `email=${encodeURIComponent(FIRST_ADMIN_EMAIL)}&password=not-the-password`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=not-the-password`,
   headers: { "cf-connecting-ip": "203.0.113.81" },
 });
 const knownMs = Date.now() - knownStarted;
@@ -3058,7 +3071,7 @@ assert.equal(missingLogin.status, 401);
 assert.equal(knownLogin.status, 401);
 assert.equal(await knownLogin.text(), missingText);
 assert.match(missingText, /That email or password is wrong/);
-assert.equal(missingText.includes(FIRST_ADMIN_EMAIL), false);
+assert.equal(missingText.includes(ADMIN_EMAIL), false);
 assert.ok(missingMs > 15 && knownMs > 15);
 assert.ok(Math.max(missingMs, knownMs) / Math.min(missingMs, knownMs) < 4);
 
@@ -3067,7 +3080,7 @@ const replay = await accountRequest(enumDb.db, `/invite/${enumIssued.token}`, {
   body: "password=long-enough-1&confirm=long-enough-1",
 });
 assert.equal(replay.status, 400);
-const secondSetup = await issueFirstAdminLink(enumDb.db, enumNow);
+const secondSetup = await issueFirstAdminLink(enumDb.db, accountEnv(enumDb.db), enumNow);
 assert.equal(secondSetup, null);
 
 const enumCookie = cookieHeader(enumJoined);
@@ -3138,7 +3151,7 @@ assert.equal(idled.status, 401);
 enumDb.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const fresh = await accountRequest(enumDb.db, "/login", {
   method: "POST",
-  body: `email=${encodeURIComponent(FIRST_ADMIN_EMAIL)}&password=long-enough-1`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
   headers: { "cf-connecting-ip": "203.0.113.90" },
 });
 assert.equal(fresh.status, 303);
@@ -3162,6 +3175,67 @@ assert.equal(insert.includes(created), false);
 assert.match(insert, /PBKDF2-SHA256/);
 assert.equal(middleware.includes("hb-user.mjs"), false);
 assert.equal(accountsSrc.includes("hb-user.mjs"), false);
+assert.equal(accountsSrc.includes("murraycory@icloud.com"), false);
+assert.match(accountsSrc, /env\.HB_AUTH/);
+assert.match(accountsSrc, /ADMIN_EMAIL/);
+assert.equal(productionBlocked("fulfillment-heartbeat-auth", false), true);
+assert.equal(productionBlocked("646c017a-802f-4395-b635-d4b5bd66c1cb", false), true);
+assert.equal(productionBlocked("hb-users", false), true);
+assert.equal(productionBlocked("hb-auth-preview", false), false);
+assert.equal(productionBlocked("291dfe6d-fcc1-4b15-90c7-768db26d1f8e", false), false);
+
+const prior = new DatabaseSync(":memory:");
+prior.exec(`CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL DEFAULT '',
+  password_salt TEXT NOT NULL DEFAULT '',
+  password_iterations INTEGER NOT NULL DEFAULT 100000,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+  status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
+  created_at INTEGER NOT NULL,
+  last_login_at INTEGER
+)`);
+prior.exec(`CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  created_at INTEGER NOT NULL
+)`);
+const priorHash = await hashPassword("long-enough-1");
+const priorNow = Math.floor(Date.now() / 1000);
+prior
+  .prepare(
+    "INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at) VALUES (?, ?, ?, ?, 100000, 'admin', 'active', ?)",
+  )
+  .run("prior-user", ADMIN_EMAIL, priorHash.hash, priorHash.salt, priorNow - 3 * 24 * 3600);
+const priorDb = d1From(prior);
+await ensureSchema(priorDb);
+const kept = prior.prepare("SELECT password_algo, password_hash FROM users WHERE id = ?").get("prior-user");
+assert.equal(kept.password_algo, "PBKDF2-SHA256");
+assert.equal(kept.password_hash, priorHash.hash);
+const rawSession = "ab".repeat(32);
+prior
+  .prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, ?, ?, NULL, ?, NULL)")
+  .run(rawSession, "prior-user", priorNow + 86400, priorNow - 3 * 24 * 3600);
+const sigKey = await crypto.subtle.importKey(
+  "raw",
+  new TextEncoder().encode(gateEnv.SESSION_SECRET),
+  { name: "HMAC", hash: "SHA-256" },
+  false,
+  ["sign"],
+);
+const sigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", sigKey, new TextEncoder().encode(rawSession)));
+const sigHex = [...sigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const priorSession = await accountRequest(priorDb, "/session", { cookie: `hb_session=${rawSession}.${sigHex}` });
+assert.equal(priorSession.status, 200);
+assert.deepEqual(await priorSession.json(), { email: ADMIN_EMAIL, role: "admin", account: true });
+const priorLogin = await accountRequest(priorDb, "/login", {
+  method: "POST",
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
+});
+assert.equal(priorLogin.status, 303);
 
 const ipKeep = "203.0.113.91";
 await recordLoginFailure(
@@ -3174,13 +3248,13 @@ enumDb.raw.prepare("UPDATE login_attempts SET next_at = 0").run();
 const ipBefore = enumDb.raw.prepare("SELECT failures FROM login_attempts WHERE bucket = ?").get(`ip:${ipKeep}`).failures;
 const signedKeep = await accountRequest(enumDb.db, "/login", {
   method: "POST",
-  body: `email=${encodeURIComponent(FIRST_ADMIN_EMAIL)}&password=long-enough-1`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
   headers: { "cf-connecting-ip": ipKeep },
 });
 assert.equal(signedKeep.status, 303);
 const ipAfter = enumDb.raw.prepare("SELECT failures FROM login_attempts WHERE bucket = ?").get(`ip:${ipKeep}`).failures;
 assert.equal(ipAfter, ipBefore);
-assert.equal(enumDb.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = ?").get(`email:${FIRST_ADMIN_EMAIL}`).n, 0);
+assert.equal(enumDb.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = ?").get(`email:${ADMIN_EMAIL}`).n, 0);
 
 const { runFakeCountLab } = await import("./test_fake_counts.mjs");
 await runFakeCountLab(join(root, "public"));

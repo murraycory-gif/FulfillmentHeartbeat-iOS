@@ -1,19 +1,19 @@
 // Local only. Creates one user in a named D1 database and prints the password once.
-// The site does not serve this script.
+// The site does not serve this script. It calls the D1 HTTP API, not wrangler d1.
 //
-//   node web/scripts/hb-user.mjs create --email person@example.com --role viewer --database hb-users-preview
+//   node web/scripts/hb-user.mjs create --email person@example.com --role viewer --database hb-auth-preview
 //
-// Refuses the production database name hb-users unless HB_ALLOW_PROD=1.
+// Refuses fulfillment-heartbeat-auth unless HB_ALLOW_PROD=1.
 
-import { spawn } from "node:child_process";
-import { randomInt } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomInt } from "node:crypto";
 import { PASSWORD_ALGO, PBKDF2_ITERATIONS, emailOk, hashPassword } from "../functions/accounts.js";
+import { PREVIEW_DATABASE_NAME, applyMigration, d1Query, productionBlocked } from "./d1-http.mjs";
 
 const ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function generatePassword(length = 20) {
   const size = Math.max(16, Number(length) || 20);
@@ -38,33 +38,15 @@ function arg(name) {
   return process.argv[index + 1] || "";
 }
 
-function runWrangler(database, file, local) {
-  const args = ["wrangler", "d1", "execute", database, local ? "--local" : "--remote", `--file=${file}`];
-  return new Promise((resolve, reject) => {
-    const child = spawn("npx", args, { cwd: join(fileURLToPath(import.meta.url), "..", ".."), stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.stdout.on("data", () => {});
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(stderr.trim() || `wrangler exited ${code}`));
-    });
-  });
-}
-
 async function main() {
   const command = process.argv[2];
   if (command !== "create") {
-    console.error("Usage: node web/scripts/hb-user.mjs create --email EMAIL --role admin|viewer --database hb-users-preview");
+    console.error("Usage: node web/scripts/hb-user.mjs create --email EMAIL --role admin|viewer --database hb-auth-preview");
     process.exit(1);
   }
   const email = String(arg("--email") || "").trim().toLowerCase();
   const role = arg("--role");
-  const database = arg("--database") || "hb-users-preview";
-  const local = process.argv.includes("--local");
+  const database = arg("--database") || PREVIEW_DATABASE_NAME;
   if (!emailOk(email)) {
     console.error("Enter a full email address.");
     process.exit(1);
@@ -73,8 +55,8 @@ async function main() {
     console.error("Role must be admin or viewer.");
     process.exit(1);
   }
-  if (database === "hb-users" && process.env.HB_ALLOW_PROD !== "1") {
-    console.error("Refusing hb-users. Pass --database hb-users-preview.");
+  if (productionBlocked(database)) {
+    console.error("Refusing the production database. Set HB_ALLOW_PROD=1 to override.");
     process.exit(1);
   }
   const password = generatePassword(20);
@@ -86,16 +68,16 @@ async function main() {
     console.error("Refusing to write the password into SQL.");
     process.exit(1);
   }
-  const dir = mkdtempSync(join(tmpdir(), "hb-user-"));
-  const file = join(dir, "user.sql");
   try {
-    writeFileSync(file, sql);
-    await runWrangler(database, file, local);
+    await applyMigration(database, readFileSync(join(root, "migrations/0001_accounts.sql"), "utf8"));
+    await d1Query(
+      database,
+      "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)",
+      [id, email, hashed.hash, hashed.salt, PASSWORD_ALGO, PBKDF2_ITERATIONS, role, now],
+    );
   } catch (error) {
     console.error(error instanceof Error ? error.message : "create failed");
     process.exit(1);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
   process.stdout.write(`email: ${email}\nrole: ${role}\npassword: ${password}\n`);
 }

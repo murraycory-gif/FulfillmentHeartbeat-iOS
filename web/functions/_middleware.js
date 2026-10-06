@@ -1,5 +1,5 @@
 // Session gate for every Pages request, including static files.
-// Accounts live in HB_USERS (D1): email, PBKDF2 password, role, one-time link, revocable session.
+// Accounts live in HB_AUTH (D1): email, PBKDF2 password, role, one-time link, revocable session.
 // The shared BASIC_PASS login stays a viewer until AUTH_CUTOVER=1.
 // Nothing here is a password. A missing database fails closed.
 
@@ -436,9 +436,9 @@ async function routeRequest(context) {
     }
     if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
     if (readyDb) {
-      const current = await readAccountSession(readyDb, request, now);
+      const current = await readAccountSession(readyDb, request, now, env);
       if (current) await revokeSession(readyDb, current.sessionId, now);
-      const shared = await readSharedSession(readyDb, request, now);
+      const shared = await readSharedSession(readyDb, request, now, env);
       if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
     }
     return redirect(request, "/login", clearedCookies(), 303);
@@ -450,8 +450,8 @@ async function routeRequest(context) {
     return context.next();
   }
 
-  let session = readyDb ? await readAccountSession(readyDb, request, now) : null;
-  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, now);
+  let session = readyDb ? await readAccountSession(readyDb, request, now, env) : null;
+  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, now, env);
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {

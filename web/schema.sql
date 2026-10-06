@@ -1,14 +1,14 @@
 -- Heartbeat accounts. Same statements as web/migrations/0001_accounts.sql.
+-- Production database: fulfillment-heartbeat-auth.
+-- Preview database: hb-auth-preview.
+-- Existing rows stay. New columns are added forward-only.
 -- No users, passwords, salts, or invite tokens are seeded.
--- Production database: hb-users. Preview database: hb-users-preview.
--- Do not apply this file to both names against one database id.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL DEFAULT '',
   password_salt TEXT NOT NULL DEFAULT '',
-  password_algo TEXT NOT NULL DEFAULT 'PBKDF2-SHA256',
   password_iterations INTEGER NOT NULL DEFAULT 100000,
   role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
   status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS invites (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
+  token_enc TEXT NOT NULL DEFAULT '',
   purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset', 'setup')),
   expires_at INTEGER NOT NULL,
   used_at INTEGER,
@@ -30,7 +31,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL,
   revoked_at INTEGER,
   created_at INTEGER NOT NULL
 );
@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS shared_sessions (
   id TEXT PRIMARY KEY,
   subject TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL,
   revoked_at INTEGER,
   created_at INTEGER NOT NULL
 );
@@ -48,9 +47,14 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   bucket TEXT PRIMARY KEY,
   failures INTEGER NOT NULL,
   window_start INTEGER NOT NULL,
-  next_at INTEGER NOT NULL DEFAULT 0
+  locked_until INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS invites_user ON invites (user_id, used_at);
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, revoked_at);
 CREATE INDEX IF NOT EXISTS shared_sessions_live ON shared_sessions (revoked_at, expires_at);
+
+ALTER TABLE users ADD COLUMN password_algo TEXT NOT NULL DEFAULT 'PBKDF2-SHA256';
+ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER;
+ALTER TABLE shared_sessions ADD COLUMN last_seen_at INTEGER;
+ALTER TABLE login_attempts ADD COLUMN next_at INTEGER NOT NULL DEFAULT 0;

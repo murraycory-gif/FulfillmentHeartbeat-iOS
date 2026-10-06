@@ -1,5 +1,6 @@
-// Per-user accounts on the HB_USERS D1 binding.
-// Passwords are PBKDF2-SHA256. Sessions and setup links are stored only as SHA-256.
+// Per-user accounts on the existing HB_AUTH D1 binding.
+// Passwords are PBKDF2-SHA256. New sessions and setup links are stored only as SHA-256.
+// Rows already in fulfillment-heartbeat-auth keep their columns; new columns are added forward-only.
 // Nothing in this file is a password, a session token, or an invite token.
 
 export const PASSWORD_ALGO = "PBKDF2-SHA256";
@@ -10,7 +11,6 @@ export const INVITE_TTL = 24 * 60 * 60;
 export const IDLE_TTL = 12 * 60 * 60;
 export const ABSOLUTE_TTL = 7 * 24 * 60 * 60;
 export const BACKOFF_CAP = 15 * 60;
-export const FIRST_ADMIN_EMAIL = "murraycory@icloud.com";
 export const ACCOUNT_COOKIE = "hb_session";
 export const SHARED_COOKIE = "hb_shared";
 
@@ -23,7 +23,6 @@ const SCHEMA = [
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL DEFAULT '',
     password_salt TEXT NOT NULL DEFAULT '',
-    password_algo TEXT NOT NULL DEFAULT 'PBKDF2-SHA256',
     password_iterations INTEGER NOT NULL DEFAULT 100000,
     role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
     status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
@@ -34,6 +33,7 @@ const SCHEMA = [
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
+    token_enc TEXT NOT NULL DEFAULT '',
     purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset', 'setup')),
     expires_at INTEGER NOT NULL,
     used_at INTEGER,
@@ -43,7 +43,6 @@ const SCHEMA = [
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    last_seen_at INTEGER NOT NULL,
     revoked_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
@@ -51,7 +50,6 @@ const SCHEMA = [
     id TEXT PRIMARY KEY,
     subject TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    last_seen_at INTEGER NOT NULL,
     revoked_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
@@ -59,7 +57,7 @@ const SCHEMA = [
     bucket TEXT PRIMARY KEY,
     failures INTEGER NOT NULL,
     window_start INTEGER NOT NULL,
-    next_at INTEGER NOT NULL DEFAULT 0
+    locked_until INTEGER NOT NULL DEFAULT 0
   )`,
   "CREATE INDEX IF NOT EXISTS invites_user ON invites (user_id, used_at)",
   "CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, revoked_at)",
@@ -76,7 +74,12 @@ const ALTERS = [
 const encoder = new TextEncoder();
 
 export function authDb(env) {
-  return (env && env.HB_USERS) || null;
+  return (env && env.HB_AUTH) || null;
+}
+
+export function configuredAdminEmail(env) {
+  const email = normalizeEmail(env && env.ADMIN_EMAIL);
+  return emailOk(email) ? email : "";
 }
 
 export function authCutover(env) {
@@ -207,13 +210,20 @@ function emailBucket(email) {
 }
 
 async function attemptRow(db, bucket) {
-  return db.prepare("SELECT failures, window_start, next_at FROM login_attempts WHERE bucket = ?").bind(bucket).first();
+  return db
+    .prepare("SELECT failures, window_start, next_at, locked_until FROM login_attempts WHERE bucket = ?")
+    .bind(bucket)
+    .first();
+}
+
+function attemptBlocked(row, now) {
+  return Boolean(row && (Number(row.next_at) > now || Number(row.locked_until) > now));
 }
 
 export async function loginThrottled(db, request, email, now) {
   const ip = await attemptRow(db, ipBucket(request));
   const mail = await attemptRow(db, emailBucket(email));
-  return Boolean((ip && Number(ip.next_at) > now) || (mail && Number(mail.next_at) > now));
+  return attemptBlocked(ip, now) || attemptBlocked(mail, now);
 }
 
 async function bumpAttempt(db, bucket, now) {
@@ -223,8 +233,8 @@ async function bumpAttempt(db, bucket, now) {
   const nextAt = now + backoffSeconds(failures);
   await db
     .prepare(
-      `INSERT INTO login_attempts (bucket, failures, window_start, next_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(bucket) DO UPDATE SET failures = excluded.failures, window_start = excluded.window_start, next_at = excluded.next_at`,
+      `INSERT INTO login_attempts (bucket, failures, window_start, next_at, locked_until) VALUES (?, ?, ?, ?, 0)
+       ON CONFLICT(bucket) DO UPDATE SET failures = excluded.failures, window_start = excluded.window_start, next_at = excluded.next_at, locked_until = 0`,
     )
     .bind(bucket, failures, windowStart, nextAt)
     .run();
@@ -250,6 +260,30 @@ function cookieToken() {
 
 export function accountCookie(token) {
   return /^[a-f0-9]{64}$/.test(String(token || ""));
+}
+
+function sessionSecret(env) {
+  const secret = env && typeof env.SESSION_SECRET === "string" ? env.SESSION_SECRET.trim() : "";
+  return secret.length >= 16 ? secret : "";
+}
+
+async function hmacHex(secret, message) {
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signed = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return bytesToHex(new Uint8Array(signed));
+}
+
+async function legacyRawId(token, env) {
+  if (!/^[a-f0-9]{64}\.[a-f0-9]{64}$/i.test(String(token || ""))) return "";
+  const secret = sessionSecret(env);
+  if (!secret) return "";
+  const id = token.slice(0, 64).toLowerCase();
+  const sig = token.slice(65).toLowerCase();
+  const expected = await hmacHex(secret, id);
+  const left = hexToBytes(expected);
+  const right = hexToBytes(sig);
+  if (!left || !right || !bytesEqual(left, right)) return "";
+  return id;
 }
 
 function readCookie(request, name) {
@@ -285,17 +319,19 @@ export function inviteUrl(request, token) {
   return new URL(`/invite/${token}`, request.url).toString();
 }
 
-export async function issueFirstAdminLink(db, now) {
+export async function issueFirstAdminLink(db, env, now) {
+  const email = configuredAdminEmail(env);
+  if (!email) return null;
   const active = await db
     .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1")
     .first();
   if (active) return null;
   const other = await db
     .prepare("SELECT id, email, status FROM users WHERE role = 'admin' AND email != ? LIMIT 1")
-    .bind(FIRST_ADMIN_EMAIL)
+    .bind(email)
     .first();
   if (other) return null;
-  let user = await findUserByEmail(db, FIRST_ADMIN_EMAIL);
+  let user = await findUserByEmail(db, email);
   if (user && user.role !== "admin") return null;
   if (user && user.status === "disabled") return null;
   if (!user) {
@@ -304,13 +340,13 @@ export async function issueFirstAdminLink(db, now) {
       .prepare(
         "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at, last_login_at) VALUES (?, ?, '', '', ?, ?, 'admin', 'invited', ?, NULL)",
       )
-      .bind(id, FIRST_ADMIN_EMAIL, PASSWORD_ALGO, PBKDF2_ITERATIONS, now)
+      .bind(id, email, PASSWORD_ALGO, PBKDF2_ITERATIONS, now)
       .run();
-    user = await findUserByEmail(db, FIRST_ADMIN_EMAIL);
+    user = await findUserByEmail(db, email);
   }
   if (!user) return null;
   const token = await issueInvite(db, user.id, "setup", now);
-  return { email: FIRST_ADMIN_EMAIL, token, expiresAt: now + SETUP_TTL };
+  return { email, token, expiresAt: now + SETUP_TTL };
 }
 
 export async function openInvite(db, token, now) {
@@ -335,7 +371,7 @@ export async function acceptInvite(db, token, password, confirm, now) {
     const active = await db
       .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1")
       .first();
-    if (active || normalizeEmail(invite.email) !== FIRST_ADMIN_EMAIL) {
+    if (active || invite.role !== "admin") {
       return { error: "This link is no longer valid." };
     }
   }
@@ -375,15 +411,20 @@ export async function createAccountSession(db, userId, now) {
 async function sessionLive(row, now) {
   if (!row || row.revoked_at) return false;
   if (Number(row.expires_at) < now) return false;
-  const seen = Number(row.last_seen_at || row.created_at || 0);
-  if (now - seen > IDLE_TTL) return false;
+  if (row.last_seen_at == null) return true;
+  if (now - Number(row.last_seen_at) > IDLE_TTL) return false;
   return true;
 }
 
-export async function readAccountSession(db, request, now) {
+async function sessionIdForCookie(token, env) {
+  if (accountCookie(token)) return sha256Hex(token);
+  return legacyRawId(token, env);
+}
+
+export async function readAccountSession(db, request, now, env) {
   const token = readCookie(request, ACCOUNT_COOKIE);
-  if (!accountCookie(token)) return null;
-  const id = await sha256Hex(token);
+  const id = await sessionIdForCookie(token, env);
+  if (!id) return null;
   const row = await db
     .prepare(
       `SELECT sessions.id AS session_id, sessions.expires_at, sessions.last_seen_at, sessions.revoked_at, sessions.created_at,
@@ -421,10 +462,11 @@ export async function createSharedSession(db, subject, now) {
   return token;
 }
 
-export async function readSharedSession(db, request, now) {
+export async function readSharedSession(db, request, now, env) {
   const token = readCookie(request, SHARED_COOKIE);
-  if (!db || !accountCookie(token)) return null;
-  const id = await sha256Hex(token);
+  let id = accountCookie(token) ? await sha256Hex(token) : "";
+  if (!id) id = await legacyRawId(readCookie(request, ACCOUNT_COOKIE), env);
+  if (!db || !id) return null;
   const row = await db
     .prepare("SELECT id, subject, expires_at, last_seen_at, revoked_at, created_at FROM shared_sessions WHERE id = ?")
     .bind(id)
@@ -442,6 +484,12 @@ export async function revokeSharedSession(db, sessionId, now) {
     .run();
 }
 
+function recognizedPassword(user) {
+  if (!user || user.status !== "active" || !user.password_hash) return false;
+  const algo = user.password_algo || PASSWORD_ALGO;
+  return algo === PASSWORD_ALGO && Number(user.password_iterations) === PBKDF2_ITERATIONS;
+}
+
 async function dummyVerify(password) {
   return verifyPassword(password || "invalid-password", DUMMY_SALT, DUMMY_HASH, PBKDF2_ITERATIONS, PASSWORD_ALGO);
 }
@@ -453,13 +501,7 @@ export async function changePassword(db, session, current, password, confirm, no
     return { error: "Too many attempts. Try again later.", status: 429 };
   }
   const user = await findUserByEmail(db, session.user);
-  const active = Boolean(
-    user &&
-      user.status === "active" &&
-      user.password_hash &&
-      user.password_algo === PASSWORD_ALGO &&
-      Number(user.password_iterations) === PBKDF2_ITERATIONS,
-  );
+  const active = recognizedPassword(user);
   const match = await verifyPassword(
     current || "invalid-password",
     active ? user.password_salt : DUMMY_SALT,
@@ -490,13 +532,7 @@ export async function authenticateAccount(db, request, emailRaw, password, now) 
   const email = normalizeEmail(emailRaw);
   const throttled = await loginThrottled(db, request, email, now);
   const user = email ? await findUserByEmail(db, email) : null;
-  const active = Boolean(
-    user &&
-      user.status === "active" &&
-      user.password_hash &&
-      user.password_algo === PASSWORD_ALGO &&
-      Number(user.password_iterations) === PBKDF2_ITERATIONS,
-  );
+  const active = recognizedPassword(user);
   const match = await verifyPassword(
     password || "invalid-password",
     active ? user.password_salt : DUMMY_SALT,
