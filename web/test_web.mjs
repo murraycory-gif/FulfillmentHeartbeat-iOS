@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,6 +26,7 @@ const ADMIN_EMAIL = "admin@example.com";
 import {
   basicAuthOk,
   onRequest as basicGate,
+  setAuthClock,
   timingSafeEqualString,
 } from "./functions/_middleware.js";
 import {
@@ -2701,6 +2703,7 @@ assert.equal(privateData.headers.get("set-cookie"), null);
 const throttle = openAuth();
 const throttleIp = "203.0.113.10";
 const throttleHeaders = { "cf-connecting-ip": throttleIp };
+setAuthClock(() => 1_800_000_000);
 const firstFail = await accountRequest(throttle.db, "/login", {
   method: "POST",
   body: "email=nobody@example.com&password=not-a-real-password",
@@ -2750,6 +2753,7 @@ assert.equal(emailAttempt.failures, 2);
 assert.equal(emailAttempt.next_at, backoffNow + 1 + backoffSeconds(2));
 assert.equal(ipAttempt.failures, 2);
 assert.equal(await loginThrottled(throttle.db, backoffReq, "slow@example.com", emailAttempt.next_at), false);
+setAuthClock(null);
 
 const legacy = openAuth();
 const legacyIn = await accountRequest(legacy.db, "/login", {
@@ -3116,28 +3120,55 @@ const enumJoined = await accountRequest(enumDb.db, `/invite/${enumIssued.token}`
   body: "password=long-enough-1&confirm=long-enough-1",
 });
 assert.equal(enumJoined.status, 303);
-const missingStarted = Date.now();
-const missingLogin = await accountRequest(enumDb.db, "/login", {
-  method: "POST",
-  body: "email=missing@example.com&password=not-the-password",
-  headers: { "cf-connecting-ip": "203.0.113.80" },
-});
-const missingMs = Date.now() - missingStarted;
+async function spyPasswordLogin(run) {
+  const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+  const timingSafeEqual = crypto.subtle.timingSafeEqual;
+  const calls = [];
+  const compares = [];
+  crypto.subtle.deriveBits = async (algorithm, key, length) => {
+    calls.push(algorithm);
+    return deriveBits(algorithm, key, length);
+  };
+  crypto.subtle.timingSafeEqual = (left, right) => {
+    compares.push(left.byteLength === 32 && right.byteLength === 32);
+    if (typeof timingSafeEqual === "function") return timingSafeEqual.call(crypto.subtle, left, right);
+    return nodeTimingSafeEqual(left, right);
+  };
+  try {
+    const response = await run();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, "PBKDF2");
+    assert.equal(calls[0].iterations, 100000);
+    assert.equal(calls[0].hash, "SHA-256");
+    assert.equal(calls[0].salt.byteLength, 16);
+    assert.equal(compares.filter(Boolean).length, 1);
+    return response;
+  } finally {
+    crypto.subtle.deriveBits = deriveBits;
+    crypto.subtle.timingSafeEqual = timingSafeEqual;
+  }
+}
+
+const missingLogin = await spyPasswordLogin(() =>
+  accountRequest(enumDb.db, "/login", {
+    method: "POST",
+    body: "email=missing@example.com&password=not-the-password",
+    headers: { "cf-connecting-ip": "203.0.113.80" },
+  }),
+);
 const missingText = await missingLogin.text();
-const knownStarted = Date.now();
-const knownLogin = await accountRequest(enumDb.db, "/login", {
-  method: "POST",
-  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=not-the-password`,
-  headers: { "cf-connecting-ip": "203.0.113.81" },
-});
-const knownMs = Date.now() - knownStarted;
+const knownLogin = await spyPasswordLogin(() =>
+  accountRequest(enumDb.db, "/login", {
+    method: "POST",
+    body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=not-the-password`,
+    headers: { "cf-connecting-ip": "203.0.113.81" },
+  }),
+);
 assert.equal(missingLogin.status, 401);
 assert.equal(knownLogin.status, 401);
 assert.equal(await knownLogin.text(), missingText);
 assert.match(missingText, /That email or password is wrong/);
 assert.equal(missingText.includes(ADMIN_EMAIL), false);
-assert.ok(missingMs > 15 && knownMs > 15);
-assert.ok(Math.max(missingMs, knownMs) / Math.min(missingMs, knownMs) < 4);
 
 const replay = await accountRequest(enumDb.db, `/invite/${enumIssued.token}`, {
   method: "POST",

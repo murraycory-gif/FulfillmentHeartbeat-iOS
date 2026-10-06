@@ -32,6 +32,12 @@ import {
 
 const MAX_AGE = ABSOLUTE_TTL;
 
+let authNow = () => Math.floor(Date.now() / 1000);
+
+export function setAuthClock(clock) {
+  authNow = typeof clock === "function" ? clock : () => Math.floor(Date.now() / 1000);
+}
+
 export function timingSafeEqualString(left, right) {
   const encoder = new TextEncoder();
   const a = encoder.encode(String(left ?? ""));
@@ -440,7 +446,7 @@ async function routeRequest(context, jar = []) {
   const env = (context && context.env) || {};
   const url = new URL(request.url || "https://fulfillment-heartbeat-web.pages.dev/");
   const pathname = url.pathname;
-  const now = Math.floor(Date.now() / 1000);
+  const now = authNow();
 
   if (pathname === "/setup" || pathname === "/hb-user" || pathname.startsWith("/scripts/") || pathname.startsWith("/admin-scripts/")) {
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
