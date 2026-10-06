@@ -297,7 +297,7 @@ export function summarizeSeat(section, rows) {
       };
     }
     case "labor": {
-      const scored = latest.filter((row) => field(row, ["target_vs_actual_pct"]) != null);
+      const scored = latest.filter((row) => !row.sourceIssue && field(row, ["target_vs_actual_pct"]) != null);
       if (!scored.length) return empty("No Labor rows in this filter");
       const values = scored.map((row) => field(row, ["target_vs_actual_pct"]));
       let healthy = 0;

@@ -91,6 +91,7 @@ KEEP = {
     "uplh_impact_pct",
     "wage_impact_pct",
     "aiv_impact_pct",
+    "sch_hrs",
     "pick_hours",
     "orders",
     "subs",
@@ -342,23 +343,27 @@ def labor_market_payload(db: sqlite3.Connection) -> dict:
     return {}
 
 
-def company_aiv_percent(value: float) -> float:
-    """The only ×100. Total AIV is a fraction. Store rows are already percent points."""
-    if value != 0 and abs(value) < 0.05:
-        return value * 100
-    return value
-
-
 def format_company_aiv(value: float) -> str:
-    """Print percent points. Scaling stays in company_aiv_percent."""
+    """Percent points, same unit as the store rows. 0.0026109 prints as 0.00%."""
     return f"{float(value):.2f}%"
 
 
-def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
-    """Company AIV is the Labor workbook Total scaled once from a fraction to percent points.
+def labor_bridge(payload: dict) -> dict:
+    """Company AIV is the workbook Total, not a weighted store average. No weight field."""
+    out = {}
+    for key in ("uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct", "target_vs_actual_pct"):
+        raw = payload.get(key)
+        if raw is None:
+            continue
+        try:
+            out[key] = float(raw)
+        except (TypeError, ValueError):
+            continue
+    return out
 
-    The stored Total 0.0026109 is a fraction. ×100 once is about 0.26%. Store rows stay as cooked.
-    """
+
+def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
+    """Print the Labor Total AIV. Do not scale it again and do not average the stores."""
     block = tiles.get("labor")
     if not isinstance(block, dict) or not market:
         return
@@ -366,7 +371,7 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
     if raw is None:
         return
     try:
-        number = company_aiv_percent(float(raw))
+        number = float(raw)
     except (TypeError, ValueError):
         return
     labels = list(block.get("labels") or [])
@@ -377,6 +382,42 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
     if index < len(values):
         values[index] = format_company_aiv(number)
         block["values"] = values
+
+
+def labor_source_issue(payload: dict) -> bool:
+    """Bad Labor source rows stay in the pack, flagged instead of read as a real AIV.
+
+    Cost target blank and UPLH/Wage/AIV/Act Cost/Target vs Actual the same magnitude
+    (UPLH carries the opposite sign). Or scheduled hours are 0.
+    """
+    if not isinstance(payload, dict):
+        return False
+    scheduled = payload.get("sch_hrs")
+    if scheduled is not None:
+        try:
+            if float(scheduled) == 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+    if payload.get("cost_trgt_pct") is not None:
+        return False
+    keys = (
+        "uplh_impact_pct",
+        "wage_impact_pct",
+        "aiv_impact_pct",
+        "act_cost_pct",
+        "target_vs_actual_pct",
+    )
+    magnitudes = []
+    for key in keys:
+        raw = payload.get(key)
+        if raw is None:
+            return False
+        try:
+            magnitudes.append(abs(float(raw)))
+        except (TypeError, ValueError):
+            return False
+    return max(magnitudes) - min(magnitudes) <= 0.01
 
 
 def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
@@ -682,6 +723,22 @@ def _blank_schedule_artifact(store: dict) -> bool:
     if any(value is not None for value in (store.get("dayOver") or [])):
         return False
     return True
+
+
+def clear_invalid_schedule_under(schedule: dict) -> None:
+    """Negative, zero, or missing efficiency is not a measured week. It is never 100% under."""
+    for store in schedule.get("stores") or []:
+        if not isinstance(store, dict):
+            continue
+        eff = store.get("eff")
+        invalid = eff is None
+        if not invalid:
+            try:
+                invalid = float(eff) <= 0
+            except (TypeError, ValueError):
+                invalid = True
+        if invalid:
+            store["under"] = None
 
 
 def clear_blank_schedule(schedule: dict) -> None:
@@ -1034,17 +1091,11 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     apply_lost_tile_scale(company_tiles, lost_market_payload(db))
     labor_market = labor_market_payload(db)
     apply_labor_aiv_tile(company_tiles, labor_market)
-    labor_aiv = labor_market.get("aiv_impact_pct")
-    if labor_aiv is not None:
-        try:
-            labor_aiv = company_aiv_percent(float(labor_aiv))
-        except (TypeError, ValueError):
-            labor_aiv = None
     home = {
         "publishedAt": published,
         "summaries": summaries,
         "companyTiles": company_tiles,
-        "laborMarket": {"aiv_impact_pct": labor_aiv} if labor_aiv is not None else {},
+        "laborMarket": labor_bridge(labor_market),
         "pickerRollups": chrome.get("pickerRollups") or {},
         "preSubItemTabPresent": item_tab,
         "filters": {
@@ -1069,6 +1120,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     if schedule:
         _fill_schedule_roster(schedule, roster)
         clear_blank_schedule(schedule)
+        clear_invalid_schedule_under(schedule)
         schedule["summaryTitle"] = schedule_summary_title(schedule.get("summaryTitle") or "", schedule.get("week") or 0)
         _write(schedule_path, schedule)
     else:
@@ -1076,16 +1128,17 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         _write(schedule_path, empty_schedule())
     grouped: dict[str, list] = {section: [] for section in SECTIONS}
     for record in latest.values():
-        grouped[record["section"]].append(
-            {
-                "store": record["store"],
-                "name": record["name"],
-                "division": record["division"],
-                "district": record["district"],
-                "om": record["om"],
-                "payload": record["payload"],
-            }
-        )
+        row = {
+            "store": record["store"],
+            "name": record["name"],
+            "division": record["division"],
+            "district": record["district"],
+            "om": record["om"],
+            "payload": record["payload"],
+        }
+        if record["section"] == "labor" and labor_source_issue(record["payload"]):
+            row["sourceIssue"] = "source data issue"
+        grouped[record["section"]].append(row)
     for section, rows in grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"]))
         _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
@@ -1108,7 +1161,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
     _write(out / "presub.json", {"scopes": presub})
     db.close()
-    assert_pack(out)
+    check_pack(out)
 
 
 def attach_unique_scorecard_store(shoppers: dict) -> int:
@@ -1213,27 +1266,60 @@ def _blend(stores: list, markets: dict, region: str, field: str):
     return None if not weight else total / weight
 
 
-def assert_pack(out: Path) -> None:
+def check_pack(out: Path) -> None:
     """Refuse a pack that is missing the keys a later cook already depends on."""
     errors = []
     home = loads((out / "home.json").read_text(encoding="utf-8"), {})
     schedule = loads((out / "schedule.json").read_text(encoding="utf-8"), {})
     lost = loads((out / "section" / "lost_revenue.json").read_text(encoding="utf-8"), {})
     dynacap = loads((out / "section" / "dynacap.json").read_text(encoding="utf-8"), {})
+    labor_file = loads((out / "section" / "labor.json").read_text(encoding="utf-8"), {})
     if not isinstance(home, dict) or not isinstance(schedule, dict):
         raise SystemExit("pack schema: home or schedule is not an object")
 
     labor = home.get("laborMarket") if isinstance(home.get("laborMarket"), dict) else {}
+    if "weight" in labor:
+        errors.append("laborMarket has a weight field")
     aiv = labor.get("aiv_impact_pct")
-    if not isinstance(aiv, (int, float)) or not 0.20 <= float(aiv) <= 0.40:
-        errors.append(f"laborMarket.aiv_impact_pct={aiv}")
+    uplh = labor.get("uplh_impact_pct")
+    wage = labor.get("wage_impact_pct")
+    target = labor.get("target_vs_actual_pct")
+    if not all(isinstance(value, (int, float)) for value in (aiv, uplh, wage, target)):
+        errors.append(f"laborMarket bridge={aiv, uplh, wage, target}")
+    elif abs((float(uplh) + float(wage) + float(aiv)) - float(target)) > 0.01:
+        errors.append("laborMarket bridge does not add up")
     tiles = home.get("companyTiles") if isinstance(home.get("companyTiles"), dict) else {}
     labor_tiles = tiles.get("labor") if isinstance(tiles.get("labor"), dict) else {}
     labor_labels = list(labor_tiles.get("labels") or [])
     labor_values = list(labor_tiles.get("values") or [])
     aiv_tile = labor_values[labor_labels.index("AIV")] if "AIV" in labor_labels else None
-    if aiv_tile != "0.26%":
+    if aiv_tile != "0.00%":
         errors.append(f"AIV tile={aiv_tile}")
+    labor_rows = labor_file.get("rows") if isinstance(labor_file, dict) else []
+    bridged = 0
+    for row in labor_rows or []:
+        payload = row.get("payload") or {}
+        parts = [
+            payload.get("uplh_impact_pct"),
+            payload.get("wage_impact_pct"),
+            payload.get("aiv_impact_pct"),
+            payload.get("target_vs_actual_pct"),
+        ]
+        if any(part is None for part in parts):
+            continue
+        bridged += 1
+        if abs((float(parts[0]) + float(parts[1]) + float(parts[2])) - float(parts[3])) > 0.01:
+            errors.append(f"labor bridge {row.get('store')}")
+            break
+    if bridged != 2109:
+        errors.append(f"labor bridge rows={bridged}")
+    flagged = {str(row.get("store")): row for row in labor_rows or [] if row.get("sourceIssue") == "source data issue"}
+    for store in ("233", "4799", "1509"):
+        if store not in flagged:
+            errors.append(f"missing source data issue {store}")
+    plain = next((row for row in labor_rows or [] if str(row.get("store")) == "1"), None)
+    if not plain or plain.get("sourceIssue") or abs(float((plain.get("payload") or {}).get("aiv_impact_pct") or 0) - (-0.38645958215580284)) > 1e-6:
+        errors.append("store 1 AIV changed")
     tables = home.get("regionTables")
     if not isinstance(tables, list) or len(tables) < 10:
         errors.append("regionTables missing")
@@ -1306,6 +1392,16 @@ def assert_pack(out: Path) -> None:
     schedule_stores = schedule.get("stores") or []
     if len(schedule_stores) < 2100:
         errors.append(f"schedule stores={len(schedule_stores)}")
+    bogus_under = [
+        store.get("store")
+        for store in schedule_stores
+        if isinstance(store, dict)
+        and store.get("under") is not None
+        and float(store.get("under") or 0) >= 99.5
+        and (store.get("eff") is None or float(store.get("eff") or 0) <= 0)
+    ]
+    if bogus_under:
+        errors.append(f"100% under with invalid eff={len(bogus_under)}")
     schedule_by = {str(item.get("store")): item for item in schedule_stores if isinstance(item, dict)}
     for store in ("210", "239"):
         row = schedule_by.get(store) or {}
@@ -1323,8 +1419,10 @@ def assert_pack(out: Path) -> None:
 
     dyn_rows = dynacap.get("rows") if isinstance(dynacap, dict) else []
     united_dyn = [row for row in dyn_rows or [] if row.get("division") == "United"]
-    if len(united_dyn) < 50:
+    if len(united_dyn) != 71:
         errors.append(f"United dynacap rows={len(united_dyn)}")
+    if not any(str(row.get("store")) == "210" for row in united_dyn):
+        errors.append("United dynacap is missing roster store 210")
     missing_caps = [
         row.get("store")
         for row in united_dyn

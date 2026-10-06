@@ -34,7 +34,7 @@ import {
   barelyScheduled,
   percentHealth,
   effHealth,
-} from "./schedule-math.js?v=3";
+} from "./schedule-math.js?v=4";
 
 let packStamp = "";
 
@@ -629,6 +629,11 @@ function displayDivision(row, known) {
   return canonicalDivision(row.division) || row.division || "—";
 }
 
+function shownMetric(section, row, column) {
+  if (section === "labor" && row.sourceIssue) return "source data issue";
+  return column[2](cell(row, column[1]), row);
+}
+
 function table(section, rows) {
   const columns = COLUMNS[section] || [];
   const known = rosterByStore();
@@ -645,7 +650,7 @@ function table(section, rows) {
   const body = shown
     .map((row) => {
       const metrics = columns
-        .map((column) => `<td>${esc(column[2](cell(row, column[1]), row))}</td>`)
+        .map((column) => `<td>${esc(shownMetric(section, row, column))}</td>`)
         .join("");
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
@@ -661,7 +666,7 @@ function table(section, rows) {
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1]), row))}</strong></div>`,
+            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(shownMetric(section, row, column))}</strong></div>`,
         )
         .join("");
       const division = displayDivision(row, known);

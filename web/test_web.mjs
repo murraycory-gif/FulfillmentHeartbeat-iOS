@@ -355,9 +355,10 @@ assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=30/);
+assert.match(pageHtml, /app\.js\?v=31/);
 const renderSrc = app.slice(app.indexOf("async function render("), app.indexOf("function desktopNav("));
 assert.equal(renderSrc.includes("await ensureSeatRows"), false);
+assert.match(app, /source data issue/);
 assert.match(app, /async function ensureSeatRows\(pages\)/);
 assert.match(app, /page\.section !== "picker_scorecard"/);
 assert.equal(app.includes("location.username"), false);
@@ -578,6 +579,8 @@ assert.equal(qualifies(30000, 0, 9.0002, 0), true);
 assert.equal(qualifies(30000, 0, 0, 15), true);
 assert.equal(notScheduled({ under: 100, eff: 0 }), true);
 assert.equal(notScheduled({ under: 100, eff: 1 }), false);
+assert.equal(notScheduled({ under: 4, eff: 0 }), true);
+assert.equal(notScheduled({ under: 100, eff: null }), true);
 assert.equal(notScheduled({ under: 100, eff: -17.777778 }), true);
 assert.equal(notScheduled({ under: 100, eff: -282.352941 }), true);
 assert.equal(percentHealth(12, true), "none");
@@ -710,8 +713,17 @@ assert.equal(shownDistrict("schedule_quality", "62 DEN WEST & MTNS", "62"), "62 
 assert.equal(shownDistrict("schedule_quality", "65 DENVER/SPRINGS", "66"), "66");
 assert.equal(shownDistrict("sales", "62 DEN WEST & MTNS", "62"), "62 DEN WEST & MTNS");
 assert.equal(shownDistrict("schedule_quality", "H1 NE PHILA SUBURB", ""), "H1 NE PHILA SUBURB");
-assert.ok(packHome.laborMarket && packHome.laborMarket.aiv_impact_pct > 0.2 && packHome.laborMarket.aiv_impact_pct < 0.4);
-assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.26%");
+assert.equal(packHome.laborMarket.weight, undefined);
+assert.ok(Math.abs(packHome.laborMarket.aiv_impact_pct - 0.002610916545167652) < 1e-12);
+assert.ok(
+  Math.abs(
+    packHome.laborMarket.uplh_impact_pct +
+      packHome.laborMarket.wage_impact_pct +
+      packHome.laborMarket.aiv_impact_pct -
+      packHome.laborMarket.target_vs_actual_pct,
+  ) <= 0.01,
+);
+assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.00%");
 assert.ok(Array.isArray(packHome.regionTables) && packHome.regionTables.length > 10);
 const rosterByStore = Object.fromEntries(packHome.filters.stores.map((row) => [row.store, row]));
 assert.equal(rosterByStore["233"].division, "Seattle");
@@ -1189,6 +1201,32 @@ assert.ok(Array.isArray(cooked.regionTables) && cooked.regionTables.length > 10)
 const cookedPph = cooked.summaries.find((item) => item.section === "pph");
 assert.match(cookedPph.secondary, /between 74 and 80/);
 assert.notEqual(cookedPph.health, "risk");
+const laborFile = JSON.parse(readFileSync(join(root, "dist/data/section/labor.json"), "utf8"));
+const laborBridge = laborFile.rows.filter((row) => {
+  const payload = row.payload || {};
+  return ["uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct", "target_vs_actual_pct"].every(
+    (key) => payload[key] != null,
+  );
+});
+assert.equal(laborBridge.length, 2109);
+assert.ok(
+  laborBridge.every((row) => {
+    const payload = row.payload;
+    return (
+      Math.abs(payload.uplh_impact_pct + payload.wage_impact_pct + payload.aiv_impact_pct - payload.target_vs_actual_pct) <=
+      0.01
+    );
+  }),
+);
+const laborByStore = Object.fromEntries(laborFile.rows.map((row) => [row.store, row]));
+assert.equal(laborByStore["233"].sourceIssue, "source data issue");
+assert.ok(Math.abs(laborByStore["233"].payload.aiv_impact_pct - 587.2133705452294) < 1e-6);
+assert.equal(laborByStore["4799"].sourceIssue, "source data issue");
+assert.ok(Math.abs(laborByStore["4799"].payload.aiv_impact_pct - 12.298494468568636) < 1e-6);
+assert.equal(laborByStore["1509"].sourceIssue, "source data issue");
+assert.equal(laborByStore["1509"].payload.sch_hrs, 0);
+assert.equal(laborByStore["1"].sourceIssue, undefined);
+assert.ok(Math.abs(laborByStore["1"].payload.aiv_impact_pct - -0.38645958215580284) < 1e-9);
 const lostFile = JSON.parse(readFileSync(join(root, "dist/data/section/lost_revenue.json"), "utf8"));
 assert.ok(new Set(lostFile.rows.map((row) => row.division)).size > 8);
 assert.ok(lostFile.rows.filter((row) => row.division === "Haggen").length < 30);
@@ -1268,6 +1306,10 @@ assert.equal(scheduleByStore["210"].om, "Andrew Quinn");
 assert.equal(scheduleByStore["239"].om, "Ben Sarmadi");
 assert.equal(notScheduled(scheduleByStore["3066"]), true);
 assert.equal(notScheduled(scheduleByStore["3566"]), true);
+assert.equal(
+  schedule.stores.filter((row) => row.under != null && row.under >= 99.5 && (row.eff == null || row.eff <= 0)).length,
+  0,
+);
 assert.match(schedule.summaryTitle, new RegExp(`Week ${schedule.week}`));
 assert.equal(schedule.summaryTitle.includes("Week 31"), false);
 assert.match(scheduleVisibleTitle(schedule.summaryTitle, schedule.week), new RegExp(`Week ${schedule.week}`));
