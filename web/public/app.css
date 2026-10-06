@@ -312,7 +312,8 @@ h1 {
 }
 
 .scope-reset {
-  width: 32px;
+  width: 44px;
+  min-width: 44px;
   padding: 0;
 }
 

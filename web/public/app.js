@@ -22,7 +22,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./seat.js";
+import { chromeSeat, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -466,6 +466,11 @@ function setUpdated(raw) {
   updated.textContent = updatedLine(raw);
 }
 
+function packBannerTime(home) {
+  if (home && home.cookedAt) return home.cookedAt;
+  return home && home.publishedAt;
+}
+
 function applyPackStamp(raw) {
   const next = publishStamp(raw);
   if (!next) return;
@@ -564,6 +569,11 @@ function seatFor(section) {
   });
 }
 
+function shownStoreSentence(section, text, count) {
+  if (section !== "lost_revenue" || !text || !count) return text || "";
+  return String(text).replace(/^[\d,]+ stores reported/, `${num(count, 0)} stores reported`);
+}
+
 function shownSecondary(section, text) {
   if (section !== "schedule_quality" || !text) return text || "";
   return String(text).replace(
@@ -573,9 +583,17 @@ function shownSecondary(section, text) {
 }
 
 function seatReady(section) {
+  if (section === "lost_revenue" && filtersActive(state.filters)) return state.packs.has("section/lost_revenue");
   if (!filtersActive(state.filters)) return true;
   if (state.packs.has(`section/${section}`)) return true;
   return Boolean(chromeSeat((state.home && state.home.regionLines) || [], section, state.filters));
+}
+
+function headerStoreCount(section, seat) {
+  if (section === "picker_scorecard") return seat.storeCount || 0;
+  const pack = state.packs.get(`section/${section}`);
+  if (!pack || !Array.isArray(pack.rows)) return seat.storeCount || 0;
+  return pack.rows.filter((row) => row && row.store && includesScope(row, state.filters, roster(), section)).length;
 }
 
 function companyBlock(section, title) {
@@ -587,16 +605,17 @@ function companyBlock(section, title) {
   const tiles = filtersActive(state.filters) ? "" : cookedTiles(section);
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
   const health = seat.health || "none";
+  const counted = headerStoreCount(section, seat);
   const hideEmptyBadge =
-    seat.storeCount > 0 &&
+    counted > 0 &&
     health === "none" &&
     (section === "picker_scorecard" || (section === "dynacap" && seat.headline == null));
   const name = title ? `<h2>${esc(title)}</h2>` : "";
-  const countLabel = !seat.storeCount
+  const countLabel = !counted
     ? ""
     : !seat.fixedCompany && section === "picker_scorecard"
-      ? `${num(seat.storeCount, 0)} cooked shoppers`
-      : `${num(seat.storeCount, 0)} stores`;
+      ? `${num(counted, 0)} cooked shoppers`
+      : `${num(counted, 0)} stores`;
   const figureText =
     seat.headlineText != null && seat.headlineText !== ""
       ? seat.headlineText
@@ -605,14 +624,16 @@ function companyBlock(section, title) {
         : filtersActive(state.filters)
           ? "—"
           : "";
+  const figureLabel = !tiles && seat.figureLabel ? `<p class="eyebrow">${esc(seat.figureLabel)}</p>` : "";
   const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
-  const secondaryText = shownSecondary(section, seat.secondary);
+  const missedLine = !tiles && seat.missed ? `<p class="secondary">Missed $ ${esc(seat.missed)}</p>` : "";
+  const secondaryText = shownStoreSentence(section, shownSecondary(section, seat.secondary), counted);
   const secondary = secondaryText ? `<p class="secondary">${esc(secondaryText)}</p>` : "";
   const definition = METRIC_NOTES[section] ? `<p class="note">${esc(METRIC_NOTES[section])}</p>` : "";
   const scope = filtersActive(state.filters)
     ? `<p class="scope">In this scope: ${esc(countLabel || "no cooked grade")}.</p>`
     : "";
-  return `<div class="score-face">${name}${hideEmptyBadge ? "" : badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figure}${tiles}${secondary}${definition}${scope}</div>`;
+  return `<div class="score-face">${name}${hideEmptyBadge ? "" : badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figureLabel}${figure}${missedLine}${tiles}${secondary}${definition}${scope}</div>`;
 }
 
 function cell(row, keys) {
@@ -692,24 +713,36 @@ function table(section, rows) {
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
+function grainShown(section, row) {
+  if (section === "labor" && row.grain === "region") {
+    const callout = laborGrainValue((state.home && state.home.regionTables) || [], row);
+    if (callout) return String(callout);
+  }
+  if (typeof row.value === "number") return section === "lost_revenue" ? money(row.value) : String(row.value);
+  const text = String(row.value ?? "");
+  return text.trim().startsWith("$") ? money(text) : text;
+}
+
 function grainBlock(section) {
-  const rows = sectionGrainRows(
-    (state.home && state.home.regionLines) || [],
-    section,
-    state.filters,
-    roster(),
-  );
+  const pack = state.packs.get(`section/${section}`);
+  const rows =
+    section === "lost_revenue"
+      ? pack
+        ? lostGrainRows(pack.rows || [], state.filters, roster())
+        : []
+      : sectionGrainRows((state.home && state.home.regionLines) || [], section, state.filters, roster());
   if (!rows.length) return "";
   const body = rows
-    .map(
-      (row) =>
-        `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${esc(row.label)}</td><td>${esc(row.value)}</td><td>${esc(row.count)}</td></tr>`,
-    )
+    .map((row) => {
+      const value = grainShown(section, row);
+      return `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${esc(row.label)}</td><td>${esc(value)}</td><td>${esc(row.count)}</td></tr>`;
+    })
     .join("");
   const cards = rows
     .map((row) => {
-      const extra = String(row.value ?? "").replace(/[^\d]/g, "") === String(row.count ?? "") ? "" : `<span>${esc(row.count)}</span>`;
-      return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${esc(row.label)}</p></div><div class="line-value"><strong>${esc(row.value)}</strong>${extra}</div></li>`;
+      const value = grainShown(section, row);
+      const extra = String(value ?? "").replace(/[^\d]/g, "") === String(row.count ?? "") ? "" : `<span>${esc(row.count)}</span>`;
+      return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${esc(row.label)}</p></div><div class="line-value"><strong>${esc(value)}</strong>${extra}</div></li>`;
     })
     .join("");
   const heading = filtersActive(state.filters) ? scopeLabel(state.filters) : "Regions";
@@ -731,6 +764,18 @@ function regionVisible(name) {
   return true;
 }
 
+function lostRegionRollup(regionName) {
+  const pack = state.packs.get("section/lost_revenue");
+  if (!pack || !Array.isArray(pack.rows)) return null;
+  const wanted = String(regionName || "").replace(/\s*region$/i, "");
+  const rows = pack.rows.filter((row) => {
+    const division = canonicalDivision(row.division) || row.division;
+    const region = String(regionForDivision(division) || "").replace(/\s*region$/i, "");
+    return region === wanted;
+  });
+  return lostExclMissed(rows);
+}
+
 function regionCardsHtml() {
   const tables = (state.home && state.home.regionTables) || [];
   if (!tables.length) return "";
@@ -744,17 +789,26 @@ function regionCardsHtml() {
     .map((name) => {
       const rows = byRegion.get(name);
       const sales = rows.find((row) => row.section === "sales");
+      const lostRoll = lostRegionRollup(name);
       const listed = regionStoreCount(roster(), name);
-      const storeCount = listed || (sales && sales.storeCount
-        ? sales.storeCount
-        : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0));
+      const storeCount = lostRoll
+        ? lostRoll.count
+        : listed || (sales && sales.storeCount
+          ? sales.storeCount
+          : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0));
       const chips = rows
         .map((row) => {
-          const raw = row.headline;
-          const missing = raw == null || String(raw).trim() === "" || String(raw).trim() === "—" || row.health === "none";
+          let title = row.title;
+          let raw = row.headline;
+          if (row.section === "lost_revenue" && lostRoll) {
+            title = LOST_EXCL_LABEL;
+            raw = lostRoll.sum;
+          }
+          const missing = raw == null || String(raw).trim() === "" || String(raw).trim() === "—" || (row.section !== "lost_revenue" && row.health === "none");
           const tone = missing ? "none" : row.health === "good" || row.health === "watch" || row.health === "risk" ? row.health : "none";
-          const shown = missing ? "No data" : String(raw).trim().startsWith("$") ? money(raw) : String(raw);
-          return `<div class="chip bar-${tone}"><span>${esc(row.title)}</span><strong>${esc(shown)}</strong></div>`;
+          const text = raw == null ? "" : String(raw).trim();
+          const shown = missing ? "No data" : typeof raw === "number" || text.startsWith("$") ? money(raw) : text;
+          return `<div class="chip bar-${tone}"><span>${esc(title)}</span><strong>${esc(shown)}</strong></div>`;
         })
         .join("");
       return `<article class="scorecard"><div class="score-face"><h2>${esc(name)}</h2>${storeCount ? `<p class="sub">${esc(num(storeCount, 0))} stores</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
@@ -1179,6 +1233,9 @@ function warmDashboard(token) {
   };
   const jobs = [];
   if (!state.packs.has("schedule") && !state.failedPacks.has("schedule")) jobs.push(loadOptional("schedule"));
+  if (!state.packs.has("section/lost_revenue") && !state.failedPacks.has("section/lost_revenue")) {
+    jobs.push(loadOptional("section/lost_revenue"));
+  }
   for (const page of PAGES) {
     if (!page.section || page.section === "picker_scorecard" || seatReady(page.section)) continue;
     const path = `section/${page.section}`;
@@ -1238,11 +1295,11 @@ async function render() {
       if (token !== renderToken) return;
     }
     setUpdated((pack && pack.publishedAt) || state.home.publishedAt);
-    if (pack) raiseBanner(considerPublished(sessionStorage, "hb.web.seenScheduleAt", pack.publishedAt));
+    if (pack) raiseBanner(considerPublished(sessionStorage, "hb.web.seenScheduleAt", packBannerTime(pack)));
     renderSchedule(pack);
     return;
   }
-  setUpdated(state.home.publishedAt);
+  setUpdated(packBannerTime(state.home));
   if (page.id === "dashboard") {
     renderDashboard();
     warmDashboard(token);
@@ -1305,9 +1362,11 @@ async function ensureSeatRows(pages) {
 }
 
 function seatFigure(section, seat) {
-  if (seat.headlineText != null && seat.headlineText !== "") return String(seat.headlineText);
-  if (seat.headline != null && seat.headline !== "") return formatHeadline(section, seat.headline);
-  return "";
+  let text = "";
+  if (seat.headlineText != null && seat.headlineText !== "") text = String(seat.headlineText);
+  else if (seat.headline != null && seat.headline !== "") text = formatHeadline(section, seat.headline);
+  if (seat.figureLabel && text) return `${seat.figureLabel} ${text}`;
+  return text;
 }
 
 function shareCount(section, seat) {
@@ -1336,7 +1395,7 @@ function metricShareBlock(page, withTiles) {
     status: healthWord(seat.health || (summaryFor(page.section) || {}).health),
     count: shareCount(page.section, seat),
     figure: seatFigure(page.section, seat),
-    note: [secondary, METRIC_NOTES[page.section]].filter(Boolean).join(" "),
+    note: [seat.missed ? `Missed $ ${seat.missed}` : "", secondary, METRIC_NOTES[page.section]].filter(Boolean).join(" "),
     metrics: withTiles ? companyTilePairs(page.section) : [],
   };
 }
@@ -1713,7 +1772,7 @@ function acceptHome(home) {
   applyPackStamp(home && home.publishedAt);
   const staleSchema = schemaWarning(home);
   if (staleSchema) console.warn(staleSchema);
-  raiseBanner(staleSchema || considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt), Boolean(staleSchema));
+  raiseBanner(staleSchema || considerPublished(sessionStorage, "hb.web.seenPublishedAt", packBannerTime(home)), Boolean(staleSchema));
   render();
 }
 

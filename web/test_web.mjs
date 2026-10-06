@@ -51,7 +51,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./public/seat.js";
+import { chromeSeat, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
@@ -276,6 +276,25 @@ const laborDivision = seatSummary("labor", {
   filters: filters({ division: "Mid-Atlantic" }),
 });
 assert.equal(laborDivision.headlineText, "-13.59%");
+assert.equal(laborGrainValue(laborTables, { grain: "region", label: "East", value: "-8.59%" }), "-3.97%");
+assert.equal(laborGrainValue(laborTables, { grain: "division", label: "Mid-Atlantic", value: "-13.59%" }), "-13.59%");
+const lostScopeRows = [
+  { store: "1", division: "Shaws", district: "03", payload: { lost_revenue: 100, missed_sales: 40 } },
+  { store: "2", division: "Jewel Osco", district: "04", payload: { lost_revenue: 50 } },
+  { store: "210", division: "United", district: "U5", payload: { lost_revenue: 263 } },
+];
+const eastLost = seatSummary("lost_revenue", {
+  company: { headline: 4248638.426, secondary: "workbook", health: "risk", storeCount: 2165 },
+  lines: [{ section: "lost_revenue", region: "East", value: "$9,999.00", count: 2, title: "Loss", children: [] }],
+  rows: lostScopeRows,
+  filters: filters({ region: "East Region" }),
+});
+assert.equal(eastLost.figureLabel, LOST_EXCL_LABEL);
+assert.equal(eastLost.headline, 110);
+assert.equal(eastLost.missed, "Not available");
+assert.equal(eastLost.storeCount, 2);
+assert.deepEqual(lostExclMissed(lostScopeRows), { sum: 373, count: 3 });
+assert.equal(lostGrainRows(lostScopeRows, filters({}), lostScopeRows).find((row) => row.label === "South").value, 263);
 assert.equal(eastSeat.headline, null);
 assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
 assert.equal(eastSeat.storeCount, 615);
@@ -389,16 +408,20 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=22/);
+assert.match(pageHtml, /app\.css\?v=23/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=35/);
+assert.match(pageHtml, /app\.js\?v=36/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*height:\s*44px/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*min-height:\s*44px/);
+assert.match(css, /\.scope-reset \{[^}]*width:\s*44px/);
+assert.match(css, /\.scope-reset \{[^}]*min-width:\s*44px/);
+assert.match(app, /headerStoreCount/);
+assert.match(app, /LOST_EXCL_LABEL/);
 assert.match(app, /schema\.js\?v=1/);
 assert.match(app, /console\.warn\(staleSchema\)/);
 assert.match(app, /raiseBanner\(staleSchema \|\| considerPublished/);
@@ -2078,6 +2101,23 @@ const nullOriginBlockedHtml = await nullOriginBlocked.text();
 assert.match(nullOriginBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
 assert.equal(nullOriginBlockedHtml.includes("That email or password is wrong."), false);
 assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, 1);
+const blockedBefore = browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures;
+for (const site of ["cross-site", "same-site"]) {
+  const blocked = await accountRequest(browserLogin.db, "/login", {
+    method: "POST",
+    body: "username=heartbeat&password=test-only-secret",
+    headers: {
+      origin: "null",
+      "sec-fetch-site": site,
+      referer: "https://fulfillment-heartbeat-web.pages.dev/login",
+    },
+  });
+  assert.equal(blocked.status, 403);
+  const blockedHtml = await blocked.text();
+  assert.match(blockedHtml, /Sign-in blocked: please open the site directly and try again/);
+  assert.equal(blockedHtml.includes("That email or password is wrong."), false);
+}
+assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, blockedBefore);
 const refererLogin = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
