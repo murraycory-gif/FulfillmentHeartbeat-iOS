@@ -13,15 +13,24 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish; then
-  echo "refusing publish: cook guard" >&2
-  exit 1
-fi
 SQLITE="${1:-}"
 PROJECT="fulfillment-heartbeat-web"
 SITE_URL="${HEARTBEAT_SITE_URL:-https://fulfillment-heartbeat-web.pages.dev}"
 UI_ONLY="${HEARTBEAT_UI_ONLY:-}"
+DATA_ONLY="${HEARTBEAT_DATA_ONLY:-}"
 USE_LOCAL="${HEARTBEAT_USE_LOCAL_DATA:-}"
+# A UI-only deploy may leave app files dirty. A data publish refuses every path.
+if [[ -n "$UI_ONLY" && -z "$DATA_ONLY" ]]; then
+  if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish; then
+    echo "refusing publish: cook guard" >&2
+    exit 1
+  fi
+else
+  if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish-data; then
+    echo "refusing publish: cook guard" >&2
+    exit 1
+  fi
+fi
 
 if [[ "${HEARTBEAT_PAGES_PROJECT:-$PROJECT}" != "$PROJECT" ]]; then
   echo "Refusing Pages project '${HEARTBEAT_PAGES_PROJECT}'. Only ${PROJECT} is allowed." >&2
@@ -41,7 +50,6 @@ if [[ -z "${HEARTBEAT_SKIP_GIT_CHECK:-}" ]]; then
     exit 1
   fi
 fi
-DATA_ONLY="${HEARTBEAT_DATA_ONLY:-}"
 if [[ -z "$UI_ONLY" && ( -z "$SQLITE" || ! -f "$SQLITE" ) ]]; then
   echo "publish-web: cooked sqlite is missing" >&2
   exit 1
@@ -301,6 +309,7 @@ put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 node "$WEB/scripts/print_pack_stamp.mjs" "$DATA"
 
 if [[ -n "$DATA_ONLY" ]]; then
+  python3 "$ROOT/web/scripts/pack_publish.py" preflight "$DATA"
   python3 "$ROOT/web/scripts/pack_publish.py" "$DATA" "$WEB/check_pack.mjs"
   if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
     python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$DATA" << 'PY'
@@ -370,6 +379,7 @@ PY
   exit 0
 fi
 
+python3 "$ROOT/web/scripts/pack_publish.py" preflight "$DATA"
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
   --branch main

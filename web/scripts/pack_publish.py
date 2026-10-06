@@ -7,6 +7,7 @@ same cookSha keeps the pack it replaces as previous instead of clearing it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -16,6 +17,9 @@ from pathlib import Path
 
 PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001"
 PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z"
+PINNED_LIVE_PREFIX = f"web-pack/{PINNED_LIVE_COOK_SHA}-{PINNED_LIVE_PUBLISHED_AT}"
+PINNED_HOME_SHA256 = "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a"
+POINTER_KEY = "heartbeat-packs/web-pack/current.json"
 
 
 def pointer_entry(old: dict) -> dict:
@@ -23,7 +27,12 @@ def pointer_entry(old: dict) -> dict:
     published = str(old.get("publishedAt") or "")
     cooked = str(old.get("cookedAt") or "")
     prefix = str(old.get("prefix") or f"web-pack/{sha}-{published}")
-    pinned = sha == PINNED_LIVE_COOK_SHA and published == PINNED_LIVE_PUBLISHED_AT and not cooked
+    pinned = (
+        sha == PINNED_LIVE_COOK_SHA
+        and published == PINNED_LIVE_PUBLISHED_AT
+        and not cooked
+        and prefix == PINNED_LIVE_PREFIX
+    )
     if not cooked and not pinned:
         raise SystemExit("data-only upload: pack has no cookedAt")
     return {
@@ -132,9 +141,105 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
     return plan
 
 
+def _run(wrangler, args, check=True):
+    if wrangler is not None:
+        return wrangler(args, check=check)
+    return subprocess.run(["npx", "wrangler", *args], check=check)
+
+
+def _remote_bytes(run, key: str, dest: Path):
+    if dest.exists():
+        dest.unlink()
+    got = run(["r2", "object", "get", key, f"--file={dest}", "--remote"], check=False)
+    code = getattr(got, "returncode", 1)
+    if code != 0:
+        if dest.is_file() and dest.stat().st_size > 0:
+            raise SystemExit(f"pointer preflight: {key} get failed")
+        return None
+    if not dest.is_file():
+        raise SystemExit(f"pointer preflight: {key} get wrote nothing")
+    return dest.read_bytes()
+
+
+def pointer_servable(old: dict) -> bool:
+    sha = str(old.get("cookSha") or "")
+    published = str(old.get("publishedAt") or "")
+    cooked = str(old.get("cookedAt") or "")
+    prefix = str(old.get("prefix") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", sha) or old.get("schemaVersion") != 1:
+        return False
+    if not prefix.startswith("web-pack/") or ".." in prefix or "\\" in prefix:
+        return False
+    if cooked:
+        if "/" in cooked or "\\" in cooked or not published:
+            return False
+        return prefix == f"web-pack/{sha}-{cooked}"
+    return sha == PINNED_LIVE_COOK_SHA and published == PINNED_LIVE_PUBLISHED_AT and prefix == PINNED_LIVE_PREFIX
+
+
+def _migrate_pinned_pointer(run, tmp_path: Path) -> str:
+    home_key = f"heartbeat-packs/{PINNED_LIVE_PREFIX}/home.json"
+    raw = _remote_bytes(run, home_key, tmp_path / "home.json")
+    if raw is None:
+        raise SystemExit("pointer preflight: pinned home.json is missing")
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != PINNED_HOME_SHA256:
+        raise SystemExit("pointer preflight: pinned home.json sha256 does not match")
+    pointer = {
+        "prefix": PINNED_LIVE_PREFIX,
+        "cookSha": PINNED_LIVE_COOK_SHA,
+        "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+        "cookedAt": "",
+        "schemaVersion": 1,
+    }
+    dest = tmp_path / "next-current.json"
+    dest.write_text(json.dumps(pointer), encoding="utf-8")
+    run(["r2", "object", "put", POINTER_KEY, f"--file={dest}", "--remote"])
+    print("pointer preflight: migrated pinned pointer")
+    return "migrated"
+
+
+def preflight_pointer(root: Path, wrangler=None) -> str:
+    """Verify current.json, or write the pinned pointer when it is absent.
+
+    Absent means the get failed and wrote no object. Empty or corrupt JSON
+    is not absent. A cookedAt pack, or the pinned prefix, is verified with
+    no put. Any other pointer is refused with no put.
+    """
+    if not root.is_dir():
+        raise SystemExit("pointer preflight: data dir is missing")
+
+    def run(args, check=True):
+        return _run(wrangler, args, check=check)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = _remote_bytes(run, POINTER_KEY, Path(tmp) / "current.json")
+        if raw is None:
+            return _migrate_pinned_pointer(run, Path(tmp))
+        text = raw.decode("utf-8")
+        if not text.strip():
+            raise SystemExit("pointer preflight: current.json is empty")
+        try:
+            loaded = json.loads(text)
+        except json.JSONDecodeError:
+            raise SystemExit("pointer preflight: current.json is not json")
+        if not isinstance(loaded, dict):
+            raise SystemExit("pointer preflight: current.json is not an object")
+        if pointer_servable(loaded):
+            print("pointer preflight: verified")
+            return "verified"
+        raise SystemExit("pointer preflight: current.json is not a cooked pack or the pinned live pack")
+
+
 def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "preflight":
+        if len(sys.argv) != 3:
+            print("usage: pack_publish.py preflight DATA_DIR", file=sys.stderr)
+            return 2
+        preflight_pointer(Path(sys.argv[2]))
+        return 0
     if len(sys.argv) != 3:
-        print("usage: pack_publish.py DATA_DIR check_pack.mjs", file=sys.stderr)
+        print("usage: pack_publish.py DATA_DIR check_pack.mjs | preflight DATA_DIR", file=sys.stderr)
         return 2
     upload_pack(Path(sys.argv[1]), Path(sys.argv[2]))
     return 0

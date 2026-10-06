@@ -19,7 +19,7 @@ import {
   canonicalDivision,
   regionForDivision,
 } from "./filters.js";
-import { packPinQuery, packURL } from "./packs.js";
+import { packMissPlan, packPinQuery, packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
 import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
@@ -219,6 +219,7 @@ async function readPack(url) {
   if (authBlocked(response, trimmed) || !response.ok) {
     const error = new Error("NO DATA");
     error.authBlocked = authBlocked(response, trimmed);
+    error.status = response.status;
     throw error;
   }
   if (!trimmed) throw new Error("NO DATA");
@@ -249,7 +250,7 @@ async function load(path) {
   }
 }
 
-async function fetchPack(path) {
+async function fetchPack(path, repinned = false) {
   const relative = packURL(path, "", path === "home" ? "" : state.packPin);
   if (!relative) throw new Error("NO DATA");
   const url = new URL(relative, location.origin).href;
@@ -264,7 +265,16 @@ async function fetchPack(path) {
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
       console.error("pack fetch failed", url, last);
-      if (last.authBlocked || attempt === 7) break;
+      const plan = packMissPlan({ path, status: last.status, pin: state.packPin, repinned });
+      if (plan === "repin") {
+        state.packs.delete("home");
+        state.failedPacks.delete("home");
+        const home = await fetchPack("home");
+        state.home = home;
+        state.packPin = packPinQuery(home);
+        return fetchPack(path, true);
+      }
+      if (plan === "fail" || last.authBlocked || attempt === 7) break;
       await packWait(400 * (attempt + 1));
     }
   }

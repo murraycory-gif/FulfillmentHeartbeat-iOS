@@ -22,7 +22,7 @@ import {
   verifyAccessJwt,
 } from "./functions/gate.js";
 import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors } from "./check_pack.mjs";
-import { PACK_POINTER_KEY, PINNED_LIVE_COOK_SHA, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
+import { PACK_POINTER_KEY, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache, sha256Hex } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
@@ -49,7 +49,7 @@ import {
   browseLevel,
   storeLabel,
 } from "./public/filters.js";
-import { FIGURE_SECTIONS, packPinQuery, packURL } from "./public/packs.js";
+import { FIGURE_SECTIONS, packMissPlan, packPinQuery, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
@@ -158,6 +158,15 @@ assert.equal(
   `cookSha=${"a".repeat(40)}&publishedAt=2026-10-06T01%3A35%3A23Z&cookedAt=2026-10-07T00%3A00%3A00Z`,
 );
 assert.equal(packPinQuery({ cookSha: "a".repeat(40) }), "");
+assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "cookSha=abc", repinned: false }), "repin");
+assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "cookSha=abc", repinned: true }), "fail");
+assert.equal(packMissPlan({ path: "home", status: 404, pin: "cookSha=abc", repinned: false }), "fail");
+assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "", repinned: false }), "fail");
+assert.equal(packMissPlan({ path: "section/labor", status: 500, pin: "cookSha=abc", repinned: false }), "retry");
+assert.match(app, /packMissPlan/);
+assert.match(app, /error\.status = response\.status/);
+assert.match(app, /state\.packs\.delete\("home"\)/);
+assert.match(app, /return fetchPack\(path, true\)/);
 assert.match(app, /packPinQuery/);
 assert.match(app, /state\.packPin/);
 assert.equal(FIGURE_SECTIONS.has("lost_revenue"), true);
@@ -1114,6 +1123,9 @@ assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
 assert.match(publishScript, /pack_identity\.py/);
 assert.match(publishScript, /pack_publish\.py/);
 assert.match(publishScript, /cook-guard\.sh" --publish/);
+assert.match(publishScript, /cook-guard\.sh" --publish-data/);
+assert.match(publishScript, /pack_publish\.py" preflight/);
+assert.equal(publishScript.includes("--commit-dirty"), false);
 assert.equal(publishScript.includes("cooked < have"), false);
 assert.equal(publishScript.includes("live_stamp <="), false);
 const guardRun = (args) =>
@@ -1153,6 +1165,28 @@ const envOverride = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook
 });
 assert.notEqual(envOverride.status, 0);
 assert.match(envOverride.stderr, /refusing an env override/);
+const decidePublishData = (ahead, porcelain) =>
+  spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--decide-publish-data", String(ahead)], {
+    encoding: "utf8",
+    input: porcelain,
+  });
+const cleanDataPublish = decidePublishData(0, "");
+assert.equal(cleanDataPublish.status, 0, cleanDataPublish.stderr);
+assert.equal(cleanDataPublish.stdout.trim(), "cook");
+const dirtyAppData = decidePublishData(0, " M web/public/app.js\n");
+assert.notEqual(dirtyAppData.status, 0);
+assert.match(dirtyAppData.stderr, /refusing a dirty path/);
+const untrackedData = decidePublishData(0, "?? web/scripts/notes.py\n");
+assert.notEqual(untrackedData.status, 0);
+assert.match(untrackedData.stderr, /refusing an untracked path/);
+for (const name of ["HEARTBEAT_COOK_SHA", "HEARTBEAT_COOKED_AT", "HEARTBEAT_SKIP_GIT_CHECK", "HEARTBEAT_SKIP_PACK_CHECK"]) {
+  const overridden = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish-data"], {
+    encoding: "utf8",
+    env: { ...process.env, [name]: "1" },
+  });
+  assert.notEqual(overridden.status, 0, name);
+  assert.match(overridden.stderr, /refusing an env override/);
+}
 const publishPlan = spawnSync(
   "python3",
   [
@@ -1209,6 +1243,99 @@ assert puts == []
   { cwd: root, encoding: "utf8" },
 );
 assert.equal(publishPlan.status, 0, publishPlan.stderr || publishPlan.stdout);
+const preflightPlan = spawnSync(
+  "python3",
+  [
+    "-c",
+    `
+import hashlib, json, sys
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from pack_publish import PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, preflight_pointer
+home = Path("public/data/home.json").read_bytes()
+assert hashlib.sha256(home).hexdigest() == PINNED_HOME_SHA256
+pinned = {
+    "prefix": PINNED_LIVE_PREFIX,
+    "cookSha": PINNED_LIVE_COOK_SHA,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "cookedAt": "",
+    "schemaVersion": 1,
+}
+cooked_sha = "a" * 40
+cooked_at = "2026-10-07T01:00:00Z"
+cooked = {
+    "prefix": f"web-pack/{cooked_sha}-{cooked_at}",
+    "cookSha": cooked_sha,
+    "cookedAt": cooked_at,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "schemaVersion": 1,
+}
+other = {
+    "prefix": "web-pack/" + ("b" * 40) + "-" + PINNED_LIVE_PUBLISHED_AT,
+    "cookSha": "b" * 40,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "cookedAt": "",
+    "schemaVersion": 1,
+}
+
+def run(pointer, home_bytes):
+    puts = []
+    def fake(args, check=True):
+        class Result:
+            def __init__(self, code=0):
+                self.returncode = code
+        key = args[3]
+        dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
+        if args[:3] == ["r2", "object", "get"] and key.endswith("current.json"):
+            if pointer is None:
+                return Result(1)
+            Path(dest).write_bytes(pointer if isinstance(pointer, bytes) else json.dumps(pointer).encode())
+            return Result(0)
+        if args[:3] == ["r2", "object", "get"] and key.endswith("home.json"):
+            if home_bytes is None:
+                return Result(1)
+            Path(dest).write_bytes(home_bytes)
+            return Result(0)
+        if args[:3] == ["r2", "object", "put"]:
+            puts.append(key)
+            return Result(0)
+        return Result(1)
+    return fake, puts
+
+def refused(pointer, home_bytes=home):
+    fake, puts = run(pointer, home_bytes)
+    try:
+        preflight_pointer(Path("public/data"), fake)
+    except SystemExit as error:
+        return (error.code if isinstance(error.code, str) else "", puts)
+    return ("", puts)
+
+migrated_fake, migrated_puts = run(None, home)
+assert preflight_pointer(Path("public/data"), migrated_fake) == "migrated", migrated_puts
+assert migrated_puts == ["heartbeat-packs/web-pack/current.json"]
+bad_hash, bad_puts = refused(None, b"{}")
+assert "sha256 does not match" in bad_hash, bad_hash
+assert bad_puts == []
+verified_fake, verified_puts = run(pinned, home)
+assert preflight_pointer(Path("public/data"), verified_fake) == "verified"
+assert verified_puts == []
+cooked_fake, cooked_puts = run(cooked, home)
+assert preflight_pointer(Path("public/data"), cooked_fake) == "verified"
+assert cooked_puts == []
+other_msg, other_puts = refused(other)
+assert "not a cooked pack" in other_msg, other_msg
+assert other_puts == []
+corrupt_msg, corrupt_puts = refused(b"not-json")
+assert "not json" in corrupt_msg, corrupt_msg
+assert corrupt_puts == []
+empty_msg, empty_puts = refused(b"")
+assert "empty" in empty_msg, empty_msg
+assert empty_puts == []
+`,
+  ],
+  { cwd: root, encoding: "utf8" },
+);
+assert.equal(preflightPlan.status, 0, preflightPlan.stderr || preflightPlan.stdout);
 const lostRegions = [
   ["East", "$100.00"],
   ["South", "$200.00"],
@@ -1550,6 +1677,12 @@ const goodCookedAt = "2026-10-07T04:00:00Z";
 const goodPrefix = packPrefix(goodSha, publishedAt);
 const badPrefix = packPrefix(badSha, publishedAt);
 assert.equal(PINNED_LIVE_COOK_SHA, "74d44dde02a0e1c6430a9a78b06034099c84e001");
+assert.equal(PINNED_LIVE_PUBLISHED_AT, publishedAt);
+assert.equal(PINNED_LIVE_PREFIX, `web-pack/${PINNED_LIVE_COOK_SHA}-${publishedAt}`);
+assert.equal(PINNED_HOME_SHA256, "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a");
+assert.equal(isPinnedLivePack(PINNED_LIVE_COOK_SHA, publishedAt, "", ""), false);
+assert.equal(isPinnedLivePack(PINNED_LIVE_COOK_SHA, publishedAt, "", PINNED_LIVE_PREFIX), true);
+assert.equal(await sha256Hex(readFileSync(join(root, "public/data/home.json"), "utf8")), PINNED_HOME_SHA256);
 assert.equal(PACK_POINTER_KEY, "web-pack/current.json");
 assert.equal(goodPrefix, `web-pack/${goodSha}-${publishedAt}`);
 assert.equal(packObjectKey(goodPrefix, "section/labor.json"), `${goodPrefix}/section/labor.json`);
@@ -1775,13 +1908,8 @@ const staticFallback = await basicGate({
 assert.equal(staticFallback.status, 404);
 assert.deepEqual(await staticFallback.json(), { error: "NO DATA" });
 assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
-const pinnedPrefix = `web-pack/${PINNED_LIVE_COOK_SHA}-${publishedAt}`;
-const pinnedHome = {
-  ...goodHome,
-  cookSha: PINNED_LIVE_COOK_SHA,
-  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: PINNED_LIVE_COOK_SHA },
-};
-delete pinnedHome.cookedAt;
+const pinnedPrefix = PINNED_LIVE_PREFIX;
+const pinnedHomeText = readFileSync(join(root, "public/data/home.json"), "utf8");
 const pinnedFiles = {
   [PACK_POINTER_KEY]: JSON.stringify({
     prefix: pinnedPrefix,
@@ -1789,7 +1917,7 @@ const pinnedFiles = {
     publishedAt,
     schemaVersion: SCHEMA_VERSION,
   }),
-  [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+  [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
   [packObjectKey(pinnedPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: PINNED_LIVE_COOK_SHA,
@@ -1842,7 +1970,7 @@ const looseRefused = await basicGate({
   next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
 });
 const looseText = await looseRefused.text();
-assert.equal(looseText.includes("Haggen"), false);
+assert.match(looseText, /eComm sales/);
 assert.match(looseText, new RegExp(PINNED_LIVE_COOK_SHA));
 assert.equal(looseText.includes(looseSha), false);
 const tabCurrentPrefix = packPrefix(goodSha, publishedAt);
@@ -1862,7 +1990,7 @@ const tabFiles = {
     cookedAt: goodCookedAt,
     rows: [{ store: "1", division: "CURRENT" }],
   }),
-  [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+  [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
   [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: PINNED_LIVE_COOK_SHA,
@@ -1916,7 +2044,7 @@ const wholePrevious = await basicGate({
         previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
       }),
       [packObjectKey(tabCurrentPrefix, "home.json")]: JSON.stringify(goodHome),
-      [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+      [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
       [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
         schemaVersion: SCHEMA_VERSION,
         cookSha: PINNED_LIVE_COOK_SHA,
@@ -1942,13 +2070,75 @@ const wrongPin = await basicGate({
         publishedAt: wrongPublished,
         schemaVersion: SCHEMA_VERSION,
       }),
-      [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+      [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
     }),
   }),
   next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
 });
 assert.equal(wrongPin.status, 404);
 assert.equal((await wrongPin.text()).includes("static-home"), false);
+resetPackCache();
+const absentPointer = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket({}) }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(absentPointer.status, 200);
+assert.equal(await absentPointer.text(), "static-home");
+resetPackCache();
+const absentApi = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/home", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket({}) }),
+  next: async () => new Response("static-api", { status: 200 }),
+});
+assert.equal(absentApi.status, 404);
+assert.equal((await absentApi.text()).includes("static-api"), false);
+resetPackCache();
+const corruptPointer = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({ [PACK_POINTER_KEY]: "not-json" }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(corruptPointer.status, 404);
+assert.equal((await corruptPointer.text()).includes("static-home"), false);
+resetPackCache();
+const wrongPrefix = "web-pack/not-the-pinned-prefix";
+const wrongPrefixPin = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: wrongPrefix,
+        cookSha: PINNED_LIVE_COOK_SHA,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+      }),
+      [packObjectKey(wrongPrefix, "home.json")]: pinnedHomeText,
+    }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wrongPrefixPin.status, 404);
+assert.equal((await wrongPrefixPin.text()).includes("static-home"), false);
+resetPackCache();
+const reshapedHome = JSON.stringify(JSON.parse(pinnedHomeText));
+const wrongHash = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      ...pinnedFiles,
+      [packObjectKey(pinnedPrefix, "home.json")]: reshapedHome,
+    }),
+  }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wrongHash.status, 404);
+assert.equal((await wrongHash.text()).includes("static-pack"), false);
+assert.notEqual(await sha256Hex(reshapedHome), PINNED_HOME_SHA256);
 resetPackCache();
 const apiPacked = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/section/missing_items", {

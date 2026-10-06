@@ -11,6 +11,14 @@ export const FIGURE_SECTIONS = new Set([
   "labor",
 ]);
 
+// A pinned section 404 refetches home once. A second 404, a home 404, or a
+// 404 with no pin fails without the retry loop. Other statuses keep retrying.
+export function packMissPlan({ path, status, pin, repinned }) {
+  if (status !== 404) return "retry";
+  if (path !== "home" && pin && !repinned) return "repin";
+  return "fail";
+}
+
 export function packPinQuery(home) {
   if (!home || typeof home !== "object") return "";
   const meta = home.metadata && typeof home.metadata === "object" ? home.metadata : {};

@@ -653,6 +653,18 @@ def pack_identity_choice() -> None:
     fresh = {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []}
     have = {"cookSha": "b" * 40, "cookedAt": "", "errors": []}
     assert choice.prefer(fresh, have) == "refuse"
+    pinned_disk = {
+        "cookSha": "74d44dde02a0e1c6430a9a78b06034099c84e001",
+        "cookedAt": "",
+        "publishedAt": "2026-10-06T01:35:23Z",
+        "errors": [],
+    }
+    assert choice.prefer(fresh, pinned_disk) == "replace"
+    assert choice.prefer(
+        fresh,
+        {**pinned_disk, "publishedAt": "2026-10-07T00:00:00Z"},
+    ) == "refuse"
+    assert choice.prefer(fresh, {**pinned_disk, "publishedAt": ""}) == "refuse"
     assert choice.prefer(fresh, {"cookSha": "a" * 40, "cookedAt": "2026-10-07T02:00:00Z", "errors": []}) == "keep"
     assert choice.prefer(
         {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
@@ -692,6 +704,25 @@ def pack_identity_choice() -> None:
         {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
         {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
     ) == "refuse"
+    live_pack = choice.load_identity(ROOT.parent / "public" / "data")
+    assert live_pack["errors"] == []
+    assert live_pack["cookSha"] == pinned
+    assert live_pack["publishedAt"] == "2026-10-06T01:35:23Z"
+    assert live_pack["cookedAt"] == ""
+    assert choice.prefer(fresh, live_pack) == "replace"
+    with tempfile.TemporaryDirectory() as tmp:
+        disagree = Path(tmp)
+        (disagree / "a.json").write_text(
+            json.dumps({"cookSha": pinned, "publishedAt": "2026-10-06T01:35:23Z"}),
+            encoding="utf-8",
+        )
+        (disagree / "b.json").write_text(
+            json.dumps({"cookSha": pinned, "publishedAt": "2026-10-07T00:00:00Z"}),
+            encoding="utf-8",
+        )
+        split = choice.load_identity(disagree)
+    assert split["errors"]
+    assert split["publishedAt"] == ""
     print("pack identity ok")
 
 

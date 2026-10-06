@@ -356,6 +356,7 @@ async function packFromBucket(env, url) {
   const bucket = env && env.HEARTBEAT_PACKS;
   if (!bucket || typeof bucket.get !== "function") return null;
   const object = await readPackObject(bucket, url);
+  if (object && object.absent) return { absent: true };
   if (!object || object.missing || object.body == null) return null;
   return new Response(object.body, { status: 200, headers: packHeaders() });
 }
@@ -366,7 +367,7 @@ async function apiPackResponse(request, env, pathname) {
   if (!rel) return packJSON({ error: "NO DATA" }, 404);
   const bucket = env && env.HEARTBEAT_PACKS;
   const object = await readPackObject(bucket, request.url);
-  if (!object || object.missing || object.body == null) return packJSON({ error: "NO DATA" }, 404);
+  if (!object || object.absent || object.missing || object.body == null) return packJSON({ error: "NO DATA" }, 404);
   if (request.method === "HEAD") return new Response(null, { status: 200, headers: packHeaders() });
   return new Response(object.body, { status: 200, headers: packHeaders() });
 }
@@ -448,8 +449,11 @@ async function routeRequest(context) {
     const bucket = env && env.HEARTBEAT_PACKS;
     if (bucket && typeof bucket.get === "function") {
       const packed = await packFromBucket(env, request.url);
-      if (packed) return packed;
-      return packJSON({ error: "NO DATA" }, 404);
+      // Only a missing current.json uses the static tree. A bad pointer stays 404.
+      if (!(packed && packed.absent)) {
+        if (packed) return packed;
+        return packJSON({ error: "NO DATA" }, 404);
+      }
     }
   }
 

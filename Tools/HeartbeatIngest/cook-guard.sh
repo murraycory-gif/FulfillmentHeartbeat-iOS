@@ -67,6 +67,8 @@ porcelain_path() {
 
 # --decide-publish AHEAD reads porcelain lines on stdin.
 # --publish checks this repo: env overrides, unpushed commits, and dirty cook paths.
+# --publish-data refuses any dirty or untracked path, plus cook sha/time overrides.
+#   A UI-only deploy keeps --publish. A data publish uses --publish-data.
 decide_publish() {
   local ahead="$1"
   local line path
@@ -100,12 +102,30 @@ if [[ "${1:-}" == "--decide-publish" ]]; then
   exit
 fi
 
-if [[ "${1:-}" == "--publish" ]]; then
-  if [[ -n "${HEARTBEAT_SKIP_GIT_CHECK:-}" || -n "${HEARTBEAT_SKIP_PACK_CHECK:-}" ]]; then
+decide_publish_data() {
+  local ahead="$1"
+  local line
+  if [[ "$ahead" -gt 0 ]]; then
     echo "refuse"
-    echo "cook guard: refusing an env override" >&2
-    exit 1
+    echo "cook guard: refusing unpushed commits" >&2
+    return 1
   fi
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    echo "refuse"
+    if [[ "$line" == "?? "* ]]; then
+      echo "cook guard: refusing an untracked path" >&2
+    else
+      echo "cook guard: refusing a dirty path" >&2
+    fi
+    return 1
+  done
+  echo "cook"
+  return 0
+}
+
+repo_ahead() {
+  local root branch ahead
   root="$(cd "$(dirname "$0")/../.." && pwd)"
   branch="$(git -C "$root" rev-parse --abbrev-ref HEAD)"
   ahead=0
@@ -114,7 +134,33 @@ if [[ "${1:-}" == "--publish" ]]; then
   else
     ahead=1
   fi
-  git -C "$root" status --porcelain | decide_publish "$ahead"
+  printf '%s\n' "$ahead"
+}
+
+if [[ "${1:-}" == "--decide-publish-data" ]]; then
+  decide_publish_data "${2:-0}"
+  exit
+fi
+
+if [[ "${1:-}" == "--publish" ]]; then
+  if [[ -n "${HEARTBEAT_SKIP_GIT_CHECK:-}" || -n "${HEARTBEAT_SKIP_PACK_CHECK:-}" ]]; then
+    echo "refuse"
+    echo "cook guard: refusing an env override" >&2
+    exit 1
+  fi
+  root="$(cd "$(dirname "$0")/../.." && pwd)"
+  git -C "$root" status --porcelain | decide_publish "$(repo_ahead)"
+  exit
+fi
+
+if [[ "${1:-}" == "--publish-data" ]]; then
+  if [[ -n "${HEARTBEAT_SKIP_GIT_CHECK:-}" || -n "${HEARTBEAT_SKIP_PACK_CHECK:-}" || -n "${HEARTBEAT_COOK_SHA:-}" || -n "${HEARTBEAT_COOKED_AT:-}" ]]; then
+    echo "refuse"
+    echo "cook guard: refusing an env override" >&2
+    exit 1
+  fi
+  root="$(cd "$(dirname "$0")/../.." && pwd)"
+  git -C "$root" status --porcelain | decide_publish_data "$(repo_ahead)"
   exit
 fi
 

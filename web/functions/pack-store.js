@@ -15,15 +15,31 @@
 // web-pack/home.json is not a pack.
 //
 // A pack with no cookedAt is not served, except the live cook pinned below.
-// That cook stays readable. Nothing may publish it again.
+// That cook stays readable only at its exact prefix, and only when home.json
+// bytes hash to PINNED_HOME_SHA256. Nothing may publish a cookedAt-less pack.
+// A missing current.json is absent: /data falls through to the static tree.
+// A pointer that exists but cannot be served stays a 404.
 
 import { SCHEMA_VERSION } from "../public/schema.js";
 
 export const PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001";
 export const PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z";
+export const PINNED_LIVE_PREFIX = `web-pack/${PINNED_LIVE_COOK_SHA}-${PINNED_LIVE_PUBLISHED_AT}`;
+export const PINNED_HOME_SHA256 = "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a";
 
-export function isPinnedLivePack(cookSha, publishedAt, cookedAt = "") {
-  return cookSha === PINNED_LIVE_COOK_SHA && publishedAt === PINNED_LIVE_PUBLISHED_AT && !cookedAt;
+export function isPinnedLivePack(cookSha, publishedAt, cookedAt = "", prefix = "") {
+  return (
+    cookSha === PINNED_LIVE_COOK_SHA &&
+    publishedAt === PINNED_LIVE_PUBLISHED_AT &&
+    !cookedAt &&
+    prefix === PINNED_LIVE_PREFIX
+  );
+}
+
+export async function sha256Hex(text) {
+  const bytes = new TextEncoder().encode(String(text ?? ""));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 export const PACK_POINTER_KEY = "web-pack/current.json";
 
@@ -115,7 +131,7 @@ function pointerEntry(value) {
   const prefix = typeof value.prefix === "string" && value.prefix ? value.prefix : packPrefix(cookSha, publishedAt);
   if (!SHA.test(cookSha) || schemaVersion !== SCHEMA_VERSION) return null;
   if (!prefix.startsWith("web-pack/") || prefix.includes("..") || /[\\]/.test(prefix)) return null;
-  if (!cookedAt && !isPinnedLivePack(cookSha, publishedAt, cookedAt)) return null;
+  if (!cookedAt && !isPinnedLivePack(cookSha, publishedAt, cookedAt, prefix)) return null;
   return { prefix, cookSha, publishedAt, cookedAt, schemaVersion };
 }
 
@@ -136,7 +152,7 @@ function fileMatches(json, entry) {
   const stamp = fileStamp(json);
   if (stamp.schemaVersion !== entry.schemaVersion || stamp.cookSha !== entry.cookSha) return false;
   if ((stamp.cookedAt || "") !== (entry.cookedAt || "")) return false;
-  if (!entry.cookedAt && !isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt)) return false;
+  if (!entry.cookedAt && !isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt, entry.prefix)) return false;
   if (!stamp.cookedAt && stamp.publishedAt && stamp.publishedAt !== entry.publishedAt) return false;
   return true;
 }
@@ -163,11 +179,32 @@ async function readJson(bucket, key) {
 }
 
 async function loadPointer(bucket) {
-  const pointerRead = await readJson(bucket, PACK_POINTER_KEY);
-  const pointerText = pointerRead ? pointerRead.text : "";
-  if (cache.pointer !== pointerText) cache = { pointer: pointerText, entry: null, rejectedPrefix: "", acceptedPrefix: "", acceptedKeys: null };
-  const pointer = pointerRead && pointerRead.json && typeof pointerRead.json === "object" ? pointerRead.json : {};
-  return { current: pointerEntry(pointer), previous: pointerEntry(pointer.previous) };
+  let object;
+  try {
+    object = await bucket.get(PACK_POINTER_KEY);
+  } catch {
+    return { absent: false, current: null, previous: null };
+  }
+  if (!object) {
+    cache = { pointer: "", entry: null, rejectedPrefix: "", acceptedPrefix: "", acceptedKeys: null };
+    return { absent: true, current: null, previous: null };
+  }
+  let text = "";
+  try {
+    text = typeof object.text === "function" ? await object.text() : "";
+  } catch {
+    return { absent: false, current: null, previous: null };
+  }
+  if (cache.pointer !== text) cache = { pointer: text, entry: null, rejectedPrefix: "", acceptedPrefix: "", acceptedKeys: null };
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  // Empty or corrupt JSON is a pointer that exists. It is not absent.
+  if (!json || typeof json !== "object" || Array.isArray(json)) return { absent: false, current: null, previous: null };
+  return { absent: false, current: pointerEntry(json), previous: pointerEntry(json.previous) };
 }
 
 async function readGuardedObject(bucket, entry, rel) {
@@ -214,11 +251,14 @@ async function prefixKeys(bucket, entry) {
     if (!read || !read.json || !fileMatches(read.json, entry)) return null;
     if (rel !== "home.json") continue;
     homeSeen = true;
+    if (!entry.cookedAt) {
+      if (!isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt, entry.prefix)) return null;
+      if ((await sha256Hex(read.text)) !== PINNED_HOME_SHA256) return null;
+    }
     if (guardHome(read.json).length) return null;
     const metadata = read.json.metadata && typeof read.json.metadata === "object" ? read.json.metadata : {};
     if (metadata.cookSha !== entry.cookSha || metadata.schemaVersion !== entry.schemaVersion) return null;
     if (fileStamp(read.json).cookedAt !== entry.cookedAt) return null;
-    if (!entry.cookedAt && !isPinnedLivePack(entry.cookSha, entry.publishedAt, entry.cookedAt)) return null;
   }
   if (!homeSeen) return null;
   cache.acceptedPrefix = entry.prefix;
@@ -280,7 +320,9 @@ function samePinnedPack(entry, pin) {
 export async function readPackObject(bucket, url) {
   const target = requestTarget(url);
   if (!target || !target.rel || !bucket || typeof bucket.get !== "function") return null;
-  const { current, previous } = await loadPointer(bucket);
+  const loaded = await loadPointer(bucket);
+  if (loaded.absent) return { absent: true };
+  const { current, previous } = loaded;
   const candidates = [];
   if (current && cache.rejectedPrefix !== current.prefix) candidates.push(current);
   if (previous && cache.rejectedPrefix !== previous.prefix) candidates.push(previous);

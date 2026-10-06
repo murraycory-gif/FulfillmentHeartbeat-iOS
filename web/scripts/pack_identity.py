@@ -20,21 +20,26 @@ PINNED_LIVE_PUBLISHED_AT = "2026-10-06T01:35:23Z"
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _stamp(payload: dict) -> tuple[str, str]:
+def _stamp(payload: dict) -> tuple[str, str, str]:
     meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     sha = str(payload.get("cookSha") or meta.get("cookSha") or "")
     cooked = str(payload.get("cookedAt") or meta.get("cookedAt") or "")
-    return sha, cooked
+    published = str(payload.get("publishedAt") or meta.get("publishedAt") or "")
+    return sha, cooked, published
+
+
+def _blank(errors: list[str]) -> dict:
+    return {"cookSha": "", "cookedAt": "", "publishedAt": "", "errors": errors}
 
 
 def load_identity(root: Path) -> dict:
-    """Return cookSha and cookedAt when every JSON file agrees. Otherwise errors."""
+    """Return cookSha, cookedAt, and publishedAt when every JSON file agrees."""
     if not root.is_dir():
-        return {"cookSha": "", "cookedAt": "", "errors": [f"{root} is missing"]}
+        return _blank([f"{root} is missing"])
     files = sorted(path for path in root.rglob("*.json") if path.is_file())
     if not files:
-        return {"cookSha": "", "cookedAt": "", "errors": [f"{root} has no json"]}
-    expected: tuple[str, str] | None = None
+        return _blank([f"{root} has no json"])
+    expected: tuple[str, str, str] | None = None
     errors: list[str] = []
     for path in files:
         try:
@@ -51,16 +56,17 @@ def load_identity(root: Path) -> dict:
         if expected is None:
             expected = stamp
         elif stamp != expected:
-            errors.append(f"{path.relative_to(root).as_posix()} cookSha/cookedAt does not match the rest of the pack")
+            errors.append(
+                f"{path.relative_to(root).as_posix()} cookSha/cookedAt/publishedAt does not match the rest of the pack"
+            )
     if errors or expected is None:
-        return {"cookSha": "", "cookedAt": "", "errors": errors or ["pack identity missing"]}
-    return {"cookSha": expected[0], "cookedAt": expected[1], "errors": []}
+        return _blank(errors or ["pack identity missing"])
+    return {"cookSha": expected[0], "cookedAt": expected[1], "publishedAt": expected[2], "errors": []}
 
 
 def identity_of(payload: dict) -> dict:
     body = payload if isinstance(payload, dict) else {}
-    sha, cooked = _stamp(body)
-    published = str(body.get("publishedAt") or "")
+    sha, cooked, published = _stamp(body)
     return {
         "cookSha": sha,
         "cookedAt": cooked,
@@ -93,6 +99,10 @@ def prefer(fresh: dict, have: dict | None) -> str:
         return "refuse"
     have_at = str(have.get("cookedAt") or "")
     have_sha = str(have.get("cookSha") or "")
+    # The committed pack is the pinned cookedAt-less identity. A fresh cook
+    # may replace that one pack. Any other disk pack with no cookedAt stays refused.
+    if not have_at and is_pinned_live(have):
+        return "replace"
     if not have_sha or not have_at:
         return "refuse"
     if fresh_at == have_at:
@@ -147,7 +157,9 @@ def main() -> int:
         if found["errors"]:
             print("\n".join(found["errors"]), file=sys.stderr)
             return 1
-        print(f"cookSha={found['cookSha']} cookedAt={found['cookedAt'] or 'missing'}")
+        print(
+            f"cookSha={found['cookSha']} cookedAt={found['cookedAt'] or 'missing'} publishedAt={found['publishedAt']}"
+        )
         return 0
     if command == "prefer":
         fresh_path = Path(sys.argv[2])
