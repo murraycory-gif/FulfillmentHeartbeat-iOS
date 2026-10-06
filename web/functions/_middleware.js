@@ -281,6 +281,14 @@ function sessionIsAdmin(session, env) {
   return Boolean(master) && session.user === master;
 }
 
+function settingsChrome(session, env, here) {
+  return {
+    admin: sessionIsAdmin(session, env),
+    account: Boolean(session && session.account),
+    here,
+  };
+}
+
 async function submitLogin(request, env, db, now) {
   if (!sessionSecret(env)) return loginResponse("Sign-in is unavailable.", "", 503);
   if (!sameOrigin(request)) return loginResponse("That email or password is wrong.", "", 403);
@@ -333,22 +341,23 @@ async function inviteResponse(request, env, db, token, now) {
 }
 
 async function adminResponse(request, env, db, session, now) {
-  if (!sessionIsAdmin(session, env)) return htmlResponse(deniedHTML(), 403);
-  if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", emailOn: false }), 503);
+  const chrome = settingsChrome(session, env, "admin");
+  if (!chrome.admin) return htmlResponse(deniedHTML(chrome), 403);
+  if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", emailOn: false, chrome }), 503);
   let notice = "";
   let error = "";
   let link = "";
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(deniedHTML(), 403);
+    if (!sameOrigin(request)) return htmlResponse(deniedHTML(chrome), 403);
     const params = await readForm(request);
-    if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", emailOn: emailInvitesEnabled(env) }), 400);
+    if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", emailOn: emailInvitesEnabled(env), chrome }), 400);
     const fields = Object.fromEntries(params.entries());
     const result = await adminAct(db, env, request, fields, now);
     notice = result.notice || "";
     error = result.error || "";
     link = result.link || "";
   }
-  return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env) }));
+  return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env), chrome }));
 }
 
 function sessionPayload(session, env) {
@@ -372,12 +381,13 @@ function sessionJSON(session, env) {
 
 async function accountResponse(request, env, db, session, now) {
   if (!session) return loginResponse("", "", 200);
-  if (!session.account) return htmlResponse(accountSharedHTML());
-  if (!db) return htmlResponse(accountHTML(session.user, "Accounts are not set up yet."), 503);
+  const chrome = settingsChrome(session, env, "account");
+  if (!session.account) return htmlResponse(accountSharedHTML(chrome));
+  if (!db) return htmlResponse(accountHTML(session.user, "Accounts are not set up yet.", "", chrome), 503);
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, "That password is wrong."), 403);
+    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, "That password is wrong.", "", chrome), 403);
     const params = await readForm(request);
-    if (!params) return htmlResponse(accountHTML(session.user, "That form was empty."), 400);
+    if (!params) return htmlResponse(accountHTML(session.user, "That form was empty.", "", chrome), 400);
     const result = await changePassword(
       db,
       env,
@@ -388,10 +398,10 @@ async function accountResponse(request, env, db, session, now) {
       params.get("confirm") || "",
       now,
     );
-    if (result.notice) return htmlResponse(accountHTML(session.user, "", result.notice));
-    return htmlResponse(accountHTML(session.user, result.error), result.status || 400);
+    if (result.notice) return htmlResponse(accountHTML(session.user, "", result.notice, chrome));
+    return htmlResponse(accountHTML(session.user, result.error, "", chrome), result.status || 400);
   }
-  return htmlResponse(accountHTML(session.user, ""));
+  return htmlResponse(accountHTML(session.user, "", "", chrome));
 }
 
 export async function onRequest(context) {

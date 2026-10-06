@@ -1612,9 +1612,19 @@ function retryHomeAfterAuth() {
   });
 }
 
+function applyPageQuery() {
+  const url = new URL(location.href);
+  const id = url.searchParams.get("page");
+  if (!id || !PAGES.some((page) => page.id === id)) return;
+  state.page = id;
+  url.searchParams.delete("page");
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 if (location.username || location.password) {
   location.replace(location.origin + location.pathname + location.search + location.hash);
 } else {
+  applyPageQuery();
   renderNav();
   loadAccountSession();
   load("home").then(acceptHome).catch((error) => {

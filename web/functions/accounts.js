@@ -535,19 +535,67 @@ export function escapeHtml(value) {
   });
 }
 
-function shell(title, heading, body) {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/login.css">
-  <script src="/nav-boot.js?v=2"></script>
-</head>
-<body>
+const SCORE_PAGES = [
+  ["dashboard", "Dashboard", "/"],
+  ["sales", "Sales", "/?page=sales"],
+  ["lost_revenue", "Lost Revenue", "/?page=lost_revenue"],
+  ["missing_items", "Missing Items", "/?page=missing_items"],
+  ["five_star", "5 Star", "/?page=five_star"],
+  ["pre_sub_oos", "Pre-Sub", "/?page=pre_sub_oos"],
+  ["pick_path", "Pick Path", "/?page=pick_path"],
+  ["prep_not_ready", "Prep", "/?page=prep_not_ready"],
+  ["dynacap", "Dynacap", "/?page=dynacap"],
+  ["schedule_quality", "Schedule Quality", "/?page=schedule_quality"],
+  ["schedule", "Schedule Check", "/?page=schedule"],
+  ["picker_scorecard", "Picker", "/?page=picker_scorecard"],
+  ["pph", "PPH", "/?page=pph"],
+  ["labor", "Labor", "/?page=labor"],
+];
+
+function homeChrome(chrome) {
+  const pages = SCORE_PAGES.map(
+    ([, title, href]) => `<li><a href="${href}">${escapeHtml(title)}</a></li>`,
+  ).join("");
+  const settings = [];
+  if (chrome.admin) {
+    const current = chrome.here === "admin" ? ' aria-current="page"' : "";
+    settings.push(`<li><a href="/admin"${current}>User management</a></li>`);
+  }
+  if (chrome.account) {
+    const current = chrome.here === "account" ? ' aria-current="page"' : "";
+    settings.push(`<li><a href="/account"${current}>Account</a></li>`);
+  }
+  const settingsBlock = settings.length
+    ? `<p class="drawer-label">Settings</p><ul class="pages drawer-settings">${settings.join("")}</ul>`
+    : "";
+  return `<div id="scrim" hidden></div>
+  <nav id="drawer" aria-label="Pages">
+    <div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div>
+    <ul class="pages">${pages}</ul>
+    <div class="drawer-foot">${settingsBlock}<a class="drawer-logout" href="/logout">Logout</a></div>
+  </nav>
   <header class="top">
+    <div class="header-tools">
+      <a class="header-back" href="/"><svg viewBox="0 0 20 20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12.5 4.5L7 10l5.5 5.5"/></svg><span>Dashboard</span></a>
+      <button id="nav-toggle" type="button" aria-controls="drawer" aria-expanded="false">Pages</button>
+    </div>
+    <p class="brand-lockup">
+      <span class="wordmark" aria-label="Fulfillment Heartbeat"><span class="fulfill">Fulfill</span><span class="ment">ment</span></span>
+      <svg class="heart" viewBox="0 0 36 33" aria-hidden="true">
+        <path fill="#3d8dff" d="M18 32.4C18 27.36 0 20.88 1.8 12.96C3.6 1.44 13.68 1.44 18 7.92C22.32 1.44 32.4 1.44 34.2 12.96C36 20.88 18 27.36 18 32.4Z"/>
+      </svg>
+      <svg class="pulse" viewBox="0 0 52 22" aria-hidden="true">
+        <path fill="none" stroke="#00A9E0" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="M0 14.5L5.1 14.5L8.2 17.5L15.3 1.5L21.4 20.5L25.5 14.5Q30.6 7.5 35.7 14.5L51 14.5"/>
+      </svg>
+    </p>
+    <h1>${escapeHtml(chrome.heading)}</h1>
+  </header>`;
+}
+
+function shell(title, heading, body, chrome) {
+  const head = chrome
+    ? homeChrome({ ...chrome, heading })
+    : `<header class="top">
     <p class="brand-lockup">
       <span class="wordmark" aria-label="Fulfillment Heartbeat"><span class="fulfill">Fulfill</span><span class="ment">ment</span></span>
       <svg class="heart" viewBox="0 0 36 33" aria-hidden="true">
@@ -558,8 +606,22 @@ function shell(title, heading, body) {
       </svg>
     </p>
     <h1>${escapeHtml(heading)}</h1>
-  </header>
+  </header>`;
+  const navScript = chrome ? `<script src="/shell-nav.js?v=1"></script>` : "";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/login.css?v=2">
+  <script src="/nav-boot.js?v=2"></script>
+</head>
+<body>
+  ${head}
   <main class="login-main">${body}</main>
+  ${navScript}
 </body>
 </html>`;
 }
@@ -595,11 +657,16 @@ export function inviteHTML(email, token, message) {
   );
 }
 
-export function deniedHTML() {
-  return shell("People · Fulfillment Heartbeat", "People", `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p><p><a href="/">Back to Heartbeat</a></p></section>`);
+export function deniedHTML(chrome) {
+  return shell(
+    "People · Fulfillment Heartbeat",
+    "People",
+    `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+    chrome || { admin: false, account: false, here: "" },
+  );
 }
 
-export function accountHTML(email, message, notice) {
+export function accountHTML(email, message, notice, chrome) {
   const alert = message ? `<p class="login-error" role="alert">${escapeHtml(message)}</p>` : notice ? `<p class="hint">${escapeHtml(notice)}</p>` : "";
   return shell(
     "Account · Fulfillment Heartbeat",
@@ -614,14 +681,16 @@ export function accountHTML(email, message, notice) {
       <button type="submit">Save password</button>
       <p><a href="/">Back to Heartbeat</a></p>
     </form>`,
+    chrome || { admin: false, account: true, here: "account" },
   );
 }
 
-export function accountSharedHTML() {
+export function accountSharedHTML(chrome) {
   return shell(
     "Account · Fulfillment Heartbeat",
     "Account",
     `<section class="login-card"><h2>Shared sign-in</h2><p>This sign-in does not have its own password.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+    chrome || { admin: false, account: false, here: "account" },
   );
 }
 
@@ -638,7 +707,7 @@ function userActions(user) {
   return parts.join("");
 }
 
-export function adminHTML({ users, notice, error, link, emailOn }) {
+export function adminHTML({ users, notice, error, link, emailOn, chrome }) {
   const alert = error ? `<p class="login-error" role="alert">${escapeHtml(error)}</p>` : notice ? `<p class="hint">${escapeHtml(notice)}</p>` : "";
   const linkBox = link
     ? `<label>Invite link<input id="invite-link" readonly value="${escapeHtml(link)}"></label><button type="button" data-copy="invite-link">Copy</button>`
@@ -673,5 +742,6 @@ export function adminHTML({ users, notice, error, link, emailOn }) {
     </section>
     <div class="user-list">${cards}</div>
     <script src="/auth-copy.js"></script>`,
+    chrome || { admin: true, account: false, here: "admin" },
   );
 }

@@ -352,7 +352,7 @@ assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filter
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=26/);
+assert.match(pageHtml, /app\.js\?v=27/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
@@ -942,6 +942,16 @@ assert.match(loginHTML, /autocomplete="username"/);
 assert.match(loginHTML, /autocomplete="current-password"/);
 assert.match(loginHTML, /<span class="fulfill">Fulfill<\/span><span class="ment">ment<\/span>/);
 assert.match(loginHTML, /src="\/nav-boot\.js\?v=2"/);
+assert.equal(loginHTML.includes('class="header-back"'), false);
+assert.match(accountsSrc, /class="header-back"/);
+assert.match(accountsSrc, />Dashboard</);
+assert.match(accountsSrc, /Back to Heartbeat/);
+assert.match(accountsSrc, /aria-controls="drawer"/);
+assert.match(accountsSrc, /"\/\?page=pph"/);
+assert.match(accountsSrc, /"\/\?page=schedule"/);
+assert.match(accountsSrc, /src="\/shell-nav\.js\?v=1"/);
+assert.match(readFileSync(join(root, "public/login.css"), "utf8"), /\.header-back,\s*#nav-toggle \{[^}]*min-height:\s*44px/);
+assert.match(app, /function applyPageQuery/);
 assert.match(loginHTML, /href="\/favicon\.svg"/);
 let bootServed = false;
 const boot = await basicGate({
@@ -1279,6 +1289,12 @@ const peopleHtml = await people.text();
 assert.match(peopleHtml, /Email is off\. Copy the invite link\./);
 assert.match(peopleHtml, /admin@example.com/);
 assert.match(peopleHtml, /src="\/auth-copy\.js"/);
+assert.match(peopleHtml, /class="header-back" href="\/"/);
+assert.match(peopleHtml, />Dashboard</);
+assert.match(peopleHtml, /Back to Heartbeat/);
+assert.match(peopleHtml, /id="nav-toggle"/);
+assert.match(peopleHtml, /href="\/\?page=labor"/);
+assert.match(peopleHtml, /href="\/admin" aria-current="page">User management/);
 const added = await accountRequest(auth.db, "/admin", {
   method: "POST",
   cookie: adminCookie,
@@ -1296,7 +1312,11 @@ assert.equal(viewerJoined.status, 303);
 const viewerCookie = cookieHeader(viewerJoined);
 const viewerDenied = await accountRequest(auth.db, "/admin", { cookie: viewerCookie });
 assert.equal(viewerDenied.status, 403);
-assert.match(await viewerDenied.text(), /Admins only/);
+const viewerDeniedHtml = await viewerDenied.text();
+assert.match(viewerDeniedHtml, /Admins only/);
+assert.match(viewerDeniedHtml, /class="header-back"/);
+assert.match(viewerDeniedHtml, /href="\/account">Account/);
+assert.equal(viewerDeniedHtml.includes(">User management<"), false);
 const inviteReuse = await accountRequest(auth.db, `/invite/${viewerInvite}`, {
   method: "POST",
   body: "password=viewer-pass-9&confirm=viewer-pass-9",
@@ -1491,7 +1511,11 @@ assert.equal(newViewerPass.status, 303);
 const legacySession = await accountRequest(legacy.db, "/session", { cookie: cookieHeader(legacyIn) });
 assert.deepEqual(await legacySession.json(), { email: "heartbeat", role: "admin", account: false });
 const legacyAccount = await accountRequest(legacy.db, "/account", { cookie: cookieHeader(legacyIn) });
-assert.match(await legacyAccount.text(), /does not have its own password/);
+const legacyAccountHtml = await legacyAccount.text();
+assert.match(legacyAccountHtml, /does not have its own password/);
+assert.match(legacyAccountHtml, /class="header-back"/);
+assert.match(legacyAccountHtml, /href="\/admin">User management/);
+assert.match(legacyAccountHtml, /Back to Heartbeat/);
 const sessionDenied = await accountRequest(auth.db, "/session");
 assert.equal(sessionDenied.status, 401);
 const nullOrigin = await accountRequest(auth.db, "/login", {
