@@ -799,17 +799,24 @@ final class WorkbookParserTests: XCTestCase {
         let sheets = try WorkbookParser.parseMaster(data: xlsx, filename: "Heartbeat Daily Report.xlsx")
         let labor = try XCTUnwrap(sheets.first { $0.section == .labor })
         let stores = labor.rows.filter { $0.storeNumber != "TOTAL" }
-        XCTAssertEqual(Set(stores.map(\.storeNumber)), Set(["1487", "2219", "3427"]))
-        XCTAssertEqual(stores.count, 3)
+        XCTAssertEqual(Set(stores.map(\.storeNumber)), Set(["1487", "2219", "3427", "866"]))
+        XCTAssertEqual(stores.count, 4)
         let full = try XCTUnwrap(stores.first { $0.storeNumber == "1487" })
         XCTAssertEqual(full.payload["act_hrs"] ?? -1, 150, accuracy: 0.001)
         let small = try XCTUnwrap(stores.first { $0.storeNumber == "2219" })
         XCTAssertEqual(small.payload["act_hrs"] ?? -1, 42, accuracy: 0.001)
         let blank = try XCTUnwrap(stores.first { $0.storeNumber == "3427" })
         XCTAssertNil(blank.payload["act_hrs"])
+        XCTAssertNil(blank.payload["act_cost_pct"])
+        XCTAssertNil(blank.payload["act_cost_dollar"])
         XCTAssertNotNil(blank.payload["cost_trgt_pct"])
+        let emptyCost = try XCTUnwrap(stores.first { $0.storeNumber == "866" })
+        XCTAssertNil(emptyCost.payload["act_hrs"])
+        XCTAssertNil(emptyCost.payload["act_cost_pct"])
+        XCTAssertNil(emptyCost.payload["act_cost_dollar"])
+        XCTAssertNil(emptyCost.payload["cost_trgt_pct"])
         XCTAssertFalse(labor.rows.contains { $0.storeNumber == "TOTAL" })
-        XCTAssertEqual(labor.rows.count, 3)
+        XCTAssertEqual(labor.rows.count, 4)
     }
 
     /// Deflated xlsx so parseMaster takes the compressed Labor path (the row filter under test).
@@ -860,9 +867,18 @@ final class WorkbookParserTests: XCTestCase {
         <c r="G4"><v>-0.009</v></c>
         </row>
         <row r="5">
-        <c r="A5" t="inlineStr"><is><t>Total</t></is></c>
+        <c r="A5"><v>866</v></c>
+        <c r="B5"><v>0.9</v></c>
+        <c r="C5"><v>10</v></c>
+        <c r="D5"><v>11</v></c>
+        <c r="E5"></c>
+        <c r="F5"></c>
+        <c r="G5"><v>-0.2</v></c>
         </row>
-        <row r="6"></row>
+        <row r="6">
+        <c r="A6" t="inlineStr"><is><t>Total</t></is></c>
+        </row>
+        <row r="8"></row>
         <row r="7">
         <c r="A7" t="inlineStr"><is><t>Applied filters: WEEK_ID is 202629</t></is></c>
         <c r="E7"><v>202629</v></c>

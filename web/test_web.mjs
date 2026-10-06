@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
@@ -21,10 +21,10 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { checkPack } from "./check_pack.mjs";
-import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
-import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
-import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
+import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, laborBridgeCensus, lostRollupErrors, octoberStoreFixture, packIdentityErrors, packValueErrors, storeCountErrors, workbookTotalErrors } from "./check_pack.mjs";
+import { PACK_FILES, PACK_POINTER_KEY, PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, readPackObject, resetPackCache, sha256Hex } from "./functions/pack-store.js";
+import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
+import { SCHEMA_VERSION, WORKBOOK_TOTAL_FIELDS, schemaWarning } from "./public/schema.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -49,9 +49,9 @@ import {
   browseLevel,
   storeLabel,
 } from "./public/filters.js";
-import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
+import { FIGURE_SECTIONS, packMissPlan, packPinQuery, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./public/seat.js";
+import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
@@ -145,6 +145,33 @@ assert.equal(packURL("presub"), "/data/presub.json");
 assert.equal(packURL("schedule"), "/data/schedule.json");
 assert.equal(packURL("packs/seat/company/all/current.sqlite"), null);
 assert.equal(packURL("https://example.r2.dev/current.sqlite"), null);
+assert.equal(
+  packURL("section/labor", "", "cookSha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&publishedAt=2026-10-06T01%3A35%3A23Z"),
+  "/data/section/labor.json?cookSha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&publishedAt=2026-10-06T01%3A35%3A23Z",
+);
+assert.equal(
+  packPinQuery({
+    cookSha: "a".repeat(40),
+    publishedAt: "2026-10-06T01:35:23Z",
+    cookedAt: "2026-10-07T00:00:00Z",
+  }),
+  `cookSha=${"a".repeat(40)}&publishedAt=2026-10-06T01%3A35%3A23Z&cookedAt=2026-10-07T00%3A00%3A00Z`,
+);
+assert.equal(packPinQuery({ cookSha: "a".repeat(40) }), "");
+assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "cookSha=abc", repinned: false }), "repin");
+assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "cookSha=abc", repinned: true }), "fail");
+assert.equal(packMissPlan({ path: "home", status: 404, pin: "cookSha=abc", repinned: false }), "fail");
+assert.equal(packMissPlan({ path: "section/labor", status: 404, pin: "", repinned: false }), "fail");
+assert.equal(packMissPlan({ path: "section/labor", status: 500, pin: "cookSha=abc", repinned: false }), "retry");
+assert.match(app, /packMissPlan/);
+assert.match(app, /error\.status = response\.status/);
+assert.match(app, /state\.packs\.clear\(\)/);
+assert.match(app, /state\.failedPacks\.clear\(\)/);
+assert.match(app, /acceptHome\(home\)/);
+assert.equal(app.includes('state.packs.delete("home")'), false);
+assert.match(app, /return fetchPack\(path, true\)/);
+assert.match(app, /packPinQuery/);
+assert.match(app, /state\.packPin/);
 assert.equal(FIGURE_SECTIONS.has("lost_revenue"), true);
 assert.equal(FIGURE_SECTIONS.has("five_star"), true);
 assert.equal(FIGURE_SECTIONS.has("pick_path"), true);
@@ -166,6 +193,24 @@ assert.equal(formatHeadline("pick_path", 79.8251044108846), "79.8%");
 assert.equal(formatHeadline("dynacap", 67.85707617841031), "67.9");
 assert.equal(formatHeadline("picker_scorecard", 24548), "24,548");
 assert.equal(formatHeadline("schedule_quality", 90.33328114614572), "90.3%");
+assert.equal(SCOPE_BADGES.five_star.good, 4);
+assert.equal(SCOPE_BADGES.schedule_quality.good, 90);
+assert.equal(SCOPE_BADGES.labor.good, 0);
+assert.equal(SCOPE_BADGES.picker_scorecard.good, 80);
+assert.equal(scopeHealth("five_star", 4.2), "good");
+assert.equal(scopeHealth("five_star", 3.38), "risk");
+assert.equal(scopeHealth("labor", -4.062248206528947), "good");
+assert.equal(scopeHealth("schedule_quality", 90.2), "good");
+assert.equal(
+  summarizeSeat("schedule_quality", [
+    { store: "1", payload: { schedule_efficiency_pct: 95, over_schedule_pct: 9 } },
+    { store: "2", payload: { schedule_efficiency_pct: 95, over_schedule_pct: 1 } },
+  ]).health,
+  "good",
+);
+const pickerBadgeRows = [{ payload: { pph: 50 } }, ...Array.from({ length: 10 }, () => ({ payload: { pph: 80 } }))];
+assert.equal(pickerScopeHealth(pickerBadgeRows), "watch");
+assert.notEqual(pickerScopeHealth([{ payload: { pph: 20 } }]), "good");
 
 const seatLines = [
   { section: "sales", region: "East", title: "Sales", value: "$8,209,791.69", count: 615 },
@@ -276,6 +321,25 @@ const laborDivision = seatSummary("labor", {
   filters: filters({ division: "Mid-Atlantic" }),
 });
 assert.equal(laborDivision.headlineText, "-13.59%");
+assert.equal(laborGrainValue(laborTables, { grain: "region", label: "East", value: "-8.59%" }), "-3.97%");
+assert.equal(laborGrainValue(laborTables, { grain: "division", label: "Mid-Atlantic", value: "-13.59%" }), "-13.59%");
+const lostScopeRows = [
+  { store: "1", division: "Shaws", district: "03", payload: { lost_revenue: 100, missed_sales: 40 } },
+  { store: "2", division: "Jewel Osco", district: "04", payload: { lost_revenue: 50 } },
+  { store: "210", division: "United", district: "U5", payload: { lost_revenue: 263 } },
+];
+const eastLost = seatSummary("lost_revenue", {
+  company: { headline: 4248638.426, secondary: "workbook", health: "risk", storeCount: 2165 },
+  lines: [{ section: "lost_revenue", region: "East", value: "$9,999.00", count: 2, title: "Loss", children: [] }],
+  rows: lostScopeRows,
+  filters: filters({ region: "East Region" }),
+});
+assert.equal(eastLost.figureLabel, LOST_EXCL_LABEL);
+assert.equal(eastLost.headline, 110);
+assert.equal(eastLost.missed, "Not available");
+assert.equal(eastLost.storeCount, 2);
+assert.deepEqual(lostExclMissed(lostScopeRows), { sum: 373, count: 3 });
+assert.equal(lostGrainRows(lostScopeRows, filters({}), lostScopeRows).find((row) => row.label === "South").value, 263);
 assert.equal(eastSeat.headline, null);
 assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
 assert.equal(eastSeat.storeCount, 615);
@@ -285,7 +349,12 @@ const shawsSeat = seatSummary("sales", {
   rows: eastStores,
   filters: filters({ region: "East Region", division: "Shaws" }),
 });
-assert.equal(shawsSeat.headlineText, "$1.00");
+assert.equal(shawsSeat.headlineText, "$10.00");
+assert.equal(shawsSeat.workbook, false);
+assert.equal(
+  eastSeat.health,
+  summarizeSeat("sales", rowsInScope(eastStores, filters({ region: "East Region" }), [], "sales")).health,
+);
 assert.equal(shawsSeat.secondary, "1 up · 0 flat · 0 down");
 assert.equal(chromeSeat(eastLines, "sales", filters({ district: "03" })), null);
 const districtSeat = seatSummary("sales", {
@@ -389,16 +458,58 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=22/);
+assert.match(pageHtml, /app\.css\?v=28/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=35/);
+assert.match(pageHtml, /app\.css\?v=28/);
+assert.match(pageHtml, /app\.js\?v=45/);
+assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
+assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
+assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
+assert.match(app, /const APP_VERSION = "45"/);
+assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
+assert.match(app, /id="build-stamp"/);
+assert.match(app, /Build \$\{esc\(buildLine\)\}/);
+assert.equal(companyCountText(2165, true), "Loading…");
+assert.equal(companyCountText(2165, true).includes("2165"), false);
+assert.equal(/\d/.test(companyCountText(null, true)), false);
+assert.equal(companyCountText(2167, false), "2,167 stores");
+assert.equal(reportedStoreLine(null, "2,165 stores reported · 9/27", true), "Loading…");
+assert.equal(/\d/.test(reportedStoreLine(2165, "2,165 stores reported · 9/27", true)), false);
+assert.equal(reportedStoreLine(2167, "2,165 stores reported · 9/27", false), "2,167 stores reported · 9/27");
+assert.equal(reportedStoreLine(2167, "2,165 stores reported · 9/27", false).includes("2,165"), false);
+assert.equal(browseCountText(2167, true), "Loading…");
+assert.equal(/\d/.test(browseCountText(29923, true)), false);
+assert.equal(browseCountText(1842, false), "1,842");
+assert.equal(browseCountText(0, false), "0");
+assert.equal(browseCountText(null, false), "");
+assert.match(app, /sectionPackPending\(section\)\) return browseCountText/);
+assert.equal(app.includes("browseCountText(item.count"), false);
+assert.match(app, /if \(state\.browseOpen\) paintBrowse\(\)/);
+const pickerLoad = app.slice(app.indexOf('if (page.section === "picker_scorecard")'), app.indexOf("await renderMetric"));
+assert.match(pickerLoad, /loadOptional\(path\)/);
+assert.equal(pickerLoad.includes("shopperSeat(state.filters) && !state.packs.has(path)"), false);
+assert.match(pickerLoad, /paintBrowse\(\)/);
+assert.match(app, /function companyCountLabel/);
+assert.match(app, /function companySecondaryText/);
+assert.match(app, /summarizeSeat\(section, rowsInScope/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*height:\s*44px/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*min-height:\s*44px/);
+assert.match(css, /\.scope-reset \{[^}]*width:\s*44px/);
+assert.match(css, /\.scope-reset \{[^}]*min-width:\s*44px/);
+assert.match(css, /\.scope-reset \{[^}]*place-items:\s*center/);
+assert.match(css, /\.scroll th \{[^}]*position:\s*sticky/);
+assert.match(css, /\.scroll th \{[^}]*top:\s*0/);
+assert.match(css, /\.scroll th \{[^}]*z-index:\s*2/);
+assert.match(css, /\.scroll th \{[^}]*background:\s*var\(--table\)/);
+assert.equal(/\.top \{[^}]*position:\s*sticky/.test(css), false);
+assert.equal(/\.sticky-top \{[^}]*position:\s*sticky/.test(css), false);
+assert.match(app, /headerStoreCount/);
+assert.match(app, /LOST_EXCL_LABEL/);
 assert.match(app, /schema\.js\?v=1/);
 assert.match(app, /console\.warn\(staleSchema\)/);
 assert.match(app, /raiseBanner\(staleSchema \|\| considerPublished/);
@@ -476,6 +587,18 @@ assert.deepEqual(
   ["PPH", "Hours", "Orders"],
 );
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
+assert.equal(app.includes("Labor Sch Eff workbook total"), false);
+assert.match(app, /workbook roll-up/);
+assert.match(app, /store average/);
+assert.match(app, /PPH store average/);
+assert.match(app, /store sum/);
+assert.equal(divisionChipTitle("sales", "Sales"), "Sales store sum");
+assert.equal(divisionChipTitle("labor", "Labor"), "Labor store average");
+assert.equal(divisionChipTitle("lost_revenue", "Lost"), "Lost");
+assert.match(app, /divisionChipTitle\(section, row\.title\)/);
+assert.equal(partialCountLine(2089, 2164), "2,089 of 2,164");
+assert.equal(partialCountLine(2164, 2164), "");
+assert.equal(partialCountLine(0, 2164), "");
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
 assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /export function formatCompanyAiv/);
 assert.match(app, /formatCompanyAiv\(aiv\)/);
@@ -764,9 +887,11 @@ assert.equal(blankUnited.over, null);
 assert.equal(blankUnited.eff, null);
 assert.match(app, /\["EOT", \["eot_capacity"\]/);
 assert.match(app, /\["Used", \["used_capacity"\]/);
-assert.match(app, /cooked shoppers/);
-assert.match(app, /Company shoppers is the cooked company total/);
-assert.match(css, /text-overflow:\s*ellipsis/);
+assert.equal(app.includes("cooked shoppers"), false);
+assert.match(app, /distinct shopper IDs on the picker rows/);
+assert.match(app, /workbook total/);
+assert.match(css, /@media \(max-width: 800px\)[\s\S]*\.line-value strong \{[^}]*white-space:\s*normal/);
+assert.match(css, /@media \(max-width: 800px\)[\s\S]*overflow-wrap:\s*anywhere/);
 assert.match(readFileSync(join(root, "public/_headers"), "utf8"), /\/data\/\*[\s\S]*private, no-store/);
 assert.equal(storesForDistrict(packRoster, "62").size, 23);
 assert.equal(shownDistrict("schedule_quality", "H1 NE PHILA SUBURB", "A1"), "A1 NE PHILA SUBURB");
@@ -799,9 +924,364 @@ assert.notEqual(badCheck.status, 0);
 assert.match(badCheck.stderr, /schemaVersion=missing/);
 assert.match(badCheck.stderr, /cookSha missing/);
 rmSync(badPack, { recursive: true, force: true });
-const goodCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), join(root, "public/data")], { encoding: "utf8" });
-assert.equal(goodCheck.status, 0, goodCheck.stderr);
-assert.equal(checkPack(join(root, "public/data")).errors.length, 0);
+const livePack = join(root, "public/data");
+const liveCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), livePack], { encoding: "utf8" });
+assert.notEqual(liveCheck.status, 0);
+assert.match(liveCheck.stderr, /cookedAt missing/);
+assert.match(liveCheck.stderr, /pinned live cook cannot be republished/);
+const liveErrors = checkPack(livePack).errors;
+assert.ok(liveErrors.some((item) => item.includes("cookedAt missing")));
+assert.equal(liveErrors.some((item) => item.includes("workbookTotal")), false);
+assert.deepEqual(workbookTotalErrors({ metadata: { schemaVersion: SCHEMA_VERSION, cookSha: "a".repeat(40) } }), []);
+assert.ok(workbookTotalErrors({ cookedAt: "2026-10-07T00:00:00Z" }).some((item) => item === "workbookTotal missing"));
+const workbookBlock = {};
+for (const [section, fields] of Object.entries(WORKBOOK_TOTAL_FIELDS)) {
+  workbookBlock[section] = Object.fromEntries(fields.map((field) => [field, 1]));
+}
+assert.deepEqual(workbookTotalErrors({ cookedAt: "2026-10-07T00:00:00Z", workbookTotal: workbookBlock }), []);
+const missingField = structuredClone(workbookBlock);
+delete missingField.dynacap.pieces_per_hour;
+assert.ok(
+  workbookTotalErrors({ cookedAt: "2026-10-07T00:00:00Z", workbookTotal: missingField }).some((item) =>
+    item.includes("dynacap.pieces_per_hour"),
+  ),
+);
+assert.ok(liveErrors.some((item) => item.includes("storeCount=")));
+assert.ok(liveErrors.some((item) => item.includes("currency")));
+assert.ok(liveErrors.some((item) => item.startsWith("lost ")));
+assert.equal(liveErrors.some((item) => item.startsWith("Goal %")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("Lost %")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("Missed")), false);
+assert.equal(liveErrors.some((item) => item.includes("store 6")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("lost 210")), false);
+assert.equal(liveErrors.some((item) => item.startsWith("lost 239")), false);
+assert.equal(liveErrors.some((item) => item.includes("sheet=2167")), false);
+assert.equal(liveErrors.some((item) => item.includes("labor flagged=")), false);
+const pinnedSales = JSON.parse(readFileSync(join(livePack, "section/sales.json"), "utf8"));
+const pinnedLost = JSON.parse(readFileSync(join(livePack, "section/lost_revenue.json"), "utf8"));
+const pinnedSchedule = JSON.parse(readFileSync(join(livePack, "schedule.json"), "utf8"));
+const pinnedLabor = JSON.parse(readFileSync(join(livePack, "section/labor.json"), "utf8"));
+assert.deepEqual(packValueErrors(packHome, pinnedSales, pinnedLost), []);
+assert.deepEqual(octoberStoreFixture(packHome, pinnedLost, pinnedSchedule, pinnedLabor), []);
+assert.deepEqual(octoberStoreFixture({ metadata: { cookSha: "e".repeat(40) } }, pinnedLost, pinnedSchedule), [
+  "october fixture runs only on the pinned Oct 5 pack",
+]);
+
+function moneyText(number) {
+  const rounded = Math.round(number * 100) / 100;
+  return `$${rounded.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fixMoneyString(value) {
+  if (typeof value !== "string" || !value.trim().startsWith("$")) return value;
+  const number = Number(value.replace(/[$,\s]/g, ""));
+  return Number.isFinite(number) ? moneyText(number) : value;
+}
+
+function payloadSum(rows, key) {
+  let total = 0;
+  for (const row of rows) {
+    const payload = row && row.payload;
+    if (!payload || payload[key] == null || payload[key] === "") continue;
+    const number = Number(payload[key]);
+    if (Number.isFinite(number)) total += number;
+  }
+  return total;
+}
+
+function putTile(home, section, label, value) {
+  const block = home.companyTiles[section];
+  const index = block.labels.indexOf(label);
+  if (index >= 0) block.values[index] = value;
+}
+
+const FRESH_REGION = {
+  Shaws: "East",
+  "Mid-Atlantic": "East",
+  "Jewel Osco": "East",
+  Southern: "South",
+  United: "South",
+  Southwest: "South",
+  NorCal: "California",
+  SoCal: "California",
+  "Mountain West": "West",
+  Seattle: "West",
+  Haggen: "West",
+  Portland: "West",
+};
+
+function writeFreshWeek() {
+  const dir = mkdtempSync(join(tmpdir(), "hb-week-"));
+  cpSync(livePack, dir, { recursive: true });
+  const sha = "d".repeat(40);
+  const cookedAt = "2026-10-13T15:00:00Z";
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  const sales = JSON.parse(readFileSync(join(dir, "section/sales.json"), "utf8"));
+  const lost = JSON.parse(readFileSync(join(dir, "section/lost_revenue.json"), "utf8"));
+  const bumped = sales.rows.find((row) => row && row.division === "Shaws" && row.payload);
+  bumped.payload.sales_dollars = Number(bumped.payload.sales_dollars) + 1234.56;
+  bumped.payload.sales_orders = Number(bumped.payload.sales_orders) + 3;
+  bumped.payload.sales_items = Number(bumped.payload.sales_items) + 9;
+  const store6 = lost.rows.find((row) => String(row.store) === "6");
+  delete store6.payload.missed_sales;
+  const loss210 = lost.rows.find((row) => String(row.store) === "210");
+  const loss239 = lost.rows.find((row) => String(row.store) === "239");
+  loss210.payload.lost_revenue = 999;
+  loss239.payload.lost_revenue = 111;
+  const missedRow = lost.rows.find(
+    (row) => row.payload && row.payload.missed_sales != null && String(row.store) !== "6",
+  );
+  missedRow.payload.missed_sales = Number(missedRow.payload.missed_sales) + 50;
+  missedRow.payload.lost_revenue = Number(missedRow.payload.lost_revenue) + 50;
+  const goalRow = lost.rows.find((row) => row.payload && row.payload.lost_revenue_goal != null);
+  goalRow.payload.lost_revenue_goal = Number(goalRow.payload.lost_revenue_goal) + 25;
+  const salesDollars = payloadSum(sales.rows, "sales_dollars");
+  const orders = payloadSum(sales.rows, "sales_orders");
+  const items = payloadSum(sales.rows, "sales_items");
+  putTile(home, "sales", "Sales $", moneyText(salesDollars));
+  putTile(home, "sales", "Orders", Math.round(orders).toLocaleString("en-US"));
+  putTile(home, "sales", "Items", Math.round(items).toLocaleString("en-US"));
+  const lostDollars = payloadSum(lost.rows, "lost_revenue");
+  const missedDollars = payloadSum(lost.rows, "missed_sales");
+  const ecommDollars = payloadSum(lost.rows, "ecomm_sales");
+  const goalDollars = payloadSum(lost.rows, "lost_revenue_goal");
+  putTile(home, "lost_revenue", "Lost $", moneyText(lostDollars));
+  putTile(home, "lost_revenue", "Missed", moneyText(missedDollars));
+  putTile(home, "lost_revenue", "eComm $", moneyText(ecommDollars));
+  putTile(home, "lost_revenue", "Lost %", `${((lostDollars / ecommDollars) * 100).toFixed(2)}%`);
+  putTile(home, "lost_revenue", "Goal %", `${((goalDollars / ecommDollars) * 100).toFixed(2)}%`);
+  const workbook = {};
+  for (const [section, fields] of Object.entries(WORKBOOK_TOTAL_FIELDS)) {
+    workbook[section] = Object.fromEntries(fields.map((field) => [field, 1]));
+  }
+  workbook.sales.sales_dollars = salesDollars;
+  workbook.lost_revenue.lost_dollars = lostDollars;
+  workbook.lost_revenue.missed_dollars = missedDollars;
+  workbook.lost_revenue.ecomm_dollars = ecommDollars;
+  home.workbookTotal = workbook;
+  const byRegion = new Map();
+  for (const row of lost.rows) {
+    const region = FRESH_REGION[row.division];
+    if (!region) continue;
+    if (!byRegion.has(region)) byRegion.set(region, []);
+    byRegion.get(region).push(row);
+  }
+  const exclOf = (list) =>
+    list.reduce((sum, row) => {
+      const payload = row.payload || {};
+      return sum + (Number(payload.lost_revenue) || 0) - (Number(payload.missed_sales) || 0);
+    }, 0);
+  const lostLines = ["East", "South", "California", "West"].map((region) => {
+    const rows = byRegion.get(region) || [];
+    const byDivision = new Map();
+    for (const row of rows) {
+      if (!byDivision.has(row.division)) byDivision.set(row.division, []);
+      byDivision.get(row.division).push(row);
+    }
+    return {
+      section: "lost_revenue",
+      region,
+      title: "Lost $ excl. Missed",
+      value: moneyText(exclOf(rows)),
+      count: rows.length,
+      health: "good",
+      missed: "Not available",
+      children: [...byDivision.entries()].map(([division, list]) => ({
+        division,
+        value: moneyText(exclOf(list)),
+        count: list.length,
+        health: "good",
+        missed: "Not available",
+      })),
+    };
+  });
+  home.regionLines = home.regionLines.filter((line) => line.section !== "lost_revenue").concat(lostLines);
+  for (const block of Object.values(home.companyTiles)) {
+    if (Array.isArray(block.values)) block.values = block.values.map(fixMoneyString);
+  }
+  for (const line of home.regionLines) {
+    line.value = fixMoneyString(line.value);
+    for (const child of line.children || []) child.value = fixMoneyString(child.value);
+  }
+  for (const row of home.regionTables || []) row.headline = fixMoneyString(row.headline);
+  for (const section of ["lost_revenue", "missing_items", "five_star", "pre_sub_oos"]) {
+    const summary = home.summaries.find((item) => item.section === section);
+    const file =
+      section === "lost_revenue"
+        ? lost
+        : JSON.parse(readFileSync(join(dir, "section", `${section}.json`), "utf8"));
+    summary.storeCount = file.rows.length;
+  }
+  const picker = JSON.parse(readFileSync(join(dir, "section/picker_scorecard.json"), "utf8"));
+  home.pickerRollups.company.stores = new Set(picker.rows.map((row) => row && row.store).filter(Boolean)).size;
+  const stamp = (value) => {
+    value.publishedAt = value.publishedAt || home.publishedAt;
+    value.schemaVersion = SCHEMA_VERSION;
+    value.cookSha = sha;
+    value.cookedAt = cookedAt;
+    if (value.metadata && typeof value.metadata === "object") {
+      value.metadata.schemaVersion = SCHEMA_VERSION;
+      value.metadata.cookSha = sha;
+    }
+  };
+  const bodies = {
+    "home.json": home,
+    "section/sales.json": sales,
+    "section/lost_revenue.json": lost,
+  };
+  for (const rel of PACK_FILES) {
+    const body = bodies[rel] || JSON.parse(readFileSync(join(dir, rel), "utf8"));
+    stamp(body);
+    writeFileSync(join(dir, rel), JSON.stringify(body));
+  }
+  return dir;
+}
+
+const freshWeek = writeFreshWeek();
+const freshCheck = checkPack(freshWeek);
+assert.deepEqual(freshCheck.errors, [], freshCheck.errors.join("\n"));
+const freshHome = JSON.parse(readFileSync(join(freshWeek, "home.json"), "utf8"));
+assert.notEqual(freshHome.companyTiles.sales.values[freshHome.companyTiles.sales.labels.indexOf("Sales $")], "$81,833,890.57");
+assert.notEqual(freshHome.companyTiles.lost_revenue.values[freshHome.companyTiles.lost_revenue.labels.indexOf("Goal %")], "3.06%");
+assert.notEqual(freshHome.companyTiles.lost_revenue.values[freshHome.companyTiles.lost_revenue.labels.indexOf("Lost %")], "5.19%");
+assert.notEqual(freshHome.companyTiles.lost_revenue.values[freshHome.companyTiles.lost_revenue.labels.indexOf("Missed")], "$420,030.87");
+assert.deepEqual(octoberStoreFixture(freshHome, JSON.parse(readFileSync(join(freshWeek, "section/lost_revenue.json"), "utf8")), pinnedSchedule), [
+  "october fixture runs only on the pinned Oct 5 pack",
+]);
+
+function corruptFresh(mutate) {
+  const dir = mkdtempSync(join(tmpdir(), "hb-corrupt-"));
+  cpSync(freshWeek, dir, { recursive: true });
+  mutate(dir);
+  return dir;
+}
+
+const salesDisagree = corruptFresh((dir) => {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  const labels = home.companyTiles.sales.labels;
+  home.companyTiles.sales.values[labels.indexOf("Sales $")] = "$10,000,000.00";
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+});
+assert.ok(checkPack(salesDisagree).errors.some((item) => item.startsWith("Sales $")));
+const droppedLost = corruptFresh((dir) => {
+  const lost = JSON.parse(readFileSync(join(dir, "section/lost_revenue.json"), "utf8"));
+  lost.rows = lost.rows.slice(100);
+  writeFileSync(join(dir, "section/lost_revenue.json"), JSON.stringify(lost));
+});
+assert.ok(checkPack(droppedLost).errors.some((item) => item.includes("lost rows=") && item.includes("floor=")));
+const zeroedMissed = corruptFresh((dir) => {
+  const lost = JSON.parse(readFileSync(join(dir, "section/lost_revenue.json"), "utf8"));
+  for (const row of lost.rows) {
+    if (row.payload && Object.prototype.hasOwnProperty.call(row.payload, "missed_sales")) row.payload.missed_sales = 0;
+  }
+  writeFileSync(join(dir, "section/lost_revenue.json"), JSON.stringify(lost));
+});
+assert.ok(checkPack(zeroedMissed).errors.some((item) => item.includes("missed_sales collapsed")));
+const missingRegion = corruptFresh((dir) => {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  home.regionLines = home.regionLines.filter((line) => !(line.section === "sales" && line.region === "East"));
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+});
+assert.ok(checkPack(missingRegion).errors.some((item) => item === "sales region East missing"));
+
+const goalDollars = 607506.8;
+const goalRate = 0.035466;
+function writeGoalTotal(dir, rate) {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  const lost = home.workbookTotal.lost_revenue;
+  lost.goal_dollars = goalDollars;
+  lost.goal_pct = rate;
+  lost.ecomm_dollars = goalDollars / goalRate;
+  const labels = home.companyTiles.lost_revenue.labels;
+  const values = home.companyTiles.lost_revenue.values;
+  values[labels.indexOf("Goal %")] = "3.55%";
+  values[labels.indexOf("Lost %")] = `${((lost.lost_dollars / lost.ecomm_dollars) * 100).toFixed(2)}%`;
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+}
+const goalMatch = corruptFresh((dir) => writeGoalTotal(dir, goalRate));
+assert.deepEqual(checkPack(goalMatch).errors, [], checkPack(goalMatch).errors.join("\n"));
+const goalMismatch = corruptFresh((dir) => writeGoalTotal(dir, 0.09));
+assert.ok(checkPack(goalMismatch).errors.some((item) => item.startsWith("Goal % tile=")));
+
+function writeSchedule(dir, mutate) {
+  const schedule = JSON.parse(readFileSync(join(dir, "schedule.json"), "utf8"));
+  mutate(schedule);
+  writeFileSync(join(dir, "schedule.json"), JSON.stringify(schedule));
+}
+
+const week33 = corruptFresh((dir) => {
+  writeSchedule(dir, (schedule) => {
+    schedule.week = 33;
+    schedule.filename = "Schedule Review Week 33 - Summary.xlsx";
+    schedule.summaryTitle = "Schedule Review Summary — Week 33 (WK33)";
+    for (const market of schedule.markets) {
+      if (market.label === "United") continue;
+      market.eff = 80;
+      market.under = 4;
+      market.over = 6;
+    }
+  });
+});
+assert.deepEqual(checkPack(week33).errors, [], checkPack(week33).errors.join("\n"));
+const schEffMismatch = corruptFresh((dir) => {
+  writeSchedule(dir, (schedule) => {
+    schedule.week = 33;
+    schedule.filename = "Schedule Review Week 33 - Summary.xlsx";
+    schedule.summaryTitle = "Schedule Review Summary — Week 33 (WK33)";
+    for (const market of schedule.markets) {
+      if (market.label === "United") continue;
+      market.eff = 80;
+      market.under = 4;
+      market.over = 6;
+    }
+    schedule.markets.find((market) => market.label === "Total").eff = 70;
+  });
+});
+assert.ok(checkPack(schEffMismatch).errors.some((item) => item.startsWith("Sch Eff")));
+rmSync(freshWeek, { recursive: true, force: true });
+rmSync(salesDisagree, { recursive: true, force: true });
+rmSync(droppedLost, { recursive: true, force: true });
+rmSync(zeroedMissed, { recursive: true, force: true });
+rmSync(missingRegion, { recursive: true, force: true });
+rmSync(goalMatch, { recursive: true, force: true });
+rmSync(goalMismatch, { recursive: true, force: true });
+rmSync(week33, { recursive: true, force: true });
+rmSync(schEffMismatch, { recursive: true, force: true });
+const liveRepublish = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", livePack], { encoding: "utf8" });
+assert.notEqual(liveRepublish.status, 0);
+assert.match(liveRepublish.stderr, /refusing publish: cookedAt is missing/);
+assert.match(liveRepublish.stderr, /pinned live cook cannot be republished/);
+const otherCook = mkdtempSync(join(tmpdir(), "hb-nocook-"));
+const otherSha = "e".repeat(40);
+writeFileSync(
+  join(otherCook, "home.json"),
+  JSON.stringify({
+    publishedAt: "2026-10-06T01:35:23Z",
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: otherSha,
+  }),
+);
+const otherRefused = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", otherCook], { encoding: "utf8" });
+assert.notEqual(otherRefused.status, 0);
+assert.match(otherRefused.stderr, /refusing publish: cookedAt is missing/);
+assert.match(otherRefused.stderr, /cookedAt missing/);
+assert.equal(otherRefused.stderr.includes("pinned live cook"), false);
+assert.ok(cookedAtPublishErrors(otherCook).some((item) => item.includes("cookedAt missing")));
+rmSync(otherCook, { recursive: true, force: true });
+const cookedPack = mkdtempSync(join(tmpdir(), "hb-cooked-"));
+writeFileSync(
+  join(cookedPack, "home.json"),
+  JSON.stringify({
+    publishedAt: "2026-10-06T01:35:23Z",
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: otherSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+  }),
+);
+const cookedOk = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", cookedPack], { encoding: "utf8" });
+assert.equal(cookedOk.status, 0, cookedOk.stderr);
+assert.equal(cookedAtPublishErrors(cookedPack).length, 0);
+rmSync(cookedPack, { recursive: true, force: true });
 assert.ok(Array.isArray(packHome.regionTables) && packHome.regionTables.length > 10);
 const rosterByStore = Object.fromEntries(packHome.filters.stores.map((row) => [row.store, row]));
 assert.equal(rosterByStore["233"].division, "Seattle");
@@ -951,15 +1431,810 @@ const publishScript = readFileSync(join(root, "../Tools/HeartbeatIngest/publish-
 assert.match(publishScript, /HEARTBEAT_UI_ONLY/);
 assert.match(publishScript, /HEARTBEAT_USE_LOCAL_DATA/);
 assert.match(publishScript, /fulfillment-heartbeat-web/);
-assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$PACK_DIR"/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" --cooked-at "\$PACK_DIR"/);
+assert.match(publishScript, /refusing deploy: pack data must publish through the pointer/);
+assert.equal(publishScript.includes('preflight "$DATA"'), false);
+assert.match(publishScript, /python3 - "\$PACK_DIR"/);
+assert.match(publishScript, /refusing publish: cookedAt is missing/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
-assert.match(publishScript, /web-pack\/\{sha\}-\{published\}/);
-assert.match(publishScript, /web-pack\/current\.json/);
-assert.match(publishScript, /check_pack failed on the uploaded set/);
+assert.match(publishScript, /pack_identity\.py/);
+assert.match(publishScript, /pack_publish\.py/);
+assert.match(publishScript, /cook-guard\.sh" --publish/);
+assert.match(publishScript, /cook-guard\.sh" --publish-data/);
+assert.match(publishScript, /pack_publish\.py" preflight/);
+assert.match(publishScript, /new cook stays out of tracked web\/public\/data/);
+assert.equal(publishScript.includes("live pack stays out of tracked web/public/data"), false);
+assert.match(publishScript, /python3 - "\$PACK_DIR" "\$EMAIL_FILE"/);
+assert.equal(publishScript.includes('python3 - "$DATA" "$EMAIL_FILE"'), false);
+assert.match(publishScript, /local pack is older or the stamps disagree/);
+assert.match(publishScript, /--defer-pointer/);
+assert.match(publishScript, /--commit-pointer/);
+const pagesDeployAt = publishScript.indexOf("npx wrangler pages deploy");
+const pointerCommitAt = publishScript.indexOf("--commit-pointer");
+assert.ok(pagesDeployAt !== -1 && pointerCommitAt > pagesDeployAt);
+const trapAt = publishScript.indexOf("trap cleanup_stages EXIT");
+const extractTempAt = publishScript.indexOf('EXTRACT="$(mktemp -d)"');
+const liveTempAt = publishScript.indexOf('LIVE_STAGE="$(mktemp -d)"');
+assert.ok(trapAt !== -1 && extractTempAt !== -1 && liveTempAt !== -1 && trapAt < extractTempAt && trapAt < liveTempAt);
+const cleanupFn = publishScript.match(/cleanup_stages\(\) \{[\s\S]*?\n\}/);
+assert.ok(cleanupFn);
+for (const code of [0, 1]) {
+  const script = [
+    "set -euo pipefail",
+    "EXTRACT=$(mktemp -d)",
+    "LIVE_STAGE=$(mktemp -d)",
+    "printf '%s\\n' \"$EXTRACT\" \"$LIVE_STAGE\"",
+    cleanupFn[0],
+    "trap cleanup_stages EXIT",
+    `exit ${code}`,
+  ].join("\n");
+  const cleaned = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+  const dirs = cleaned.stdout.trim().split("\n");
+  assert.equal(dirs.length, 2, cleaned.stderr);
+  assert.equal(existsSync(dirs[0]), false, dirs[0]);
+  assert.equal(existsSync(dirs[1]), false, dirs[1]);
+}
+const liveChoice = (liveCooked, localCooked) => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-live-"));
+  const liveFile = join(dir, "live.json");
+  const localDir = join(dir, "local");
+  mkdirSync(localDir);
+  const stamp = (cooked) => ({
+    cookSha: "a".repeat(40),
+    publishedAt: "2026-10-06T01:35:23Z",
+    cookedAt: cooked,
+    schemaVersion: SCHEMA_VERSION,
+  });
+  writeFileSync(liveFile, JSON.stringify(stamp(liveCooked)));
+  writeFileSync(join(localDir, "home.json"), JSON.stringify(stamp(localCooked)));
+  const ran = spawnSync("python3", [join(root, "scripts/pack_identity.py"), "live", liveFile, localDir], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  return ran;
+};
+const newerLocal = liveChoice("2026-10-07T01:00:00Z", "2026-10-07T02:00:00Z");
+assert.equal(newerLocal.status, 0, newerLocal.stderr);
+assert.equal(newerLocal.stdout.trim(), "keep");
+const olderLocal = liveChoice("2026-10-07T03:00:00Z", "2026-10-07T01:00:00Z");
+assert.notEqual(olderLocal.status, 0);
+assert.equal(olderLocal.stdout.trim(), "refuse");
+const cookLocalTest = readFileSync(join(root, "../Tools/HeartbeatIngest/test_cook_local.sh"), "utf8");
+assert.match(cookLocalTest, /export HEARTBEAT_SKIP_GIT_CHECK=1/);
+assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), "utf8"), /git -C "\$ROOT" fetch origin/);
+assert.equal(publishScript.includes('cp -R "$EXTRACT" "$DATA"'), false);
+assert.equal(publishScript.includes("dest.rename"), false);
+assert.equal(publishScript.includes("staged.rename(dest)"), false);
+assert.match(publishScript, /refusing publish: git worktree is dirty/);
+assert.match(publishScript, /dirty tree blocks a data-only upload/);
+const dirtyAt = publishScript.indexOf("refusing publish: git worktree is dirty");
+const npmAt = publishScript.indexOf("\nnpm test");
+const secretAt = publishScript.indexOf("put_secret_if_missing");
+assert.ok(dirtyAt !== -1 && dirtyAt < npmAt && dirtyAt < secretAt);
+const secretBlock = publishScript.slice(publishScript.indexOf("# BEGIN secrets"), publishScript.indexOf("# END secrets"));
+assert.match(secretBlock, /if \[\[ -z "\$DATA_ONLY" \]\]/);
+assert.equal(secretBlock.includes("|| true"), false);
+const secretRun = (dataOnly, listStatus) => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-secret-"));
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  const log = join(dir, "log");
+  writeFileSync(
+    join(bin, "npx"),
+    `#!/bin/bash\nprintf '%s\\n' "npx $*" >> ${JSON.stringify(log)}\nif [[ "$*" == *secret\\ list* ]]; then exit ${listStatus}; fi\nexit 0\n`,
+  );
+  writeFileSync(join(bin, "openssl"), `#!/bin/bash\nprintf '%s\\n' "openssl $*" >> ${JSON.stringify(log)}\nprintf '%s\\n' minted\n`);
+  chmodSync(join(bin, "npx"), 0o755);
+  chmodSync(join(bin, "openssl"), 0o755);
+  const script = [
+    "set -euo pipefail",
+    `DATA_ONLY=${dataOnly}`,
+    "PROJECT=fulfillment-heartbeat-web",
+    `CONFIG_DIR=${JSON.stringify(join(dir, "config"))}`,
+    secretBlock,
+  ].join("\n");
+  const ran = spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  const calls = existsSync(log) ? readFileSync(log, "utf8") : "";
+  rmSync(dir, { recursive: true, force: true });
+  return { ran, calls };
+};
+const dataOnlySecrets = secretRun("1", "1");
+assert.equal(dataOnlySecrets.ran.status, 0, dataOnlySecrets.ran.stderr);
+assert.equal(dataOnlySecrets.calls, "");
+const failedList = secretRun("", "1");
+assert.notEqual(failedList.ran.status, 0);
+assert.match(failedList.ran.stderr, /no secret was created/);
+assert.match(failedList.calls, /npx wrangler pages secret list/);
+assert.equal(failedList.calls.includes("openssl"), false);
+const pointerFn = publishScript.slice(publishScript.indexOf("pointer_is_verified() {"), publishScript.indexOf("require_verified_pointer() {"));
+assert.match(pointerFn, /\$\{pointer_state##\*\$'\\n'\}/);
+assert.match(pointerFn, /\[\[ "\$last" == "pointer preflight: verified" \]\]/);
+const previewAt = publishScript.indexOf("# BEGIN pointer-preview");
+const previewEnd = publishScript.indexOf("# END pointer-preview");
+const commitAt = publishScript.indexOf("# BEGIN pointer-commit");
+assert.ok(previewAt !== -1 && previewEnd > previewAt && commitAt > previewEnd);
+const previewSlice = publishScript.slice(previewAt + "# BEGIN pointer-preview".length, previewEnd);
+const commitSlice = publishScript.slice(commitAt + "# BEGIN pointer-commit".length, publishScript.indexOf("# END pointer-commit"));
+assert.match(previewSlice, /if ! pointer_is_verified/);
+assert.ok(previewSlice.indexOf("pointer_is_verified") < previewSlice.indexOf("publish_pack_pointer"));
+assert.match(commitSlice, /if ! pointer_is_verified/);
+assert.ok(commitSlice.indexOf("pointer_is_verified") < commitSlice.indexOf("--commit-pointer"));
+const bannerRun = (mode, pointer) => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-banner-"));
+  const bin = join(dir, "bin");
+  const store = join(dir, "r2");
+  const web = join(dir, "web");
+  const pack = join(dir, "pack");
+  mkdirSync(bin);
+  mkdirSync(web);
+  mkdirSync(pack);
+  const liveKey = join(store, "heartbeat-packs/web-pack/current.json");
+  mkdirSync(join(store, "heartbeat-packs/web-pack"), { recursive: true });
+  writeFileSync(liveKey, JSON.stringify(pointer));
+  writeFileSync(
+    join(pack, "home.json"),
+    JSON.stringify({
+      cookSha: "c".repeat(40),
+      publishedAt: "2026-10-06T01:35:23Z",
+      cookedAt: "2026-10-07T03:00:00Z",
+      schemaVersion: 1,
+      metadata: { schemaVersion: 1, cookSha: "c".repeat(40), cookedAt: "2026-10-07T03:00:00Z" },
+    }),
+  );
+  writeFileSync(join(web, "check_pack.mjs"), "process.exit(0)\n");
+  const log = join(dir, "wrangler.log");
+  writeFileSync(
+    join(bin, "npx"),
+    `#!/usr/bin/env python3
+import os, shutil, sys
+from pathlib import Path
+args = sys.argv[1:]
+log = Path(os.environ["WRANGLER_LOG"])
+store = Path(os.environ["WRANGLER_STORE"])
+sys.stdout.write("⛅️ wrangler 4.147.0\\n")
+sys.stdout.write("────────────────────\\n")
+sys.stdout.write("Resource location\\n")
+sys.stdout.write('Downloading "web-pack/current.json"…\\n')
+kind = "other"
+key = ""
+if len(args) >= 5 and args[2:4] == ["object", "get"]:
+    kind = "get"
+    key = args[4]
+elif len(args) >= 5 and args[2:4] == ["object", "put"]:
+    kind = "put"
+    key = args[4]
+elif "pages" in args and "deploy" in args:
+    kind = "deploy"
+with log.open("a", encoding="utf-8") as handle:
+    handle.write(f"{kind} {key}\\n")
+dest = next((item.split("=", 1)[1] for item in args if item.startswith("--file=")), "")
+if kind == "get":
+    src = store / key
+    if not src.is_file():
+        sys.stderr.write("The specified key does not exist.\\n")
+        raise SystemExit(1)
+    Path(dest).write_bytes(src.read_bytes())
+    raise SystemExit(0)
+if kind == "put":
+    target = store / key
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(dest, target)
+    raise SystemExit(0)
+raise SystemExit(0)
+`,
+  );
+  chmodSync(join(bin, "npx"), 0o755);
+  const fn = (name) => {
+    const start = publishScript.indexOf(`${name}() {`);
+    let depth = 0;
+    for (let i = publishScript.indexOf("{", start); i < publishScript.length; i += 1) {
+      if (publishScript[i] === "{") depth += 1;
+      else if (publishScript[i] === "}") {
+        depth -= 1;
+        if (depth === 0) return publishScript.slice(start, i + 1);
+      }
+    }
+    throw new Error(name);
+  };
+  const script = [
+    "set -euo pipefail",
+    `ROOT=${JSON.stringify(join(root, ".."))}`,
+    `WEB=${JSON.stringify(web)}`,
+    `PACK_DIR=${JSON.stringify(pack)}`,
+    "PROJECT=fulfillment-heartbeat-web",
+    "POINTER_PLAN=",
+    `DATA_ONLY=${mode === "data" ? "1" : ""}`,
+    `UI_ONLY=${mode === "ui" ? "1" : ""}`,
+    fn("publish_pack_pointer"),
+    fn("pointer_is_verified"),
+    fn("fail_deploy_readback"),
+    previewSlice,
+    'if [[ -n "$DATA_ONLY" ]]; then exit 0; fi',
+    'if [[ -n "$UI_ONLY" ]]; then LIVE_POINTER_BEFORE="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"; fi',
+    'npx wrangler pages deploy dist --project-name "$PROJECT" --branch main',
+    commitSlice,
+    'if [[ -n "$UI_ONLY" ]]; then',
+    '  LIVE_POINTER_AFTER="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"',
+    '  if [[ "$LIVE_POINTER_BEFORE" != "$LIVE_POINTER_AFTER" ]]; then echo "UI-only deploy changed the live pointer" >&2; exit 1; fi',
+    "fi",
+  ].join("\n");
+  const ran = spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, WRANGLER_LOG: log, WRANGLER_STORE: store },
+  });
+  const calls = existsSync(log) ? readFileSync(log, "utf8") : "";
+  rmSync(dir, { recursive: true, force: true });
+  return { ran, calls };
+};
+const livePointer = {
+  prefix: `web-pack/${"a".repeat(40)}-2026-10-05T00:00:00Z`,
+  cookSha: "a".repeat(40),
+  cookedAt: "2026-10-05T00:00:00Z",
+  publishedAt: "2026-10-06T01:35:23Z",
+  schemaVersion: 1,
+};
+const badPointer = { prefix: "web-pack/nope", cookSha: "zz", publishedAt: "x", cookedAt: "y", schemaVersion: 1 };
+for (const mode of ["data", "full", "ui"]) {
+  const refused = bannerRun(mode, badPointer);
+  assert.notEqual(refused.ran.status, 0, refused.ran.stderr);
+  assert.equal(refused.calls.includes("put "), false, refused.calls);
+  assert.equal(refused.calls.includes("deploy"), false, refused.calls);
+  const accepted = bannerRun(mode, livePointer);
+  assert.equal(accepted.ran.status, 0, accepted.ran.stderr || accepted.ran.stdout);
+  const lines = accepted.calls.trim().split("\n").filter(Boolean);
+  const pointerGets = lines.flatMap((line, index) => (line.startsWith("get heartbeat-packs/web-pack/current.json") ? [index] : []));
+  const pointerPuts = lines.flatMap((line, index) => (line.startsWith("put heartbeat-packs/web-pack/current.json") ? [index] : []));
+  assert.ok(pointerGets.length > 0, accepted.calls);
+  if (mode === "ui") {
+    assert.deepEqual(pointerPuts, []);
+    assert.ok(lines.some((line) => line.startsWith("deploy")));
+  } else {
+    assert.ok(pointerPuts.length === 1, accepted.calls);
+    assert.ok(pointerGets[0] < pointerPuts[0], accepted.calls);
+    assert.ok(lines.slice(0, pointerGets[0]).every((line) => !line.startsWith("put ")), accepted.calls);
+  }
+}
+const cleanPreflight = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-preflight-"));
+  const bin = join(dir, "bin");
+  const store = join(dir, "r2");
+  mkdirSync(bin);
+  mkdirSync(join(store, "heartbeat-packs/web-pack"), { recursive: true });
+  writeFileSync(join(store, "heartbeat-packs/web-pack/current.json"), JSON.stringify(livePointer));
+  writeFileSync(
+    join(bin, "npx"),
+    `#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+sys.stdout.write("⛅️ wrangler 4.147.0\\n")
+sys.stdout.write("────────────────────\\n")
+sys.stdout.write("Resource location\\n")
+sys.stdout.write('Downloading "web-pack/current.json"…\\n')
+if len(args) >= 5 and args[2:4] == ["object", "get"]:
+    dest = next(item.split("=", 1)[1] for item in args if item.startswith("--file="))
+    Path(dest).write_bytes((Path(os.environ["WRANGLER_STORE"]) / args[4]).read_bytes())
+raise SystemExit(0)
+`,
+  );
+  chmodSync(join(bin, "npx"), 0o755);
+  const ran = spawnSync("python3", [join(root, "scripts/pack_publish.py"), "preflight", join(root, "public/data")], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, WRANGLER_STORE: store },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  return ran;
+})();
+assert.equal(cleanPreflight.status, 0, cleanPreflight.stderr);
+assert.equal(cleanPreflight.stdout.trim(), "pointer preflight: verified");
+assert.match(cleanPreflight.stderr, /Downloading "web-pack\/current\.json"/);
+const lastLineOnly = spawnSync(
+  "bash",
+  [
+    "-c",
+    [
+      "set -euo pipefail",
+      pointerFn,
+      "pointer_is_verified",
+    ].join("\n"),
+  ],
+  {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${(() => {
+        const dir = mkdtempSync(join(tmpdir(), "hb-last-"));
+        const bin = join(dir, "bin");
+        mkdirSync(bin);
+        writeFileSync(
+          join(bin, "python3"),
+          `#!/bin/bash\nif [[ "$*" == *preflight* ]]; then printf '%s\\n' '⛅️ wrangler 4.147.0' '────────────────────' 'Resource location' 'Downloading "web-pack/current.json"…' 'pointer preflight: verified'; exit 0; fi\nexec /usr/bin/python3 "$@"\n`,
+        );
+        chmodSync(join(bin, "python3"), 0o755);
+        return bin;
+      })()}:${process.env.PATH}`,
+      ROOT: join(root, ".."),
+      PACK_DIR: join(root, "public/data"),
+    },
+  },
+);
+assert.equal(lastLineOnly.status, 0, lastLineOnly.stderr);
+assert.match(lastLineOnly.stdout, /pointer preflight: verified\s*$/);
+assert.match(lastLineOnly.stdout, /Downloading "web-pack\/current\.json"/);
+assert.match(publishScript, /pack_publish\.py" "\$PACK_DIR"/);
+assert.equal(publishScript.includes("migrate-pinned"), false);
+assert.equal(publishScript.includes("--commit-dirty"), false);
+assert.equal(publishScript.includes("cooked < have"), false);
+assert.equal(publishScript.includes("live_stamp <="), false);
+const guardRun = (args) =>
+  spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), ...args], { encoding: "utf8" });
+const pinnedGuard = guardRun(["web/check_pack.mjs"]);
+assert.notEqual(pinnedGuard.status, 0);
+assert.equal(pinnedGuard.stdout.trim(), "refuse");
+const parserGuard = guardRun(["FulfillmentHeartbeat/Storage/WorkbookParser.swift"]);
+assert.notEqual(parserGuard.status, 0);
+assert.equal(parserGuard.stdout.trim(), "refuse");
+const cleanGuard = guardRun([]);
+assert.equal(cleanGuard.status, 0);
+assert.equal(cleanGuard.stdout.trim(), "cook");
+const reviewGuard = guardRun(["Tools/HeartbeatIngest/publish-web.sh"]);
+assert.equal(reviewGuard.status, 0);
+assert.equal(reviewGuard.stdout.trim(), "review");
+const decidePublish = (ahead, porcelain) =>
+  spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--decide-publish", String(ahead)], {
+    encoding: "utf8",
+    input: porcelain,
+  });
+const cleanPublish = decidePublish(0, "");
+assert.equal(cleanPublish.status, 0, cleanPublish.stderr);
+assert.equal(cleanPublish.stdout.trim(), "cook");
+const unpushedPublish = decidePublish(2, "");
+assert.notEqual(unpushedPublish.status, 0);
+assert.match(unpushedPublish.stderr, /refusing unpushed commits/);
+const dirtyPublisher = decidePublish(0, " M Tools/HeartbeatIngest/publish-web.sh\n");
+assert.notEqual(dirtyPublisher.status, 0);
+assert.match(dirtyPublisher.stderr, /refusing a dirty publish-web\.sh/);
+const untrackedCook = decidePublish(0, "?? Tools/HeartbeatIngest/notes.sh\n");
+assert.notEqual(untrackedCook.status, 0);
+assert.match(untrackedCook.stderr, /refusing an untracked cook path/);
+const otherDirty = decidePublish(0, " M web/public/app.js\n");
+assert.equal(otherDirty.status, 0, otherDirty.stderr);
+assert.equal(otherDirty.stdout.trim(), "cook");
+const dirtyParser = decidePublish(0, " M FulfillmentHeartbeat/Storage/WorkbookParser.swift\n");
+assert.notEqual(dirtyParser.status, 0);
+assert.match(dirtyParser.stderr, /refusing a dirty cook path/);
+for (const path of ["web/functions/_middleware.js", "web/public/schema.js", "web/scripts/pack_publish.py"]) {
+  const dirtyPublishPath = decidePublish(0, ` M ${path}\n`);
+  assert.notEqual(dirtyPublishPath.status, 0, path);
+  assert.match(dirtyPublishPath.stderr, /refusing a dirty publish path/);
+}
+for (const name of ["HEARTBEAT_COOK_SHA", "HEARTBEAT_COOKED_AT"]) {
+  const uiOverride = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish"], {
+    encoding: "utf8",
+    env: { ...process.env, [name]: "1" },
+  });
+  assert.notEqual(uiOverride.status, 0, name);
+  assert.match(uiOverride.stderr, /refusing an env override/);
+}
+const envOverride = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish"], {
+  encoding: "utf8",
+  env: { ...process.env, HEARTBEAT_SKIP_GIT_CHECK: "1" },
+});
+assert.notEqual(envOverride.status, 0);
+assert.match(envOverride.stderr, /refusing an env override/);
+const decidePublishData = (ahead, porcelain) =>
+  spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--decide-publish-data", String(ahead)], {
+    encoding: "utf8",
+    input: porcelain,
+  });
+const cleanDataPublish = decidePublishData(0, "");
+assert.equal(cleanDataPublish.status, 0, cleanDataPublish.stderr);
+assert.equal(cleanDataPublish.stdout.trim(), "cook");
+const dirtyAppData = decidePublishData(0, " M web/public/app.js\n");
+assert.notEqual(dirtyAppData.status, 0);
+assert.match(dirtyAppData.stderr, /refusing a dirty path/);
+const untrackedData = decidePublishData(0, "?? web/scripts/notes.py\n");
+assert.notEqual(untrackedData.status, 0);
+assert.match(untrackedData.stderr, /refusing an untracked path/);
+for (const name of ["HEARTBEAT_COOK_SHA", "HEARTBEAT_COOKED_AT", "HEARTBEAT_SKIP_GIT_CHECK", "HEARTBEAT_SKIP_PACK_CHECK"]) {
+  const overridden = spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), "--publish-data"], {
+    encoding: "utf8",
+    env: { ...process.env, [name]: "1" },
+  });
+  assert.notEqual(overridden.status, 0, name);
+  assert.match(overridden.stderr, /refusing an env override/);
+}
+const publishPlan = spawnSync(
+  "python3",
+  [
+    "-c",
+    `
+import json, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from pack_publish import plan_pointer, upload_pack
+sha = "a" * 40
+other = "b" * 40
+cooked = "2026-10-07T01:00:00Z"
+published = "2026-10-06T01:35:23Z"
+live = f"web-pack/{sha}-{cooked}"
+fallback = f"web-pack/{other}-2026-10-06T00:00:00Z"
+old = {
+    "prefix": live,
+    "cookSha": sha,
+    "cookedAt": cooked,
+    "publishedAt": published,
+    "schemaVersion": 1,
+    "previous": {"prefix": fallback, "cookSha": other, "cookedAt": "2026-10-06T00:00:00Z", "publishedAt": published, "schemaVersion": 1},
+}
+def refused(fn):
+    try:
+        fn()
+    except SystemExit as error:
+        return error.code if isinstance(error.code, str) else ""
+    return ""
+assert "live pack folder" in refused(lambda: plan_pointer(old, sha, cooked, published, 1))
+assert "fallback pack folder" in refused(lambda: plan_pointer(old, other, "2026-10-06T00:00:00Z", published, 1))
+recook = plan_pointer(old, sha, "2026-10-08T00:00:00Z", published, 1)
+assert recook["previous"]["prefix"] == live, recook
+assert recook["previous"]["cookSha"] == sha
+puts = []
+def fake_wrangler(args, check=True):
+    class Result:
+        returncode = 0
+    if args[:3] == ["r2", "object", "get"] and "current.json" in args[3]:
+        dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
+        Path(dest).write_text(json.dumps(old), encoding="utf-8")
+    if args[:3] == ["r2", "object", "put"]:
+        puts.append(args[3])
+    return Result()
+with tempfile.TemporaryDirectory() as tmp:
+    data = Path(tmp) / "data"
+    data.mkdir()
+    (data / "home.json").write_text(json.dumps({"cookSha": sha, "publishedAt": published, "cookedAt": cooked, "schemaVersion": 1}), encoding="utf-8")
+    same = upload_pack(data, Path("check_pack.mjs"), fake_wrangler)
+assert same["prefix"] == live, same
+assert same["cookSha"] == sha
+assert puts == []
+`,
+  ],
+  { cwd: root, encoding: "utf8" },
+);
+assert.equal(publishPlan.status, 0, publishPlan.stderr || publishPlan.stdout);
+const preflightPlan = spawnSync(
+  "python3",
+  [
+    "-c",
+    `
+import hashlib, json, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from pack_publish import PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, migrate_pinned_pointer, preflight_pointer
+home = Path("public/data/home.json").read_bytes()
+assert hashlib.sha256(home).hexdigest() == PINNED_HOME_SHA256
+assert len(PINNED_FILE_SHA256) == 16
+for rel, digest in PINNED_FILE_SHA256.items():
+    blob = (Path("public/data") / rel).read_bytes()
+    assert hashlib.sha256(blob).hexdigest() == digest, rel
+pinned = {
+    "prefix": PINNED_LIVE_PREFIX,
+    "cookSha": PINNED_LIVE_COOK_SHA,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "cookedAt": "",
+    "schemaVersion": 1,
+}
+cooked_sha = "a" * 40
+cooked_at = "2026-10-07T01:00:00Z"
+cooked = {
+    "prefix": f"web-pack/{cooked_sha}-{cooked_at}",
+    "cookSha": cooked_sha,
+    "cookedAt": cooked_at,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "schemaVersion": 1,
+}
+other = {
+    "prefix": "web-pack/" + ("b" * 40) + "-" + PINNED_LIVE_PUBLISHED_AT,
+    "cookSha": "b" * 40,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "cookedAt": "",
+    "schemaVersion": 1,
+}
+
+def bucket(pointer, files=None, missing_error="\\x1b[31m✘ [ERROR] The specified key does not exist.\\x1b[0m"):
+    puts = []
+    store = {}
+    if files:
+        for key, blob in files.items():
+            store[key] = blob
+    if pointer is not None:
+        store["heartbeat-packs/web-pack/current.json"] = pointer if isinstance(pointer, bytes) else json.dumps(pointer).encode()
+    def fake(args, check=True):
+        class Result:
+            def __init__(self, code=0, err=""):
+                self.returncode = code
+                self.stderr = err
+                self.stdout = ""
+        key = args[3]
+        dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
+        if args[:3] == ["r2", "object", "get"]:
+            if key not in store:
+                return Result(1, missing_error)
+            Path(dest).write_bytes(store[key])
+            return Result(0)
+        if args[:3] == ["r2", "object", "put"]:
+            store[key] = Path(dest).read_bytes()
+            puts.append(key)
+            return Result(0)
+        return Result(1, "temporary error")
+    return fake, puts
+
+def pinned_files():
+    files = {}
+    for rel, digest in PINNED_FILE_SHA256.items():
+        files[f"heartbeat-packs/{PINNED_LIVE_PREFIX}/{rel}"] = (Path("public/data") / rel).read_bytes()
+    return files
+
+def refused(pointer, files=None, error="\\x1b[31m✘ [ERROR] The specified key does not exist.\\x1b[0m"):
+    fake, puts = bucket(pointer, files, error)
+    try:
+        preflight_pointer(Path("public/data"), fake)
+    except SystemExit as exc:
+        return (exc.code if isinstance(exc.code, str) else "", puts)
+    return ("", puts)
+
+absent_fake, absent_puts = bucket(None)
+assert preflight_pointer(Path("public/data"), absent_fake) == "absent", absent_puts
+assert absent_puts == []
+temp_msg, temp_puts = refused(None, None, "connection reset by peer")
+assert "get failed" in temp_msg, temp_msg
+assert "connection reset" in temp_msg
+assert temp_puts == []
+verified_fake, verified_puts = bucket(pinned)
+assert preflight_pointer(Path("public/data"), verified_fake) == "verified"
+assert verified_puts == []
+cooked_fake, cooked_puts = bucket(cooked)
+assert preflight_pointer(Path("public/data"), cooked_fake) == "verified"
+assert cooked_puts == []
+other_msg, other_puts = refused(other)
+assert "not a cooked pack" in other_msg, other_msg
+assert other_puts == []
+corrupt_msg, corrupt_puts = refused(b"not-json")
+assert "not json" in corrupt_msg, corrupt_msg
+assert corrupt_puts == []
+empty_msg, empty_puts = refused(b"")
+assert "empty" in empty_msg, empty_msg
+assert empty_puts == []
+migrate_fake, migrate_puts = bucket(None, pinned_files())
+assert migrate_pinned_pointer(Path("public/data"), migrate_fake) == "migrated"
+assert migrate_puts == ["heartbeat-packs/web-pack/current.json"]
+cut = pinned_files()
+cut[f"heartbeat-packs/{PINNED_LIVE_PREFIX}/section/labor.json"] = b'{"schemaVersion":1,"cookSha":"' + PINNED_LIVE_COOK_SHA.encode() + b'","rows":[]}'
+cut_fake, cut_puts = bucket(None, cut)
+try:
+    migrate_pinned_pointer(Path("public/data"), cut_fake)
+    raise SystemExit("cut-down labor was published")
+except SystemExit as exc:
+    assert "section/labor.json sha256 does not match" in str(exc.code), exc.code
+assert cut_puts == []
+exists_fake, exists_puts = bucket(pinned, pinned_files())
+try:
+    migrate_pinned_pointer(Path("public/data"), exists_fake)
+    raise SystemExit("existing pointer was overwritten")
+except SystemExit as exc:
+    assert "already exists" in str(exc.code), exc.code
+assert exists_puts == []
+from pack_publish import _put_pointer
+def mismatch(args, check=True):
+    class Result:
+        def __init__(self):
+            self.returncode = 0
+            self.stderr = ""
+            self.stdout = ""
+    if args[:3] == ["r2", "object", "get"]:
+        dest = next(item.split("=", 1)[1] for item in args if str(item).startswith("--file="))
+        Path(dest).write_text('{"prefix":"web-pack/wrong"}', encoding="utf-8")
+        return Result()
+    if args[:3] == ["r2", "object", "put"]:
+        return Result()
+    return Result()
+with tempfile.TemporaryDirectory() as tmp:
+    try:
+        _put_pointer(mismatch, Path(tmp), pinned)
+        raise SystemExit("bad readback was accepted")
+    except SystemExit as exc:
+        assert "readback does not match" in str(exc.code), exc.code
+bucket_msg, bucket_puts = refused(None, None, "The specified bucket does not exist.")
+assert "get failed" in bucket_msg, bucket_msg
+assert "absent" not in bucket_msg
+assert bucket_puts == []
+buried_fake, buried_puts = bucket(None, None, "warning\\nThe specified key does not exist.\\n")
+assert preflight_pointer(Path("public/data"), buried_fake) == "absent"
+assert buried_puts == []
+plain_fake, plain_puts = bucket(None, None, "[ERROR] The specified key does not exist.")
+assert preflight_pointer(Path("public/data"), plain_fake) == "absent"
+assert plain_puts == []
+auth_line = "\\x1b[31m✘ [ERROR] Authentication error\\x1b[0m\\n\\x1b[31m✘ [ERROR] The specified key does not exist.\\x1b[0m"
+auth_msg, auth_puts = refused(None, None, auth_line)
+assert "get failed" in auth_msg, auth_msg
+assert "absent" not in auth_msg
+assert auth_puts == []
+from pack_publish import upload_pack
+upload_sha = "c" * 40
+upload_cooked = "2026-10-07T02:00:00Z"
+def pack_dir(tmp):
+    data = Path(tmp) / "data"
+    data.mkdir()
+    (data / "home.json").write_text(json.dumps({
+        "cookSha": upload_sha,
+        "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+        "cookedAt": upload_cooked,
+        "schemaVersion": 1,
+        "metadata": {"schemaVersion": 1, "cookSha": upload_sha},
+    }), encoding="utf-8")
+    return data
+absent_upload, absent_upload_puts = bucket(None)
+with tempfile.TemporaryDirectory() as tmp:
+    try:
+        upload_pack(pack_dir(tmp), Path("check_pack.mjs"), absent_upload)
+        raise SystemExit("absent pointer was accepted")
+    except SystemExit as exc:
+        assert "absent" in str(exc.code) and "--first-publish" in str(exc.code), exc.code
+assert absent_upload_puts == []
+empty_upload, empty_upload_puts = bucket(b"   ")
+with tempfile.TemporaryDirectory() as tmp:
+    try:
+        upload_pack(pack_dir(tmp), Path("check_pack.mjs"), empty_upload)
+        raise SystemExit("empty pointer was accepted")
+    except SystemExit as exc:
+        assert "--first-publish" in str(exc.code), exc.code
+assert empty_upload_puts == []
+class Ok:
+    returncode = 0
+first_fake, first_puts = bucket(None)
+with tempfile.TemporaryDirectory() as tmp:
+    first_plan = upload_pack(pack_dir(tmp), Path("check_pack.mjs"), first_fake, checker=lambda downloaded: Ok(), first_publish=True)
+assert first_plan["cookSha"] == upload_sha
+assert any(item.endswith("current.json") for item in first_puts), first_puts
+from pack_publish import commit_pointer, print_pointer
+previous = {
+    "prefix": PINNED_LIVE_PREFIX,
+    "cookSha": PINNED_LIVE_COOK_SHA,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "cookedAt": "",
+    "schemaVersion": 1,
+}
+commit_plan = {
+    "prefix": f"web-pack/{upload_sha}-{upload_cooked}",
+    "cookSha": upload_sha,
+    "cookedAt": upload_cooked,
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "schemaVersion": 1,
+    "previous": previous,
+}
+moved_live = {
+    "prefix": "web-pack/" + ("d" * 40) + "-2026-10-08T00:00:00Z",
+    "cookSha": "d" * 40,
+    "cookedAt": "2026-10-08T00:00:00Z",
+    "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+    "schemaVersion": 1,
+}
+moved_fake, moved_puts = bucket(moved_live)
+with tempfile.TemporaryDirectory() as tmp:
+    plan_path = Path(tmp) / "plan.json"
+    plan_path.write_text(json.dumps(commit_plan), encoding="utf-8")
+    try:
+        commit_pointer(plan_path, moved_fake)
+        raise SystemExit("moved pointer was committed")
+    except SystemExit as exc:
+        assert "no longer matches" in str(exc.code), exc.code
+assert moved_puts == []
+same_fake, same_puts = bucket(previous)
+with tempfile.TemporaryDirectory() as tmp:
+    plan_path = Path(tmp) / "plan.json"
+    plan_path.write_text(json.dumps(commit_plan), encoding="utf-8")
+    committed = commit_pointer(plan_path, same_fake)
+assert committed["cookSha"] == upload_sha
+assert any(item.endswith("current.json") for item in same_puts), same_puts
+shown_fake, shown_puts = bucket(previous)
+assert "PINNED_LIVE_COOK_SHA" not in print_pointer(shown_fake)
+assert PINNED_LIVE_COOK_SHA in print_pointer(shown_fake)
+assert shown_puts == []
+`,
+  ],
+  { cwd: root, encoding: "utf8" },
+);
+assert.equal(preflightPlan.status, 0, preflightPlan.stderr || preflightPlan.stdout);
+const lostRegions = [
+  ["East", "$100.00"],
+  ["South", "$200.00"],
+  ["California", "$300.00"],
+  ["West", "$400.00"],
+];
+const goodLostHome = {
+  cookedAt: "2026-10-07T00:00:00Z",
+  companyTiles: { lost_revenue: { labels: ["Lost $", "Missed"], values: ["$1,050.00", "$50.00"] } },
+  regionLines: lostRegions.map(([region, value]) => ({
+    section: "lost_revenue",
+    region,
+    title: "Lost $ excl. Missed",
+    value,
+    count: 1,
+    missed: "Not available",
+    children: [{ division: "Shaws", value, count: 1, missed: "Not available" }],
+  })),
+  regionTables: [{ section: "lost_revenue", region: "South", headline: "$200.00" }],
+  summaries: [
+    { section: "lost_revenue", storeCount: 4 },
+    { section: "missing_items", storeCount: 1 },
+    { section: "five_star", storeCount: 1 },
+    { section: "pre_sub_oos", storeCount: 2 },
+  ],
+  pickerRollups: { company: { stores: 2 } },
+};
+const goodLostRows = { rows: [{ store: "1" }, { store: "2" }, { store: "3" }, { store: "4" }] };
+assert.deepEqual(lostRollupErrors(goodLostHome, goodLostRows), []);
+assert.deepEqual(currencyPrecisionErrors(goodLostHome), []);
+const shortLost = structuredClone(goodLostHome);
+shortLost.companyTiles.lost_revenue.values[0] = "$1,080.00";
+assert.ok(lostRollupErrors(shortLost, goodLostRows).some((item) => item.startsWith("lost rollup")));
+const roughMoney = structuredClone(goodLostHome);
+roughMoney.regionTables[0].headline = "$779,589.702";
+assert.ok(currencyPrecisionErrors(roughMoney).some((item) => item.includes("$779,589.702")));
+const countFiles = {
+  lost_revenue: goodLostRows,
+  missing_items: { rows: [{ store: "1" }] },
+  five_star: { rows: [{ store: "1" }] },
+  pre_sub_oos: { rows: [{ store: "1" }, { store: "2" }] },
+  picker_scorecard: { rows: [{ store: "210" }, { store: "210" }, { store: "239" }] },
+};
+assert.deepEqual(storeCountErrors(goodLostHome, countFiles), []);
+const staleCounts = structuredClone(goodLostHome);
+staleCounts.summaries[0].storeCount = 2165;
+staleCounts.pickerRollups.company.stores = 2165;
+assert.ok(storeCountErrors(staleCounts, countFiles).some((item) => item.includes("lost_revenue storeCount")));
+assert.ok(storeCountErrors(staleCounts, countFiles).some((item) => item.includes("picker stores")));
+const identDir = mkdtempSync(join(tmpdir(), "hb-ident-"));
+const identStamp = { publishedAt: "2026-10-06T01:35:23Z", schemaVersion: SCHEMA_VERSION, cookSha: "a".repeat(40) };
+writeFileSync(join(identDir, "home.json"), JSON.stringify({ ...identStamp, cookedAt: "2026-10-07T00:00:00Z" }));
+writeFileSync(join(identDir, "schedule.json"), JSON.stringify(identStamp));
+assert.ok(packIdentityErrors(identDir).some((item) => item.includes("does not match")));
+rmSync(identDir, { recursive: true, force: true });
+const fifteen = mkdtempSync(join(tmpdir(), "hb-fifteen-"));
+const fifteenStamp = {
+  publishedAt: "2026-10-06T01:35:23Z",
+  schemaVersion: SCHEMA_VERSION,
+  cookSha: "a".repeat(40),
+  cookedAt: "2026-10-07T00:00:00Z",
+};
+for (const rel of PACK_FILES) {
+  if (rel === "section/pick_path.json") continue;
+  const dest = join(fifteen, rel);
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, JSON.stringify(fifteenStamp));
+}
+assert.ok(packIdentityErrors(fifteen).some((item) => item === "section/pick_path.json is missing"));
+rmSync(fifteen, { recursive: true, force: true });
+const fetchPackSrc = app.slice(app.indexOf("async function fetchPack"), app.indexOf("async function loadOptional"));
+assert.match(fetchPackSrc, /state\.packs\.clear\(\)/);
+assert.match(fetchPackSrc, /state\.failedPacks\.clear\(\)/);
+assert.match(fetchPackSrc, /acceptHome\(home\)/);
+assert.equal(fetchPackSrc.includes('state.packs.delete("home")'), false);
+const publishPy = readFileSync(join(root, "scripts/pack_publish.py"), "utf8");
+assert.match(publishPy, /The specified key does not exist\./);
+assert.equal(publishPy.includes("NOT_FOUND_MARKERS"), false);
+assert.match(publishPy, /pass --first-publish/);
+assert.match(publishPy, /web-pack\/current\.json/);
+assert.match(publishPy, /check_pack failed on the uploaded set/);
+assert.match(publishPy, /refusing to write into the live pack folder/);
+assert.match(publishPy, /refusing to write into the fallback pack folder/);
 assert.equal(publishScript.includes("web-pack/packs/"), false);
+assert.equal(publishPy.includes("web-pack/packs/"), false);
 assert.equal(publishScript.includes("web-pack/pointer.json"), false);
-assert.match(publishScript, /site tree not deployed/);
+assert.equal(publishPy.includes("web-pack/pointer.json"), false);
+assert.match(publishPy, /site tree not deployed/);
 assert.match(publishScript, /print_pack_stamp\.mjs/);
 assert.match(publishScript, /signed-in compare/);
 assert.match(publishScript, /2026-09-29/);
@@ -967,13 +2242,26 @@ assert.match(publishScript, /2026-09-30/);
 assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), "utf8"), /HEARTBEAT_DATA_ONLY=1/);
 assert.match(readFileSync(join(root, "package.json"), "utf8"), />=22\.5\.0/);
 assert.match(publishScript, /\{"error":"unauthorized"\}/);
+assert.equal(publishScript.includes("--commit-dirty=true"), false);
 assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
 assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
 assert.match(wrangler, /pages_build_output_dir = "dist"/);
 assert.match(wrangler, /binding = "HB_AUTH"/);
 assert.match(wrangler, /database_name = "fulfillment-heartbeat-auth"/);
-assert.match(wrangler, /646c017a-802f-4395-b635-d4b5bd66c1cb/);
+assert.match(wrangler, /database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
+assert.match(wrangler, /preview_database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
+assert.match(wrangler, /database_name = "hb-auth-preview"/);
+assert.equal(wrangler.includes('preview_database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"'), false);
+const wranglerEnvs = new Set([...wrangler.matchAll(/\[\[env\.([^.]+)\./g)].map((match) => match[1]));
+assert.deepEqual([...wranglerEnvs].sort(), ["preview", "production"]);
+for (const name of wranglerEnvs) {
+  const block = wrangler.slice(wrangler.indexOf(`[[env.${name}.r2_buckets]]`));
+  assert.match(block, /binding = "HEARTBEAT_PACKS"/);
+  assert.match(block, /bucket_name = "heartbeat-packs"/);
+}
+assert.match(wrangler, /\[\[env\.preview\.d1_databases\]\][\s\S]*database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
+assert.match(wrangler, /\[\[env\.production\.d1_databases\]\][\s\S]*database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
 assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
 const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
 assert.equal(built.status, 0, built.stderr.toString());
@@ -984,6 +2272,14 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
+assert.match(distIndex, /app\.css\?v=28/);
+assert.match(distIndex, /app\.js\?v=45/);
+assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
+const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
+assert.equal(distApp.includes("__BUILD_SHA__"), false);
+const stagedSha = spawnSync("git", ["rev-parse", "--short=7", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
+assert.match(distApp, new RegExp(`Build \\$\\{esc\\(buildLine\\)\\}`));
+assert.match(distApp, new RegExp(`const BUILD_SHA = "${stagedSha}"`));
 assert.match(app, /class="figure"/);
 assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
 assert.equal(statSync(join(root, "functions/_middleware.js")).isFile(), true);
@@ -1206,8 +2502,16 @@ assert.equal(rawDivisionName("INTERMOUNTAIN"), true);
 const goodSha = "a".repeat(40);
 const badSha = "b".repeat(40);
 const publishedAt = "2026-10-06T01:35:23Z";
+const goodCookedAt = "2026-10-07T04:00:00Z";
 const goodPrefix = packPrefix(goodSha, publishedAt);
 const badPrefix = packPrefix(badSha, publishedAt);
+assert.equal(PINNED_LIVE_COOK_SHA, "74d44dde02a0e1c6430a9a78b06034099c84e001");
+assert.equal(PINNED_LIVE_PUBLISHED_AT, publishedAt);
+assert.equal(PINNED_LIVE_PREFIX, `web-pack/${PINNED_LIVE_COOK_SHA}-${publishedAt}`);
+assert.equal(PINNED_HOME_SHA256, "fece0ad52e54aa5cb3cb7a3637552d831a4e276d28b695ca3b2797172f7d839a");
+assert.equal(isPinnedLivePack(PINNED_LIVE_COOK_SHA, publishedAt, "", ""), false);
+assert.equal(isPinnedLivePack(PINNED_LIVE_COOK_SHA, publishedAt, "", PINNED_LIVE_PREFIX), true);
+assert.equal(await sha256Hex(readFileSync(join(root, "public/data/home.json"), "utf8")), PINNED_HOME_SHA256);
 assert.equal(PACK_POINTER_KEY, "web-pack/current.json");
 assert.equal(goodPrefix, `web-pack/${goodSha}-${publishedAt}`);
 assert.equal(packObjectKey(goodPrefix, "section/labor.json"), `${goodPrefix}/section/labor.json`);
@@ -1215,7 +2519,8 @@ const goodHome = {
   schemaVersion: SCHEMA_VERSION,
   cookSha: goodSha,
   publishedAt,
-  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha },
+  cookedAt: goodCookedAt,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha, cookedAt: goodCookedAt },
   laborMarket: { aiv_impact_pct: 3, uplh_impact_pct: 1, wage_impact_pct: 2, target_vs_actual_pct: 6 },
   regionTables: [{ region: "West" }],
   summaries: [{ section: "sales" }],
@@ -1242,26 +2547,35 @@ function memoryBucket(files) {
       const text = files[key];
       return { text: async () => text, body: text };
     },
+    async list({ prefix } = {}) {
+      const objects = Object.keys(files)
+        .filter((key) => !prefix || key.startsWith(prefix))
+        .map((key) => ({ key }));
+      return { objects, truncated: false };
+    },
   };
 }
 const packFiles = {
   [PACK_POINTER_KEY]: JSON.stringify({
     prefix: badPrefix,
     cookSha: badSha,
+    cookedAt: "2026-10-07T01:00:00Z",
     publishedAt,
     schemaVersion: SCHEMA_VERSION,
-    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+    previous: { prefix: goodPrefix, cookSha: goodSha, cookedAt: goodCookedAt, publishedAt, schemaVersion: SCHEMA_VERSION },
   }),
-  [packObjectKey(badPrefix, "home.json")]: JSON.stringify(badHome),
+  [packObjectKey(badPrefix, "home.json")]: JSON.stringify({ ...badHome, cookedAt: "2026-10-07T01:00:00Z" }),
   [packObjectKey(badPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: badSha,
+    cookedAt: "2026-10-07T01:00:00Z",
     rows: [{ store: "879", division: "DENVER" }],
   }),
   [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
   [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: goodCookedAt,
     rows: [{ store: "879", division: "Mountain West" }],
   }),
 };
@@ -1276,31 +2590,104 @@ const packed = await basicGate({
 assert.equal(packed.status, 200);
 assert.equal(packed.headers.get("cache-control"), "private, no-store");
 assert.match(await packed.text(), /Mountain West/);
+resetPackCache();
+{
+  const flightSha = "e".repeat(40);
+  const nextSha = "f".repeat(40);
+  const flightCooked = "2026-10-08T00:00:00Z";
+  const nextCooked = "2026-10-08T01:00:00Z";
+  const flightPrefix = `web-pack/${flightSha}-${flightCooked}`;
+  const nextPrefix = `web-pack/${nextSha}-${nextCooked}`;
+  const packHome = (sha, cooked) =>
+    JSON.stringify({
+      publishedAt,
+      schemaVersion: SCHEMA_VERSION,
+      cookSha: sha,
+      cookedAt: cooked,
+      metadata: { schemaVersion: SCHEMA_VERSION, cookSha: sha, cookedAt: cooked },
+      summaries: [{ section: "sales" }],
+      laborMarket: { aiv_impact_pct: 0, uplh_impact_pct: 0, wage_impact_pct: 0, target_vs_actual_pct: 0 },
+      regionTables: [{}],
+      companyTiles: { sales: { labels: [], values: [] } },
+      filters: { stores: [{ store: "1" }] },
+    });
+  const files = {
+    [PACK_POINTER_KEY]: JSON.stringify({
+      prefix: flightPrefix,
+      cookSha: flightSha,
+      cookedAt: flightCooked,
+      publishedAt,
+      schemaVersion: SCHEMA_VERSION,
+    }),
+    [`${flightPrefix}/home.json`]: packHome(flightSha, flightCooked),
+    [`${nextPrefix}/home.json`]: packHome(nextSha, nextCooked),
+  };
+  let swapped = false;
+  const flightBucket = {
+    async get(key) {
+      if (key === `${flightPrefix}/home.json` && !swapped) {
+        swapped = true;
+        files[PACK_POINTER_KEY] = JSON.stringify({
+          prefix: nextPrefix,
+          cookSha: nextSha,
+          cookedAt: nextCooked,
+          publishedAt,
+          schemaVersion: SCHEMA_VERSION,
+        });
+        const nested = await readPackObject(flightBucket, "https://fulfillment-heartbeat-web.pages.dev/data/home.json");
+        assert.equal(nested.missing, undefined);
+        assert.match(await nested.text(), new RegExp(nextSha));
+      }
+      if (!Object.prototype.hasOwnProperty.call(files, key)) return null;
+      const text = files[key];
+      return { text: async () => text };
+    },
+    async list({ prefix } = {}) {
+      return {
+        objects: Object.keys(files)
+          .filter((key) => !prefix || key.startsWith(prefix))
+          .map((key) => ({ key })),
+        truncated: false,
+      };
+    },
+  };
+  const dropped = await readPackObject(
+    flightBucket,
+    `https://fulfillment-heartbeat-web.pages.dev/data/home.json?cookSha=${flightSha}&publishedAt=${encodeURIComponent(publishedAt)}&cookedAt=${encodeURIComponent(flightCooked)}`,
+  );
+  assert.equal(dropped.missing, true);
+}
+resetPackCache();
 const skewSha = "c".repeat(40);
 const skewPrefix = packPrefix(skewSha, publishedAt);
+const skewCookedAt = "2026-10-07T05:00:00Z";
 const skewHome = {
   ...goodHome,
   cookSha: skewSha,
-  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: skewSha },
+  cookedAt: skewCookedAt,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: skewSha, cookedAt: skewCookedAt },
 };
 const skewFiles = {
   [PACK_POINTER_KEY]: JSON.stringify({
     prefix: skewPrefix,
     cookSha: skewSha,
+    cookedAt: skewCookedAt,
     publishedAt,
     schemaVersion: SCHEMA_VERSION,
-    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+    previous: { prefix: goodPrefix, cookSha: goodSha, cookedAt: goodCookedAt, publishedAt, schemaVersion: SCHEMA_VERSION },
   }),
   [packObjectKey(skewPrefix, "home.json")]: JSON.stringify(skewHome),
   [packObjectKey(skewPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: skewCookedAt,
     rows: [{ store: "879", division: "DENVER" }],
   }),
   [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
   [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: goodCookedAt,
     rows: [{ store: "879", division: "Mountain West" }],
   }),
 };
@@ -1323,6 +2710,73 @@ const skewedHome = await basicGate({
 const skewedHomeText = await skewedHome.text();
 assert.match(skewedHomeText, new RegExp(goodSha));
 assert.equal(skewedHomeText.includes(skewSha), false);
+const siblingSha = "d".repeat(40);
+const siblingPrefix = `web-pack/${siblingSha}-2026-10-07T00:00:00Z`;
+const siblingHome = {
+  ...goodHome,
+  cookSha: siblingSha,
+  cookedAt: "2026-10-07T00:00:00Z",
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: siblingSha, cookedAt: "2026-10-07T00:00:00Z" },
+};
+const siblingFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: siblingPrefix,
+    cookSha: siblingSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+    previous: { prefix: goodPrefix, cookSha: goodSha, cookedAt: goodCookedAt, publishedAt, schemaVersion: SCHEMA_VERSION },
+  }),
+  [packObjectKey(siblingPrefix, "home.json")]: JSON.stringify(siblingHome),
+  [packObjectKey(siblingPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: siblingSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+    rows: [{ store: "879", division: "DENVER" }],
+  }),
+  [packObjectKey(siblingPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+    rows: [{ store: "1" }],
+  }),
+  [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    cookedAt: goodCookedAt,
+    rows: [{ store: "879", division: "Mountain West" }],
+  }),
+};
+resetPackCache();
+const siblingSection = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(siblingFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+const siblingText = await siblingSection.text();
+assert.match(siblingText, /Mountain West/);
+assert.equal(siblingText.includes("DENVER"), false);
+resetPackCache();
+const cookedMismatch = {
+  ...siblingFiles,
+  [packObjectKey(siblingPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: siblingSha,
+    cookedAt: "2026-10-06T00:00:00Z",
+    rows: [{ store: "1" }],
+  }),
+};
+const cookedSkew = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(cookedMismatch) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await cookedSkew.text(), /Mountain West/);
 resetPackCache();
 const unsignedPack = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json"),
@@ -1348,8 +2802,286 @@ const staticFallback = await basicGate({
   }),
   next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
 });
-assert.equal(await staticFallback.text(), "static-home");
+assert.equal(staticFallback.status, 404);
+assert.deepEqual(await staticFallback.json(), { error: "NO DATA" });
 assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
+const pinnedPrefix = PINNED_LIVE_PREFIX;
+const pinnedHomeText = readFileSync(join(root, "public/data/home.json"), "utf8");
+function realPinnedPack() {
+  const files = {};
+  for (const rel of PACK_FILES) {
+    files[packObjectKey(pinnedPrefix, rel)] = readFileSync(join(root, "public/data", rel), "utf8");
+  }
+  return files;
+}
+const pinnedFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: pinnedPrefix,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+  }),
+  [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
+  [packObjectKey(pinnedPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    rows: [{ store: "210", division: "United" }],
+  }),
+};
+resetPackCache();
+const pinnedServed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(pinnedFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(pinnedServed.status, 404);
+assert.equal((await pinnedServed.text()).includes("United"), false);
+resetPackCache();
+const realPinned = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: pinnedPrefix,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+  }),
+  ...realPinnedPack(),
+};
+const realLabor = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(realPinned) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(realLabor.status, 200);
+assert.equal(await sha256Hex(await realLabor.text()), PINNED_FILE_SHA256["section/labor.json"]);
+const cutLabor = {
+  ...realPinned,
+  [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    rows: [{ store: "1", division: "CUT-DOWN" }],
+  }),
+};
+resetPackCache();
+const cutServed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(cutLabor) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(cutServed.status, 404);
+assert.equal((await cutServed.text()).includes("CUT-DOWN"), false);
+const looseSha = "f".repeat(40);
+const loosePrefix = packPrefix(looseSha, publishedAt);
+const looseHome = {
+  ...goodHome,
+  cookSha: looseSha,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: looseSha },
+};
+delete looseHome.cookedAt;
+const pinnedObjects = realPinnedPack();
+resetPackCache();
+const looseRefused = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      ...pinnedObjects,
+      [packObjectKey(loosePrefix, "home.json")]: JSON.stringify(looseHome),
+      [packObjectKey(loosePrefix, "section/missing_items.json")]: JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        cookSha: looseSha,
+        rows: [{ store: "1", division: "Haggen" }],
+      }),
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: loosePrefix,
+        cookSha: looseSha,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+        previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
+      }),
+    }),
+  }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+const looseText = await looseRefused.text();
+assert.match(looseText, /eComm sales/);
+assert.match(looseText, new RegExp(PINNED_LIVE_COOK_SHA));
+assert.equal(looseText.includes(looseSha), false);
+const tabCurrentPrefix = packPrefix(goodSha, publishedAt);
+const tabFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: tabCurrentPrefix,
+    cookSha: goodSha,
+    cookedAt: goodCookedAt,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+    previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
+  }),
+  [packObjectKey(tabCurrentPrefix, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(tabCurrentPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    cookedAt: goodCookedAt,
+    rows: [{ store: "1", division: "CURRENT" }],
+  }),
+  [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
+  [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    rows: [{ store: "1", division: "PINNED" }],
+  }),
+};
+const pinnedQuery = `cookSha=${PINNED_LIVE_COOK_SHA}&publishedAt=${encodeURIComponent(publishedAt)}`;
+resetPackCache();
+const pinnedTab = await basicGate({
+  request: new Request(`https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json?${pinnedQuery}`, {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(pinnedTab.status, 404);
+assert.equal((await pinnedTab.text()).includes("PINNED"), false);
+const currentQuery = `cookSha=${goodSha}&publishedAt=${encodeURIComponent(publishedAt)}&cookedAt=${encodeURIComponent(goodCookedAt)}`;
+resetPackCache();
+const currentTab = await basicGate({
+  request: new Request(`https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json?${currentQuery}`, {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await currentTab.text(), /CURRENT/);
+resetPackCache();
+const missingOnPin = await basicGate({
+  request: new Request(`https://fulfillment-heartbeat-web.pages.dev/data/section/sales.json?${currentQuery}`, {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(tabFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(missingOnPin.status, 404);
+assert.deepEqual(await missingOnPin.json(), { error: "NO DATA" });
+resetPackCache();
+const wholePrevious = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/labor.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: tabCurrentPrefix,
+        cookSha: goodSha,
+        cookedAt: goodCookedAt,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+        previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
+      }),
+      [packObjectKey(tabCurrentPrefix, "home.json")]: JSON.stringify(goodHome),
+      [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
+      [packObjectKey(pinnedPrefix, "section/labor.json")]: JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        cookSha: PINNED_LIVE_COOK_SHA,
+        publishedAt,
+        rows: [{ store: "1", division: "PINNED" }],
+      }),
+    }),
+  }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wholePrevious.status, 404);
+assert.equal((await wholePrevious.text()).includes("PINNED"), false);
+const wrongPublished = "2026-11-01T00:00:00Z";
+resetPackCache();
+const wrongPin = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: pinnedPrefix,
+        cookSha: PINNED_LIVE_COOK_SHA,
+        publishedAt: wrongPublished,
+        schemaVersion: SCHEMA_VERSION,
+      }),
+      [packObjectKey(pinnedPrefix, "home.json")]: pinnedHomeText,
+    }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wrongPin.status, 404);
+assert.equal((await wrongPin.text()).includes("static-home"), false);
+resetPackCache();
+const absentPointer = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket({}) }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(absentPointer.status, 200);
+assert.equal(await absentPointer.text(), "static-home");
+resetPackCache();
+const absentApi = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/home", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket({}) }),
+  next: async () => new Response("static-api", { status: 200 }),
+});
+assert.equal(absentApi.status, 404);
+assert.equal((await absentApi.text()).includes("static-api"), false);
+resetPackCache();
+const corruptPointer = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({ [PACK_POINTER_KEY]: "not-json" }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(corruptPointer.status, 404);
+assert.equal((await corruptPointer.text()).includes("static-home"), false);
+resetPackCache();
+const wrongPrefix = "web-pack/not-the-pinned-prefix";
+const wrongPrefixPin = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: wrongPrefix,
+        cookSha: PINNED_LIVE_COOK_SHA,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+      }),
+      [packObjectKey(wrongPrefix, "home.json")]: pinnedHomeText,
+    }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wrongPrefixPin.status, 404);
+assert.equal((await wrongPrefixPin.text()).includes("static-home"), false);
+resetPackCache();
+const reshapedHome = JSON.stringify(JSON.parse(pinnedHomeText));
+const wrongHash = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      ...pinnedFiles,
+      [packObjectKey(pinnedPrefix, "home.json")]: reshapedHome,
+    }),
+  }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(wrongHash.status, 404);
+assert.equal((await wrongHash.text()).includes("static-pack"), false);
+assert.notEqual(await sha256Hex(reshapedHome), PINNED_HOME_SHA256);
 resetPackCache();
 const apiPacked = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/section/missing_items", {
@@ -1529,6 +3261,43 @@ const laborBridge = laborFile.rows.filter((row) => {
   );
 });
 assert.equal(laborBridge.length, 2109);
+const rosterCount = cooked.filters.stores.length;
+const pinnedBridge = laborBridgeCensus(laborFile.rows, rosterCount);
+assert.equal(pinnedBridge.bridged, 2151);
+assert.equal(pinnedBridge.bridged, laborBridge.length + 42);
+assert.deepEqual(pinnedBridge.errors, []);
+assert.ok(pinnedBridge.bridged >= 2000);
+assert.ok(pinnedBridge.bridged >= rosterCount - 60);
+const aivZero = (row) => {
+  const aiv = row && row.payload ? row.payload.aiv_impact_pct : undefined;
+  return aiv == null || aiv === "" || Number(aiv) === 0;
+};
+assert.equal(laborFile.rows.filter(aivZero).length, 42);
+const droppedAiv = laborBridgeCensus(
+  laborFile.rows.filter((row) => !aivZero(row)),
+  rosterCount,
+);
+assert.equal(droppedAiv.bridged, 2109);
+assert.ok(droppedAiv.errors.some((item) => item === "labor bridge rows=2109"));
+const dropped500 = laborBridgeCensus(laborFile.rows.slice(500), rosterCount);
+assert.ok(dropped500.bridged < 2000);
+assert.ok(dropped500.errors.some((item) => item.startsWith("labor bridge rows=")));
+const dropFivePct = Math.ceil(laborFile.rows.length * 0.05);
+const droppedPct = laborBridgeCensus(laborFile.rows.slice(dropFivePct), rosterCount);
+assert.ok(droppedPct.bridged < rosterCount - 60);
+assert.ok(droppedPct.errors.some((item) => item.startsWith("labor bridge rows=")));
+const twoDigitBridge = laborBridgeCensus([
+  { store: "10", payload: { uplh_impact_pct: 1, wage_impact_pct: 1, aiv_impact_pct: 1, target_vs_actual_pct: 3 } },
+  { store: "23", payload: { uplh_impact_pct: 2, wage_impact_pct: 2, aiv_impact_pct: 2, target_vs_actual_pct: 6 } },
+]);
+assert.equal(twoDigitBridge.bridged, 2);
+assert.deepEqual(twoDigitBridge.errors, []);
+const brokenBridge = laborBridgeCensus([
+  { store: "1", payload: { uplh_impact_pct: 1, wage_impact_pct: 1, aiv_impact_pct: 1, target_vs_actual_pct: 9 } },
+]);
+assert.ok(brokenBridge.errors.some((item) => item === "labor bridge 1"));
+const emptyBridge = laborBridgeCensus([{ store: "1", payload: {} }]);
+assert.ok(emptyBridge.errors.some((item) => item === "labor bridge rows=0"));
 assert.ok(
   laborBridge.every((row) => {
     const payload = row.payload;
@@ -1635,7 +3404,118 @@ assert.equal(southDivisions.find((row) => row.division === "Southern").scope, 13
 assert.equal(southDivisions.find((row) => row.division === "United").scope, 71);
 assert.equal(countStores(cooked.filters.stores, filters({ region: "South Region" })), 397);
 assert.equal(regionStoreCount(cooked.filters.stores, "South"), 397);
-assert.match(app, /regionStoreCount\(roster\(\), name\)/);
+assert.match(app, /sectionStoreCount/);
+assert.match(app, /roster stores/);
+assert.match(app, /figureAbsent/);
+assert.equal(figureAbsent("$1.00"), false);
+assert.equal(figureAbsent("—"), true);
+assert.equal(figureAbsent(""), true);
+const stickyTop = css.slice(css.indexOf(".sticky-top"), css.indexOf(".titles { min-width"));
+assert.equal(stickyTop.includes("position: sticky"), false);
+const thRule = css.slice(css.indexOf("\nth {"), css.indexOf("td.good"));
+assert.equal(thRule.includes("position: sticky"), false);
+const laborRows = JSON.parse(readFileSync(join(root, "public/data/section/labor.json"), "utf8")).rows;
+const lostRows = JSON.parse(readFileSync(join(root, "public/data/section/lost_revenue.json"), "utf8")).rows;
+const noScope = filters({});
+assert.equal(packHome.summaries.find((item) => item.section === "labor").storeCount, 2149);
+assert.equal(sectionStoreCount(laborRows, noScope, packRoster, "labor"), 2151);
+const laborGrain = sectionRowGrain("labor", laborRows, noScope, packRoster, packHome.regionLines);
+assert.deepEqual(
+  laborGrain.filter((row) => row.grain === "region").map((row) => [row.label, row.count]),
+  [
+    ["East", 610],
+    ["South", 392],
+    ["California", 599],
+    ["West", 548],
+  ],
+);
+const poisonedLines = JSON.parse(JSON.stringify(packHome.regionLines)).map((line) => ({
+  ...line,
+  count: 900000000 + Number(line.count || 0),
+  value: typeof line.value === "string" && line.value.endsWith("shoppers") ? `900000000 shoppers` : line.value,
+  children: (line.children || []).map((child) => ({ ...child, count: 900000000 + Number(child.count || 0) })),
+}));
+assert.equal(sectionRowGrain("labor", laborRows, noScope, packRoster, poisonedLines).find((row) => row.label === "East").count, 610);
+const pickerRows = JSON.parse(readFileSync(join(root, "public/data/section/picker_scorecard.json"), "utf8")).rows;
+const pickerGrain = sectionRowGrain("picker_scorecard", pickerRows, noScope, packRoster, poisonedLines);
+const eastPickers = pickerGrain.find((row) => row.grain === "region" && row.label === "East");
+assert.equal(eastPickers.count, 9368);
+assert.equal(eastPickers.value, "9,368 shoppers");
+assert.equal(distinctShopperCount(pickerRows), 29838);
+const pickerBands = pickerShopperBands(pickerRows);
+assert.equal(pickerBands.shoppers, 29838);
+assert.equal(pickerBands.healthy, 2846);
+assert.equal(pickerBands.watch, 3261);
+assert.equal(pickerBands.risk, 23731);
+assert.equal(summarizeSeat("picker_scorecard", pickerRows).secondary, "23731 opportunity · 3261 watch · 2846 doing well");
+const eastPickerBuilt = summarizeSeat(
+  "picker_scorecard",
+  rowsInScope(pickerRows, filters({ region: "East Region" }), packRoster, "picker_scorecard"),
+);
+assert.equal(eastPickerBuilt.secondary, "8355 opportunity · 612 watch · 401 doing well");
+assert.equal(eastPickerBuilt.healthyCount + eastPickerBuilt.watchCount + eastPickerBuilt.riskCount, 9368);
+const southernPickers = summarizeSeat(
+  "picker_scorecard",
+  rowsInScope(pickerRows, filters({ division: "Southern" }), packRoster, "picker_scorecard"),
+);
+assert.equal(southernPickers.headline, 1613);
+const salesRows = JSON.parse(readFileSync(join(root, "public/data/section/sales.json"), "utf8")).rows;
+const southernSales = summarizeSeat(
+  "sales",
+  rowsInScope(salesRows, filters({ division: "Southern" }), packRoster, "sales"),
+);
+assert.equal(money(southernSales.headline), "$4,351,261.96");
+assert.equal(southernSales.health, "good");
+const southernLabor = summarizeSeat(
+  "labor",
+  rowsInScope(laborRows, filters({ division: "Southern" }), packRoster, "labor"),
+);
+assert.equal(formatHeadline("labor", southernLabor.headline), "-3.09%");
+assert.equal(southernLabor.health, "good");
+const eastSalesRows = summarizeSeat(
+  "sales",
+  rowsInScope(salesRows, filters({ region: "East Region" }), packRoster, "sales"),
+);
+assert.equal(eastSalesRows.health, "good");
+assert.match(eastSalesRows.secondary, /499 up/);
+assert.match(eastSalesRows.secondary, /85 down/);
+const eastLaborRows = summarizeSeat(
+  "labor",
+  rowsInScope(laborRows, filters({ region: "East Region" }), packRoster, "labor"),
+);
+assert.equal(eastLaborRows.health, "good");
+const dynRows = JSON.parse(readFileSync(join(root, "public/data/section/dynacap.json"), "utf8")).rows;
+const dynBuilt = summarizeSeat("dynacap", dynRows);
+assert.equal(dynBuilt.storeCount, 2089);
+assert.equal(formatHeadline("dynacap", dynBuilt.headline), "67.8");
+assert.match(dynBuilt.secondary, /75 stores have capacity but no Pcs\/Hr/);
+assert.equal(metricCountLine(dynRows, ["dynacap_rate", "pieces_per_hour"]), "2,089 of 2,164");
+assert.equal(metricCountLine(dynRows, ["utilization_pct", "pickup_util_pct"]), "2,089 of 2,164");
+assert.equal(metricCountLine(dynRows, ["eot_capacity", "used_capacity"]), "");
+assert.match(app, /metricCountLine\(/);
+assert.match(app, /<small class="count">/);
+assert.match(css, /\.chip small\.count/);
+assert.match(app, /stores with no division/);
+assert.match(app, /stores with source issues not scored/);
+const missingBuilt = summarizeSeat("missing_items", JSON.parse(readFileSync(join(root, "public/data/section/missing_items.json"), "utf8")).rows);
+assert.equal(missingBuilt.healthyCount, 252);
+assert.equal(missingBuilt.riskCount, 1319);
+const presubBuilt = summarizeSeat("pre_sub_oos", JSON.parse(readFileSync(join(root, "public/data/section/pre_sub_oos.json"), "utf8")).rows);
+assert.equal(presubBuilt.watchCount, 653);
+assert.equal(presubBuilt.riskCount, 522);
+const pphBuilt = summarizeSeat("pph", JSON.parse(readFileSync(join(root, "public/data/section/pph.json"), "utf8")).rows);
+assert.equal(pphBuilt.atGoalCount, 564);
+assert.equal(pphBuilt.riskCount, 1133);
+const californiaScope = filters({ region: "California Region" });
+assert.equal(countStores(packRoster, californiaScope), 601);
+assert.equal(sectionStoreCount(lostRows, californiaScope, packRoster, "lost_revenue"), 600);
+for (const region of ["East Region", "South Region", "West Region"]) {
+  const scope = filters({ region });
+  const rosterCount = countStores(packRoster, scope);
+  const lostCount = sectionStoreCount(lostRows, scope, packRoster, "lost_revenue");
+  assert.equal(lostCount, rosterCount, region);
+}
+assert.match(app, /const valueHead = section === "lost_revenue" \? LOST_EXCL_LABEL : "Value"/);
 const liveUnited = summary(schedule, filters({ division: "United" }), []);
 assert.equal(liveUnited.under, null);
 assert.equal(liveUnited.over, null);
@@ -2078,6 +3958,23 @@ const nullOriginBlockedHtml = await nullOriginBlocked.text();
 assert.match(nullOriginBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
 assert.equal(nullOriginBlockedHtml.includes("That email or password is wrong."), false);
 assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, 1);
+const blockedBefore = browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures;
+for (const site of ["cross-site", "same-site"]) {
+  const blocked = await accountRequest(browserLogin.db, "/login", {
+    method: "POST",
+    body: "username=heartbeat&password=test-only-secret",
+    headers: {
+      origin: "null",
+      "sec-fetch-site": site,
+      referer: "https://fulfillment-heartbeat-web.pages.dev/login",
+    },
+  });
+  assert.equal(blocked.status, 403);
+  const blockedHtml = await blocked.text();
+  assert.match(blockedHtml, /Sign-in blocked: please open the site directly and try again/);
+  assert.equal(blockedHtml.includes("That email or password is wrong."), false);
+}
+assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, blockedBefore);
 const refererLogin = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
@@ -2118,6 +4015,31 @@ const sameOriginLogin = await accountRequest(auth.db, "/login", {
   headers: { origin: "https://fulfillment-heartbeat-web.pages.dev" },
 });
 assert.equal(sameOriginLogin.status, 303);
+const ownOriginAttempts = browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n;
+const crossSiteOwnOrigin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: {
+    origin: "https://fulfillment-heartbeat-web.pages.dev",
+    "sec-fetch-site": "cross-site",
+  },
+});
+assert.equal(crossSiteOwnOrigin.status, 403);
+const crossSiteOwnOriginHtml = await crossSiteOwnOrigin.text();
+assert.match(crossSiteOwnOriginHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(crossSiteOwnOriginHtml.includes("That email or password is wrong."), false);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, ownOriginAttempts);
+const sameSiteOwnOrigin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: {
+    origin: "https://fulfillment-heartbeat-web.pages.dev",
+    "sec-fetch-site": "same-site",
+  },
+});
+assert.equal(sameSiteOwnOrigin.status, 403);
+assert.match(await sameSiteOwnOrigin.text(), /Sign-in blocked: please open the site directly and try again/);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, ownOriginAttempts);
 
 const formOrigin = openAuth();
 const formSetup = await accountRequest(formOrigin.db, "/setup", { headers: { authorization: "Bearer setup-secret-value" } });
@@ -2201,5 +4123,8 @@ async function legacyPasswordCookie(env, user, pass) {
   const sig = [...new Uint8Array(signed)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return `${encoded}.${sig}`;
 }
+
+const { runFakeCountLab } = await import("./test_fake_counts.mjs");
+await runFakeCountLab(join(root, "public"));
 
 console.log("web ok");

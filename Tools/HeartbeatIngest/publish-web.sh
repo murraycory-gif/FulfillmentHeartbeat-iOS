@@ -17,7 +17,22 @@ SQLITE="${1:-}"
 PROJECT="fulfillment-heartbeat-web"
 SITE_URL="${HEARTBEAT_SITE_URL:-https://fulfillment-heartbeat-web.pages.dev}"
 UI_ONLY="${HEARTBEAT_UI_ONLY:-}"
+DATA_ONLY="${HEARTBEAT_DATA_ONLY:-}"
 USE_LOCAL="${HEARTBEAT_USE_LOCAL_DATA:-}"
+# UI-only skips the local pack check and does not move the pointer.
+# A dirty tree still refuses, so the build label matches the files that ship.
+# A data publish refuses every path.
+if [[ -n "$UI_ONLY" && -z "$DATA_ONLY" ]]; then
+  if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish; then
+    echo "refusing publish: cook guard" >&2
+    exit 1
+  fi
+else
+  if ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" --publish-data; then
+    echo "refusing publish: cook guard" >&2
+    exit 1
+  fi
+fi
 
 if [[ "${HEARTBEAT_PAGES_PROJECT:-$PROJECT}" != "$PROJECT" ]]; then
   echo "Refusing Pages project '${HEARTBEAT_PAGES_PROJECT}'. Only ${PROJECT} is allowed." >&2
@@ -37,7 +52,6 @@ if [[ -z "${HEARTBEAT_SKIP_GIT_CHECK:-}" ]]; then
     exit 1
   fi
 fi
-DATA_ONLY="${HEARTBEAT_DATA_ONLY:-}"
 if [[ -z "$UI_ONLY" && ( -z "$SQLITE" || ! -f "$SQLITE" ) ]]; then
   echo "publish-web: cooked sqlite is missing" >&2
   exit 1
@@ -55,9 +69,32 @@ fi
 
 WEB="$ROOT/web"
 DATA="$WEB/public/data"
+PACK_DIR="$DATA"
 CONFIG_DIR="${HOME}/.config/heartbeat"
 EMAIL_FILE="${HEARTBEAT_WEB_EMAIL_FILE:-$CONFIG_DIR/web-email}"
 PASS_FILE="${HEARTBEAT_WEB_PASSWORD_FILE:-$CONFIG_DIR/web-password}"
+EXTRACT=""
+LIVE_STAGE=""
+POINTER_PLAN=""
+cleanup_stages() {
+  if [[ -n "${EXTRACT}" ]]; then
+    rm -rf "$EXTRACT"
+  fi
+  if [[ -n "${LIVE_STAGE}" ]]; then
+    rm -rf "$LIVE_STAGE"
+  fi
+  if [[ -n "${POINTER_PLAN}" ]]; then
+    rm -f "$POINTER_PLAN"
+  fi
+}
+on_term() {
+  cleanup_stages
+  # SIGTERM to this shell alone used to leave pack_publish.py and one temp dir.
+  pkill -TERM -P $$ >/dev/null 2>&1 || true
+  exit 143
+}
+trap cleanup_stages EXIT
+trap on_term TERM
 
 if [[ -z "$UI_ONLY" ]]; then
   EXTRACT="$(mktemp -d)"
@@ -67,40 +104,39 @@ if [[ -z "$UI_ONLY" ]]; then
   else
     python3 "$ROOT/web/scripts/extract_web_pack.py" "$SQLITE" "$EXTRACT"
   fi
-  python3 - "$DATA" "$EXTRACT" << 'PY'
-import json, shutil, sys
-from pathlib import Path
-
-dest = Path(sys.argv[1])
-fresh = Path(sys.argv[2])
-
-def stamp(root):
-    home = root / "home.json"
-    if not home.is_file():
-        return ""
-    return str(json.loads(home.read_text()).get("publishedAt") or "")
-
-have = stamp(dest)
-cooked = stamp(fresh)
-if have and cooked < have:
-    print(f"keeping newer pack publishedAt={have} (sqlite is {cooked})")
-    raise SystemExit(0)
-if dest.exists():
-    shutil.rmtree(dest)
-shutil.copytree(fresh, dest)
-print(f"using sqlite pack publishedAt={cooked}")
-PY
-  rm -rf "$EXTRACT"
+  set +e
+  decision="$(python3 "$ROOT/web/scripts/pack_identity.py" prefer "$EXTRACT" "$DATA")"
+  prefer_status=$?
+  set -e
+  if [[ "$prefer_status" -ne 0 || ( "$decision" != "replace" && "$decision" != "keep" ) ]]; then
+    echo "refusing pack replace: cookSha and cookedAt disagree or cannot be ranked" >&2
+    rm -rf "$EXTRACT"
+    exit 1
+  fi
+  if [[ "$decision" == "replace" ]]; then
+    # cookedAt changes on every cook. Copying that into tracked web/public/data
+    # leaves the tree dirty and the next publish refuses. Upload from the extract.
+    PACK_DIR="$EXTRACT"
+    echo "publish-web: new cook stays out of tracked web/public/data"
+    python3 "$ROOT/web/scripts/pack_identity.py" check "$PACK_DIR"
+  else
+    echo "keeping pack $(python3 "$ROOT/web/scripts/pack_identity.py" check "$DATA")"
+    rm -rf "$EXTRACT"
+  fi
 else
   echo "UI-only deploy: not extracting sqlite"
 fi
 
 LIVE_CHECKED=0
-if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
-  python3 - "$DATA" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" << 'PY'
+LIVE_STAGE="$(mktemp -d)"
+if [[ -n "$UI_ONLY" ]]; then
+  echo "UI-only deploy: skipping local pack check"
+elif [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
+  python3 - "$PACK_DIR" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" "$LIVE_STAGE" << 'PY'
 import http.cookiejar
 import json
 import shutil
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -110,13 +146,9 @@ dest = Path(sys.argv[1])
 email = Path(sys.argv[2]).read_text().strip()
 password = Path(sys.argv[3]).read_text().strip()
 site = sys.argv[4].rstrip("/")
+identity_script = sys.argv[5]
+stage = Path(sys.argv[6])
 ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-
-def stamp(root):
-    home = root / "home.json"
-    if not home.is_file():
-        return ""
-    return str(json.loads(home.read_text()).get("publishedAt") or "")
 
 jar = http.cookiejar.CookieJar()
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
@@ -146,53 +178,36 @@ if status != 200:
     print(f"live pack check failed: /data/home.json returned {status}", file=sys.stderr)
     raise SystemExit(2)
 live = json.loads(raw)
-live_stamp = str(live.get("publishedAt") or "")
-local_stamp = stamp(dest)
-if not live_stamp or live_stamp <= local_stamp:
-    print(f"local pack publishedAt={local_stamp or 'missing'} is current (live {live_stamp or 'missing'})")
-    raise SystemExit(0)
-names = [path.relative_to(dest).as_posix() for path in dest.rglob("*") if path.is_file()]
-if "home.json" not in names:
-    names.insert(0, "home.json")
-staged = dest.parent / ".data-next"
-if staged.exists():
-    shutil.rmtree(staged)
-staged.mkdir()
-for name in names:
-    status, payload = call("/data/" + name)
-    if status != 200 or not payload:
-        shutil.rmtree(staged, ignore_errors=True)
-        print(f"live pack check failed: /data/{name} returned {status}", file=sys.stderr)
-        raise SystemExit(2)
-    target = staged / name
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(payload)
-got = stamp(staged)
-if got != live_stamp:
-    shutil.rmtree(staged, ignore_errors=True)
-    print("live pack check failed: downloaded stamp does not match", file=sys.stderr)
+live_file = stage / ".live-home.json"
+stage.mkdir(parents=True, exist_ok=True)
+live_file.write_text(json.dumps(live), encoding="utf-8")
+ranked = subprocess.run(
+    [sys.executable, identity_script, "live", str(live_file), str(dest)],
+    capture_output=True,
+    text=True,
+)
+live_file.unlink(missing_ok=True)
+choice = (ranked.stdout or "").strip()
+if ranked.returncode != 0 or choice != "keep":
+    print("live pack check refused: local pack is older or the stamps disagree", file=sys.stderr)
     raise SystemExit(2)
-backup = dest.parent / ".data-prev"
-if backup.exists():
-    shutil.rmtree(backup)
-if dest.exists():
-    dest.rename(backup)
-staged.rename(dest)
-if backup.exists():
-    shutil.rmtree(backup)
-print(f"fetched live pack publishedAt={got}")
+print(f"local pack cookSha={live.get('cookSha')} cookedAt={live.get('cookedAt') or 'missing'} is current")
 PY
   LIVE_CHECKED=1
 fi
 
-if [[ -n "$UI_ONLY" && "$LIVE_CHECKED" -ne 1 && "$USE_LOCAL" != "1" ]]; then
-  echo "publish-web: UI-only deploy needs the current pack in web/public/data (HEARTBEAT_USE_LOCAL_DATA=1) or a site login in ${EMAIL_FILE} and ${PASS_FILE}." >&2
+# Every pack needs cookedAt, including the pinned live cook. The site may
+# keep serving that cook. This script must not publish it again.
+# UI-only does not re-check that local tree. It checks the live pointer instead.
+if [[ -z "$UI_ONLY" ]]; then
+if ! node "$WEB/check_pack.mjs" --cooked-at "$PACK_DIR"; then
+  echo "refusing publish: cookedAt is missing" >&2
   exit 1
 fi
 
-node "$WEB/check_pack.mjs" "$DATA"
+node "$WEB/check_pack.mjs" "$PACK_DIR"
 
-python3 - "$DATA" << 'PY'
+python3 - "$PACK_DIR" << 'PY'
 import json
 import sys
 from pathlib import Path
@@ -228,138 +243,121 @@ if not found:
     raise SystemExit("refusing deploy: cooked pack has no Mid-Atlantic dynacap line")
 print(f"pack ok publishedAt={published} week={week} stores={len(stores)}")
 PY
+fi
 
 if grep -q "dynacapHealth" "$WEB/public/seat.js"; then
   echo "refusing deploy: seat.js still overrides dynacap health" >&2
   exit 1
 fi
 
+# Before tests and secret upload. A dirty tree would stamp the build label
+# with a commit that does not match the files about to ship. HEARTBEAT_DATA_ONLY
+# reaches this check too, so a dirty tree blocks a data-only upload.
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "refusing publish: git worktree is dirty, so the build label would show a commit that does not match this tree" >&2
+  exit 1
+fi
+
 cd "$WEB"
 npm test
+
+# The test stages the tracked pack into dist/. A new cook is not that tree.
+# Put it in dist only, which is gitignored, so the deployment matches the upload.
+if [[ "$PACK_DIR" != "$DATA" ]]; then
+  rm -rf "$WEB/dist/data"
+  mkdir -p "$WEB/dist"
+  cp -R "$PACK_DIR" "$WEB/dist/data"
+fi
 
 # The upload is dist/, after the test stages public/ into it. Check those files.
 node "$WEB/scripts/print_pack_stamp.mjs" "$WEB/dist/data"
 node "$WEB/check_pack.mjs" "$WEB/dist/data"
 
-# Session and setup secrets are created once. A later deploy must not rotate them.
-SECRET_LIST="$(npx wrangler pages secret list --project-name "$PROJECT" 2>/dev/null || true)"
-put_secret_if_missing() {
-  local name="$1"
-  local file="$2"
-  if grep -q "$name" <<<"$SECRET_LIST"; then
-    return
+# BEGIN secrets
+# Data-only publish never lists, creates, or uploads a Pages secret.
+# A failed secret list aborts. It must not mint a new SESSION_SECRET.
+if [[ -z "$DATA_ONLY" ]]; then
+  if ! SECRET_LIST="$(npx wrangler pages secret list --project-name "$PROJECT" 2>/dev/null)"; then
+    echo "refusing publish: Pages secret list failed, so no secret was created" >&2
+    exit 1
   fi
-  if [[ ! -s "$file" ]]; then
-    echo "publish-web: ${file} is missing, so ${name} was not uploaded" >&2
-    return
+  put_secret_if_missing() {
+    local name="$1"
+    local file="$2"
+    if grep -Fq "$name" <<<"$SECRET_LIST"; then
+      return 0
+    fi
+    if [[ ! -s "$file" ]]; then
+      echo "refusing publish: ${file} is missing, so ${name} was not created" >&2
+      exit 1
+    fi
+    npx wrangler pages secret put "$name" --project-name "$PROJECT" < "$file"
+  }
+  mkdir -p "$CONFIG_DIR"
+  umask 077
+  SESSION_FILE="${HEARTBEAT_SESSION_SECRET_FILE:-$CONFIG_DIR/session-secret}"
+  SETUP_FILE="${HEARTBEAT_SETUP_SECRET_FILE:-$CONFIG_DIR/setup-secret}"
+  ADMIN_FILE="${HEARTBEAT_ADMIN_EMAIL_FILE:-$CONFIG_DIR/admin-email}"
+  if ! grep -Fq "SESSION_SECRET" <<<"$SECRET_LIST" && [[ ! -s "$SESSION_FILE" ]]; then
+    openssl rand -base64 32 > "$SESSION_FILE"
   fi
-  npx wrangler pages secret put "$name" --project-name "$PROJECT" < "$file"
-}
-mkdir -p "$CONFIG_DIR"
-umask 077
-SESSION_FILE="${HEARTBEAT_SESSION_SECRET_FILE:-$CONFIG_DIR/session-secret}"
-SETUP_FILE="${HEARTBEAT_SETUP_SECRET_FILE:-$CONFIG_DIR/setup-secret}"
-ADMIN_FILE="${HEARTBEAT_ADMIN_EMAIL_FILE:-$CONFIG_DIR/admin-email}"
-if [[ ! -s "$SESSION_FILE" ]]; then
-  openssl rand -base64 32 > "$SESSION_FILE"
+  if ! grep -Fq "SETUP_SECRET" <<<"$SECRET_LIST" && [[ ! -s "$SETUP_FILE" ]]; then
+    openssl rand -base64 32 > "$SETUP_FILE"
+  fi
+  put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
+  put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
+  put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 fi
-if [[ ! -s "$SETUP_FILE" ]]; then
-  openssl rand -base64 32 > "$SETUP_FILE"
-fi
-put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
-put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
-put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
+# END secrets
 
-node "$WEB/scripts/print_pack_stamp.mjs" "$DATA"
+node "$WEB/scripts/print_pack_stamp.mjs" "$PACK_DIR"
+
+# A full deploy used to pages-deploy static JSON and leave current.json alone.
+# Once a pointer exists, data has to move through that pointer or the deploy stops.
+# UI-only does not upload. A missing pointer is not filled with the legacy pin.
+# A full deploy uploads the objects first and moves current.json only after
+# wrangler pages deploy exits 0. Data-only has no pages deploy, so it moves
+# the pointer as the publish.
+publish_pack_pointer() {
+  python3 "$ROOT/web/scripts/pack_publish.py" "$PACK_DIR" "$WEB/check_pack.mjs"
+}
+pointer_is_verified() {
+  local pointer_state last
+  pointer_state="$(python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR")"
+  printf '%s\n' "$pointer_state"
+  # Wrangler can still leak a banner ahead of the status line. Compare the last line.
+  last="${pointer_state##*$'\n'}"
+  [[ "$last" == "pointer preflight: verified" ]]
+}
+require_verified_pointer() {
+  if ! pointer_is_verified; then
+    echo "refusing deploy: pack data must publish through the pointer" >&2
+    exit 1
+  fi
+}
+fail_deploy_readback() {
+  echo "deploy failed: the new UI is live and the pack pointer read-back failed, so the site is serving the new UI on the old data" >&2
+  echo "rollback: cd \"$WEB\" && npx wrangler pages deployment rollback --project-name \"$PROJECT\"" >&2
+  exit 1
+}
+# Compare the live pointer before any current.json put. A mismatch must
+# exit here, while the pointer is still the one that was read.
+# BEGIN pointer-preview
+if ! pointer_is_verified; then
+  echo "refusing deploy: pack data must publish through the pointer" >&2
+  exit 1
+fi
+if [[ -n "$DATA_ONLY" ]]; then
+  publish_pack_pointer
+elif [[ -z "$UI_ONLY" ]]; then
+  POINTER_PLAN="$(mktemp)"
+  python3 "$ROOT/web/scripts/pack_publish.py" --defer-pointer "$PACK_DIR" "$WEB/check_pack.mjs" "$POINTER_PLAN"
+fi
+# END pointer-preview
 
 if [[ -n "$DATA_ONLY" ]]; then
-  python3 - "$DATA" "$WEB/check_pack.mjs" << 'PY'
-import json, re, subprocess, sys, tempfile
-from pathlib import Path
-
-root = Path(sys.argv[1])
-check_pack = sys.argv[2]
-files = sorted(path for path in root.rglob("*.json") if path.is_file())
-if not files:
-    raise SystemExit("data-only upload: no pack json")
-home_path = root / "home.json"
-if not home_path.is_file():
-    raise SystemExit("data-only upload: home.json is missing")
-home = json.loads(home_path.read_text())
-meta = home.get("metadata") or {}
-sha = str(meta.get("cookSha") or home.get("cookSha") or "")
-published = str(home.get("publishedAt") or "")
-schema = home.get("schemaVersion")
-if schema is None:
-    schema = meta.get("schemaVersion")
-if not re.fullmatch(r"[0-9a-f]{40}", sha):
-    raise SystemExit("data-only upload: cookSha missing")
-if not published or "/" in published or "\\" in published:
-    raise SystemExit("data-only upload: publishedAt missing")
-prefix = f"web-pack/{sha}-{published}"
-
-def wrangler(args, check=True):
-    return subprocess.run(["npx", "wrangler", *args], check=check)
-
-for path in files:
-    rel = path.relative_to(root).as_posix()
-    key = f"heartbeat-packs/{prefix}/{rel}"
-    wrangler(["r2", "object", "put", key, f"--file={path}", "--remote"])
-
-with tempfile.TemporaryDirectory() as tmp:
-    downloaded = Path(tmp) / "uploaded"
-    for path in files:
-        rel = path.relative_to(root).as_posix()
-        dest = downloaded / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        key = f"heartbeat-packs/{prefix}/{rel}"
-        wrangler(["r2", "object", "get", key, f"--file={dest}", "--remote"])
-    checked = subprocess.run(["node", check_pack, str(downloaded)], check=False)
-    if checked.returncode != 0:
-        raise SystemExit("data-only upload: check_pack failed on the uploaded set; current.json was not moved")
-
-    pointer_file = Path(tmp) / "current.json"
-    got = wrangler(
-        ["r2", "object", "get", "heartbeat-packs/web-pack/current.json", f"--file={pointer_file}", "--remote"],
-        check=False,
-    )
-    previous = None
-    if got.returncode == 0 and pointer_file.is_file():
-        try:
-            old = json.loads(pointer_file.read_text())
-        except json.JSONDecodeError:
-            old = {}
-        if isinstance(old, dict) and re.fullmatch(r"[0-9a-f]{40}", str(old.get("cookSha") or "")) and old.get("cookSha") != sha:
-            previous = {
-                "prefix": old.get("prefix") or f"web-pack/{old.get('cookSha')}-{old.get('publishedAt')}",
-                "cookSha": old.get("cookSha"),
-                "publishedAt": old.get("publishedAt"),
-                "schemaVersion": old.get("schemaVersion"),
-            }
-        elif isinstance(old, dict) and isinstance(old.get("previous"), dict):
-            kept = old["previous"]
-            if re.fullmatch(r"[0-9a-f]{40}", str(kept.get("cookSha") or "")) and kept.get("cookSha") != sha:
-                previous = {
-                    "prefix": kept.get("prefix"),
-                    "cookSha": kept.get("cookSha"),
-                    "publishedAt": kept.get("publishedAt"),
-                    "schemaVersion": kept.get("schemaVersion"),
-                }
-    new_pointer = {
-        "prefix": prefix,
-        "cookSha": sha,
-        "publishedAt": published,
-        "schemaVersion": schema,
-        "previous": previous,
-    }
-    next_pointer = Path(tmp) / "next-current.json"
-    next_pointer.write_text(json.dumps(new_pointer))
-    wrangler(["r2", "object", "put", "heartbeat-packs/web-pack/current.json", f"--file={next_pointer}", "--remote"])
-
-print(f"data-only upload: {len(files)} pack files at {prefix}/, check_pack passed, current.json updated, site tree not deployed")
-PY
   if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
-    python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$DATA" << 'PY'
+    python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$PACK_DIR" << 'PY'
 import http.cookiejar
 import json
 import sys
@@ -411,12 +409,13 @@ for rel in files:
         live = json.loads(raw)
     except json.JSONDecodeError:
         raise SystemExit(f"signed-in compare: /data/{rel} was not json")
-    for key in ("publishedAt", "schemaVersion", "cookSha"):
+    keys = ["publishedAt", "schemaVersion", "cookSha", "cookedAt"]
+    for key in keys:
         if live.get(key) != local.get(key):
             raise SystemExit(
                 f"signed-in compare: /data/{rel} {key}={live.get(key)!r} uploaded {local.get(key)!r}"
             )
-    print(f"live {rel} publishedAt={live.get('publishedAt')} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
+    print(f"live {rel} publishedAt={live.get('publishedAt')} cookedAt={live.get('cookedAt') or 'missing'} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
 print(f"signed-in pack matches {len(files)} files")
 PY
   else
@@ -425,10 +424,31 @@ PY
   exit 0
 fi
 
+if [[ -n "$UI_ONLY" ]]; then
+  LIVE_POINTER_BEFORE="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"
+  echo "UI-only deploy: live pointer ${LIVE_POINTER_BEFORE}"
+fi
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
-  --branch main \
-  --commit-dirty=true
+  --branch main
+# BEGIN pointer-commit
+if [[ -n "$POINTER_PLAN" ]]; then
+  if ! pointer_is_verified; then
+    fail_deploy_readback
+  fi
+  if ! python3 "$ROOT/web/scripts/pack_publish.py" --commit-pointer "$POINTER_PLAN"; then
+    fail_deploy_readback
+  fi
+fi
+# END pointer-commit
+if [[ -n "$UI_ONLY" ]]; then
+  LIVE_POINTER_AFTER="$(python3 "$ROOT/web/scripts/pack_publish.py" print-pointer)"
+  if [[ "$LIVE_POINTER_BEFORE" != "$LIVE_POINTER_AFTER" ]]; then
+    echo "UI-only deploy changed the live pointer" >&2
+    fail_deploy_readback
+  fi
+  echo "UI-only deploy: live pointer unchanged"
+fi
 
 python3 - "$SITE_URL" << 'PY'
 import sys
@@ -525,12 +545,13 @@ for rel in files:
         live = json.loads(raw)
     except json.JSONDecodeError:
         raise SystemExit(f"signed-in compare: /data/{rel} was not json")
-    for key in ("publishedAt", "schemaVersion", "cookSha"):
+    keys = ["publishedAt", "schemaVersion", "cookSha", "cookedAt"]
+    for key in keys:
         if live.get(key) != local.get(key):
             raise SystemExit(
                 f"signed-in compare: /data/{rel} {key}={live.get(key)!r} uploaded {local.get(key)!r}"
             )
-    print(f"live {rel} publishedAt={live.get('publishedAt')} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
+    print(f"live {rel} publishedAt={live.get('publishedAt')} cookedAt={live.get('cookedAt') or 'missing'} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
 print(f"signed-in pack matches {len(files)} files")
 PY
 else

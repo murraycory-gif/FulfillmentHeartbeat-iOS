@@ -20,6 +20,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 SECTIONS = (
@@ -89,6 +90,7 @@ KEEP = {
     "over_scheduled",
     "target_vs_actual_pct",
     "act_cost_pct",
+    "act_cost_dollars",
     "cost_trgt_pct",
     "uplh_impact_pct",
     "wage_impact_pct",
@@ -256,7 +258,7 @@ def short_region(label: str) -> str:
 
 
 def region_lines(packs) -> list:
-    """Region scope lines only. Division children stay off this table."""
+    """Legacy chrome reader. The cook builds lines with build_region_views."""
     if not isinstance(packs, dict):
         return []
     lines = []
@@ -367,6 +369,44 @@ def format_company_aiv(value: float) -> str:
     return f"{float(value):.2f}%"
 
 
+# Blank cells stay null. A real 0 is a measurement and is not a blank.
+LABOR_BLANK_NULLS = ("act_cost_pct", "act_hrs", "act_cost_dollars", "cost_trgt_pct")
+
+
+def labor_blank_number(raw: dict, key: str):
+    """None when the cell is missing or blank. Zero stays zero."""
+    names = ("act_cost_dollars", "act_cost_dollar") if key == "act_cost_dollars" else (key,)
+    seen = False
+    value = None
+    for name in names:
+        if isinstance(raw, dict) and name in raw:
+            seen = True
+            value = raw.get(name)
+            break
+    if not seen or value is None:
+        return None
+    if isinstance(value, str):
+        if not value.strip():
+            return None
+        try:
+            value = float(value)
+        except ValueError:
+            return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    return value
+
+
+def apply_labor_blanks(payload: dict, raw: dict) -> None:
+    """Store 866's blank ActCost% cooked as 0. A blank is null, the same for ActHrs, ActCost$, and CostTrgt%."""
+    if not isinstance(payload, dict):
+        return
+    for key in LABOR_BLANK_NULLS:
+        payload[key] = labor_blank_number(raw, key)
+
+
 def labor_act_hours(raw: dict) -> float | None:
     """Labor!E is actual hours. The company ActHrs cell is the sum of that column.
 
@@ -419,6 +459,51 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
     if index < len(values):
         values[index] = format_company_aiv(number)
         block["values"] = values
+
+
+def _labor_number(payload: dict, key: str):
+    """None when the cell is missing or blank. Zero stays zero."""
+    if not isinstance(payload, dict) or key not in payload:
+        return None
+    raw = payload.get(key)
+    if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+        return None
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
+def LABOR_SOURCE_CHECK(record: dict) -> bool:
+    """Rows left out of the Labor region mean. The pinned pack flags 57.
+
+    Flag a row when the weight is missing or 0, ActCost% is 0, blank, or over
+    100, the cost target is blank or over 100, or Target vs Actual is over 100.
+    ActCost% over 100 is what flags store 2280 (118.9% ActCost, 80.3% target).
+    Store 1834 stays in the West mean: scheduled hours are 0 and the row is a
+    source-issue row, but its weight, ActCost%, cost target, and Target vs
+    Actual are all inside this rule. meanOf in the page averages every labor
+    row; this check does not change that. It only builds the region line.
+    """
+    if not isinstance(record, dict):
+        return False
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    weight = _labor_number(payload, "weight")
+    act = _labor_number(payload, "act_cost_pct")
+    cost = _labor_number(payload, "cost_trgt_pct")
+    target = _labor_number(payload, "target_vs_actual_pct")
+    if weight is None or weight == 0:
+        return True
+    if act is None or act == 0 or act > 100:
+        return True
+    if cost is None or cost > 100:
+        return True
+    if target is not None and target > 100:
+        return True
+    return False
 
 
 def labor_source_issue(payload: dict) -> bool:
@@ -488,6 +573,31 @@ def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
     block["values"] = values
 
 
+def apply_workbook_missed(tiles: dict, workbook_total: dict | None) -> None:
+    """Company Missed is Loss Revenue column V on the Total row, via home.workbookTotal."""
+    if not isinstance(workbook_total, dict):
+        return
+    lost = workbook_total.get("lost_revenue")
+    if not isinstance(lost, dict) or lost.get("missed_dollars") is None:
+        return
+    block = tiles.get("lost_revenue")
+    if not isinstance(block, dict):
+        return
+    text = _money_label(float(lost["missed_dollars"]))
+    labels = list(block.get("labels") or [])
+    values = list(block.get("values") or [])
+    if "Missed" in labels:
+        index = labels.index("Missed")
+        while len(values) <= index:
+            values.append("")
+        values[index] = text
+    else:
+        labels.append("Missed")
+        values.append(text)
+    block["labels"] = labels
+    block["values"] = values
+
+
 CALLOUT_ORDER = (
     "sales",
     "lost_revenue",
@@ -520,7 +630,7 @@ CALLOUT_TITLE = {
 
 
 def region_tables(tables) -> list:
-    """One headline per callout, grouped later by region. Not the metric-first line list."""
+    """Legacy chrome reader. The cook builds tables with build_region_views."""
     if not isinstance(tables, dict):
         return []
     rows = []
@@ -589,8 +699,31 @@ def include_unrated_dynacap(lines: list, records: list) -> list:
     return lines
 
 
+LOST_EXCL_TITLE = "Lost $ excl. Missed"
+OWN_STORE_SECTIONS = ("lost_revenue", "missing_items", "five_star", "pre_sub_oos")
+
+
+def _number_or_zero(payload: dict, key: str) -> float:
+    if not isinstance(payload, dict):
+        return 0.0
+    raw = payload.get(key)
+    if raw is None or raw == "":
+        return 0.0
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if number != number or number in (float("inf"), float("-inf")):
+        return 0.0
+    return number
+
+
 def realign_lost_revenue(lines: list, records: list) -> list:
-    """Lost-revenue facts stamp every store as Haggen. Recount from the roster division."""
+    """Lost $ excl. Missed is lost_revenue minus missed_sales on this section's rows.
+
+    A missing missed_sales is 0. Company Lost $ and Missed $ stay on the workbook
+    tiles. Region, division, and district do not sum missed_sales.
+    """
     buckets: dict[str, dict[str, dict]] = {}
     for record in records:
         if record.get("section") != "lost_revenue":
@@ -603,10 +736,7 @@ def realign_lost_revenue(lines: list, records: list) -> list:
         if not region:
             continue
         payload = record.get("payload") or {}
-        try:
-            amount = float(payload.get("lost_revenue") or 0)
-        except (TypeError, ValueError):
-            amount = 0.0
+        amount = _number_or_zero(payload, "lost_revenue") - _number_or_zero(payload, "missed_sales")
         slot = buckets.setdefault(region, {}).setdefault(division, {"sum": 0.0, "count": 0})
         slot["sum"] += amount
         slot["count"] += 1
@@ -637,16 +767,18 @@ def realign_lost_revenue(lines: list, records: list) -> list:
                     "value": _money_label(slot["sum"]),
                     "count": slot["count"],
                     "health": old_health.get(division) or "none",
+                    "missed": "Not available",
                 }
             )
         rebuilt.append(
             {
                 "section": "lost_revenue",
                 "region": region,
-                "title": prior.get("title") or LINE_TITLE["lost_revenue"],
+                "title": LOST_EXCL_TITLE,
                 "value": _money_label(total),
                 "count": count,
                 "health": prior.get("health") or "none",
+                "missed": "Not available",
                 "children": children,
             }
         )
@@ -667,6 +799,608 @@ def realign_lost_revenue(lines: list, records: list) -> list:
         if item["region"] not in seen:
             out.append(item)
     return out
+
+
+def sync_lost_region_tables(tables: list, lines: list) -> None:
+    """Region cards copy the section roll-up, including stores the old chrome omitted."""
+    by_region = {
+        item.get("region"): item
+        for item in lines
+        if isinstance(item, dict) and item.get("section") == "lost_revenue" and item.get("title") == LOST_EXCL_TITLE
+    }
+    if not by_region:
+        return
+    for row in tables:
+        if not isinstance(row, dict) or row.get("section") != "lost_revenue":
+            continue
+        line = by_region.get(row.get("region"))
+        if not line:
+            continue
+        row["headline"] = line.get("value")
+        row["storeCount"] = line.get("count") or 0
+        row["title"] = LOST_EXCL_TITLE
+
+
+def _first_number(payload, keys):
+    if not isinstance(payload, dict):
+        return None
+    for key in keys:
+        raw = payload.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if number != number or number in (float("inf"), float("-inf")):
+            continue
+        return number
+    return None
+
+
+def _band(value, good, watch, invert=False) -> str:
+    if value is None:
+        return "none"
+    if invert:
+        if value <= good:
+            return "good"
+        if value <= watch:
+            return "watch"
+        return "risk"
+    if value >= good:
+        return "good"
+    if value >= watch:
+        return "watch"
+    return "risk"
+
+
+# Same cutoffs as the web seat. The cooked line and the card badge agree.
+_SCOPE_RULES = {
+    "missing_items": (5, 6.5, True),
+    "pre_sub_oos": (5, 6.5, True),
+    "five_star": (4, 3.5, False),
+    "pick_path": (90, 80, False),
+    "prep_not_ready": (1.9, 2.5, True),
+    "dynacap": (65, 60, False),
+    "schedule_quality": (90, 85, False),
+    "pph": (80, 74, False),
+    "labor": (0, 3, True),
+    "picker_scorecard": (80, 74, False),
+}
+
+_RATE_FIELDS = {
+    "missing_items": ("mi_pct",),
+    "pre_sub_oos": ("oos_pct", "mi_pct"),
+    "five_star": ("star_rating",),
+    "pick_path": ("compliance_pct",),
+    "prep_not_ready": ("pnr_rate_pct", "prep_not_ready_pct"),
+    "dynacap": ("dynacap_rate", "pieces_per_hour"),
+    "schedule_quality": ("schedule_efficiency_pct",),
+    "pph": ("pph",),
+    "labor": ("target_vs_actual_pct",),
+}
+
+_TONE_RANK = {"none": 0, "good": 1, "watch": 2, "risk": 3}
+
+
+def _scope_health(section: str, headline) -> str:
+    rule = _SCOPE_RULES.get(section)
+    if not rule or headline is None:
+        return "none"
+    try:
+        number = float(headline)
+    except (TypeError, ValueError):
+        return "none"
+    if number != number:
+        return "none"
+    good, watch, invert = rule
+    return _band(number, good, watch, invert)
+
+
+def _sales_yoy(rows) -> float | None:
+    this_year = 0.0
+    last_year = 0.0
+    for row in rows:
+        payload = row.get("payload") or {}
+        current = _first_number(payload, ("sales_dollars",))
+        yoy = _first_number(payload, ("sales_yoy_pct",))
+        if current is None or current <= 0 or yoy is None or yoy <= -100 or abs(yoy) >= 1000:
+            continue
+        factor = 1 + yoy / 100
+        if not factor > 0:
+            continue
+        prior = current / factor
+        if not prior > 0:
+            continue
+        this_year += current
+        last_year += prior
+    if not (last_year > 0 and this_year > 0):
+        return None
+    return (this_year / last_year - 1) * 100
+
+
+def _sales_health(yoy) -> str:
+    if yoy is None:
+        return "none"
+    if yoy > 0:
+        return "good"
+    if yoy >= -3:
+        return "watch"
+    return "risk"
+
+
+def _rate_label(section: str, value: float) -> str:
+    if section == "five_star":
+        return f"{value:.2f}"
+    if section in ("pph", "dynacap"):
+        return f"{value:.1f}"
+    return f"{value:.2f}%"
+
+
+def _shopper_identity(record: dict) -> str:
+    raw = str(record.get("shopperId") or record.get("shopper") or "").strip().lower()
+    return "".join(ch for ch in raw if ch.isalnum())
+
+
+def _region_of(record: dict) -> str:
+    return _DIVISION_REGION.get(canonical_division(record.get("division") or ""), "")
+
+
+def _scope_figure(section: str, rows: list) -> dict | None:
+    if section == "sales":
+        scored = [
+            row
+            for row in rows
+            if _first_number(row.get("payload") or {}, ("sales_dollars",)) is not None
+        ]
+        if not scored:
+            return None
+        dollars = sum(_first_number(row.get("payload") or {}, ("sales_dollars",)) or 0 for row in scored)
+        return {
+            "value": _money_label(dollars),
+            "count": len(scored),
+            "health": _sales_health(_sales_yoy(scored)),
+        }
+    if section == "picker_scorecard":
+        seen = set()
+        pphs = []
+        for row in rows:
+            ident = _shopper_identity(row)
+            if ident:
+                seen.add(ident)
+            pph = _first_number(row.get("payload") or {}, ("pph",))
+            if pph is not None:
+                pphs.append(pph)
+        if not seen:
+            return None
+        mean = sum(pphs) / len(pphs) if pphs else None
+        return {
+            "value": f"{len(seen)} shoppers",
+            "count": len(seen),
+            "health": _scope_health("picker_scorecard", mean),
+        }
+    fields = _RATE_FIELDS.get(section)
+    if not fields:
+        return None
+    values = []
+    for row in rows:
+        number = _first_number(row.get("payload") or {}, fields)
+        if number is not None:
+            values.append(number)
+    if not values:
+        return None
+    average = sum(values) / len(values)
+    return {
+        "value": _rate_label(section, average),
+        "count": len(values),
+        "health": _scope_health(section, average),
+    }
+
+
+def _region_lines_from_rows(records: list) -> list:
+    """Region and division figures from this cook's store rows."""
+    grouped: dict[str, dict[str, dict[str, list]]] = {}
+    for record in records:
+        section = record.get("section") or ""
+        if section not in LINE_TITLE or section == "lost_revenue":
+            continue
+        store = str(record.get("store") or "")
+        if is_total_store(store):
+            continue
+        if section == "labor" and LABOR_SOURCE_CHECK(record):
+            continue
+        region = _region_of(record)
+        division = canonical_division(record.get("division") or "")
+        if not region or not division:
+            continue
+        grouped.setdefault(section, {}).setdefault(region, {}).setdefault(division, []).append(record)
+    lines = []
+    for section in LINE_ORDER:
+        if section == "lost_revenue":
+            continue
+        found = []
+        for region in ("East", "South", "California", "West"):
+            divisions = (grouped.get(section) or {}).get(region) or {}
+            children = []
+            region_rows = []
+            for division in OFFICIAL_DIVISIONS:
+                bucket = divisions.get(division) or []
+                if not bucket:
+                    continue
+                figure = _scope_figure(section, bucket)
+                if figure is None:
+                    continue
+                region_rows.extend(bucket)
+                children.append({"division": division, **figure})
+            if not children:
+                continue
+            parent = _scope_figure(section, region_rows)
+            if parent is None:
+                continue
+            found.append(
+                {
+                    "section": section,
+                    "region": region,
+                    "title": LINE_TITLE[section],
+                    **parent,
+                    "children": children,
+                }
+            )
+        lines.extend(found)
+    return lines
+
+
+def _region_tables_from_lines(lines: list) -> list:
+    index = {
+        (item.get("section"), item.get("region")): item
+        for item in lines
+        if isinstance(item, dict)
+    }
+    rows = []
+    for section in CALLOUT_ORDER:
+        for region in ("East", "South", "California", "West"):
+            line = index.get((section, region))
+            if not line:
+                continue
+            headline = line.get("value")
+            if section == "picker_scorecard":
+                try:
+                    headline = f"{int(line.get('count') or 0):,}"
+                except (TypeError, ValueError):
+                    headline = line.get("value")
+            if headline is None or str(headline).strip() in {"", "—", "-", "–"}:
+                continue
+            title = line.get("title") if section == "lost_revenue" else CALLOUT_TITLE[section]
+            try:
+                count = int(line.get("count") or 0)
+            except (TypeError, ValueError):
+                count = 0
+            rows.append(
+                {
+                    "section": section,
+                    "region": region,
+                    "title": title,
+                    "health": line.get("health") or "none",
+                    "storeCount": count,
+                    "headline": str(headline),
+                }
+            )
+    return rows
+
+
+def build_region_views(records: list) -> tuple[list, list]:
+    """Region lines and region tables from roster store rows.
+
+    Money and store counts are sums. Picker counts are distinct shoppers.
+    Rates are unweighted store averages. Lost $ excl. Missed is lost minus missed.
+    """
+    lines = include_unrated_dynacap(
+        realign_lost_revenue(_region_lines_from_rows(records), records),
+        records,
+    )
+    return lines, _region_tables_from_lines(lines)
+
+
+def _star_health(value, full, half, invert) -> str:
+    if invert:
+        if value < full:
+            return "good"
+        if value <= half:
+            return "watch"
+        return "risk"
+    if value >= full:
+        return "good"
+    if value >= half:
+        return "watch"
+    return "risk"
+
+
+def _picker_has_volume(payload) -> bool:
+    for key in ("orders", "picks", "pick_hours"):
+        number = _first_number(payload, (key,))
+        if number is not None and number > 0:
+            return True
+    return _first_number(payload, ("pph",)) is not None
+
+
+def _picker_status_tone(record: dict) -> str:
+    payload = record.get("payload") or {}
+    flags = []
+    pph = _first_number(payload, ("pph",))
+    if pph is not None:
+        flags.append(_band(pph, 80, 74))
+    presub = _first_number(payload, ("presub_pct",))
+    if presub is not None:
+        flags.append(_star_health(presub, 5, 6, True))
+    oos = _first_number(payload, ("oos_pct",))
+    if oos is not None:
+        flags.append(_star_health(oos, 3, 5, True))
+    oth = _first_number(payload, ("oth5_pct",))
+    if oth is not None:
+        flags.append(_star_health(oth, 92, 78, False))
+    coe = _first_number(payload, ("coe_pct",))
+    if coe is not None:
+        flags.append(_star_health(coe, 20, 0, False))
+    ott = _first_number(payload, ("ott_pct",))
+    if ott is not None:
+        flags.append(_star_health(ott, 95, 90, False))
+    if "risk" in flags:
+        health = "risk"
+    elif "watch" in flags:
+        health = "watch"
+    elif "good" in flags:
+        health = "good"
+    else:
+        health = "none"
+    if health == "none" and _picker_has_volume(payload):
+        return "watch"
+    return health
+
+
+def build_picker_rollups(records: list) -> dict:
+    """Distinct shoppers and stores for company, region, division, district, OM, and store."""
+    buckets: dict[str, dict] = {}
+
+    def add(scope: str, ident: str, store: str, tone: str) -> None:
+        if not scope or not ident:
+            return
+        slot = buckets.setdefault(scope, {"tones": {}, "stores": set()})
+        previous = slot["tones"].get(ident)
+        if previous is None or _TONE_RANK[tone] > _TONE_RANK[previous]:
+            slot["tones"][ident] = tone
+        if store:
+            slot["stores"].add(store)
+
+    for record in records:
+        if record.get("section") != "picker_scorecard":
+            continue
+        store = str(record.get("store") or "").strip()
+        if not store or is_total_store(store):
+            continue
+        ident = _shopper_identity(record)
+        if not ident:
+            continue
+        tone = _picker_status_tone(record)
+        if tone == "none":
+            tone = "watch"
+        add("company", ident, store, tone)
+        region = _region_of(record)
+        if region:
+            add(f"region:{region} Region", ident, store, tone)
+        division = canonical_division(record.get("division") or "")
+        if division:
+            add(f"division:{division}", ident, store, tone)
+        district = str(record.get("district") or "").strip()
+        if district:
+            add(f"district:{district}", ident, store, tone)
+        om = str(record.get("om") or "").strip()
+        if om:
+            add(f"om:{om}", ident, store, tone)
+        add(f"store:{store}", ident, store, tone)
+    out = {}
+    for scope, slot in buckets.items():
+        tones = list(slot["tones"].values())
+        if not tones:
+            continue
+        out[scope] = {
+            "shoppers": len(tones),
+            "stores": len(slot["stores"]),
+            "healthy": sum(tone == "good" for tone in tones),
+            "watch": sum(tone == "watch" for tone in tones),
+            "risk": sum(tone == "risk" for tone in tones),
+        }
+    return out
+
+
+def _parse_money(text) -> float | None:
+    if not isinstance(text, str):
+        return None
+    cleaned = text.replace("$", "").replace(",", "").strip()
+    if cleaned in {"", "—", "-", "–"}:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _close(left: float, right: float, tolerance: float = 0.05) -> bool:
+    return abs(left - right) <= tolerance
+
+
+def assert_additive_region_sums(lines: list, records: list, workbook_total: dict | None = None) -> None:
+    """Region money and store counts add up to the company total for additive metrics."""
+    _assert_sales_regions(lines, records, workbook_total)
+    _assert_lost_regions(lines, records)
+
+
+def _assert_sales_regions(lines: list, records: list, workbook_total: dict | None) -> None:
+    scoped = [line for line in lines if line.get("section") == "sales"]
+    region_sum = 0.0
+    region_count = 0
+    for line in scoped:
+        money = _parse_money(str(line.get("value") or ""))
+        if money is None:
+            raise SystemExit(f"sales region {line.get('region')} has no dollars")
+        count = int(line.get("count") or 0)
+        child_sum = 0.0
+        child_count = 0
+        for child in line.get("children") or []:
+            child_money = _parse_money(str(child.get("value") or ""))
+            if child_money is None:
+                raise SystemExit(f"sales {line.get('region')} {child.get('division')} has no dollars")
+            child_sum += child_money
+            child_count += int(child.get("count") or 0)
+        if not _close(child_sum, money):
+            raise SystemExit(f"sales {line.get('region')} divisions ${child_sum:,.2f} != region ${money:,.2f}")
+        if child_count != count:
+            raise SystemExit(f"sales {line.get('region')} division stores {child_count} != {count}")
+        region_sum += money
+        region_count += count
+    store_sum = 0.0
+    store_count = 0
+    orphan = 0.0
+    for record in records:
+        if record.get("section") != "sales" or is_total_store(record.get("store") or ""):
+            continue
+        dollars = _first_number(record.get("payload") or {}, ("sales_dollars",))
+        if dollars is None:
+            continue
+        if not _region_of(record):
+            orphan += float(dollars)
+            continue
+        store_sum += float(dollars)
+        store_count += 1
+    if abs(orphan) > 0.02:
+        raise SystemExit(f"sales outside a region ${orphan:,.2f}")
+    if not _close(region_sum, store_sum):
+        raise SystemExit(f"sales regions ${region_sum:,.2f} != stores ${store_sum:,.2f}")
+    if region_count != store_count:
+        raise SystemExit(f"sales region stores {region_count} != {store_count}")
+    company = None
+    if isinstance(workbook_total, dict):
+        sales = workbook_total.get("sales")
+        if isinstance(sales, dict) and sales.get("sales_dollars") is not None:
+            company = float(sales["sales_dollars"])
+    if company is not None and store_count and not _close(region_sum, company):
+        raise SystemExit(f"sales regions ${region_sum:,.2f} != workbook ${company:,.2f}")
+
+
+def _assert_lost_regions(lines: list, records: list) -> None:
+    scoped = [line for line in lines if line.get("section") == "lost_revenue"]
+    region_sum = 0.0
+    region_count = 0
+    for line in scoped:
+        money = _parse_money(str(line.get("value") or ""))
+        if money is None:
+            raise SystemExit(f"lost region {line.get('region')} has no dollars")
+        count = int(line.get("count") or 0)
+        child_sum = 0.0
+        child_count = 0
+        for child in line.get("children") or []:
+            child_money = _parse_money(str(child.get("value") or ""))
+            if child_money is None:
+                raise SystemExit(f"lost {line.get('region')} {child.get('division')} has no dollars")
+            child_sum += child_money
+            child_count += int(child.get("count") or 0)
+        if not _close(child_sum, money):
+            raise SystemExit(f"lost {line.get('region')} divisions ${child_sum:,.2f} != region ${money:,.2f}")
+        if child_count != count:
+            raise SystemExit(f"lost {line.get('region')} division stores {child_count} != {count}")
+        region_sum += money
+        region_count += count
+    store_sum = 0.0
+    store_count = 0
+    orphan = 0.0
+    for record in records:
+        if record.get("section") != "lost_revenue" or is_total_store(record.get("store") or ""):
+            continue
+        payload = record.get("payload") or {}
+        amount = _number_or_zero(payload, "lost_revenue") - _number_or_zero(payload, "missed_sales")
+        if not _region_of(record):
+            orphan += amount
+            continue
+        store_sum += amount
+        store_count += 1
+    if abs(orphan) > 0.02:
+        raise SystemExit(f"lost outside a region ${orphan:,.2f}")
+    if not scoped and not store_count:
+        return
+    if not _close(region_sum, store_sum, 0.2):
+        raise SystemExit(f"lost regions ${region_sum:,.2f} != stores ${store_sum:,.2f}")
+    if region_count != store_count:
+        raise SystemExit(f"lost region stores {region_count} != {store_count}")
+
+
+def round_money_text(value):
+    """$-prefixed pack strings print cents. Payload numbers stay as cooked."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text.startswith("$") and not text.startswith("-$"):
+        return value
+    cleaned = text.replace("$", "").replace(",", "").strip()
+    try:
+        number = float(cleaned)
+    except ValueError:
+        return value
+    return _money_label(number)
+
+
+def round_pack_currency(home: dict) -> None:
+    tiles = home.get("companyTiles") or {}
+    if isinstance(tiles, dict):
+        for block in tiles.values():
+            if not isinstance(block, dict) or not isinstance(block.get("values"), list):
+                continue
+            block["values"] = [round_money_text(item) for item in block["values"]]
+    for line in home.get("regionLines") or []:
+        if not isinstance(line, dict):
+            continue
+        line["value"] = round_money_text(line.get("value"))
+        for child in line.get("children") or []:
+            if isinstance(child, dict):
+                child["value"] = round_money_text(child.get("value"))
+    for row in home.get("regionTables") or []:
+        if isinstance(row, dict):
+            row["headline"] = round_money_text(row.get("headline"))
+
+
+def apply_own_store_counts(summaries: list, latest: dict, shoppers: dict, picker_rollups: dict) -> None:
+    """Each tile counts its own section. The shared chrome base lags stores 210 and 239."""
+    counts: dict[str, int] = {}
+    for section, _store in latest:
+        counts[section] = counts.get(section, 0) + 1
+    for item in summaries:
+        section = item.get("section")
+        if section in OWN_STORE_SECTIONS:
+            item["storeCount"] = counts.get(section, 0)
+            if section == "lost_revenue" and isinstance(item.get("secondary"), str):
+                item["secondary"] = re.sub(
+                    r"^[\d,]+ stores reported",
+                    f"{item['storeCount']:,} stores reported",
+                    item["secondary"],
+                    count=1,
+                )
+    company = picker_rollups.get("company") if isinstance(picker_rollups, dict) else None
+    if not isinstance(company, dict):
+        return
+    stores = {
+        record.get("store")
+        for record in shoppers.values()
+        if record.get("section") == "picker_scorecard" and record.get("store")
+    }
+    company["stores"] = len(stores)
+
+
+def cooked_at() -> str:
+    """UTC time of this cook. HEARTBEAT_COOKED_AT overrides the clock in tests."""
+    override = os.environ.get("HEARTBEAT_COOKED_AT", "").strip()
+    if override:
+        if len(override) < 20 or "/" in override or "\\" in override:
+            raise SystemExit(f"pack metadata: cookedAt {override!r}")
+        return override
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def schedule_summary_title(title: str, week) -> str:
@@ -1195,9 +1929,17 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "section": section,
             }
             if section == "labor":
-                hours = labor_act_hours(loads(fact["payload_json"], {}))
+                raw_payload = loads(fact["payload_json"], {})
+                if not isinstance(raw_payload, dict):
+                    raw_payload = {}
+                hours = labor_act_hours(raw_payload)
                 if hours is not None:
                     record["payload"]["weight"] = hours
+                apply_labor_blanks(record["payload"], raw_payload)
+                # Cost dollars stay in sqlite. On a labor row they turn the
+                # site's store average into a cost-weighted mean.
+                record["payload"].pop("act_cost_dollars", None)
+                record["payload"].pop("act_cost_dollar", None)
             if section in SHOPPER_SECTIONS:
                 # Path Picker rows have no store until the scorecard join below.
                 if not store and section != "pick_path_picker":
@@ -1296,15 +2038,30 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     apply_lost_tile_scale(company_tiles, lost_market)
     labor_market = labor_market_payload(db)
     apply_labor_aiv_tile(company_tiles, labor_market)
+    workbook_total = None
+    if roster_xlsx:
+        from workbook_totals import read_workbook_totals
+
+        workbook_total = read_workbook_totals(roster_xlsx)
+    apply_workbook_missed(company_tiles, workbook_total)
     if not published or len(str(published)) < 20:
         raise SystemExit(f"refusing pack write: publishedAt {published!r}")
     schema = schema_version()
     sha = cook_sha()
+    cooked = cooked_at()
+    picker_rollups = build_picker_rollups(records)
+    apply_own_store_counts(summaries, latest, shoppers, picker_rollups)
+    region_line_rows, table_rows = build_region_views(records)
+    assert_additive_region_sums(region_line_rows, records, workbook_total)
 
     def stamped(payload: dict) -> dict:
         payload["publishedAt"] = published
         payload["schemaVersion"] = schema
         payload["cookSha"] = sha
+        payload["cookedAt"] = cooked
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            metadata["cookedAt"] = cooked
         return payload
 
     home = stamped({
@@ -1315,7 +2072,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         "summaries": summaries,
         "companyTiles": company_tiles,
         "laborMarket": labor_bridge(labor_market),
-        "pickerRollups": chrome.get("pickerRollups") or {},
+        "pickerRollups": picker_rollups,
         "preSubItemTabPresent": item_tab,
         "filters": {
             "stores": sorted(
@@ -1327,12 +2084,12 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 key=lambda item: (len(item["store"]), item["store"]),
             ),
         },
-        "regionLines": include_unrated_dynacap(
-            realign_lost_revenue(region_lines(chrome.get("packs") or {}), records),
-            records,
-        ),
-        "regionTables": region_tables(chrome.get("tables") or {}),
+        "regionLines": region_line_rows,
+        "regionTables": table_rows,
     })
+    if workbook_total is not None:
+        home["workbookTotal"] = workbook_total
+    round_pack_currency(home)
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
     schedule_path = out / "schedule.json"

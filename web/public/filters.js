@@ -783,16 +783,21 @@ export function searchScope(roster, filters, query, names = DISTRICT_NAMES) {
   return groups;
 }
 
+export function browseScope(filters, kind, value) {
+  const next = { ...(filters || emptyFilters()), [kind]: value };
+  if (kind === "region") {
+    next.division = "";
+    next.district = "";
+    next.om = "";
+    next.store = "";
+  }
+  return next;
+}
+
 export function browseLevel(roster, filters, names = DISTRICT_NAMES) {
   const base = filters || emptyFilters();
   const row = (kind, value, label) => {
-    const next = { ...base, [kind]: value };
-    if (kind === "region") {
-      next.division = "";
-      next.district = "";
-      next.om = "";
-      next.store = "";
-    }
+    const next = browseScope(base, kind, value);
     return { kind, value, label, count: countStores(roster, next) };
   };
   if (!base.region) {

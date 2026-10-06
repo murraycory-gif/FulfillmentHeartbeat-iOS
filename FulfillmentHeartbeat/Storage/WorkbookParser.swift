@@ -2143,11 +2143,6 @@ enum WorkbookParser {
                 metric("Q", "AIV Impact", "aivimpact")
                 metric("R", "ActCost%", "actcost")
                 metric("S", "Target vs Actual%", "targetvsactual")
-                if payload["act_cost_pct"] == nil,
-                   let cost = payload["cost_trgt_pct"],
-                   let tva = payload["target_vs_actual_pct"] {
-                    payload["act_cost_pct"] = cost + tva
-                }
                 stores[key] = (
                     division: SheetXML.rawCell(data, letter: "B", strings: strings),
                     district: SheetXML.rawCell(data, letter: "C", strings: strings),
@@ -2408,10 +2403,7 @@ enum WorkbookParser {
                 compressed: compressed,
                 strings: strings,
                 keep: { keep },
-                include: { data in
-                    if header.isEmpty || idxStore < 0 { return true }
-                    return SheetXML.columnLooksLikeStore(data, letter: SheetXML.colLetter(idxStore))
-                },
+                include: nil,
                 handle: handle
             )
         } else if let data {
@@ -2453,11 +2445,6 @@ enum WorkbookParser {
             laborMetric(&payload, header: rawHeader, key: key, value: number)
         }
         guard !payload.isEmpty else { return nil }
-        if payload["act_cost_pct"] == nil,
-           let cost = payload["cost_trgt_pct"],
-           let tva = payload["target_vs_actual_pct"] {
-            payload["act_cost_pct"] = cost + tva
-        }
         return ParsedWorkbookRow(
             division: "",
             operationsOM: "",
@@ -2617,9 +2604,6 @@ enum WorkbookParser {
                 if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
                 if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
                 if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
-                if let cost = bucket.cost, let tva = bucket.tva {
-                    payload["act_cost_pct"] = cost + tva
-                }
                 let uniqueDays: [LaborDay] = {
                     var latest: [String: LaborDay] = [:]
                     for day in bucket.days where !day.date.isEmpty {
@@ -2679,7 +2663,10 @@ enum WorkbookParser {
             } else if tvaWeight > 0 {
                 storePayload["target_vs_actual_pct"] = weightedTva / tvaWeight
             }
-            if sumDollars > 0 { storePayload["act_cost_dollar"] = sumDollars }
+            if sumDollars > 0 {
+                storePayload["act_cost_dollar"] = sumDollars
+                storePayload["act_cost_dollars"] = sumDollars
+            }
             if sumHours > 0 { storePayload["act_hrs"] = sumHours }
             if sumSch > 0 { storePayload["sch_hrs"] = sumSch }
             if sumEmp > 0 { storePayload["empower_hrs"] = sumEmp }
@@ -2689,9 +2676,7 @@ enum WorkbookParser {
                 storePayload["over_schedule_pct"] = (sumSch - sumEmp) / sumEmp * 100
             }
             if effWeight > 0 { storePayload["schedule_efficiency_pct"] = weightedEff / effWeight }
-            if let cost = storePayload["cost_trgt_pct"], let tva = storePayload["target_vs_actual_pct"] {
-                storePayload["act_cost_pct"] = cost + tva
-            } else if sumCharged > 0 {
+            if sumCharged > 0 {
                 var mixed = 0.0
                 var weight = 0.0
                 for week in ordered {
@@ -2828,6 +2813,9 @@ enum WorkbookParser {
             number *= 100
         }
         payload[mapped] = number
+        if mapped == "act_cost_dollar" {
+            payload["act_cost_dollars"] = number
+        }
     }
 
     private static func excelSerialDate(_ raw: String) -> String? {
