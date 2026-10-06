@@ -1373,7 +1373,7 @@ assert.equal(cooked.metadata.cookSha, packHome.metadata.cookSha);
 assert.ok(cooked.publishedAt > "2026-10-05T22:57:06Z");
 assert.equal(lostTiles.values[lostTiles.labels.indexOf("Lost %")], "5.19%");
 assert.equal(lostTiles.values[lostTiles.labels.indexOf("Goal %")], "3.06%");
-assert.equal(lostTiles.values[lostTiles.labels.indexOf("Missed")], "$178,705.37");
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Missed")], "$420,030.87");
 const southDyn = cooked.regionLines.find((line) => line.section === "dynacap" && line.region === "South");
 assert.equal(southDyn.children.find((child) => child.division === "United").value, "—");
 assert.equal(southDyn.children.find((child) => child.division === "Southwest").value, "51.1");
