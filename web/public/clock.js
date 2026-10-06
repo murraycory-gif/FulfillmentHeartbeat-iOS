@@ -28,6 +28,14 @@ export function updatedLine(raw) {
 }
 
 // Header stamp from the pack publish time, UTC. HB-1005.1839 is 2026-10-05 18:39Z.
+// Side-menu build line. The pack stamp (HB-MMDD.HHMM) stays a separate label.
+export function buildLabel(sha, version) {
+  const short = String(sha || "").trim().toLowerCase();
+  const ver = String(version || "").trim().replace(/^v/i, "");
+  if (!/^[0-9a-f]{7,40}$/.test(short) || !/^\d+$/.test(ver)) return "";
+  return `${short.slice(0, 7)} · v${ver}`;
+}
+
 export function publishStamp(raw) {
   const date = parsePackTime(raw);
   if (!date) return "";
