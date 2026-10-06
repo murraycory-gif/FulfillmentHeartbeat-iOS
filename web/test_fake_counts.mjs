@@ -789,8 +789,8 @@ export async function runFakeCountLab(publicDir) {
             if (!text.includes("2 stores with no division (1708, 3197)")) {
               throw new Error(`${where} missing the no-division note`);
             }
-            if (!text.includes("4 stores with source issues not scored")) {
-              throw new Error(`${where} missing the source-issue note`);
+            if (!text.includes("57 stores flagged check source")) {
+              throw new Error(`${where} missing the check-source note`);
             }
           }
           if (index === 0 && id === "dynacap") {
@@ -823,7 +823,7 @@ export async function runFakeCountLab(publicDir) {
           }
           if (index === 0 && id === "lost_revenue") {
             const ecomm = await readChip(client, "eComm");
-            if (!ecomm || !ecomm.label.toLowerCase().includes("ecomm $") || !ecomm.label.toLowerCase().includes("workbook total")) {
+            if (!ecomm || ecomm.label !== "eComm $" || !text.toLowerCase().includes("store sum")) {
               throw new Error(`${where} eComm label ${ecomm ? ecomm.label : "missing"}`);
             }
           }

@@ -57,6 +57,44 @@ function field(row, keys) {
   return null;
 }
 
+// A Labor row is left out of filtered averages when any of these hold.
+// Weight missing or 0, Act Cost % missing or 0, Cost Target % missing, or either percent over 100.
+export const LABOR_SOURCE_CHECK = "check source";
+
+export function laborNeedsSourceCheck(row) {
+  const weight = field(row, ["weight"]);
+  const act = field(row, ["act_cost_pct"]);
+  const target = field(row, ["cost_trgt_pct"]);
+  if (weight == null || weight === 0) return true;
+  if (act == null || act === 0) return true;
+  if (target == null) return true;
+  if (Math.abs(act) > 100 || Math.abs(target) > 100) return true;
+  return false;
+}
+
+// Plain mean of unflagged rows until act_cost_dollars is on the pack. Then a cost-weighted roll-up.
+export function laborScopeAverage(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const flagged = list.filter((row) => laborNeedsSourceCheck(row)).length;
+  const clean = list.filter((row) => !laborNeedsSourceCheck(row) && field(row, ["target_vs_actual_pct"]) != null);
+  let weighted = 0;
+  let dollars = 0;
+  let usedWeighted = 0;
+  for (const row of clean) {
+    const cost = field(row, ["act_cost_dollars"]);
+    if (cost == null || cost === 0) continue;
+    weighted += field(row, ["target_vs_actual_pct"]) * cost;
+    dollars += cost;
+    usedWeighted += 1;
+  }
+  if (dollars) {
+    return { value: weighted / dollars, mode: "weighted", used: usedWeighted, flagged };
+  }
+  if (!clean.length) return { value: null, mode: "mean", used: 0, flagged };
+  const value = clean.reduce((sum, row) => sum + field(row, ["target_vs_actual_pct"]), 0) / clean.length;
+  return { value, mode: "mean", used: clean.length, flagged };
+}
+
 function average(values) {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -541,7 +579,7 @@ export function summarizeSeat(section, rows) {
       };
     }
     case "labor": {
-      const scored = latest.filter((row) => !row.sourceIssue && field(row, ["target_vs_actual_pct"]) != null);
+      const scored = latest.filter((row) => !laborNeedsSourceCheck(row) && field(row, ["target_vs_actual_pct"]) != null);
       if (!scored.length) return empty("No Labor rows in this filter");
       const values = scored.map((row) => field(row, ["target_vs_actual_pct"]));
       let healthy = 0;
@@ -552,12 +590,13 @@ export function summarizeSeat(section, rows) {
         else if (value <= 3) watch += 1;
         else risk += 1;
       }
-      const headline = values.length === 1 ? values[0] : average(values);
+      const rolled = laborScopeAverage(latest);
+      const headline = rolled.value == null ? (values.length === 1 ? values[0] : average(values)) : rolled.value;
       return {
         headline,
         secondary: `${healthy} healthy · ${watch} watch · ${risk} over 3%`,
         health: scopeHealth("labor", headline),
-        storeCount: scored.length,
+        storeCount: rolled.used || scored.length,
       };
     }
     case "picker_scorecard": {
@@ -698,7 +737,17 @@ function grainMetric(section, bucket, lines, region, division) {
   if (section === "labor" && !division) {
     return { value: chromeGrainValue(lines, section, region, ""), count, workbook: false };
   }
-  if (ROW_RATE_SECTIONS.has(section) || (section === "labor" && division)) {
+  if (section === "labor" && division) {
+    const built = summarizeSeat(section, bucket);
+    const rolled = laborScopeAverage(bucket);
+    const suffix = rolled.mode === "weighted" ? "cost-weighted store roll-up" : "store average, excl. check source";
+    return {
+      value: built.headline == null ? "—" : `${shownRate(section, built.headline)} ${suffix}`,
+      count,
+      workbook: false,
+    };
+  }
+  if (ROW_RATE_SECTIONS.has(section)) {
     const built = summarizeSeat(section, bucket);
     return { value: shownRate(section, built.headline), count, workbook: false };
   }
@@ -775,7 +824,7 @@ export function sectionRowGrain(section, rows, filters, roster, lines) {
   return out;
 }
 
-export function seatSummary(section, { company, lines, rows, filters, roster, tables }) {
+export function seatSummary(section, { company, lines, rows, filters, roster, tables, shownHeadline }) {
   if (!filtersActive(filters)) {
     const built = Array.isArray(rows) && rows.length ? summarizeSeat(section, rows) : null;
     let health = built && built.health ? built.health : "none";
@@ -785,6 +834,10 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     }
     if (section === "picker_scorecard") {
       health = Array.isArray(rows) && rows.length ? pickerScopeHealth(rows) : "none";
+    }
+    // Sales badge follows the YoY tile on the card, not the unweighted row YoY.
+    if (section === "sales" && shownHeadline != null && Number.isFinite(Number(shownHeadline))) {
+      health = scopeHealth("sales", Number(shownHeadline));
     }
     return {
       fixedCompany: true,
@@ -796,7 +849,7 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     };
   }
   const scoped = rowsInScope(rows, filters, roster, section);
-  if (section === "lost_revenue" && !(filters && filters.store)) {
+  if (section === "lost_revenue") {
     return lostScopeSeat(scoped);
   }
   const built = summarizeSeat(section, scoped);

@@ -282,6 +282,7 @@ export function rankedDivisions(pack, filters, roster) {
         pch: average(group.map((row) => row.pch)),
         eff: fromMarket !== undefined ? fromMarket : average(measured.map((row) => row.eff)),
         scope: group.length,
+        rateSource: market ? "market look" : "store average",
       };
     })
     .sort((lhs, rhs) => {
