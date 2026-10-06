@@ -212,6 +212,9 @@ function clearCookie() {
   return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
+const REFERRER_POLICY = "same-origin";
+const CROSS_SITE_MESSAGE = "Sign-in blocked: please open the site directly and try again.";
+
 function htmlResponse(html, status = 200) {
   return new Response(html, {
     status,
@@ -220,7 +223,7 @@ function htmlResponse(html, status = 200) {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
-      "Referrer-Policy": "no-referrer",
+      "Referrer-Policy": REFERRER_POLICY,
       "Content-Security-Policy":
         "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
     },
@@ -250,22 +253,46 @@ function redirect(request, path, cookie, status = 303) {
   return new Response(null, { status, headers });
 }
 
+function requestHost(request) {
+  const forwarded = String(request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
+    .split(",")[0]
+    .trim();
+  if (forwarded) return forwarded;
+  try {
+    return new URL(request.url).host;
+  } catch {
+    return "";
+  }
+}
+
+function hostFrom(value) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return "";
+  }
+}
+
+function refererMatches(request, host) {
+  if (!host) return false;
+  const referer = request.headers.get("referer") || request.headers.get("referrer") || "";
+  if (!referer) return false;
+  return hostFrom(referer) === host;
+}
+
 function sameOrigin(request) {
-  const origin = request.headers.get("origin");
-  if (!origin) return true;
-  let originHost = "";
-  try {
-    originHost = new URL(origin).host;
-  } catch {
-    return false;
+  const host = requestHost(request);
+  const origin = (request.headers.get("origin") || "").trim();
+  if (!origin || origin.toLowerCase() === "null") {
+    const site = (request.headers.get("sec-fetch-site") || "").trim().toLowerCase();
+    if (site === "same-origin") return true;
+    return refererMatches(request, host);
   }
-  const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(",")[0].trim();
+  const originHost = hostFrom(origin);
+  if (!originHost) return false;
   if (host && originHost === host) return true;
-  try {
-    return originHost === new URL(request.url).host;
-  } catch {
-    return false;
-  }
+  const urlHost = hostFrom(request.url);
+  return Boolean(urlHost) && originHost === urlHost;
 }
 
 async function readForm(request) {
@@ -293,7 +320,7 @@ function settingsChrome(session, here) {
 
 async function submitLogin(request, env, db, now) {
   if (!sessionSecret(env)) return loginResponse("Sign-in is unavailable.", "", 503);
-  if (!sameOrigin(request)) return loginResponse("That email or password is wrong.", "", 403);
+  if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
   const params = await readForm(request);
   if (!params) return loginResponse("That email or password is wrong.", "", 401);
   const email = params.get("email") || params.get("username") || "";
@@ -331,7 +358,7 @@ async function submitLogin(request, env, db, now) {
 async function inviteResponse(request, env, db, token, now) {
   if (!db) return loginResponse("Sign-in is unavailable.", "", 503);
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 403);
+    if (!sameOrigin(request)) return htmlResponse(inviteHTML("", token, CROSS_SITE_MESSAGE), 403);
     const params = await readForm(request);
     if (!params) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 400);
     const result = await acceptInvite(db, env, token, params.get("password") || "", params.get("confirm") || "", now);
@@ -351,7 +378,9 @@ async function adminResponse(request, env, db, session, now) {
   let error = "";
   let link = "";
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(deniedHTML(chrome), 403);
+    if (!sameOrigin(request)) {
+      return htmlResponse(adminHTML({ users: [], error: CROSS_SITE_MESSAGE, emailOn: emailInvitesEnabled(env), chrome }), 403);
+    }
     const params = await readForm(request);
     if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", emailOn: emailInvitesEnabled(env), chrome }), 400);
     const fields = Object.fromEntries(params.entries());
@@ -387,7 +416,7 @@ async function accountResponse(request, env, db, session, now) {
   if (!session.account) return htmlResponse(accountSharedHTML(chrome));
   if (!db) return htmlResponse(accountHTML(session.user, "Accounts are not set up yet.", "", chrome), 503);
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, "That password is wrong.", "", chrome), 403);
+    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, CROSS_SITE_MESSAGE, "", chrome), 403);
     const params = await readForm(request);
     if (!params) return htmlResponse(accountHTML(session.user, "That form was empty.", "", chrome), 400);
     const result = await changePassword(
@@ -421,7 +450,21 @@ async function packFromBucket(env, pathname) {
   });
 }
 
+function withReferrerPolicy(response) {
+  const headers = new Headers(response.headers);
+  headers.set("Referrer-Policy", REFERRER_POLICY);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export async function onRequest(context) {
+  return withReferrerPolicy(await routeRequest(context));
+}
+
+async function routeRequest(context) {
   const request = context.request;
   const env = (context && context.env) || {};
   const url = new URL(request.url || "https://fulfillment-heartbeat-web.pages.dev/");
