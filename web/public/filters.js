@@ -228,12 +228,24 @@ function sameRosterDistrict(roster, lead) {
   return rosterCode === "A9" && sheetCode === "88";
 }
 
+function rosterDistrictName(code) {
+  const key = String(code || "").trim();
+  if (!key) return "";
+  return DISTRICT_NAMES[key] || DISTRICT_NAMES[key.toUpperCase()] || "";
+}
+
+// Bare sheet codes (A1, 82) use the same names as the filter chip and browse list.
 export function shownDistrict(section, rowDistrict, rosterDistrict) {
   const roster = String(rosterDistrict || "").trim();
   const row = String(rowDistrict || "").trim();
   if (section !== "schedule_quality" || !roster) return row || "—";
+  const lead = sheetLead(row);
   const name = sheetDistrictName(row);
-  if (name && sameRosterDistrict(roster, sheetLead(row))) return `${roster} ${name}`;
+  if (name && sameRosterDistrict(roster, lead)) return `${roster} ${name}`;
+  if (!name && sameRosterDistrict(roster, lead)) {
+    const known = rosterDistrictName(roster);
+    if (known) return `${roster} ${known}`;
+  }
   return roster;
 }
 

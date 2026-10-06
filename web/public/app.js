@@ -68,7 +68,7 @@ const COLUMNS = {
     ["Lost %", ["lost_revenue_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue"]), cell(row, ["ecomm_sales"])))],
     ["Goal %", ["lost_revenue_goal_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue_goal"]), cell(row, ["ecomm_sales"])))],
     ["eComm", ["ecomm_sales"], money],
-    ["Missed", ["missed_sales", "reduced_capacity"], money],
+    ["Missed", ["missed_sales"], money],
   ],
   missing_items: [["Rate", ["mi_pct"], pct]],
   five_star: [
@@ -977,8 +977,11 @@ function renderSchedule(pack) {
 
 function scheduleSeat(store) {
   const known = rosterByStore().get(canonicalStore(store.store)) || {};
+  const division = canonicalDivision(known.division || store.division) || known.division || store.division || "";
+  const region = String(store.region || "").trim() || regionForDivision(division) || "";
   return {
-    division: canonicalDivision(known.division || store.division) || known.division || store.division || "—",
+    region: region || "—",
+    division: division || "—",
     district: known.district || store.district || "—",
     om: known.om || store.om || "—",
   };
@@ -986,7 +989,7 @@ function scheduleSeat(store) {
 
 function seatText(store) {
   const seat = scheduleSeat(store);
-  return `${seat.division} · ${seat.district} · OM ${seat.om}`;
+  return `${seat.region} · ${seat.division} · ${seat.district} · OM ${seat.om}`;
 }
 
 function whyFlags(store) {
@@ -1006,7 +1009,7 @@ function scheduleActionHtml(pack, card) {
             .slice(0, 80)
             .map((store) => {
               const seat = scheduleSeat(store);
-              return `<tr><td>${esc(store.store)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td>${esc(pct(store.under))}</td><td>${esc(pct(store.over))}</td><td>${esc(whyFlags(store))}</td></tr>`;
+              return `<tr><td>${esc(store.store)}</td><td>${esc(seat.region)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td>${esc(pct(store.under))}</td><td>${esc(pct(store.over))}</td><td>${esc(whyFlags(store))}</td></tr>`;
             })
             .join("");
           const cards = group.stores
@@ -1016,7 +1019,7 @@ function scheduleActionHtml(pack, card) {
                 `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`,
             )
             .join("");
-          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
+          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
         })
         .join("")
     : `<p class="note">No stores qualify in this scope.</p>`;
@@ -1101,7 +1104,7 @@ function scheduleDetailHtml(pack) {
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
       const seat = scheduleSeat(store);
-      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(scheduleRate(store, store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(scheduleRate(store, store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(scheduleRate(store, store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
+      return `<tr><td>${name}${tag}</td><td>${esc(seat.region)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(scheduleRate(store, store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(scheduleRate(store, store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(scheduleRate(store, store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
   const cards = rows
@@ -1117,7 +1120,7 @@ function scheduleDetailHtml(pack) {
       return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
-  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
+  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
 let renderToken = 0;
@@ -1277,11 +1280,27 @@ function closeDrawer() {
 async function ensureSeatRows(pages) {
   const shared = Array.isArray(pages) ? pages : [];
   const needPicker = shared.some((page) => page.section === "picker_scorecard");
-  await Promise.all(
-    PAGES.filter((page) => page.section && (needPicker || page.section !== "picker_scorecard")).map((page) =>
-      load(`section/${page.section}`).catch(() => null),
-    ),
-  );
+  const regionOnly =
+    Boolean(state.filters.region) &&
+    !state.filters.division &&
+    !state.filters.district &&
+    !state.filters.om &&
+    !state.filters.store;
+  const rendered = [];
+  for (const page of shared) {
+    if (page && page.id === "dashboard") rendered.push(...PAGES);
+    else if (page) rendered.push(page);
+  }
+  const sections = [];
+  const seen = new Set();
+  for (const page of rendered.filter((page) => page.section && (needPicker || page.section !== "picker_scorecard"))) {
+    if (seen.has(page.section)) continue;
+    seen.add(page.section);
+    // Region chrome already paints this seat. Load a section file only when the share has to render its rows.
+    if (regionOnly && seatReady(page.section)) continue;
+    sections.push(`section/${page.section}`);
+  }
+  await Promise.all(sections.map((path) => load(path).catch(() => null)));
 }
 
 function seatFigure(section, seat) {

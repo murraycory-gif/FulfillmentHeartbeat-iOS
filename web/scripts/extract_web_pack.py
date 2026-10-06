@@ -458,7 +458,7 @@ def labor_source_issue(payload: dict) -> bool:
 
 
 def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
-    """Company Lost % / Goal % are fractions printed with a % sign. Missed is reduced capacity when that is the only dollar."""
+    """Company Lost % / Goal % are fractions printed with a % sign. Missed is missed_sales dollars, never reduced capacity."""
     block = tiles.get("lost_revenue")
     if not isinstance(block, dict) or not market:
         return
@@ -483,8 +483,6 @@ def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
     if goal_points is not None:
         put("Goal %", f"{goal_points:.2f}%")
     missed = market.get("missed_sales")
-    if missed is None:
-        missed = market.get("reduced_capacity")
     if missed is not None:
         put("Missed", _money_label(float(missed)))
     block["values"] = values
@@ -791,21 +789,36 @@ def clear_blank_schedule(schedule: dict) -> None:
             market["eff"] = None
 
 
+def _schedule_region(division: str, region: str) -> str:
+    """South 397 mapping: United and Southwest are South Region when the row is blank."""
+    current = str(region or "").strip()
+    if current:
+        return current
+    short = _DIVISION_REGION.get(canonical_division(division) or "")
+    return f"{short} Region" if short else ""
+
+
 def _fill_schedule_roster(schedule: dict, roster: dict) -> None:
-    """Schedule rows with a blank OM take the store roster person."""
+    """Schedule identity takes the roster, then the South 210/239 map. A blank region follows the division."""
     for store in schedule.get("stores") or []:
         if not isinstance(store, dict):
             continue
         key = canonical_store(str(store.get("store") or ""))
-        current = roster.get(key)
-        if not current:
-            continue
+        current = roster.get(key) or {}
+        ident = SHEET_LOSS_IDENTITY.get(key) or {}
         if current.get("om"):
             store["om"] = current["om"]
-        if not store.get("district") and current.get("district"):
-            store["district"] = current["district"]
-        if current.get("division"):
-            store["division"] = current["division"]
+        elif not store.get("om") and ident.get("om"):
+            store["om"] = ident["om"]
+        if not store.get("district"):
+            store["district"] = current.get("district") or ident.get("district") or ""
+        division = current.get("division") or store.get("division") or ident.get("division") or ""
+        named = canonical_division(division) or division
+        if named:
+            store["division"] = named
+        region = _schedule_region(store.get("division") or "", store.get("region") or "")
+        if region:
+            store["region"] = region
 
 
 def read_schedule_file(path: Path) -> dict | None:
@@ -864,7 +877,8 @@ def _loss_header_key(header: str) -> str:
         "total lost revenue (fy2026 goal) %": "lost_revenue_goal_pct",
         "post sub oos foregone revenue (total opportunity)": "post_sub_oos_foregone",
         "refund $ - fulfillment reasons (total opportunity)": "refund_lost",
-        "capacity reduction (total opportunity)": "reduced_capacity",
+        "capacity reduction (total opportunity)": "missed_sales",
+        "total reduced capacity": "reduced_capacity",
         "cancelled orders (ldap driven) - lost sales (total opportunity)": "cancelled_lost",
         "kill switch lost sales (using $90) (total opportunity)": "kill_switch_lost",
     }.get(text, "")
@@ -878,23 +892,24 @@ def loss_sheet_division(store: str, sheet_division: str) -> str:
     return str((SHEET_LOSS_IDENTITY.get(store) or {}).get("division") or "")
 
 
-def read_loss_sheet(path: str) -> list[dict]:
-    """Store rows on Daily Loss Revenue. Blank cells stay absent, including a blank Goal %."""
+def _read_loss_sheet(path: str) -> tuple[list[dict], float | None]:
+    """Store rows on Daily Loss Revenue, plus the Total row's missed_sales dollars."""
     import openpyxl
 
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         if "Loss Revenue" not in workbook.sheetnames:
-            return []
+            return [], None
         sheet = workbook["Loss Revenue"]
         rows = sheet.iter_rows(values_only=True)
         header = next(rows, None)
         if not header:
-            return []
+            return [], None
         keys = [_loss_header_key("" if value is None else str(value)) for value in header]
         if "store" not in keys or "lost_revenue" not in keys:
-            return []
+            return [], None
         out = []
+        company_missed = None
         for line in rows:
             cells = list(line)
             store_raw = ""
@@ -924,7 +939,11 @@ def read_loss_sheet(path: str) -> list[dict]:
                     continue
                 if key not in payload:
                     payload[key] = number
-            if not store_raw or "applied filter" in store_raw.lower() or is_total_store(store_raw):
+            if not store_raw or "applied filter" in store_raw.lower():
+                continue
+            if is_total_store(store_raw):
+                if "missed_sales" in payload:
+                    company_missed = payload["missed_sales"]
                 continue
             store = canonical_store(store_raw)
             if not store or is_total_store(store):
@@ -937,17 +956,35 @@ def read_loss_sheet(path: str) -> list[dict]:
                     "payload": payload,
                 }
             )
-        return out
+        return out, company_missed
     finally:
         workbook.close()
 
 
-def merge_off_roster_loss(latest: dict, roster: dict, path: str) -> int:
-    """Keep every Loss Revenue store row. The sqlite cook drops stores that are off the old roster."""
+def read_loss_sheet(path: str) -> list[dict]:
+    """Store rows on Daily Loss Revenue. Blank cells stay absent, including a blank Goal %."""
+    rows, _company_missed = _read_loss_sheet(path)
+    return rows
+
+
+def merge_off_roster_loss(latest: dict, roster: dict, path: str) -> tuple[int, float | None]:
+    """Keep every Loss Revenue store row and stamp missed_sales onto rows the sqlite cook already has.
+
+    Blank Capacity Reduction cells stay absent. Other payload keys, including a blank Goal %, are left alone.
+    """
     added = 0
-    for row in read_loss_sheet(path):
+    rows, company_missed = _read_loss_sheet(path)
+    for row in rows:
         store = row["store"]
-        if ("lost_revenue", store) in latest:
+        missed = (row.get("payload") or {}).get("missed_sales")
+        existing = latest.get(("lost_revenue", store))
+        if existing:
+            if missed is not None:
+                payload = existing.get("payload")
+                if not isinstance(payload, dict):
+                    payload = {}
+                    existing["payload"] = payload
+                payload["missed_sales"] = missed
             continue
         ident = SHEET_LOSS_IDENTITY.get(store) or {}
         division = loss_sheet_division(store, row.get("division") or "")
@@ -966,7 +1003,7 @@ def merge_off_roster_loss(latest: dict, roster: dict, path: str) -> int:
         seeded["division"] = division
         _merge_roster(roster, seeded, prefer_roster=False)
         added += 1
-    return added
+    return added, company_missed
 
 
 def read_roster_people(path: str) -> dict:
@@ -1199,8 +1236,9 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     for record in shoppers.values():
         if record.get("section") == "pick_path_picker" and record.get("store"):
             _merge_roster(roster, record, prefer_roster=False)
+    company_missed = None
     if roster_xlsx:
-        merge_off_roster_loss(latest, roster, roster_xlsx)
+        _added, company_missed = merge_off_roster_loss(latest, roster, roster_xlsx)
     records = list(latest.values()) + list(shoppers.values())
     prefer_pph_identity(roster, records)
     people = read_roster_people(roster_xlsx) if roster_xlsx else {}
@@ -1251,7 +1289,11 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         )
     apply_pph_summary(summaries, records)
     company_tiles = json.loads(json.dumps(chrome.get("companyTiles") or {}))
-    apply_lost_tile_scale(company_tiles, lost_market_payload(db))
+    lost_market = lost_market_payload(db)
+    if company_missed is not None:
+        lost_market = dict(lost_market)
+        lost_market["missed_sales"] = company_missed
+    apply_lost_tile_scale(company_tiles, lost_market)
     labor_market = labor_market_payload(db)
     apply_labor_aiv_tile(company_tiles, labor_market)
     if not published or len(str(published)) < 20:

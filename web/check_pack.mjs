@@ -200,7 +200,11 @@ export function checkPack(dir) {
   const lostTile = (name) => (lostLabels.includes(name) ? lostValues[lostLabels.indexOf(name)] : null);
   if (lostTile("Goal %") !== "3.06%") errors.push(`Goal %=${lostTile("Goal %")}`);
   if (lostTile("Lost %") !== "5.19%") errors.push(`Lost %=${lostTile("Lost %")}`);
-  if (!String(lostTile("Missed") || "").startsWith("$")) errors.push(`Missed=${lostTile("Missed")}`);
+  // section/lost_revenue required key. missed_sales is Capacity Reduction (Total Opportunity).
+  // A blank cell stays absent. reduced_capacity is not a substitute.
+  const LOST_REVENUE_REQUIRED = ["missed_sales"];
+  if (!LOST_REVENUE_REQUIRED.includes("missed_sales")) errors.push("lost_revenue required keys dropped missed_sales");
+  if (lostTile("Missed") !== "$420,030.87") errors.push(`Missed=${lostTile("Missed")}`);
 
   const summaries = new Map((Array.isArray(home.summaries) ? home.summaries : []).filter((item) => item && typeof item === "object").map((item) => [item.section, item]));
   const pph = summaries.get("pph") || {};
@@ -247,6 +251,27 @@ export function checkPack(dir) {
   }
   const blankGoal = loss1509 && loss1509.payload ? loss1509.payload.lost_revenue_goal_pct : undefined;
   if (blankGoal != null) errors.push(`store 1509 Goal %=${blankGoal}`);
+  let missedCount = 0;
+  for (const row of lostRows) {
+    const payload = row && row.payload;
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "missed_sales")) missedCount += 1;
+  }
+  if (missedCount !== 154) errors.push(`lost missed_sales=${missedCount} required ${LOST_REVENUE_REQUIRED.join(",")}`);
+  const loss6 = lostByStore.get("6");
+  const missed6 = loss6 && loss6.payload ? loss6.payload.missed_sales : undefined;
+  if (missed6 == null || Math.abs(Number(missed6) - 2687.8666987759993) > 1e-6) {
+    errors.push(`store 6 missed_sales=${missed6}`);
+  }
+  if (loss6 && loss6.payload && Number(loss6.payload.reduced_capacity) === Number(missed6)) {
+    errors.push("store 6 missed_sales copied from reduced_capacity");
+  }
+  for (const store of ["1", "210", "239", "1509"]) {
+    const row = lostByStore.get(store);
+    const payload = row && row.payload;
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "missed_sales")) {
+      errors.push(`store ${store} missed_sales should be absent`);
+    }
+  }
   const lostCounts = new Map();
   for (const row of lostRows) {
     const division = row && row.division;
@@ -287,8 +312,9 @@ export function checkPack(dir) {
   const scheduleBy = new Map(scheduleStores.filter((item) => item && typeof item === "object").map((item) => [String(item.store), item]));
   for (const store of ["210", "239"]) {
     const row = scheduleBy.get(store) || {};
-    const got = [row.division, row.district, row.om];
-    if (got.join("\0") !== expected[store].join("\0")) errors.push(`schedule ${store}=${got.join(",")}`);
+    const got = [row.region, row.division, row.district, row.om];
+    const want = ["South Region", ...expected[store]];
+    if (got.join("\0") !== want.join("\0")) errors.push(`schedule ${store}=${got.join(",")}`);
   }
   const southEff = blend(scheduleStores, markets, "South Region", "eff");
   const southUnder = blend(scheduleStores, markets, "South Region", "under");
