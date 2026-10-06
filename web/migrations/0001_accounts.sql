@@ -61,3 +61,12 @@ ALTER TABLE users ADD COLUMN password_algo TEXT NOT NULL DEFAULT 'PBKDF2-SHA256'
 ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER;
 ALTER TABLE shared_sessions ADD COLUMN last_seen_at INTEGER;
 ALTER TABLE login_attempts ADD COLUMN next_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE shared_sessions ADD COLUMN pass_mark TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+INSERT INTO meta (key, value) VALUES ('schema_version', '2')
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value;

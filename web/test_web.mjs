@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   IDLE_TTL,
+  IP_WINDOW,
+  SCHEMA_VERSION as AUTH_SCHEMA_VERSION,
   backoffSeconds,
   hashPassword,
   ensureSchema,
@@ -1606,7 +1608,7 @@ const rotated = await basicGate({
   env: accountEnv(signedAuth.db, { BASIC_PASS: "rotated-secret" }),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(await rotated.text(), "page");
+assert.match(await rotated.text(), /action="\/login"/);
 const testerIn = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
@@ -1625,7 +1627,7 @@ const testerAfterRotate = await basicGate({
   env: accountEnv(signedAuth.db, { BASIC_PASS_TESTER: "rotated-tester" }),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(await testerAfterRotate.text(), "page");
+assert.match(await testerAfterRotate.text(), /action="\/login"/);
 const testerLogout = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", {
     method: "POST",
@@ -2387,20 +2389,39 @@ assert.ok(quinnStores.length > 1);
 assert.ok(countStores(cooked.filters.stores, filters({ region: "East Region" })) > 400);
 
 function d1From(raw) {
-  return {
+  const db = {
+    batches: 0,
+    batchSql: [],
     prepare(sql) {
-      const prepared = raw.prepare(sql);
       const bound = (params) => ({
-        first: async () => prepared.get(...params) ?? null,
-        all: async () => ({ results: prepared.all(...params) }),
+        sql,
+        first: async () => raw.prepare(sql).get(...params) ?? null,
+        all: async () => ({ results: raw.prepare(sql).all(...params) }),
         run: async () => {
-          const info = prepared.run(...params);
+          const info = raw.prepare(sql).run(...params);
           return { success: true, meta: { changes: info.changes ?? 0 } };
         },
       });
-      return { bind: (...params) => bound(params), ...bound([]) };
+      return { sql, bind: (...params) => bound(params), ...bound([]) };
+    },
+    async batch(statements) {
+      db.batches += 1;
+      db.batchSql.push(statements.map((statement) => statement.sql));
+      raw.exec("BEGIN");
+      try {
+        for (const statement of statements) await statement.run();
+        raw.exec("COMMIT");
+      } catch (error) {
+        try {
+          raw.exec("ROLLBACK");
+        } catch {
+          // The transaction is already closed.
+        }
+        throw error;
+      }
     },
   };
+  return db;
 }
 
 function openAuth() {
@@ -3209,7 +3230,7 @@ prior
   .prepare(
     "INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at) VALUES (?, ?, ?, ?, 100000, 'admin', 'active', ?)",
   )
-  .run("prior-user", ADMIN_EMAIL, priorHash.hash, priorHash.salt, priorNow - 3 * 24 * 3600);
+  .run("prior-user", ADMIN_EMAIL, priorHash.hash, priorHash.salt, priorNow - 60);
 const priorDb = d1From(prior);
 await ensureSchema(priorDb);
 const kept = prior.prepare("SELECT password_algo, password_hash FROM users WHERE id = ?").get("prior-user");
@@ -3218,7 +3239,7 @@ assert.equal(kept.password_hash, priorHash.hash);
 const rawSession = "ab".repeat(32);
 prior
   .prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, ?, ?, NULL, ?, NULL)")
-  .run(rawSession, "prior-user", priorNow + 86400, priorNow - 3 * 24 * 3600);
+  .run(rawSession, "prior-user", priorNow + 20 * 24 * 3600, priorNow - 60);
 const sigKey = await crypto.subtle.importKey(
   "raw",
   new TextEncoder().encode(gateEnv.SESSION_SECRET),
@@ -3231,6 +3252,8 @@ const sigHex = [...sigBytes].map((byte) => byte.toString(16).padStart(2, "0")).j
 const priorSession = await accountRequest(priorDb, "/session", { cookie: `hb_session=${rawSession}.${sigHex}` });
 assert.equal(priorSession.status, 200);
 assert.deepEqual(await priorSession.json(), { email: ADMIN_EMAIL, role: "admin", account: true });
+assert.match(priorSession.headers.get("set-cookie") || "", /^hb_session=[a-f0-9]{64};/);
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(rawSession).revoked_at == null, false);
 const priorLogin = await accountRequest(priorDb, "/login", {
   method: "POST",
   body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
@@ -3252,9 +3275,221 @@ const signedKeep = await accountRequest(enumDb.db, "/login", {
   headers: { "cf-connecting-ip": ipKeep },
 });
 assert.equal(signedKeep.status, 303);
-const ipAfter = enumDb.raw.prepare("SELECT failures FROM login_attempts WHERE bucket = ?").get(`ip:${ipKeep}`).failures;
-assert.equal(ipAfter, ipBefore);
+assert.equal(enumDb.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = ?").get(`ip:${ipKeep}`).n, 0);
 assert.equal(enumDb.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts WHERE bucket = ?").get(`email:${ADMIN_EMAIL}`).n, 0);
+
+const gated = openAuth();
+await ensureSchema(gated.db);
+assert.equal(gated.db.batches, 1);
+assert.equal(gated.db.batchSql[0].some((sql) => sql.startsWith("ALTER TABLE")), true);
+assert.equal(gated.db.batchSql[0].some((sql) => sql.includes("schema_version")), true);
+await ensureSchema(gated.db);
+assert.equal(gated.db.batches, 1);
+const gatedAgain = d1From(gated.raw);
+await ensureSchema(gatedAgain);
+assert.equal(gatedAgain.batches, 0);
+assert.equal(Number(gated.raw.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value), AUTH_SCHEMA_VERSION);
+
+const syntaxDb = {
+  prepare() {
+    return { bind() { return this; }, async first() { return null; }, async run() {} };
+  },
+  async batch() {
+    throw new Error("near \"nope\": syntax error");
+  },
+};
+await assert.rejects(() => ensureSchema(syntaxDb), /syntax error/);
+
+let duplicateBatches = 0;
+const duplicateDb = {
+  prepare(sql) {
+    return {
+      sql,
+      bind() { return this; },
+      async first() { return null; },
+      async run() {},
+    };
+  },
+  async batch() {
+    duplicateBatches += 1;
+    if (duplicateBatches === 1) throw new Error("duplicate column name: password_algo");
+  },
+};
+await ensureSchema(duplicateDb);
+assert.equal(duplicateBatches, 2);
+await ensureSchema(duplicateDb);
+assert.equal(duplicateBatches, 2);
+
+const fed = new DatabaseSync(":memory:");
+fed.exec(`CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL DEFAULT '',
+  password_salt TEXT NOT NULL DEFAULT '',
+  password_iterations INTEGER NOT NULL DEFAULT 100000,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+  status TEXT NOT NULL CHECK (status IN ('invited', 'active', 'disabled')),
+  created_at INTEGER NOT NULL,
+  last_login_at INTEGER
+)`);
+fed.exec(`CREATE TABLE invites (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_enc TEXT NOT NULL DEFAULT '',
+  purpose TEXT NOT NULL CHECK (purpose IN ('invite', 'reset', 'setup')),
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER,
+  created_at INTEGER NOT NULL
+)`);
+fed.exec(`CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  created_at INTEGER NOT NULL
+)`);
+fed.exec(`CREATE TABLE login_attempts (
+  bucket TEXT PRIMARY KEY,
+  failures INTEGER NOT NULL,
+  window_start INTEGER NOT NULL,
+  locked_until INTEGER NOT NULL DEFAULT 0
+)`);
+fed.prepare("INSERT INTO users (id, email, password_hash, password_salt, password_iterations, role, status, created_at) VALUES ('kept', 'kept@example.com', 'abc', 'def', 100000, 'viewer', 'active', 1)").run();
+const fedDb = d1From(fed);
+await ensureSchema(fedDb);
+assert.equal(fed.prepare("SELECT email FROM users WHERE id = 'kept'").get().email, "kept@example.com");
+assert.equal(fed.prepare("SELECT password_algo FROM users WHERE id = 'kept'").get().password_algo, "PBKDF2-SHA256");
+assert.equal(fed.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('sessions') WHERE name = 'last_seen_at'").get().n, 1);
+assert.equal(fed.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('login_attempts') WHERE name = 'next_at'").get().n, 1);
+assert.equal(fed.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('shared_sessions') WHERE name = 'pass_mark'").get().n, 1);
+assert.equal(fedDb.batches, 1);
+
+const setupNow = Math.floor(Date.now() / 1000);
+const setupDb = openAuth();
+await ensureSchema(setupDb.db);
+const setupIssued = await issueFirstAdminLink(setupDb.db, accountEnv(setupDb.db), setupNow);
+setupDb.raw.prepare("UPDATE invites SET expires_at = ?").run(setupNow - 5);
+const setupExpired = await accountRequest(setupDb.db, `/invite/${setupIssued.token}`);
+assert.equal(setupExpired.status, 400);
+assert.match(await setupExpired.text(), /no longer valid/);
+
+const guardDb = openAuth();
+await ensureSchema(guardDb.db);
+const guardIssued = await issueFirstAdminLink(guardDb.db, accountEnv(guardDb.db), setupNow);
+const guardJoin = await accountRequest(guardDb.db, `/invite/${guardIssued.token}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-1",
+});
+assert.equal(guardJoin.status, 303);
+guardDb.raw.prepare(
+  "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at) VALUES ('invited-admin', 'invited-admin@example.com', '', '', 'PBKDF2-SHA256', 100000, 'admin', 'invited', ?)",
+).run(setupNow);
+const guardCookie = cookieHeader(guardJoin);
+const guardId = guardDb.raw.prepare("SELECT id FROM users WHERE email = ?").get(ADMIN_EMAIL).id;
+const guardDemote = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: `action=role&role=viewer&user=${encodeURIComponent(guardId)}`,
+});
+assert.match(await guardDemote.text(), /at least one admin/);
+const guardReset = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: `action=reset&user=${encodeURIComponent(guardId)}`,
+});
+assert.match(await guardReset.text(), /at least one admin/);
+const guardShow = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: "action=show&user=invited-admin",
+});
+assert.match(await guardShow.text(), /only shown when it was created/);
+const guardAdd = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: "action=add&email=link@example.com&role=viewer",
+});
+const guardAddHtml = await guardAdd.text();
+const guardLink = inviteToken(guardAddHtml);
+const linkUser = guardDb.raw.prepare("SELECT id FROM users WHERE email = 'link@example.com'").get().id;
+const storedEnc = guardDb.raw.prepare("SELECT token_enc FROM invites WHERE user_id = ? AND used_at IS NULL").get(linkUser).token_enc;
+assert.equal(storedEnc.includes(guardLink), false);
+assert.ok(storedEnc.length > 20);
+const guardShown = await accountRequest(guardDb.db, "/admin", {
+  method: "POST",
+  cookie: guardCookie,
+  body: `action=show&user=${encodeURIComponent(linkUser)}`,
+});
+assert.match(await guardShown.text(), new RegExp(guardLink.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+const decayDb = openAuth();
+await ensureSchema(decayDb.db);
+const decayNow = setupNow;
+const decayRequest = new Request("https://fulfillment-heartbeat-web.pages.dev/login", { headers: { "cf-connecting-ip": "203.0.113.77" } });
+await recordLoginFailure(decayDb.db, decayRequest, "one@example.com", decayNow);
+await recordLoginFailure(decayDb.db, decayRequest, "two@example.com", decayNow);
+assert.equal(await loginThrottled(decayDb.db, decayRequest, "three@example.com", decayNow), true);
+decayDb.raw.prepare("UPDATE login_attempts SET window_start = ? WHERE bucket = ?").run(decayNow - IP_WINDOW - 1, "ip:203.0.113.77");
+assert.equal(await loginThrottled(decayDb.db, decayRequest, "three@example.com", decayNow), false);
+await recordLoginFailure(decayDb.db, decayRequest, "three@example.com", decayNow);
+assert.equal(decayDb.raw.prepare("SELECT failures FROM login_attempts WHERE bucket = ?").get("ip:203.0.113.77").failures, 1);
+
+const lowHash = await hashPassword("long-enough-1", 1000);
+const lowDb = openAuth();
+await ensureSchema(lowDb.db);
+lowDb.raw.prepare(
+  "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at) VALUES ('low', 'low@example.com', ?, ?, 'PBKDF2-SHA256', 1000, 'viewer', 'active', ?)",
+).run(lowHash.hash, lowHash.salt, setupNow);
+const lowLogin = await accountRequest(lowDb.db, "/login", {
+  method: "POST",
+  body: "email=low@example.com&password=long-enough-1",
+});
+assert.equal(lowLogin.status, 303);
+assert.equal(lowDb.raw.prepare("SELECT password_iterations FROM users WHERE id = 'low'").get().password_iterations, 100000);
+
+const badInvite = await accountRequest(lowDb.db, "/invite/%E0%A4%A");
+assert.equal(badInvite.status, 400);
+
+const sharedIn = await accountRequest(lowDb.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+});
+assert.equal(sharedIn.status, 303);
+const sharedPassCookie = cookieHeader(sharedIn);
+const sharedOk = await accountRequest(lowDb.db, "/session", { cookie: sharedPassCookie });
+assert.equal(sharedOk.status, 200);
+const sharedStale = await accountRequest(lowDb.db, "/session", {
+  cookie: sharedPassCookie,
+  env: accountEnv(lowDb.db, { BASIC_PASS: "rotated-shared-secret" }),
+});
+assert.equal(sharedStale.status, 401);
+
+const oldId = "cd".repeat(32);
+const oldCap = priorNow - 8 * 24 * 3600;
+prior.prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, 'prior-user', ?, NULL, ?, NULL)").run(oldId, priorNow + 10 * 24 * 3600, oldCap);
+const oldKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(gateEnv.SESSION_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+const oldSigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", oldKey, new TextEncoder().encode(oldId)));
+const oldSig = [...oldSigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const cappedSession = await accountRequest(priorDb, "/session", { cookie: `hb_session=${oldId}.${oldSig}` });
+assert.equal(cappedSession.status, 401);
+const idleId = "ef".repeat(32);
+const idleCap = priorNow - IDLE_TTL - 60;
+prior.prepare("INSERT INTO sessions (id, user_id, expires_at, revoked_at, created_at, last_seen_at) VALUES (?, 'prior-user', ?, NULL, ?, NULL)").run(idleId, priorNow + 10 * 24 * 3600, idleCap);
+const idleSigBytes = new Uint8Array(await crypto.subtle.sign("HMAC", oldKey, new TextEncoder().encode(idleId)));
+const idleSig = [...idleSigBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const idleLegacy = await accountRequest(priorDb, "/session", { cookie: `hb_session=${idleId}.${idleSig}` });
+assert.equal(idleLegacy.status, 401);
+const legacyRotated = (priorSession.headers.get("set-cookie") || "").match(/hb_session=([a-f0-9]{64})/);
+const legacyRotatedLogin = await accountRequest(priorDb, "/login", {
+  method: "POST",
+  cookie: `hb_session=${legacyRotated[1]}`,
+  body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
+});
+assert.equal(legacyRotatedLogin.status, 303);
+const legacyRotatedHashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(legacyRotated[1])));
+const legacyRotatedHash = [...legacyRotatedHashBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotatedHash).revoked_at == null, false);
 
 const { runFakeCountLab } = await import("./test_fake_counts.mjs");
 await runFakeCountLab(join(root, "public"));

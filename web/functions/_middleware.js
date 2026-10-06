@@ -26,6 +26,7 @@ import {
   createSharedSession,
   readAccountSession,
   readSharedSession,
+  revokePresentedSessions,
   recordLoginFailure,
   revokeSession,
   revokeSharedSession,
@@ -242,14 +243,15 @@ async function submitLogin(request, env, db, now) {
     }
     return loginResponse("That email or password is wrong.", "", 401);
   }
-  const result = await authenticateAccount(db, request, email, password, now);
+  const result = await authenticateAccount(db, request, email, password, now, env);
   if (result.throttled) return loginResponse("Too many sign-in attempts. Try again later.", "", 429);
   if (result.unavailable) return loginResponse("Sign-in is unavailable.", "", 503);
   if (result.session) return redirect(request, "/", accountCookies(result.session));
   if (!authCutover(env)) {
     const account = matchedAccount(email, password, env);
     if (account) {
-      const token = await createSharedSession(db, account.user, now);
+      await revokePresentedSessions(db, request, now, env);
+      const token = await createSharedSession(db, account.user, now, account.pass);
       if (!token) return loginResponse("Sign-in is unavailable.", "", 503);
       try {
         await clearLoginFailures(db, request, email);
@@ -298,7 +300,7 @@ async function adminResponse(request, env, db, session, now) {
     const params = await readForm(request);
     if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", chrome }), 400);
     const fields = Object.fromEntries(params.entries());
-    const result = await adminAct(db, request, fields, now);
+    const result = await adminAct(db, env, request, fields, now);
     notice = result.notice || "";
     error = result.error || "";
     link = result.link || "";
@@ -398,10 +400,15 @@ function withReferrerPolicy(response) {
 }
 
 export async function onRequest(context) {
-  return withReferrerPolicy(await routeRequest(context));
+  const jar = [];
+  const response = await routeRequest(context, jar);
+  if (!jar.length) return withReferrerPolicy(response);
+  const headers = new Headers(response.headers);
+  for (const cookie of jar) headers.append("Set-Cookie", cookie);
+  return withReferrerPolicy(new Response(response.body, { status: response.status, statusText: response.statusText, headers }));
 }
 
-async function routeRequest(context) {
+async function routeRequest(context, jar = []) {
   const request = context.request;
   const env = (context && context.env) || {};
   const url = new URL(request.url || "https://fulfillment-heartbeat-web.pages.dev/");
@@ -427,7 +434,13 @@ async function routeRequest(context) {
     if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST", "Cache-Control": "no-store" } });
     }
-    return inviteResponse(request, env, readyDb, decodeURIComponent(pathname.slice("/invite/".length)), now);
+    let inviteToken = "";
+    try {
+      inviteToken = decodeURIComponent(pathname.slice("/invite/".length));
+    } catch {
+      return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
+    }
+    return inviteResponse(request, env, readyDb, inviteToken, now);
   }
   if (pathname === "/login" && request.method === "POST") return submitLogin(request, env, readyDb, now);
   if (pathname === "/logout") {
@@ -436,9 +449,9 @@ async function routeRequest(context) {
     }
     if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
     if (readyDb) {
-      const current = await readAccountSession(readyDb, request, now, env);
+      const current = await readAccountSession(readyDb, request, now, env, false);
       if (current) await revokeSession(readyDb, current.sessionId, now);
-      const shared = await readSharedSession(readyDb, request, now, env);
+      const shared = await readSharedSession(readyDb, request, now, env, false);
       if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
     }
     return redirect(request, "/login", clearedCookies(), 303);
@@ -451,7 +464,11 @@ async function routeRequest(context) {
   }
 
   let session = readyDb ? await readAccountSession(readyDb, request, now, env) : null;
-  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, now, env);
+  if (session && session.rotate) jar.push(sessionCookie(ACCOUNT_COOKIE, session.rotate));
+  else if (!session && readyDb && !authCutover(env)) {
+    session = await readSharedSession(readyDb, request, now, env);
+    if (session && session.rotate) jar.push(sessionCookie(SHARED_COOKIE, session.rotate));
+  }
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {

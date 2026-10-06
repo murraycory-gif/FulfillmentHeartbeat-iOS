@@ -11,6 +11,8 @@ export const INVITE_TTL = 24 * 60 * 60;
 export const IDLE_TTL = 12 * 60 * 60;
 export const ABSOLUTE_TTL = 7 * 24 * 60 * 60;
 export const BACKOFF_CAP = 15 * 60;
+export const IP_WINDOW = 60 * 60;
+export const SCHEMA_VERSION = 2;
 export const ACCOUNT_COOKIE = "hb_session";
 export const SHARED_COOKIE = "hb_shared";
 
@@ -69,7 +71,10 @@ const ALTERS = [
   "ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER",
   "ALTER TABLE shared_sessions ADD COLUMN last_seen_at INTEGER",
   "ALTER TABLE login_attempts ADD COLUMN next_at INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE shared_sessions ADD COLUMN pass_mark TEXT NOT NULL DEFAULT ''",
 ];
+
+const schemaReady = new WeakSet();
 
 const encoder = new TextEncoder();
 
@@ -125,6 +130,12 @@ function base64url(bytes) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
+function base64urlDecode(text) {
+  const pad = text.length % 4 === 0 ? "" : "=".repeat(4 - (text.length % 4));
+  const binary = atob(String(text).replaceAll("-", "+").replaceAll("_", "/") + pad);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
 async function sha256Hex(text) {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(String(text)));
   return bytesToHex(new Uint8Array(digest));
@@ -176,22 +187,66 @@ export async function verifyPassword(password, saltHex, expectedHash, iterations
   const expectedBytes = expected && expected.byteLength === bits.byteLength ? expected : new Uint8Array(bits.byteLength);
   const same = bytesEqual(bits, expectedBytes);
   const storedOk =
-    algo === PASSWORD_ALGO &&
-    rounds === PBKDF2_ITERATIONS &&
+    (algo || PASSWORD_ALGO) === PASSWORD_ALGO &&
+    rounds > 0 &&
     Boolean(salt && salt.byteLength === 16) &&
     Boolean(expected && expected.byteLength === 32);
   return Boolean(same && storedOk);
 }
 
-export async function ensureSchema(db) {
-  for (const sql of SCHEMA) await db.prepare(sql).run();
-  for (const sql of ALTERS) {
-    try {
-      await db.prepare(sql).run();
-    } catch {
-      // The column is already there on databases created from the current schema.
-    }
+function errorText(error) {
+  return [error && error.message, error && error.cause && error.cause.message].filter(Boolean).join(" ");
+}
+
+function isDuplicateColumn(error) {
+  return /duplicate column name/i.test(errorText(error));
+}
+
+function versionWrite(db) {
+  return [
+    db.prepare("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"),
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).bind(String(SCHEMA_VERSION)),
+  ];
+}
+
+async function readSchemaVersion(db) {
+  try {
+    const row = await db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").first();
+    return Number(row && row.value) || 0;
+  } catch (error) {
+    if (/no such table/i.test(errorText(error))) return 0;
+    throw error;
   }
+}
+
+export async function ensureSchema(db) {
+  if (!db || schemaReady.has(db)) return;
+  if ((await readSchemaVersion(db)) >= SCHEMA_VERSION) {
+    schemaReady.add(db);
+    return;
+  }
+  const statements = [
+    versionWrite(db)[0],
+    ...SCHEMA.map((sql) => db.prepare(sql)),
+    ...ALTERS.map((sql) => db.prepare(sql)),
+    versionWrite(db)[1],
+  ];
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    if (!isDuplicateColumn(error)) throw error;
+    for (const sql of ALTERS) {
+      try {
+        await db.prepare(sql).run();
+      } catch (alterError) {
+        if (!isDuplicateColumn(alterError)) throw alterError;
+      }
+    }
+    await db.batch(versionWrite(db));
+  }
+  schemaReady.add(db);
 }
 
 function clientIp(request) {
@@ -216,20 +271,28 @@ async function attemptRow(db, bucket) {
     .first();
 }
 
-function attemptBlocked(row, now) {
-  return Boolean(row && (Number(row.next_at) > now || Number(row.locked_until) > now));
+function ipWindowStale(bucket, row, now) {
+  return bucket.startsWith("ip:") && row && now - Number(row.window_start) >= IP_WINDOW;
+}
+
+function attemptBlocked(bucket, row, now) {
+  if (!row || ipWindowStale(bucket, row, now)) return false;
+  return Number(row.next_at) > now || Number(row.locked_until) > now;
 }
 
 export async function loginThrottled(db, request, email, now) {
-  const ip = await attemptRow(db, ipBucket(request));
-  const mail = await attemptRow(db, emailBucket(email));
-  return attemptBlocked(ip, now) || attemptBlocked(mail, now);
+  const ipKey = ipBucket(request);
+  const mailKey = emailBucket(email);
+  const ip = await attemptRow(db, ipKey);
+  const mail = await attemptRow(db, mailKey);
+  return attemptBlocked(ipKey, ip, now) || attemptBlocked(mailKey, mail, now);
 }
 
 async function bumpAttempt(db, bucket, now) {
   const row = await attemptRow(db, bucket);
-  const failures = row ? Number(row.failures) + 1 : 1;
-  const windowStart = row ? Number(row.window_start) : now;
+  const fresh = !row || ipWindowStale(bucket, row, now);
+  const failures = fresh ? 1 : Number(row.failures) + 1;
+  const windowStart = fresh ? now : Number(row.window_start);
   const nextAt = now + backoffSeconds(failures);
   await db
     .prepare(
@@ -247,7 +310,7 @@ export async function recordLoginFailure(db, request, email, now) {
 
 export async function clearLoginFailures(db, request, email) {
   await db.prepare("DELETE FROM login_attempts WHERE bucket = ?").bind(emailBucket(email)).run();
-  void request;
+  if (request) await db.prepare("DELETE FROM login_attempts WHERE bucket = ?").bind(ipBucket(request)).run();
 }
 
 async function findUserByEmail(db, email) {
@@ -265,6 +328,34 @@ export function accountCookie(token) {
 function sessionSecret(env) {
   const secret = env && typeof env.SESSION_SECRET === "string" ? env.SESSION_SECRET.trim() : "";
   return secret.length >= 16 ? secret : "";
+}
+
+async function aesKey(secret) {
+  const raw = await crypto.subtle.digest("SHA-256", encoder.encode(secret));
+  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+async function encryptToken(secret, token) {
+  const key = await aesKey(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(token)));
+  const packed = new Uint8Array(iv.length + cipher.length);
+  packed.set(iv, 0);
+  packed.set(cipher, iv.length);
+  return base64url(packed);
+}
+
+async function decryptToken(secret, packed) {
+  try {
+    if (!secret || !packed) return "";
+    const bytes = base64urlDecode(packed);
+    if (bytes.length < 13) return "";
+    const key = await aesKey(secret);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12) }, key, bytes.slice(12));
+    return new TextDecoder().decode(plain);
+  } catch {
+    return "";
+  }
 }
 
 async function hmacHex(secret, message) {
@@ -301,18 +392,32 @@ async function touchSession(db, table, id, seen, now) {
   await db.prepare(`UPDATE ${table} SET last_seen_at = ? WHERE id = ?`).bind(now, id).run();
 }
 
-export async function issueInvite(db, userId, purpose, now) {
+export async function issueInvite(db, userId, purpose, now, env) {
   const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const id = crypto.randomUUID();
   const ttl = purpose === "setup" ? SETUP_TTL : INVITE_TTL;
+  const secret = sessionSecret(env);
+  const enc = secret ? await encryptToken(secret, token) : "";
   await db.prepare("UPDATE invites SET used_at = ? WHERE user_id = ? AND used_at IS NULL").bind(now, userId).run();
   await db
     .prepare(
-      "INSERT INTO invites (id, user_id, token_hash, purpose, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+      "INSERT INTO invites (id, user_id, token_hash, token_enc, purpose, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
     )
-    .bind(id, userId, await sha256Hex(token), purpose, now + ttl, now)
+    .bind(id, userId, await sha256Hex(token), enc, purpose, now + ttl, now)
     .run();
   return token;
+}
+
+export async function outstandingInviteLink(db, env, request, userId, now) {
+  const row = await db
+    .prepare(
+      "SELECT token_enc, expires_at FROM invites WHERE user_id = ? AND used_at IS NULL ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(userId)
+    .first();
+  if (!row || !row.token_enc || Number(row.expires_at) < now) return "";
+  const token = await decryptToken(sessionSecret(env), row.token_enc);
+  return token ? inviteUrl(request, token) : "";
 }
 
 export function inviteUrl(request, token) {
@@ -345,7 +450,7 @@ export async function issueFirstAdminLink(db, env, now) {
     user = await findUserByEmail(db, email);
   }
   if (!user) return null;
-  const token = await issueInvite(db, user.id, "setup", now);
+  const token = await issueInvite(db, user.id, "setup", now, env);
   return { email, token, expiresAt: now + SETUP_TTL };
 }
 
@@ -408,10 +513,17 @@ export async function createAccountSession(db, userId, now) {
   return token;
 }
 
-async function sessionLive(row, now) {
+function sessionFresh(row, now, legacy) {
   if (!row || row.revoked_at) return false;
   if (Number(row.expires_at) < now) return false;
-  if (row.last_seen_at == null) return true;
+  const created = Number(row.created_at) || 0;
+  if (legacy) {
+    if (!created || now - created > ABSOLUTE_TTL) return false;
+    const seen = row.last_seen_at == null ? created : Number(row.last_seen_at);
+    if (!seen || now - seen > IDLE_TTL) return false;
+    return true;
+  }
+  if (row.last_seen_at == null) return false;
   if (now - Number(row.last_seen_at) > IDLE_TTL) return false;
   return true;
 }
@@ -421,20 +533,43 @@ async function sessionIdForCookie(token, env) {
   return legacyRawId(token, env);
 }
 
-export async function readAccountSession(db, request, now, env) {
+export async function revokePresentedSessions(db, request, now, env) {
+  const accountToken = readCookie(request, ACCOUNT_COOKIE);
+  const accountId = await sessionIdForCookie(accountToken, env);
+  if (accountId) await revokeSession(db, accountId, now);
+  const sharedToken = readCookie(request, SHARED_COOKIE);
+  if (accountCookie(sharedToken)) await revokeSharedSession(db, await sha256Hex(sharedToken), now);
+  const legacy = await legacyRawId(accountToken, env);
+  if (legacy) await revokeSharedSession(db, legacy, now);
+}
+
+export async function readAccountSession(db, request, now, env, rotate = true) {
   const token = readCookie(request, ACCOUNT_COOKIE);
+  const legacy = !accountCookie(token);
   const id = await sessionIdForCookie(token, env);
   if (!id) return null;
   const row = await db
     .prepare(
       `SELECT sessions.id AS session_id, sessions.expires_at, sessions.last_seen_at, sessions.revoked_at, sessions.created_at,
-              users.email, users.role, users.status
+              users.id AS user_id, users.email, users.role, users.status
        FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.id = ?`,
     )
     .bind(id)
     .first();
-  if (!row || row.status !== "active" || !(await sessionLive(row, now))) return null;
-  await touchSession(db, "sessions", row.session_id, row.last_seen_at || row.created_at, now);
+  if (!row || row.status !== "active" || !sessionFresh(row, now, legacy)) return null;
+  if (legacy && rotate) {
+    await revokeSession(db, row.session_id, now);
+    const fresh = await createAccountSession(db, row.user_id, now);
+    return {
+      user: row.email,
+      role: row.role,
+      exp: now + ABSOLUTE_TTL,
+      sessionId: await sha256Hex(fresh),
+      account: true,
+      rotate: fresh,
+    };
+  }
+  await touchSession(db, "sessions", row.session_id, row.last_seen_at, now);
   return { user: row.email, role: row.role, exp: Number(row.expires_at), sessionId: row.session_id, account: true };
 }
 
@@ -447,32 +582,67 @@ async function revokeUserSessions(db, userId, now) {
   await db.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, userId).run();
 }
 
-export async function createSharedSession(db, subject, now) {
+export async function createSharedSession(db, subject, now, pass) {
   const name = String(subject || "").trim();
   if (!db || !name || /[|\r\n]/.test(name)) return "";
   const token = cookieToken();
   const id = await sha256Hex(token);
   const exp = now + ABSOLUTE_TTL;
+  const mark = await sha256Hex(String(pass || ""));
   await db
     .prepare(
-      "INSERT INTO shared_sessions (id, subject, expires_at, last_seen_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+      "INSERT INTO shared_sessions (id, subject, expires_at, last_seen_at, revoked_at, created_at, pass_mark) VALUES (?, ?, ?, ?, NULL, ?, ?)",
     )
-    .bind(id, name, exp, now, now)
+    .bind(id, name, exp, now, now, mark)
     .run();
   return token;
 }
 
-export async function readSharedSession(db, request, now, env) {
+async function sharedMarkOk(env, mark) {
+  if (!mark) return false;
+  const master = await sha256Hex(String((env && env.BASIC_PASS) || ""));
+  const tester = await sha256Hex(String((env && env.BASIC_PASS_TESTER) || ""));
+  return mark === master || mark === tester;
+}
+
+async function passForMark(env, mark) {
+  const master = String((env && env.BASIC_PASS) || "");
+  const tester = String((env && env.BASIC_PASS_TESTER) || "");
+  if (mark && mark === (await sha256Hex(master))) return master;
+  if (mark && mark === (await sha256Hex(tester))) return tester;
+  return "";
+}
+
+export async function readSharedSession(db, request, now, env, rotate = true) {
   const token = readCookie(request, SHARED_COOKIE);
+  const legacyToken = readCookie(request, ACCOUNT_COOKIE);
   let id = accountCookie(token) ? await sha256Hex(token) : "";
-  if (!id) id = await legacyRawId(readCookie(request, ACCOUNT_COOKIE), env);
+  if (!id) id = await legacyRawId(legacyToken, env);
   if (!db || !id) return null;
   const row = await db
-    .prepare("SELECT id, subject, expires_at, last_seen_at, revoked_at, created_at FROM shared_sessions WHERE id = ?")
+    .prepare("SELECT id, subject, expires_at, last_seen_at, revoked_at, created_at, pass_mark FROM shared_sessions WHERE id = ?")
     .bind(id)
     .first();
-  if (!(await sessionLive(row, now))) return null;
-  await touchSession(db, "shared_sessions", row.id, row.last_seen_at || row.created_at, now);
+  const fromLegacyCookie = !accountCookie(token);
+  if (!sessionFresh(row, now, fromLegacyCookie)) return null;
+  if (!(await sharedMarkOk(env, row.pass_mark))) {
+    await revokeSharedSession(db, row.id, now);
+    return null;
+  }
+  if (fromLegacyCookie && rotate) {
+    await revokeSharedSession(db, row.id, now);
+    const fresh = await createSharedSession(db, row.subject, now, await passForMark(env, row.pass_mark));
+    return {
+      user: row.subject,
+      role: "viewer",
+      exp: now + ABSOLUTE_TTL,
+      sessionId: await sha256Hex(fresh),
+      account: false,
+      shared: true,
+      rotate: fresh,
+    };
+  }
+  await touchSession(db, "shared_sessions", row.id, row.last_seen_at, now);
   return { user: row.subject, role: "viewer", exp: Number(row.expires_at), sessionId: row.id, account: false, shared: true };
 }
 
@@ -487,7 +657,7 @@ export async function revokeSharedSession(db, sessionId, now) {
 function recognizedPassword(user) {
   if (!user || user.status !== "active" || !user.password_hash) return false;
   const algo = user.password_algo || PASSWORD_ALGO;
-  return algo === PASSWORD_ALGO && Number(user.password_iterations) === PBKDF2_ITERATIONS;
+  return algo === PASSWORD_ALGO && Number(user.password_iterations) > 0;
 }
 
 async function dummyVerify(password) {
@@ -506,7 +676,7 @@ export async function changePassword(db, session, current, password, confirm, no
     current || "invalid-password",
     active ? user.password_salt : DUMMY_SALT,
     active ? user.password_hash : DUMMY_HASH,
-    PBKDF2_ITERATIONS,
+    active ? Number(user.password_iterations) : PBKDF2_ITERATIONS,
     PASSWORD_ALGO,
   );
   if (!passwordOk(password)) return { error: "Use at least 12 characters." };
@@ -528,7 +698,7 @@ export async function changePassword(db, session, current, password, confirm, no
   return fresh ? { notice: "Password saved.", session: fresh } : { error: "Sign-in is unavailable.", status: 503 };
 }
 
-export async function authenticateAccount(db, request, emailRaw, password, now) {
+export async function authenticateAccount(db, request, emailRaw, password, now, env) {
   const email = normalizeEmail(emailRaw);
   const throttled = await loginThrottled(db, request, email, now);
   const user = email ? await findUserByEmail(db, email) : null;
@@ -537,12 +707,20 @@ export async function authenticateAccount(db, request, emailRaw, password, now) 
     password || "invalid-password",
     active ? user.password_salt : DUMMY_SALT,
     active ? user.password_hash : DUMMY_HASH,
-    PBKDF2_ITERATIONS,
+    active ? Number(user.password_iterations) : PBKDF2_ITERATIONS,
     PASSWORD_ALGO,
   );
   if (throttled) return { throttled: true, email };
   if (!match || !active) return { bad: true, email };
+  if (Number(user.password_iterations) < PBKDF2_ITERATIONS) {
+    const upgraded = await hashPassword(password);
+    await db
+      .prepare("UPDATE users SET password_hash = ?, password_salt = ?, password_algo = ?, password_iterations = ? WHERE id = ?")
+      .bind(upgraded.hash, upgraded.salt, upgraded.algo, upgraded.iterations, user.id)
+      .run();
+  }
   await clearLoginFailures(db, request, email);
+  await revokePresentedSessions(db, request, now, env);
   await db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(now, user.id).run();
   const session = await createAccountSession(db, user.id, now);
   if (!session) return { unavailable: true };
@@ -551,7 +729,7 @@ export async function authenticateAccount(db, request, emailRaw, password, now) 
 
 async function adminCount(db) {
   const row = await db
-    .prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status != 'disabled'")
+    .prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'")
     .first();
   return Number(row && row.n) || 0;
 }
@@ -584,7 +762,7 @@ async function insertUser(db, email, role, status, hashed, now) {
   return id;
 }
 
-export async function adminAct(db, request, fields, now) {
+export async function adminAct(db, env, request, fields, now) {
   const action = String(fields.action || "");
   const email = normalizeEmail(fields.email || "");
   const userId = String(fields.user || "");
@@ -613,13 +791,21 @@ export async function adminAct(db, request, fields, now) {
     }
     let id = existing && existing.id;
     if (!id) id = await insertUser(db, email, role, "invited", null, now);
-    const token = await issueInvite(db, id, "invite", now);
+    const token = await issueInvite(db, id, "invite", now, env);
     const link = token ? inviteUrl(request, token) : "";
     return { notice: "Copy this one-time link. It expires in 24 hours.", link, email };
   }
   const user = userId ? await db.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first() : null;
   if (!user) return { error: "That person is not on the list." };
+  if (action === "show") {
+    const link = await outstandingInviteLink(db, env, request, user.id, now);
+    if (!link) return { error: "That link was only shown when it was created." };
+    return { link, email: user.email, notice: "Outstanding invite link." };
+  }
   if (action === "resend" || action === "reset") {
+    if (action === "reset" && user.role === "admin" && user.status === "active" && (await adminCount(db)) <= 1) {
+      return { error: "Keep at least one admin." };
+    }
     if (action === "reset") {
       await revokeUserSessions(db, user.id, now);
       await db
@@ -630,7 +816,7 @@ export async function adminAct(db, request, fields, now) {
         .run();
     }
     const purpose = action === "reset" ? "reset" : "invite";
-    const token = await issueInvite(db, user.id, purpose, now);
+    const token = await issueInvite(db, user.id, purpose, now, env);
     const link = token ? inviteUrl(request, token) : "";
     return {
       link,
@@ -843,6 +1029,7 @@ function userActions(user) {
   const id = escapeHtml(user.id);
   const button = (action, label) => `<button type="submit" name="action" value="${action}" form="user-${id}">${label}</button>`;
   const parts = [];
+  if (user.status !== "active") parts.push(button("show", "Show link"));
   if (user.status !== "active") parts.push(button("resend", "New link"));
   if (user.status === "active") parts.push(button("reset", "Reset password"));
   if (user.role === "admin") parts.push(button("role", "Make viewer"));

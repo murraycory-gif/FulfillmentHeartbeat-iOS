@@ -21,6 +21,7 @@ function arg(name) {
 
 function sqlQuote(value) {
   const text = String(value);
+  if (text === "") return "''";
   if (!/^[A-Za-z0-9@._+-]+$/.test(text)) throw new Error("Refusing an unsafe SQL value.");
   return `'${text}'`;
 }
@@ -127,7 +128,7 @@ function compile(text, params) {
     return `INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at, last_login_at) VALUES (${sqlQuote(params[0])}, ${sqlQuote(params[1])}, '', '', ${sqlQuote(params[2])}, ${Number(params[3])}, 'admin', 'invited', ${Number(params[4])}, NULL)`;
   }
   if (text.startsWith("INSERT INTO invites")) {
-    return `INSERT INTO invites (id, user_id, token_hash, purpose, expires_at, used_at, created_at) VALUES (${sqlQuote(params[0])}, ${sqlQuote(params[1])}, ${sqlQuote(params[2])}, ${sqlQuote(params[3])}, ${Number(params[4])}, NULL, ${Number(params[5])})`;
+    return `INSERT INTO invites (id, user_id, token_hash, token_enc, purpose, expires_at, used_at, created_at) VALUES (${sqlQuote(params[0])}, ${sqlQuote(params[1])}, ${sqlQuote(params[2])}, ${sqlQuote(params[3])}, ${sqlQuote(params[4])}, ${Number(params[5])}, NULL, ${Number(params[6])})`;
   }
   throw new Error("Unexpected setup statement.");
 }

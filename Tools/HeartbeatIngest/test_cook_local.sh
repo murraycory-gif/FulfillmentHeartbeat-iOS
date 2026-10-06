@@ -124,6 +124,14 @@ test "$(guard Tools/HeartbeatIngest/prepare-sources.sh)" = "cook"
 test "$(guard Tools/HeartbeatIngest/nested/file.sh)" = "cook"
 test "$(guard web/check_pack.mjs)" = "cook"
 test "$(guard web/functions/pack-store.js)" = "cook"
+test "$(guard web/scripts/hb-user.mjs)" = "cook"
+test "$(guard web/scripts/hb-setup.mjs web/scripts/d1-http.mjs)" = "cook"
+set +e
+account_mix="$(guard web/scripts/hb-user.mjs web/public/app.js 2>"$WORK/account-mix.err")"
+account_mix_status=$?
+set -e
+test "$account_mix_status" -ne 0
+test "$account_mix" = "refuse"
 test "$(guard)" = "cook"
 review_out="$(guard Tools/HeartbeatIngest/publish-web.sh 2>"$WORK/review.err")"
 test "$review_out" = "review"
