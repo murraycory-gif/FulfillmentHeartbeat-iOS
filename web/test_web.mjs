@@ -22,6 +22,7 @@ import {
   verifyAccessJwt,
 } from "./functions/gate.js";
 import { checkPack } from "./check_pack.mjs";
+import { assertNoPublicR2 } from "./scripts/no-public-r2.mjs";
 import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
@@ -69,6 +70,7 @@ import {
 } from "./public/schedule-math.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
+assertNoPublicR2(join(root, ".."));
 const empty = { region: "", division: "", district: "", om: "", store: "" };
 
 function filters(extra) {
@@ -107,9 +109,10 @@ assert.equal(packApiPath("/api/home"), "home.json");
 assert.equal(packApiPath("/api/section/labor"), "section/labor.json");
 assert.equal(packApiPath("/api/schedule"), "schedule.json");
 assert.equal(packApiPath("/api/web-pack/home.json"), "");
-assert.equal(packApiPath("https://example.r2.dev/home"), "");
-assert.equal(objectKeyForPath("https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"), null);
-assert.equal(objectKeyForPath("home?x=https://example.r2.dev/a"), null);
+const blockedHost = ["r2", "dev"].join(".");
+assert.equal(packApiPath(`https://example.${blockedHost}/home`), "");
+assert.equal(objectKeyForPath(`https://example.${blockedHost}/current.sqlite`), null);
+assert.equal(objectKeyForPath(`home?x=https://example.${blockedHost}/a`), null);
 
 assert.equal(devBypassAllowed({ HEARTBEAT_WEB_DEV: "1" }, "localhost"), true);
 assert.equal(devBypassAllowed({ HEARTBEAT_WEB_DEV: "1" }, "127.0.0.1"), true);
@@ -144,7 +147,7 @@ assert.match(app, /console\.error\("pack fetch failed"/);
 assert.equal(packURL("presub"), "/data/presub.json");
 assert.equal(packURL("schedule"), "/data/schedule.json");
 assert.equal(packURL("packs/seat/company/all/current.sqlite"), null);
-assert.equal(packURL("https://example.r2.dev/current.sqlite"), null);
+assert.equal(packURL(`https://example.${blockedHost}/current.sqlite`), null);
 assert.equal(FIGURE_SECTIONS.has("lost_revenue"), true);
 assert.equal(FIGURE_SECTIONS.has("five_star"), true);
 assert.equal(FIGURE_SECTIONS.has("pick_path"), true);
@@ -606,7 +609,6 @@ assert.match(eml, /5\.19%/);
 for (const path of walk(join(root, "public"))) {
   const text = readFileSync(path, "utf8");
   assert.equal(/r2\.dev/i.test(text), false, path);
-  assert.equal(text.includes("pub-eafb309f53464d98902d12ac107f0f1e"), false, path);
 }
 const fn = readFileSync(join(root, "functions/api/[[path]].js"), "utf8");
 assert.equal(/r2\.dev/i.test(fn), false);

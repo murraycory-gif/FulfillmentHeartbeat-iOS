@@ -8561,16 +8561,10 @@ final class HeartbeatMathTests: XCTestCase {
             )
         )
         let urls = PulseCloud.objectDownloadURLs(PulseCloud.object)
-        XCTAssertEqual(urls.count, 1)
-        XCTAssertEqual(
-            urls.first?.absoluteString,
-            "https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
-        )
-        XCTAssertFalse(urls.first?.absoluteString.contains("supabase") == true)
-        XCTAssertEqual(
-            PulseCloud.objectDownloadURLs(PulseSeatPack.Key.company.objectPath).first?.absoluteString,
-            "https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/packs/seat/company/all/current.sqlite"
-        )
+        XCTAssertTrue(PulseCloud.defaultPackHost.isEmpty)
+        XCTAssertNil(PulseCloud.packHostBaseURL)
+        XCTAssertTrue(urls.isEmpty)
+        XCTAssertTrue(PulseCloud.objectDownloadURLs(PulseSeatPack.Key.company.objectPath).isEmpty)
         let workbook = PulseCloud.objectDownloadURLs("Heartbeat Daily Report.xlsx")
         XCTAssertTrue(workbook.first?.absoluteString.contains("/object/authenticated/") == true)
         XCTAssertFalse(PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: true))
