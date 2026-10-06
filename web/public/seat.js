@@ -114,6 +114,15 @@ export function companyCountText(count, pending) {
   return `${countText(number)} stores`;
 }
 
+// Browse counts use the same rule: a placeholder with no digits until section rows exist.
+export function browseCountText(count, pending) {
+  if (pending) return "Loading…";
+  if (count == null || count === "") return "";
+  const number = Number(count);
+  if (!Number.isFinite(number) || number < 0) return "";
+  return countText(number);
+}
+
 export function reportedStoreLine(count, secondary, pending) {
   if (pending || count == null || !Number.isFinite(Number(count))) return "Loading…";
   const rest = String(secondary || "")

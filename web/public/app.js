@@ -22,7 +22,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, companyCountText, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, reportedStoreLine, rowsInScope, seatSummary, sectionStoreCount, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, reportedStoreLine, rowsInScope, seatSummary, sectionStoreCount, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -39,7 +39,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "39";
+const APP_VERSION = "40";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -453,10 +453,11 @@ function paintBrowse() {
 function browseCountLabel(item) {
   const section = pageById(state.page).section || "";
   if (!section) return `${num(item.count, 0)} roster stores`;
-  const pack = state.packs.get(`section/${section}`);
-  if (!pack || !Array.isArray(pack.rows)) return "";
-  const count = sectionStoreCount(pack.rows, browseScope(state.filters, item.kind, item.value), roster(), section);
-  return count == null ? "" : num(count, 0);
+  if (sectionPackPending(section)) return browseCountText(null, true);
+  const rows = sectionRows(section);
+  if (!rows) return "";
+  const count = sectionStoreCount(rows, browseScope(state.filters, item.kind, item.value), roster(), section);
+  return browseCountText(count, false);
 }
 
 function paintChips() {
