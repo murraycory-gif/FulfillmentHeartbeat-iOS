@@ -262,7 +262,10 @@ const eastSeat = seatSummary("sales", {
   filters: filters({ region: "East Region" }),
 });
 assert.equal(eastSeat.fixedCompany, false);
-assert.equal(eastSeat.headlineText, "$10,706,607.64");
+assert.equal(eastSeat.headlineText, "$30.00");
+assert.equal(eastSeat.headline, 30);
+assert.equal(eastSeat.storeCount, 2);
+assert.equal(eastSeat.workbook, false);
 const laborLines = [
   {
     section: "labor",
@@ -280,20 +283,23 @@ const laborEast = seatSummary("labor", {
   rows: [],
   filters: filters({ region: "East Region" }),
 });
-assert.equal(laborEast.headlineText, "-3.97%");
+assert.equal(laborEast.headlineText, null);
+assert.equal(laborEast.workbook, false);
 const laborEastLine = seatSummary("labor", {
   lines: laborLines,
   rows: [],
   filters: filters({ region: "East Region" }),
 });
-assert.equal(laborEastLine.headlineText, "-8.59%");
+assert.equal(laborEastLine.headlineText, null);
+assert.equal(laborEastLine.workbook, false);
 const laborDivision = seatSummary("labor", {
   lines: laborLines,
   tables: laborTables,
   rows: [],
   filters: filters({ division: "Mid-Atlantic" }),
 });
-assert.equal(laborDivision.headlineText, "-13.59%");
+assert.equal(laborDivision.headlineText, null);
+assert.equal(laborDivision.workbook, false);
 assert.equal(laborGrainValue(laborTables, { grain: "region", label: "East", value: "-8.59%" }), "-3.97%");
 assert.equal(laborGrainValue(laborTables, { grain: "division", label: "Mid-Atlantic", value: "-13.59%" }), "-13.59%");
 const lostScopeRows = [
@@ -313,9 +319,7 @@ assert.equal(eastLost.missed, "Not available");
 assert.equal(eastLost.storeCount, 2);
 assert.deepEqual(lostExclMissed(lostScopeRows), { sum: 373, count: 3 });
 assert.equal(lostGrainRows(lostScopeRows, filters({}), lostScopeRows).find((row) => row.label === "South").value, 263);
-assert.equal(eastSeat.headline, null);
 assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
-assert.equal(eastSeat.storeCount, 615);
 const shawsSeat = seatSummary("sales", {
   company: companySales,
   lines: eastLines,
@@ -336,8 +340,9 @@ const districtSeat = seatSummary("sales", {
   rows: eastStores,
   filters: filters({ region: "East Region", district: "03" }),
 });
-assert.equal(districtSeat.headlineText, null);
+assert.equal(districtSeat.headlineText, "$10.00");
 assert.equal(districtSeat.headline, 10);
+assert.equal(districtSeat.workbook, false);
 assert.equal(districtSeat.secondary, "1 up · 0 flat · 0 down");
 const blankDynacap = seatSummary("dynacap", {
   company: { headline: 67.9, secondary: "company", health: "good", storeCount: 9 },
@@ -406,8 +411,8 @@ const midAtlantic = seatSummary("dynacap", {
   rows: [],
   filters: filters({ division: "Mid-Atlantic" }),
 });
-assert.equal(midAtlantic.headlineText, "100.0");
-assert.equal(midAtlantic.health, "watch");
+assert.equal(midAtlantic.headlineText, null);
+assert.equal(midAtlantic.workbook, false);
 assert.equal(
   scheduleVisibleTitle("Schedule Review Summary — Week 31 (WK31)", 32),
   "Schedule Review Summary — Week 32 (WK32)",
@@ -431,7 +436,7 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=29/);
+assert.match(pageHtml, /app\.css\?v=30/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
@@ -442,12 +447,12 @@ assert.match(css, /\.scope-chip \{[^}]*flex:\s*none/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.css\?v=29/);
-assert.match(pageHtml, /app\.js\?v=47/);
+assert.match(pageHtml, /app\.css\?v=30/);
+assert.match(pageHtml, /app\.js\?v=48/);
 assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
 assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
 assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
-assert.match(app, /const APP_VERSION = "47"/);
+assert.match(app, /const APP_VERSION = "48"/);
 assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
 assert.match(app, /id="build-stamp"/);
 assert.match(app, /Build \$\{esc\(buildLine\)\}/);
@@ -1150,8 +1155,8 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
-assert.match(distIndex, /app\.css\?v=29/);
-assert.match(distIndex, /app\.js\?v=47/);
+assert.match(distIndex, /app\.css\?v=30/);
+assert.match(distIndex, /app\.js\?v=48/);
 assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
 const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
 assert.equal(distApp.includes("__BUILD_SHA__"), false);
@@ -2022,10 +2027,41 @@ const southLaborSeat = seatSummary("labor", {
   filters: filters({ region: "South Region" }),
   roster: packRoster,
 });
-assert.equal(eastLaborSeat.headlineText, "-3.97%");
-assert.equal(eastLaborSeat.workbook, true);
-assert.equal(southLaborSeat.headlineText, "-3.64%");
-assert.equal(southLaborSeat.workbook, true);
+assert.equal(eastLaborSeat.headlineText, "-5.62%");
+assert.equal(eastLaborSeat.workbook, false);
+assert.equal(eastLaborSeat.storeCount, 593);
+assert.equal(eastLaborAvg.flagged, 17);
+assert.equal(southLaborSeat.headlineText, "-3.43%");
+assert.equal(southLaborSeat.workbook, false);
+assert.equal(southLaborSeat.storeCount, 392);
+assert.equal(southLaborAvg.flagged, 0);
+const californiaLaborSeat = seatSummary("labor", {
+  company: laborCompany,
+  lines: packHome.regionLines,
+  tables: packHome.regionTables,
+  rows: laborRows,
+  filters: filters({ region: "California Region" }),
+  roster: packRoster,
+});
+const westLaborSeat = seatSummary("labor", {
+  company: laborCompany,
+  lines: packHome.regionLines,
+  tables: packHome.regionTables,
+  rows: laborRows,
+  filters: filters({ region: "West Region" }),
+  roster: packRoster,
+});
+assert.equal(californiaLaborSeat.headlineText, "-5.38%");
+assert.equal(californiaLaborSeat.workbook, false);
+assert.equal(californiaLaborSeat.storeCount, 571);
+assert.equal(californiaLaborAvg.flagged, 28);
+assert.equal(westLaborSeat.headlineText, "-4.62%");
+assert.equal(westLaborSeat.workbook, false);
+assert.equal(westLaborSeat.storeCount, 538);
+assert.equal(westLaborAvg.flagged, 10);
+assert.equal(app.includes("laborRegionRollup"), false);
+assert.match(app, /function laborFilteredAverage\(\) \{\n  return filtersActive\(state\.filters\);\n\}/);
+assert.match(app, /\$\{num\(count, 0\)\} check source/);
 const eastSalesRows = summarizeSeat(
   "sales",
   rowsInScope(salesRows, filters({ region: "East Region" }), packRoster, "sales"),
@@ -2047,6 +2083,81 @@ assert.equal(metricCountLine(dynRows, ["dynacap_rate", "pieces_per_hour"]), "2,0
 assert.equal(metricCountLine(dynRows, ["utilization_pct", "pickup_util_pct"]), "2,089 of 2,164");
 assert.equal(metricCountLine(dynRows, ["eot_capacity", "used_capacity"]), "");
 assert.match(app, /metricCountLine\(/);
+const missingRows = JSON.parse(readFileSync(join(root, "public/data/section/missing_items.json"), "utf8")).rows;
+const blankSalesIds = ["378", "797", "1734", "1777", "1787", "2156", "2258", "2796", "3067", "3610", "3964", "4187", "4270"];
+const blankSales = salesRows.filter((row) => {
+  const division = String(row.division || "").trim();
+  const dollars = Number(row.payload && row.payload.sales_dollars) || 0;
+  const orders = Number(row.payload && row.payload.sales_orders) || 0;
+  return !division && dollars === 0 && orders === 0;
+});
+assert.deepEqual(
+  blankSales.map((row) => String(Number(row.store))).sort(),
+  blankSalesIds.slice().sort(),
+);
+assert.equal(sectionStoreCount(salesRows, noScope, packRoster, "sales"), 2168);
+const regionGold = [
+  ["East", 23372961.03, 613, 249680, 5600031, 1369516.37, 613, 9368, 81.28, 612, 8.49, 613],
+  ["South", 14749116.96, 397, 177060, 3971682, 684390, 397, 5476, 59.41, 325, 7.05, 397],
+  ["California", 23804503.18, 601, 264534, 4961901, 1014772.91, 600, 8125, 59.14, 600, 8.05, 600],
+  ["West", 19907309.4, 557, 213760, 4728751, 759943.27, 557, 6869, 67.39, 552, 6.36, 557],
+];
+const salesCompany = packHome.summaries.find((item) => item.section === "sales");
+let regionSales = 0;
+let regionOrders = 0;
+let regionItems = 0;
+for (const [name, sales, salesN, orders, items, lost, lostN, shoppers, pcs, pcsN, missing, missingN] of regionGold) {
+  const scope = filters({ region: `${name} Region` });
+  const salesScoped = rowsInScope(salesRows, scope, packRoster, "sales");
+  const salesBuilt = summarizeSeat("sales", salesScoped);
+  assert.equal(money(salesBuilt.headline), money(sales), `${name} sales`);
+  assert.equal(salesBuilt.storeCount, salesN, `${name} sales stores`);
+  assert.equal(payloadSum(salesScoped, "sales_orders").sum, orders, `${name} orders`);
+  assert.equal(payloadSum(salesScoped, "sales_items").sum, items, `${name} items`);
+  const lostRoll = lostExclMissed(rowsInScope(lostRows, scope, packRoster, "lost_revenue"));
+  assert.equal(money(lostRoll.sum), money(lost), `${name} lost`);
+  assert.equal(lostRoll.count, lostN, `${name} lost stores`);
+  assert.equal(
+    distinctShopperCount(rowsInScope(pickerRows, scope, packRoster, "picker_scorecard")),
+    shoppers,
+    `${name} shoppers`,
+  );
+  const pcsBuilt = summarizeSeat("dynacap", rowsInScope(dynRows, scope, packRoster, "dynacap"));
+  assert.equal(Number(pcsBuilt.headline).toFixed(2), Number(pcs).toFixed(2), `${name} pcs/hr`);
+  assert.equal(pcsBuilt.storeCount, pcsN, `${name} pcs/hr stores`);
+  const missingBuiltRegion = summarizeSeat("missing_items", rowsInScope(missingRows, scope, packRoster, "missing_items"));
+  assert.equal(pct(missingBuiltRegion.headline), pct(missing), `${name} missing`);
+  assert.equal(missingBuiltRegion.storeCount, missingN, `${name} missing stores`);
+  const salesSeat = seatSummary("sales", {
+    company: salesCompany,
+    lines: packHome.regionLines,
+    tables: packHome.regionTables,
+    rows: salesRows,
+    filters: scope,
+    roster: packRoster,
+  });
+  assert.equal(salesSeat.workbook, false, `${name} sales workbook`);
+  assert.equal(money(salesSeat.headline), money(sales), `${name} sales seat`);
+  assert.equal(salesSeat.storeCount, salesN, `${name} sales seat stores`);
+  regionSales += salesBuilt.headline;
+  regionOrders += orders;
+  regionItems += items;
+}
+assert.equal(money(regionSales), "$81,833,890.57");
+assert.equal(regionOrders, 905034);
+assert.equal(regionItems, 19262365);
+const salesGrain = sectionRowGrain("sales", salesRows, noScope, packRoster, packHome.regionLines);
+for (const row of salesGrain) {
+  assert.equal(row.workbook, false);
+  assert.equal(String(row.value).toLowerCase().includes("workbook"), false);
+}
+assert.equal(salesGrain.find((row) => row.grain === "region" && row.label === "East").count, 613);
+assert.equal(salesGrain.find((row) => row.grain === "region" && row.label === "South").count, 397);
+const laborValueGrain = sectionRowGrain("labor", laborRows, noScope, packRoster, packHome.regionLines);
+const eastLaborGrain = laborValueGrain.find((row) => row.grain === "region" && row.label === "East");
+assert.equal(eastLaborGrain.workbook, false);
+assert.match(eastLaborGrain.value, /^-5\.62% store average/);
+assert.equal(eastLaborGrain.value.toLowerCase().includes("workbook"), false);
 assert.match(app, /<small class="count">/);
 assert.match(css, /\.chip small\.count/);
 assert.match(app, /Loading shopper rows…/);

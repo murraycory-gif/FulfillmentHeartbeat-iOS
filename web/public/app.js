@@ -21,7 +21,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, PPH_SOURCE_CHECK, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -38,7 +38,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "47";
+const APP_VERSION = "48";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -638,13 +638,8 @@ function isStoreAverageTile(section, label) {
   return Boolean(STORE_AVERAGE_TILES[section] && STORE_AVERAGE_TILES[section].has(label));
 }
 
-function laborRegionRollup() {
-  const filters = state.filters;
-  return Boolean(filters.region && !filters.division && !filters.district && !filters.om && !filters.store);
-}
-
 function laborFilteredAverage() {
-  return filtersActive(state.filters) && !laborRegionRollup();
+  return filtersActive(state.filters);
 }
 
 function shownTileLabel(section, label) {
@@ -959,6 +954,13 @@ function shownTileValue(section, label, raw) {
   return formatPackTile(raw);
 }
 
+function hideDuplicateHeadlineTile(section, label) {
+  if (!filtersActive(state.filters)) return false;
+  if (section === "lost_revenue" && label === "Lost $") return true;
+  if (section === "sales" && label === "Sales $") return true;
+  return false;
+}
+
 function cookedTiles(section) {
   const tiles = tilesFor(section);
   if (!tiles || !Array.isArray(tiles.labels) || !tiles.labels.length) return "";
@@ -967,6 +969,7 @@ function cookedTiles(section) {
   const tone = sectionTone(section);
   const body = labels
     .map((label, index) => {
+      if (hideDuplicateHeadlineTile(section, label)) return "";
       const raw = values[index];
       const name = shownTileLabel(section, label);
       const shown = shownTileValue(section, label, raw);
@@ -1279,22 +1282,18 @@ function table(section, rows) {
 
 function grainShown(section, row) {
   let shown = "";
-  if (section === "labor" && row.grain === "region") {
-    const callout = laborGrainValue((state.home && state.home.regionTables) || [], row);
-    if (callout) shown = `${callout} workbook roll-up`;
+  if (typeof row.value === "number") shown = section === "lost_revenue" ? money(row.value) : String(row.value);
+  else {
+    const text = String(row.value ?? "");
+    shown = text.trim().startsWith("$") ? money(text) : text;
   }
-  if (!shown) {
-    if (typeof row.value === "number") shown = section === "lost_revenue" ? money(row.value) : String(row.value);
-    else {
-      const text = String(row.value ?? "");
-      shown = text.trim().startsWith("$") ? money(text) : text;
-    }
-    if (section === "labor" && row.grain === "division" && shown && !figureAbsent(shown) && !/store average|cost-weighted/i.test(shown)) {
-      shown = `${shown} store average, excl. check source`;
-    } else if (section === "pph" && shown && !figureAbsent(shown) && !/store average/i.test(shown)) {
-      shown = `${shown} store average`;
-    } else if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook total`;
-  }
+  if (section === "labor" && shown && !figureAbsent(shown) && !/store average|cost-weighted/i.test(shown)) {
+    shown = `${shown} store average, excl. check source`;
+  } else if (section === "sales" && shown && !figureAbsent(shown) && !/store sum/i.test(shown)) {
+    shown = `${shown} store sum`;
+  } else if ((section === "pph" || ROW_RATE_CHIP.has(section)) && shown && !figureAbsent(shown) && !/store average/i.test(shown)) {
+    shown = `${shown} store average`;
+  } else if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook total`;
   return shown;
 }
 
@@ -1416,24 +1415,11 @@ function salesLaborChip(row, regionName) {
   const section = row.section;
   const pending = sectionPackPending(section);
   const scoped = cardRows(section, regionName);
-  const division = Boolean(state.filters.division);
-  if (division) {
-    if (!scoped) return { title: row.title, text: pending ? "Loading…" : "Not available", tone: "none" };
-    const built = summarizeSeat(section, scoped);
-    if (built.headline == null) return { title: row.title, text: "Not available", tone: "none" };
-    const text = section === "sales" ? money(built.headline) : shownRate(section, built.headline);
-    const title = divisionChipTitle(section, row.title);
-    return { title, text, tone: chipTone(built.health) };
-  }
-  const raw = row.headline;
-  const blank = raw == null || String(raw).trim() === "" || String(raw).trim() === "—";
-  const built = scoped && scoped.length ? summarizeSeat(section, scoped) : null;
-  const title = blank ? row.title : section === "labor" ? `${row.title} workbook roll-up` : `${row.title} workbook total`;
-  return {
-    title,
-    text: blank ? "Not available" : String(raw).trim(),
-    tone: built ? chipTone(built.health) : "none",
-  };
+  if (!scoped) return { title: row.title, text: pending ? "Loading…" : "Not available", tone: "none" };
+  const built = summarizeSeat(section, scoped);
+  if (built.headline == null) return { title: row.title, text: "Not available", tone: "none" };
+  const text = section === "sales" ? money(built.headline) : shownRate(section, built.headline);
+  return { title: divisionChipTitle(section, row.title), text, tone: chipTone(built.health) };
 }
 
 function regionCardsHtml() {

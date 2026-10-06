@@ -792,8 +792,32 @@ export async function runFakeCountLab(publicDir) {
       if (!ord || ord.value === "16.61%" || !ord.label.toLowerCase().includes("workbook total")) {
         throw new Error(`${width}px company Ord YoY ${ord ? `${ord.label} ${ord.value}` : "missing"}`);
       }
-      if (!dashboard.toLowerCase().includes("workbook roll-up")) {
-        throw new Error(`${width}px dashboard missing workbook roll-up`);
+      const companyLabor = await readChip(client, "Target Vs Actual");
+      if (!companyLabor || !companyLabor.label.toLowerCase().includes("workbook total")) {
+        throw new Error(`${width}px company Target vs Actual ${companyLabor ? companyLabor.label : "missing"}`);
+      }
+      const regionLabor = await evaluate(
+        client,
+        `(() => [...document.querySelectorAll(".region-cards article")].map((card) => {
+          const name = card.querySelector("h2") ? card.querySelector("h2").textContent.trim() : "";
+          const chip = [...card.querySelectorAll(".chip")].find((node) => {
+            const span = node.querySelector("span");
+            return span && span.textContent.trim().toLowerCase().startsWith("labor");
+          });
+          const span = chip && chip.querySelector("span");
+          const strong = chip && chip.querySelector("strong");
+          return { name, label: span ? span.textContent.trim() : "", value: strong ? strong.textContent.trim() : "" };
+        }))()`,
+      );
+      const laborGold = { East: "-5.62%", South: "-3.43%", California: "-5.38%", West: "-4.62%" };
+      for (const [name, value] of Object.entries(laborGold)) {
+        const chip = (regionLabor || []).find((row) => row.name === name);
+        if (!chip || chip.value !== value || !chip.label.toLowerCase().includes("store average")) {
+          throw new Error(`${width}px ${name} labor chip ${chip ? `${chip.label} ${chip.value}` : "missing"}`);
+        }
+        if (chip.label.toLowerCase().includes("workbook")) {
+          throw new Error(`${width}px ${name} labor chip still says workbook`);
+        }
       }
       if (!dashboard.includes("74.2 store average")) {
         throw new Error(`${width}px dashboard missing 74.2 store average`);
@@ -977,9 +1001,25 @@ export async function runFakeCountLab(publicDir) {
           }
           if (index === 1 && id === "labor") {
             if (text.includes("At risk")) throw new Error(`${where} labor badge contradicts the chip`);
-            if (!text.toLowerCase().includes("workbook roll-up")) {
-              throw new Error(`${where} labor callout is not labeled workbook roll-up`);
+            const target = await readChip(client, "Target Vs Actual");
+            if (!target || target.value !== "-5.62%" || !target.label.toLowerCase().includes("store average, excl. check source")) {
+              throw new Error(`${where} Target vs Actual ${target ? `${target.label} ${target.value}` : "missing"}`);
             }
+            if (!text.includes("17 check source")) throw new Error(`${where} East labor missing 17 flagged`);
+            if (text.toLowerCase().includes("workbook roll-up")) {
+              throw new Error(`${where} labor still uses the region roll-up`);
+            }
+          }
+          if (index === 0 && id === "sales") {
+            const salesCount = await evaluate(
+              client,
+              `(() => { const sub = document.querySelector("#main .score-face .sub"); return sub ? sub.textContent.trim() : ""; })()`,
+            );
+            if (salesCount !== "2,168 stores") throw new Error(`${where} sales card ${salesCount || "missing"}`);
+          }
+          if (index === 1 && id === "sales") {
+            if (!text.includes("$23,372,961.03")) throw new Error(`${where} East sales is not the store sum`);
+            if (text.toLowerCase().includes("workbook total")) throw new Error(`${where} East sales still says workbook total`);
           }
           if (index === 2 && id === "labor" && !text.toLowerCase().includes("store average")) {
             throw new Error(`${where} filtered labor rate is unlabeled`);
