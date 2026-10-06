@@ -115,7 +115,7 @@ function rewriteString(text, book, allowWorkbook) {
   return String(text).replace(/\$?-?\d[\d,]*(?:\.\d+)?%?/g, (raw, index) => {
     const tag = classify(text, index, raw);
     const mapped = mapDigits(raw);
-    const fake = tag === "count" ? prefixCount(mapped) : mapped;
+    const fake = tag === "date" ? mapped : prefixCount(mapped);
     return remember(book, fake, tag, allowWorkbook && tag === "count");
   });
 }
@@ -123,7 +123,7 @@ function rewriteString(text, book, allowWorkbook) {
 function rewriteNumber(value, tag, book) {
   const negative = Number(value) < 0;
   const mapped = mapDigits(String(Math.abs(Number(value))));
-  const fake = `${negative ? "-" : ""}${tag === "count" ? "900" : ""}${mapped}`;
+  const fake = `${negative ? "-" : ""}900${mapped}`;
   remember(book, fake, tag, false);
   const numeric = Number(fake);
   return Number.isFinite(numeric) ? numeric : value;
@@ -374,6 +374,35 @@ async function clearScope(client) {
   await settle(client);
 }
 
+// A pack percent, money, or decimal may render only beside one of these labels.
+const ALLOWED_PACK_LABELS = ["workbook total", "target"];
+
+function unlabeledPackFigures(text, book) {
+  const hits = [];
+  const haystack = String(text);
+  const folded = haystack.toLowerCase();
+  for (const tag of book.tags) {
+    if (tag.tag !== "percent" && tag.tag !== "money" && tag.tag !== "decimal") continue;
+    const literal = String(tag.literal || "");
+    if (literal.length < 2) continue;
+    const needle = literal.toLowerCase();
+    let from = 0;
+    while (from < folded.length) {
+      const at = folded.indexOf(needle, from);
+      if (at < 0) break;
+      const before = haystack[at - 1] || "";
+      const after = haystack[at + literal.length] || "";
+      const stuck = /[\d$%]/.test(before) || /\d/.test(after);
+      if (!stuck) {
+        const around = folded.slice(Math.max(0, at - 96), at + literal.length + 48);
+        if (!ALLOWED_PACK_LABELS.some((label) => around.includes(label))) hits.push(literal);
+      }
+      from = at + needle.length;
+    }
+  }
+  return hits;
+}
+
 function assertClean(text, book, where) {
   const hits = [];
   const re = /\d[\d,]*/g;
@@ -392,6 +421,8 @@ function assertClean(text, book, where) {
     hits.push(token);
   }
   if (hits.length) throw new Error(`${where} rendered fake count ${hits.slice(0, 6).join(", ")}`);
+  const rates = unlabeledPackFigures(text, book);
+  if (rates.length) throw new Error(`${where} rendered unlabeled pack figure ${rates.slice(0, 6).join(", ")}`);
 }
 
 async function regionPickerChips(client) {
@@ -406,6 +437,22 @@ async function regionPickerChips(client) {
       const strong = chip && chip.querySelector("strong");
       return { name, value: strong ? strong.textContent.trim() : "" };
     }))()`,
+  );
+}
+
+async function regionNamedChip(client, title) {
+  return evaluate(
+    client,
+    `(() => {
+      const card = document.querySelector(".region-cards article");
+      if (!card) return "";
+      const chip = [...card.querySelectorAll(".chip")].find((node) => {
+        const span = node.querySelector("span");
+        return span && span.textContent.trim().toLowerCase().startsWith(${JSON.stringify(title.toLowerCase())});
+      });
+      const strong = chip && chip.querySelector("strong");
+      return strong ? strong.textContent.trim() : "";
+    })()`,
   );
 }
 
@@ -537,7 +584,19 @@ export async function runFakeCountLab(publicDir) {
         await pickBrowse(client, "Southern");
         await showPage(client, "dashboard");
         expectChips(await regionPickerChips(client), { South: "1,613" }, `${width}px Southern`);
-        assertClean(await visibleText(client), book, `${width}px Southern dashboard`);
+        const southernSales = await regionNamedChip(client, "Sales");
+        const southernLabor = await regionNamedChip(client, "Labor");
+        if (southernSales !== "$4,351,261.96") {
+          throw new Error(`${width}px Southern sales chip ${southernSales || "missing"}`);
+        }
+        if (southernLabor !== "-3.09%") {
+          throw new Error(`${width}px Southern labor chip ${southernLabor || "missing"}`);
+        }
+        const southernText = await visibleText(client);
+        if (southernText.includes("$14,738,247.12") || southernText.includes("-3.64%")) {
+          throw new Error(`${width}px Southern still shows the South region figure`);
+        }
+        assertClean(southernText, book, `${width}px Southern dashboard`);
         await clearScope(client);
       }
       const scopes = [
@@ -569,8 +628,31 @@ export async function runFakeCountLab(publicDir) {
           }
           if (index === 0 && id === "dynacap") {
             if (!hasNumber(text, 67.8) && !text.includes("67.8")) throw new Error(`${where} missing row mean 67.8`);
+            if (!text.includes("74.2")) throw new Error(`${where} missing the PPH row mean 74.2`);
+            if (text.toLowerCase().includes("pph workbook")) throw new Error(`${where} still labels PPH as workbook`);
             if (!text.includes("75 stores have capacity but no Pcs/Hr")) {
               throw new Error(`${where} missing the capacity note`);
+            }
+          }
+          if (index === 0 && id === "prep_not_ready") {
+            const lower = text.toLowerCase();
+            if (!lower.includes("goal target") || !lower.includes("watch target")) {
+              throw new Error(`${where} prep targets are not labeled target`);
+            }
+            if (!text.includes("1.9%") || !text.includes("1.9–2.5%")) {
+              throw new Error(`${where} prep targets are not the config values`);
+            }
+          }
+          if (index === 1 && id === "sales") {
+            if (!text.includes("499 up") || !text.includes("85 down")) {
+              throw new Error(`${where} missing the East sales row sentence`);
+            }
+            if (text.includes("At risk")) throw new Error(`${where} sales badge contradicts the row sentence`);
+          }
+          if (index === 1 && id === "labor") {
+            if (text.includes("At risk")) throw new Error(`${where} labor badge contradicts the chip`);
+            if (!text.toLowerCase().includes("workbook total")) {
+              throw new Error(`${where} labor callout is not labeled workbook total`);
             }
           }
           if (index === 1 && id === "picker_scorecard") {

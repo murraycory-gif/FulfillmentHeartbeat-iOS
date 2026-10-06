@@ -304,7 +304,12 @@ const shawsSeat = seatSummary("sales", {
   rows: eastStores,
   filters: filters({ region: "East Region", division: "Shaws" }),
 });
-assert.equal(shawsSeat.headlineText, "$1.00");
+assert.equal(shawsSeat.headlineText, "$10.00");
+assert.equal(shawsSeat.workbook, false);
+assert.equal(
+  eastSeat.health,
+  summarizeSeat("sales", rowsInScope(eastStores, filters({ region: "East Region" }), [], "sales")).health,
+);
 assert.equal(shawsSeat.secondary, "1 up · 0 flat · 0 down");
 assert.equal(chromeSeat(eastLines, "sales", filters({ district: "03" })), null);
 const districtSeat = seatSummary("sales", {
@@ -415,11 +420,11 @@ assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=42/);
+assert.match(pageHtml, /app\.js\?v=43/);
 assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
 assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
 assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
-assert.match(app, /const APP_VERSION = "42"/);
+assert.match(app, /const APP_VERSION = "43"/);
 assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
 assert.match(app, /id="build-stamp"/);
 assert.match(app, /Build \$\{esc\(buildLine\)\}/);
@@ -1051,7 +1056,7 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
-assert.match(distIndex, /app\.js\?v=42/);
+assert.match(distIndex, /app\.js\?v=43/);
 assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
 const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
 assert.equal(distApp.includes("__BUILD_SHA__"), false);
@@ -1764,6 +1769,31 @@ const southernPickers = summarizeSeat(
   rowsInScope(pickerRows, filters({ division: "Southern" }), packRoster, "picker_scorecard"),
 );
 assert.equal(southernPickers.headline, 1613);
+const salesRows = JSON.parse(readFileSync(join(root, "public/data/section/sales.json"), "utf8")).rows;
+const southernSales = summarizeSeat(
+  "sales",
+  rowsInScope(salesRows, filters({ division: "Southern" }), packRoster, "sales"),
+);
+assert.equal(money(southernSales.headline), "$4,351,261.96");
+assert.equal(southernSales.health, "good");
+const southernLabor = summarizeSeat(
+  "labor",
+  rowsInScope(laborRows, filters({ division: "Southern" }), packRoster, "labor"),
+);
+assert.equal(formatHeadline("labor", southernLabor.headline), "-3.09%");
+assert.equal(southernLabor.health, "good");
+const eastSalesRows = summarizeSeat(
+  "sales",
+  rowsInScope(salesRows, filters({ region: "East Region" }), packRoster, "sales"),
+);
+assert.equal(eastSalesRows.health, "good");
+assert.match(eastSalesRows.secondary, /499 up/);
+assert.match(eastSalesRows.secondary, /85 down/);
+const eastLaborRows = summarizeSeat(
+  "labor",
+  rowsInScope(laborRows, filters({ region: "East Region" }), packRoster, "labor"),
+);
+assert.equal(eastLaborRows.health, "good");
 const dynRows = JSON.parse(readFileSync(join(root, "public/data/section/dynacap.json"), "utf8")).rows;
 const dynBuilt = summarizeSeat("dynacap", dynRows);
 assert.equal(dynBuilt.storeCount, 2089);

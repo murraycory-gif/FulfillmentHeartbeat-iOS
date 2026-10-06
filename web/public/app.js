@@ -21,7 +21,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerShopperBands, reportedStoreLine, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -38,7 +38,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "42";
+const APP_VERSION = "43";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -297,10 +297,20 @@ const NAV_ICON = {
   labor: `<circle cx="7" cy="7" r="2"/><circle cx="13.5" cy="7.5" r="1.7"/><path d="M3.2 15.5v-.8a3.8 3.8 0 0 1 7.2-1.2M11 15.5v-.6a3 3 0 0 1 5.3-1"/>`,
 };
 
+function faceHealth(section) {
+  if (!section) return "none";
+  if (section === "picker_scorecard") {
+    const rows = sectionRows(section);
+    return rows ? pickerFaceTone(rows) : "none";
+  }
+  if (!sectionRows(section)) return "none";
+  const health = (seatFor(section) || {}).health;
+  return health === "good" || health === "watch" || health === "risk" ? health : "none";
+}
+
 function pageHealth(page) {
   if (!page.section) return "none";
-  const health = (summaryFor(page.section) || {}).health;
-  return health === "good" || health === "watch" || health === "risk" ? health : "none";
+  return faceHealth(page.section);
 }
 
 function navIcon(page) {
@@ -534,7 +544,7 @@ function lostTileValues(labels, values) {
 }
 
 function sectionTone(section) {
-  const health = (summaryFor(section) || {}).health;
+  const health = faceHealth(section);
   return health === "good" || health === "watch" || health === "risk" ? health : "";
 }
 
@@ -553,21 +563,34 @@ const METRIC_NOTES = {
 
 const WORKBOOK_TOTAL_TILES = {
   sales: new Set(["Orders", "Items"]),
-  lost_revenue: new Set(["Lost $", "Missed", "Lost %", "Goal %"]),
-};
-
-const WORKBOOK_TILES = {
-  sales: new Set(["YoY", "Ord YoY", "AOS", "AIV", "Items/Txn"]),
-  lost_revenue: new Set(["eComm $", "Post Sub", "Refund", "Cancel", "Kill"]),
-  dynacap: new Set(["PPH"]),
+  lost_revenue: new Set(["Lost $", "Missed", "Lost %", "Goal %", "eComm $", "Post Sub", "Refund", "Cancel", "Kill"]),
   labor: new Set(["Target Vs Actual", "Act Cost", "Cost Tgt", "Sch Eff", "UPLH", "Wage", "AIV"]),
 };
 
+// Prep Goal and Watch are targets from config. The pack strings are not rates.
+const PREP_TARGETS = {
+  Goal: "1.9%",
+  Watch: "1.9–2.5%",
+};
+
+const SALES_ROW_TILES = new Set(["YoY", "Ord YoY", "AOS", "AIV", "Items/Txn"]);
+
+const LOST_ROW_MONEY = {
+  "eComm $": ["ecomm_sales"],
+  "Post Sub": ["post_sub_oos_foregone"],
+  Refund: ["refund_lost"],
+  Cancel: ["cancelled_lost"],
+  Kill: ["kill_switch_lost"],
+};
+
 function shownTileLabel(section, label) {
-  if (section === "labor" && label === "Sch Eff") return "Labor Sch Eff workbook";
+  if (section === "labor" && label === "Sch Eff") return "Labor Sch Eff workbook total";
   if (section === "schedule_quality" && label === "Sch Eff") return "Quality Sch Eff";
+  if (section === "prep_not_ready" && PREP_TARGETS[label]) return `${label} target`;
+  if (section === "lost_revenue" && LOST_ROW_MONEY[label] && lostRowMoney(label) != null && lostRowMoney(label) !== "Loading…") {
+    return label;
+  }
   if (WORKBOOK_TOTAL_TILES[section] && WORKBOOK_TOTAL_TILES[section].has(label)) return `${label} workbook total`;
-  if (WORKBOOK_TILES[section] && WORKBOOK_TILES[section].has(label)) return `${label} workbook`;
   return label;
 }
 
@@ -659,14 +682,78 @@ function rowRateValue(section, label) {
   return mean == null ? "—" : pct(mean);
 }
 
+function sumPayload(rows, keys) {
+  let sum = 0;
+  let n = 0;
+  for (const row of rows || []) {
+    const value = cell(row, keys);
+    if (value == null || value === "" || Number.isNaN(Number(value))) continue;
+    sum += Number(value);
+    n += 1;
+  }
+  return { sum, n };
+}
+
+function salesRowTile(label) {
+  if (!SALES_ROW_TILES.has(label)) return null;
+  const rows = sectionRows("sales");
+  if (!rows) return sectionPackPending("sales") ? "Loading…" : "—";
+  const scoped = rowsInScope(rows, state.filters, roster(), "sales");
+  const dollars = sumPayload(scoped, ["sales_dollars"]);
+  const orders = sumPayload(scoped, ["sales_orders"]);
+  const items = sumPayload(scoped, ["sales_items"]);
+  if (label === "YoY") {
+    const yoy = rollupYoY(scoped, ["sales_dollars"], ["sales_yoy_pct"]);
+    return yoy == null ? "—" : pct(yoy);
+  }
+  if (label === "Ord YoY") {
+    const yoy = rollupYoY(scoped, ["sales_orders"], ["sales_orders_yoy_pct"]);
+    return yoy == null ? "—" : pct(yoy);
+  }
+  if (label === "AOS") {
+    if (!dollars.n || !orders.sum) return "—";
+    return money(dollars.sum / orders.sum);
+  }
+  if (label === "AIV") {
+    if (!dollars.n || !items.sum) return "—";
+    return (dollars.sum / items.sum).toFixed(2);
+  }
+  if (label === "Items/Txn") {
+    if (!items.n || !orders.sum) return "—";
+    return (items.sum / orders.sum).toFixed(1);
+  }
+  return "—";
+}
+
+function lostRowMoney(label) {
+  const keys = LOST_ROW_MONEY[label];
+  if (!keys) return null;
+  const rows = sectionRows("lost_revenue");
+  if (!rows) return sectionPackPending("lost_revenue") ? "Loading…" : null;
+  const { n, sum } = sumPayload(rowsInScope(rows, state.filters, roster(), "lost_revenue"), keys);
+  if (!n) return null;
+  return money(sum);
+}
+
 function shownTileValue(section, label, raw) {
   const fromRows = rowCountTile(section, label);
   if (fromRows != null) return fromRows;
+  if (section === "prep_not_ready" && PREP_TARGETS[label]) return PREP_TARGETS[label];
   if (section === "labor" && label === "AIV") {
     const market = state.home && state.home.laborMarket;
     const aiv = market && market.aiv_impact_pct;
     if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
   }
+  if (section === "dynacap" && label === "PPH") {
+    const rows = sectionRows("pph");
+    if (!rows) return sectionPackPending("pph") ? "Loading…" : "—";
+    const built = summarizeSeat("pph", rowsInScope(rows, state.filters, roster(), "pph"));
+    return built.headline == null ? "—" : shownRate("pph", built.headline);
+  }
+  const salesTile = section === "sales" ? salesRowTile(label) : null;
+  if (salesTile != null) return salesTile;
+  const lostMoney = section === "lost_revenue" ? lostRowMoney(label) : null;
+  if (lostMoney != null) return lostMoney;
   const rate = rowRateValue(section, label);
   if (rate != null) return rate;
   if (raw == null || raw === "") return "—";
@@ -807,7 +894,7 @@ function companyBlock(section, title) {
         : filtersActive(state.filters)
           ? "—"
           : "";
-  if (seat.workbook && figureText && !/workbook/i.test(figureText)) figureText = `${figureText} workbook`;
+  if (seat.workbook && figureText && !/workbook/i.test(figureText)) figureText = `${figureText} workbook total`;
   const tone = health === "good" || health === "watch" || health === "risk" ? health : "none";
   const hideEmptyBadge = counted > 0 && tone === "none" && section === "dynacap" && seat.headline == null;
   const badgeHtml = tone === "none" && (hideEmptyBadge || !figureAbsent(figureText) || Boolean(tiles)) ? "" : badge(tone);
@@ -937,7 +1024,7 @@ function grainShown(section, row) {
   let shown = "";
   if (section === "labor" && row.grain === "region") {
     const callout = laborGrainValue((state.home && state.home.regionTables) || [], row);
-    if (callout) shown = `${callout} workbook`;
+    if (callout) shown = `${callout} workbook total`;
   }
   if (!shown) {
     if (typeof row.value === "number") shown = section === "lost_revenue" ? money(row.value) : String(row.value);
@@ -945,7 +1032,7 @@ function grainShown(section, row) {
       const text = String(row.value ?? "");
       shown = text.trim().startsWith("$") ? money(text) : text;
     }
-    if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook`;
+    if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook total`;
   }
   return shown;
 }
@@ -1028,29 +1115,56 @@ function regionChip(row, regionName) {
   const section = row.section;
   const pending = section ? sectionPackPending(section) : false;
   const scoped = section ? cardRows(section, regionName) : null;
+  const unavailable = pending ? "Loading…" : state.filters.division ? "Not available" : "No data";
   if (section === "picker_scorecard") {
-    if (!scoped) return { title: row.title, text: pending ? "Loading…" : "No data", tone: "none" };
+    if (!scoped) return { title: row.title, text: unavailable, tone: "none" };
     const bands = pickerShopperBands(scoped);
     const tone = bands.risk ? "risk" : bands.watch ? "watch" : bands.healthy ? "good" : "none";
     return { title: row.title, text: num(bands.shoppers, 0), tone };
   }
   if (section === "lost_revenue") {
-    if (!scoped) return { title: LOST_EXCL_LABEL, text: pending ? "Loading…" : "No data", tone: "none" };
+    if (!scoped) return { title: LOST_EXCL_LABEL, text: unavailable, tone: "none" };
     const roll = lostExclMissed(scoped);
     const built = summarizeSeat(section, scoped);
     return { title: LOST_EXCL_LABEL, text: money(roll.sum), tone: chipTone(built.health) };
   }
   if (ROW_RATE_CHIP.has(section)) {
-    if (!scoped) return { title: row.title, text: pending ? "Loading…" : "No data", tone: "none" };
+    if (!scoped) return { title: row.title, text: unavailable, tone: "none" };
     const built = summarizeSeat(section, scoped);
-    if (built.headline == null) return { title: row.title, text: "No data", tone: "none" };
+    if (built.headline == null) return { title: row.title, text: state.filters.division ? "Not available" : "No data", tone: "none" };
     return { title: row.title, text: shownRate(section, built.headline), tone: chipTone(built.health) };
+  }
+  if (section === "sales" || section === "labor") {
+    return salesLaborChip(row, regionName);
   }
   const raw = row.headline;
   const blank = raw == null || String(raw).trim() === "" || String(raw).trim() === "—";
   const text = blank ? "No data" : String(raw).trim();
-  const title = blank ? row.title : `${row.title} workbook`;
-  return { title, text, tone: blank ? "none" : chipTone(row.health) };
+  const title = blank ? row.title : `${row.title} workbook total`;
+  const built = scoped && scoped.length ? summarizeSeat(section, scoped) : null;
+  return { title, text, tone: built ? chipTone(built.health) : "none" };
+}
+
+function salesLaborChip(row, regionName) {
+  const section = row.section;
+  const pending = sectionPackPending(section);
+  const scoped = cardRows(section, regionName);
+  const division = Boolean(state.filters.division);
+  if (division) {
+    if (!scoped) return { title: row.title, text: pending ? "Loading…" : "Not available", tone: "none" };
+    const built = summarizeSeat(section, scoped);
+    if (built.headline == null) return { title: row.title, text: "Not available", tone: "none" };
+    const text = section === "sales" ? money(built.headline) : shownRate(section, built.headline);
+    return { title: row.title, text, tone: chipTone(built.health) };
+  }
+  const raw = row.headline;
+  const blank = raw == null || String(raw).trim() === "" || String(raw).trim() === "—";
+  const built = scoped && scoped.length ? summarizeSeat(section, scoped) : null;
+  return {
+    title: blank ? row.title : `${row.title} workbook total`,
+    text: blank ? "Not available" : String(raw).trim(),
+    tone: built ? chipTone(built.health) : "none",
+  };
 }
 
 function regionCardsHtml() {
@@ -1104,8 +1218,7 @@ function renderDashboard() {
   const cards = PAGES.filter((page) => page.id !== "dashboard")
     .map((page) => {
       if (page.id === "schedule") return scheduleDashCard(schedulePack);
-      const rows = page.section === "picker_scorecard" ? sectionRows(page.section) : null;
-      const health = rows ? pickerFaceTone(rows) : (summaryFor(page.section) || {}).health || "none";
+      const health = faceHealth(page.section);
       return `<article class="scorecard ${health}"><button class="link" type="button" data-page="${page.id}">${companyBlock(page.section, page.title)}</button></article>`;
     })
     .join("");
@@ -1479,8 +1592,7 @@ function presubNote() {
 }
 
 function scorecardHtml(page, pendingStores) {
-  const loaded = sectionRows(page.section);
-  const health = page.section === "picker_scorecard" && loaded ? pickerFaceTone(loaded) : (summaryFor(page.section) || {}).health || "none";
+  const health = faceHealth(page.section);
   const pack = state.packs.get(`section/${page.section}`);
   const missing = !pendingStores && !pack;
   const storeTable = pendingStores
@@ -1676,7 +1788,7 @@ function metricShareBlock(page, withTiles) {
   const secondary = companySecondaryText(page.section, seat);
   return {
     title: page.title,
-    status: healthWord(seat.health || (summaryFor(page.section) || {}).health),
+    status: healthWord(faceHealth(page.section)),
     count: shareCount(page.section),
     figure: seatFigure(page.section, seat),
     note: [seat.missed ? `Missed $ ${seat.missed}` : "", secondary, METRIC_NOTES[page.section]].filter(Boolean).join(" "),

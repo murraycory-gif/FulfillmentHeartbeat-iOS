@@ -78,12 +78,13 @@ function empty(secondary) {
   return { headline: null, secondary, health: "none", storeCount: 0 };
 }
 
-function salesRollupYoY(rows) {
+// Dollar-weighted (or order-weighted) change. This is the YoY the rows support.
+export function rollupYoY(rows, currentKeys, yoyKeys) {
   let thisYear = 0;
   let lastYear = 0;
-  for (const row of rows) {
-    const current = field(row, ["sales_dollars"]);
-    const yoy = field(row, ["sales_yoy_pct"]);
+  for (const row of rows || []) {
+    const current = field(row, currentKeys);
+    const yoy = field(row, yoyKeys);
     if (current == null || current <= 0 || yoy == null || yoy <= -100 || Math.abs(yoy) >= 1000) continue;
     const factor = 1 + yoy / 100;
     if (!(factor > 0)) continue;
@@ -94,6 +95,10 @@ function salesRollupYoY(rows) {
   }
   if (!(lastYear > 0 && thisYear > 0)) return null;
   return (thisYear / lastYear - 1) * 100;
+}
+
+function salesRollupYoY(rows) {
+  return rollupYoY(rows, ["sales_dollars"], ["sales_yoy_pct"]);
 }
 
 function salesHealth(yoy) {
@@ -616,8 +621,16 @@ function grainMetric(section, bucket, lines, region, division) {
   if (section === "picker_scorecard") {
     return { value: `${countText(count)} shoppers`, count, workbook: false };
   }
+  if (section === "sales" && division) {
+    const built = summarizeSeat(section, bucket);
+    return {
+      value: built.headline == null ? "Not available" : shownRate(section, built.headline),
+      count,
+      workbook: false,
+    };
+  }
   if (section === "sales") {
-    return { value: chromeGrainValue(lines, section, region, division), count, workbook: true };
+    return { value: chromeGrainValue(lines, section, region, ""), count, workbook: true };
   }
   if (section === "labor" && !division) {
     return { value: chromeGrainValue(lines, section, region, ""), count, workbook: false };
@@ -701,12 +714,14 @@ export function sectionRowGrain(section, rows, filters, roster, lines) {
 
 export function seatSummary(section, { company, lines, rows, filters, roster, tables }) {
   if (!filtersActive(filters)) {
+    const built = Array.isArray(rows) && rows.length ? summarizeSeat(section, rows) : null;
     return {
       fixedCompany: true,
       headline: company ? company.headline : null,
       headlineText: null,
       secondary: (company && company.secondary) || "",
-      health: (company && company.health) || "none",
+      // Badge follows the rows on the card. Pack health stays off until those rows arrive.
+      health: built && built.health ? built.health : "none",
       storeCount: (company && company.storeCount) || 0,
     };
   }
@@ -735,8 +750,9 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     // regionLines labor is the unweighted average of store Target vs Actual
     // (East -8.59%). The region callout is the weighted workbook figure
     // (East -3.97%). It cannot be rebuilt from the rows, so the region seat
-    // keeps the callout and the page labels it workbook. A division seat is
-    // the average of that division's rows.
+    // keeps the callout and the page labels it workbook total. A division seat is
+    // the average of that division's rows. Sales at division scope is that
+    // division's own row sum, never the parent region dollar.
     let headlineText = chrome.value;
     let workbook = section === "sales";
     if (section === "labor" && chrome.grain === "region") {
@@ -746,7 +762,12 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
         workbook = true;
       }
     }
-    if (section === "labor" && chrome.grain === "division" && scoped.length && built.headline != null) {
+    if (
+      (section === "labor" || section === "sales") &&
+      chrome.grain === "division" &&
+      scoped.length &&
+      built.headline != null
+    ) {
       return {
         fixedCompany: false,
         headline: built.headline,
@@ -762,7 +783,8 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
       headline: null,
       headlineText,
       secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
-      health: chrome.health && chrome.health !== "none" ? chrome.health : built.health,
+      // Same rows as the chip. A region line's health must not paint the badge a different color.
+      health: scoped.length ? built.health : chrome.health && chrome.health !== "none" ? chrome.health : built.health,
       storeCount: chrome.count || built.storeCount,
       workbook,
     };
