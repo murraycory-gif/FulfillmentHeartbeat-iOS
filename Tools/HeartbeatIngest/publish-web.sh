@@ -277,7 +277,15 @@ if "set-cookie" in headers or "www-authenticate" in headers:
     raise SystemExit("refusing: unsigned /data set a cookie or asked for basic auth")
 login_status, _, login = fetch("/login")
 login_html = login.decode("utf-8", "replace")
-if login_status != 200 or 'autocomplete="username"' not in login_html or 'name="email"' not in login_html:
-    raise SystemExit("refusing: /login form is missing the email field")
+if (
+    login_status != 200
+    or 'autocomplete="username"' not in login_html
+    or 'name="email"' not in login_html
+    or 'type="text"' not in login_html
+    or 'inputmode="email"' not in login_html
+    or "Email or username" not in login_html
+    or 'type="email"' in login_html
+):
+    raise SystemExit("refusing: /login must accept a username or an email")
 print('gate ok unsigned /data {"error":"unauthorized"}')
 PY

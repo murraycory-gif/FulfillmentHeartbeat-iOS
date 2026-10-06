@@ -946,7 +946,11 @@ assert.equal(gateDenied.status, 200);
 assert.equal(gateDenied.headers.get("WWW-Authenticate"), null);
 const loginHTML = await gateDenied.text();
 assert.match(loginHTML, /action="\/login"/);
-assert.match(loginHTML, /type="email"/);
+assert.match(loginHTML, /Email or username/);
+assert.match(loginHTML, /type="text"/);
+assert.match(loginHTML, /inputmode="email"/);
+assert.match(loginHTML, /autocapitalize="none"/);
+assert.equal(loginHTML.includes('type="email"'), false);
 assert.match(loginHTML, /name="email"/);
 assert.match(loginHTML, /type="password"/);
 assert.match(loginHTML, /autocomplete="username"/);
@@ -1479,6 +1483,20 @@ const legacyIn = await accountRequest(legacy.db, "/login", {
   body: "username=heartbeat&password=test-only-secret",
 });
 assert.equal(legacyIn.status, 303);
+const sharedWhileAccounts = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=heartbeat&password=test-only-secret",
+});
+assert.equal(sharedWhileAccounts.status, 303);
+const sharedSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(sharedWhileAccounts) });
+assert.deepEqual(await sharedSession.json(), { email: "heartbeat", role: "admin", account: false });
+const testerWhileAccounts = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=tester&password=tester-only-secret",
+});
+assert.equal(testerWhileAccounts.status, 303);
+const testerSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(testerWhileAccounts) });
+assert.deepEqual(await testerSession.json(), { email: "tester", role: "viewer", account: false });
 assert.equal(legacy.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
 const cutover = openAuth();
 const cutoverDenied = await accountRequest(cutover.db, "/login", {

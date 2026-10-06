@@ -637,7 +637,7 @@ export function loginHTML(message, email) {
     `<form class="login-card" method="POST" action="/login" autocomplete="on">
       <h2>Fulfillment Heartbeat</h2>
       ${alert}
-      <label>Email<input name="email" type="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required value="${escapeHtml(email)}"></label>
+      <label>Email or username<input name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required value="${escapeHtml(email)}"></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Sign in</button>
     </form>`,
