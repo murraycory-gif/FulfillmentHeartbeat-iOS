@@ -352,7 +352,15 @@ assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filter
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=27/);
+assert.match(pageHtml, /app\.js\?v=28/);
+const renderSrc = app.slice(app.indexOf("async function render("), app.indexOf("function desktopNav("));
+assert.equal(renderSrc.includes("await ensureSeatRows"), false);
+assert.match(renderSrc, /renderDashboard\(\);\s*warmDashboard\(token\)/);
+assert.match(renderSrc, /renderPicker\(\)/);
+assert.equal(renderSrc.includes('await load("section/picker_scorecard")'), false);
+assert.match(app, /function seatReady/);
+assert.match(app, /function warmDashboard/);
+assert.match(app, /Shopper tape stays parked/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);

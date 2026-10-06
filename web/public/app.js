@@ -20,7 +20,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { lossPercentPoints, seatSummary } from "./seat.js";
+import { chromeSeat, lossPercentPoints, seatSummary } from "./seat.js";
 import { metricsInSource, pphBar, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -123,6 +123,7 @@ const state = {
   shopperQuery: "",
   shopperPrepared: [],
   shopperColumns: [],
+  failedPacks: new Set(),
 };
 
 const drawer = document.querySelector("#drawer");
@@ -227,8 +228,22 @@ async function readPack(url) {
   return data;
 }
 
+const inflight = new Map();
+
 async function load(path) {
   if (state.packs.has(path)) return state.packs.get(path);
+  const pending = inflight.get(path);
+  if (pending) return pending;
+  const job = fetchPack(path);
+  inflight.set(path, job);
+  try {
+    return await job;
+  } finally {
+    inflight.delete(path);
+  }
+}
+
+async function fetchPack(path) {
   const relative = packURL(path);
   if (!relative) throw new Error("NO DATA");
   const url = new URL(relative, location.origin).href;
@@ -237,6 +252,7 @@ async function load(path) {
     try {
       const data = await readPack(url);
       state.packs.set(path, data);
+      state.failedPacks.delete(path);
       return data;
     } catch (error) {
       last = error instanceof Error ? error : new Error("NO DATA");
@@ -246,6 +262,16 @@ async function load(path) {
     }
   }
   throw last;
+}
+
+async function loadOptional(path) {
+  if (state.failedPacks.has(path)) return null;
+  try {
+    return await load(path);
+  } catch {
+    state.failedPacks.add(path);
+    return null;
+  }
 }
 
 const NAV_ICON = {
@@ -537,7 +563,17 @@ function shownSecondary(section, text) {
   );
 }
 
+function seatReady(section) {
+  if (!filtersActive(state.filters)) return true;
+  if (state.packs.has(`section/${section}`)) return true;
+  return Boolean(chromeSeat((state.home && state.home.regionLines) || [], section, state.filters));
+}
+
 function companyBlock(section, title) {
+  if (!seatReady(section)) {
+    const name = title ? `<h2>${esc(title)}</h2>` : "";
+    return `<div class="score-face">${name}<p class="note">Loading…</p></div>`;
+  }
   const seat = seatFor(section);
   const tiles = filtersActive(state.filters) ? "" : cookedTiles(section);
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
@@ -717,6 +753,9 @@ function regionCardsHtml() {
 }
 
 function scheduleDashCard(pack) {
+  if (!state.packs.has("schedule") && !state.failedPacks.has("schedule")) {
+    return `<article class="scorecard"><button class="link" type="button" data-page="schedule"><div class="score-face"><h2>Schedule Check</h2><p class="note">Loading…</p></div></button></article>`;
+  }
   if (!pack || scheduleIsEmpty(pack)) {
     return `<article class="scorecard none"><button class="link" type="button" data-page="schedule"><div class="score-face"><h2>Schedule Check</h2><p class="nodata">NO DATA</p></div></button></article>`;
   }
@@ -829,16 +868,22 @@ function shopperBlock(rows, columns, sourceNote) {
 
 function renderPicker() {
   const summary = summaryFor("picker_scorecard");
-  const pack = state.packs.get("section/picker_scorecard");
+  const path = "section/picker_scorecard";
+  const loaded = state.packs.has(path);
+  const pack = state.packs.get(path);
   const rows = (pack && pack.rows) || [];
-  if (!summary && !tilesFor("picker_scorecard") && !rows.length && !filtersActive(state.filters)) {
+  const waiting = shopperSeat(state.filters) && !loaded && !state.failedPacks.has(path);
+  if (!summary && !tilesFor("picker_scorecard") && !rows.length && !filtersActive(state.filters) && !waiting) {
     main.innerHTML = `<p class="nodata">NO DATA</p>`;
     return;
   }
   const health = rows.length && ((summary && summary.health) || "none") === "none" ? "" : (summary && summary.health) || "none";
-  const note = shopperSeat(state.filters)
-    ? shopperBlock(rows, SHOPPER_COLUMNS.scorecard, "")
-    : `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
+  let note = `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
+  if (shopperSeat(state.filters)) {
+    if (waiting) note = `<p class="note">Loading…</p>`;
+    else if (!loaded) note = `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
+    else note = shopperBlock(rows, SHOPPER_COLUMNS.scorecard, "");
+  }
   main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${grainBlock("picker_scorecard")}${note}`;
 }
 
@@ -1054,6 +1099,93 @@ function scheduleDetailHtml(pack) {
 let renderToken = 0;
 let paintedPage = "";
 
+function shopperPackPath(section) {
+  if (section === "pph") return "section/picker_scorecard";
+  if (section === "pick_path") return "section/pick_path_picker";
+  return "";
+}
+
+function shopperNote(section) {
+  const path = shopperPackPath(section);
+  if (!path) return "";
+  if (!shopperSeat(state.filters)) {
+    return `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
+  }
+  if (!state.packs.has(path)) {
+    if (state.failedPacks.has(path)) return `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
+    return `<h2>Shoppers</h2><p class="note">Loading…</p>`;
+  }
+  const pack = state.packs.get(path);
+  const columns = SHOPPER_COLUMNS[section === "pph" ? "pph" : "path"];
+  const sourceNote = section === "pph" ? "Shopper PPH, hours, and orders are from the Picker ScoreCard." : "";
+  return shopperBlock((pack && pack.rows) || [], columns, sourceNote);
+}
+
+function presubNote() {
+  if (state.packs.has("presub")) return renderPresub(state.packs.get("presub"));
+  if (state.failedPacks.has("presub")) {
+    return state.home && state.home.preSubItemTabPresent === false
+      ? `<p class="note">Item detail not in this upload</p>`
+      : `<p class="note">NO DATA</p>`;
+  }
+  return `<h2>Top 10 Pre-Sub OOS items</h2><p class="note">Loading…</p>`;
+}
+
+function scorecardHtml(page, pendingStores) {
+  const health = (summaryFor(page.section) || {}).health || "none";
+  const pack = state.packs.get(`section/${page.section}`);
+  const missing = !pendingStores && !pack;
+  const storeTable = pendingStores
+    ? `<p class="note">Loading…</p>`
+    : missing
+      ? `<p class="note">Store rows are not in this upload.</p>`
+      : table(page.section, (pack && pack.rows) || []);
+  const extra = page.section === "pre_sub_oos" ? presubNote() : "";
+  const shoppers = page.section === "pph" || page.section === "pick_path" ? shopperNote(page.section) : "";
+  return `<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
+}
+
+function warmDashboard(token) {
+  const refresh = () => {
+    if (token === renderToken && state.page === "dashboard") renderDashboard();
+  };
+  const jobs = [];
+  if (!state.packs.has("schedule") && !state.failedPacks.has("schedule")) jobs.push(loadOptional("schedule"));
+  for (const page of PAGES) {
+    if (!page.section || page.section === "picker_scorecard" || seatReady(page.section)) continue;
+    const path = `section/${page.section}`;
+    if (state.packs.has(path) || state.failedPacks.has(path)) continue;
+    jobs.push(loadOptional(path));
+  }
+  if (jobs.length) Promise.all(jobs).then(refresh);
+  const pickerPath = "section/picker_scorecard";
+  if (seatReady("picker_scorecard") || state.packs.has(pickerPath) || state.failedPacks.has(pickerPath)) return;
+  loadOptional(pickerPath).then(refresh);
+}
+
+async function renderMetric(page, token) {
+  const path = `section/${page.section}`;
+  const pending = !state.packs.has(path) && !state.failedPacks.has(path);
+  main.innerHTML = scorecardHtml(page, pending);
+  if (pending) {
+    await loadOptional(path);
+    if (token !== renderToken) return;
+    main.innerHTML = scorecardHtml(page, false);
+  }
+  if (page.section === "pre_sub_oos" && !state.packs.has("presub") && !state.failedPacks.has("presub")) {
+    await loadOptional("presub");
+    if (token !== renderToken) return;
+    main.innerHTML = scorecardHtml(page, false);
+  }
+  const shopperPath = shopperPackPath(page.section);
+  if (shopperPath && shopperSeat(state.filters) && !state.packs.has(shopperPath) && !state.failedPacks.has(shopperPath)) {
+    await loadOptional(shopperPath);
+    if (token !== renderToken) return;
+    main.innerHTML = scorecardHtml(page, false);
+  }
+}
+
+// Home chrome paints before section files. Shopper tape stays parked until a seat opens it.
 async function render() {
   const token = ++renderToken;
   const page = pageById(state.page);
@@ -1071,99 +1203,34 @@ async function render() {
   }
   if (page.id === "schedule") {
     setUpdated(state.home.publishedAt);
-    main.innerHTML = `<p class="note">Loading…</p>`;
-    try {
-      const pack = await load("schedule");
+    let pack = state.packs.get("schedule") || null;
+    if (!pack && !state.failedPacks.has("schedule")) {
+      main.innerHTML = `<p class="note">Loading…</p>`;
+      pack = await loadOptional("schedule");
       if (token !== renderToken) return;
-      setUpdated(pack.publishedAt || state.home.publishedAt);
-      raiseBanner(considerPublished(sessionStorage, "hb.web.seenScheduleAt", pack.publishedAt));
-      renderSchedule(pack);
-    } catch {
-      if (token !== renderToken) return;
-      setUpdated(state.home.publishedAt);
-      renderSchedule(null);
     }
+    setUpdated((pack && pack.publishedAt) || state.home.publishedAt);
+    if (pack) raiseBanner(considerPublished(sessionStorage, "hb.web.seenScheduleAt", pack.publishedAt));
+    renderSchedule(pack);
     return;
   }
   setUpdated(state.home.publishedAt);
-  if (filtersActive(state.filters)) {
-    main.innerHTML = `<p class="note">Loading…</p>`;
-    await ensureSeatRows();
-    if (token !== renderToken) return;
-  }
   if (page.id === "dashboard") {
     renderDashboard();
-    if (!state.packs.has("schedule")) {
-      load("schedule")
-        .then(() => {
-          if (token === renderToken && state.page === "dashboard") renderDashboard();
-        })
-        .catch(() => {});
-    }
+    warmDashboard(token);
     return;
   }
   if (page.section === "picker_scorecard") {
-    main.innerHTML = `<p class="note">Loading…</p>`;
-    try {
-      await load("section/picker_scorecard");
-    } catch {
-      /* company chrome still paints when the shopper file is missing */
-    }
-    if (token !== renderToken) return;
     renderPicker();
+    const path = "section/picker_scorecard";
+    if (shopperSeat(state.filters) && !state.packs.has(path) && !state.failedPacks.has(path)) {
+      loadOptional(path).then(() => {
+        if (token === renderToken && state.page === "picker_scorecard") renderPicker();
+      });
+    }
     return;
   }
-  if (!filtersActive(state.filters)) {
-    main.innerHTML = `${companyBlock(page.section)}<p class="note">Loading…</p>`;
-  }
-  let rows = [];
-  let missing = false;
-  try {
-    const pack = await load(`section/${page.section}`);
-    if (token !== renderToken) return;
-    rows = pack.rows || [];
-  } catch {
-    missing = true;
-  }
-  let extra = "";
-  if (page.section === "pre_sub_oos") {
-    try {
-      const presub = await load("presub");
-      if (token !== renderToken) return;
-      extra = renderPresub(presub);
-    } catch {
-      extra = state.home.preSubItemTabPresent === false
-        ? `<p class="note">Item detail not in this upload</p>`
-        : `<p class="note">NO DATA</p>`;
-    }
-  }
-  let shoppers = "";
-  if (page.section === "pph" || page.section === "pick_path") {
-    if (!shopperSeat(state.filters)) {
-      shoppers = `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
-    } else {
-      const packPath = page.section === "pph" ? "section/picker_scorecard" : "section/pick_path_picker";
-      const sourceNote =
-        page.section === "pph" ? "Shopper PPH, hours, and orders are from the Picker ScoreCard." : "";
-      try {
-        const shopperPack = await load(packPath);
-        if (token !== renderToken) return;
-        shoppers = shopperBlock(
-          (shopperPack && shopperPack.rows) || [],
-          SHOPPER_COLUMNS[page.section === "pph" ? "pph" : "path"],
-          sourceNote,
-        );
-      } catch {
-        shoppers = `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
-      }
-    }
-  }
-  if (token !== renderToken) return;
-  const storeTable = missing
-    ? `<p class="note">Store rows are not in this upload.</p>`
-    : table(page.section, rows);
-  const health = (summaryFor(page.section) || {}).health || "none";
-  main.innerHTML = `<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
+  await renderMetric(page, token);
 }
 
 function desktopNav() {
