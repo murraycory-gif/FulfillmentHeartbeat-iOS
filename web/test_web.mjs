@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
@@ -21,10 +21,10 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors } from "./check_pack.mjs";
-import { PACK_FILES, PACK_POINTER_KEY, PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache, sha256Hex } from "./functions/pack-store.js";
+import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors, workbookTotalErrors } from "./check_pack.mjs";
+import { PACK_FILES, PACK_POINTER_KEY, PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, readPackObject, resetPackCache, sha256Hex } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
-import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
+import { SCHEMA_VERSION, WORKBOOK_TOTAL_FIELDS, schemaWarning } from "./public/schema.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -931,6 +931,21 @@ assert.match(liveCheck.stderr, /cookedAt missing/);
 assert.match(liveCheck.stderr, /pinned live cook cannot be republished/);
 const liveErrors = checkPack(livePack).errors;
 assert.ok(liveErrors.some((item) => item.includes("cookedAt missing")));
+assert.equal(liveErrors.some((item) => item.includes("workbookTotal")), false);
+assert.deepEqual(workbookTotalErrors({ metadata: { schemaVersion: SCHEMA_VERSION, cookSha: "a".repeat(40) } }), []);
+assert.ok(workbookTotalErrors({ cookedAt: "2026-10-07T00:00:00Z" }).some((item) => item === "workbookTotal missing"));
+const workbookBlock = {};
+for (const [section, fields] of Object.entries(WORKBOOK_TOTAL_FIELDS)) {
+  workbookBlock[section] = Object.fromEntries(fields.map((field) => [field, 1]));
+}
+assert.deepEqual(workbookTotalErrors({ cookedAt: "2026-10-07T00:00:00Z", workbookTotal: workbookBlock }), []);
+const missingField = structuredClone(workbookBlock);
+delete missingField.dynacap.pieces_per_hour;
+assert.ok(
+  workbookTotalErrors({ cookedAt: "2026-10-07T00:00:00Z", workbookTotal: missingField }).some((item) =>
+    item.includes("dynacap.pieces_per_hour"),
+  ),
+);
 assert.ok(liveErrors.some((item) => item.includes("storeCount=")));
 assert.ok(liveErrors.some((item) => item.includes("currency")));
 assert.ok(liveErrors.some((item) => item.startsWith("lost ")));
@@ -1132,7 +1147,63 @@ assert.match(publishScript, /cook-guard\.sh" --publish/);
 assert.match(publishScript, /cook-guard\.sh" --publish-data/);
 assert.match(publishScript, /pack_publish\.py" preflight/);
 assert.match(publishScript, /new cook stays out of tracked web\/public\/data/);
-assert.match(publishScript, /live pack stays out of tracked web\/public\/data/);
+assert.equal(publishScript.includes("live pack stays out of tracked web/public/data"), false);
+assert.match(publishScript, /python3 - "\$PACK_DIR" "\$EMAIL_FILE"/);
+assert.equal(publishScript.includes('python3 - "$DATA" "$EMAIL_FILE"'), false);
+assert.match(publishScript, /local pack is older or the stamps disagree/);
+assert.match(publishScript, /--defer-pointer/);
+assert.match(publishScript, /--commit-pointer/);
+const pagesDeployAt = publishScript.indexOf("npx wrangler pages deploy");
+const pointerCommitAt = publishScript.indexOf("--commit-pointer");
+assert.ok(pagesDeployAt !== -1 && pointerCommitAt > pagesDeployAt);
+const trapAt = publishScript.indexOf("trap cleanup_stages EXIT");
+const extractTempAt = publishScript.indexOf('EXTRACT="$(mktemp -d)"');
+const liveTempAt = publishScript.indexOf('LIVE_STAGE="$(mktemp -d)"');
+assert.ok(trapAt !== -1 && extractTempAt !== -1 && liveTempAt !== -1 && trapAt < extractTempAt && trapAt < liveTempAt);
+const cleanupFn = publishScript.match(/cleanup_stages\(\) \{[\s\S]*?\n\}/);
+assert.ok(cleanupFn);
+for (const code of [0, 1]) {
+  const script = [
+    "set -euo pipefail",
+    "EXTRACT=$(mktemp -d)",
+    "LIVE_STAGE=$(mktemp -d)",
+    "printf '%s\\n' \"$EXTRACT\" \"$LIVE_STAGE\"",
+    cleanupFn[0],
+    "trap cleanup_stages EXIT",
+    `exit ${code}`,
+  ].join("\n");
+  const cleaned = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+  const dirs = cleaned.stdout.trim().split("\n");
+  assert.equal(dirs.length, 2, cleaned.stderr);
+  assert.equal(existsSync(dirs[0]), false, dirs[0]);
+  assert.equal(existsSync(dirs[1]), false, dirs[1]);
+}
+const liveChoice = (liveCooked, localCooked) => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-live-"));
+  const liveFile = join(dir, "live.json");
+  const localDir = join(dir, "local");
+  mkdirSync(localDir);
+  const stamp = (cooked) => ({
+    cookSha: "a".repeat(40),
+    publishedAt: "2026-10-06T01:35:23Z",
+    cookedAt: cooked,
+    schemaVersion: SCHEMA_VERSION,
+  });
+  writeFileSync(liveFile, JSON.stringify(stamp(liveCooked)));
+  writeFileSync(join(localDir, "home.json"), JSON.stringify(stamp(localCooked)));
+  const ran = spawnSync("python3", [join(root, "scripts/pack_identity.py"), "live", liveFile, localDir], { encoding: "utf8" });
+  rmSync(dir, { recursive: true, force: true });
+  return ran;
+};
+const newerLocal = liveChoice("2026-10-07T01:00:00Z", "2026-10-07T02:00:00Z");
+assert.equal(newerLocal.status, 0, newerLocal.stderr);
+assert.equal(newerLocal.stdout.trim(), "keep");
+const olderLocal = liveChoice("2026-10-07T03:00:00Z", "2026-10-07T01:00:00Z");
+assert.notEqual(olderLocal.status, 0);
+assert.equal(olderLocal.stdout.trim(), "refuse");
+const cookLocalTest = readFileSync(join(root, "../Tools/HeartbeatIngest/test_cook_local.sh"), "utf8");
+assert.match(cookLocalTest, /export HEARTBEAT_SKIP_GIT_CHECK=1/);
+assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), "utf8"), /git -C "\$ROOT" fetch origin/);
 assert.equal(publishScript.includes('cp -R "$EXTRACT" "$DATA"'), false);
 assert.equal(publishScript.includes("dest.rename"), false);
 assert.equal(publishScript.includes("staged.rename(dest)"), false);
@@ -1152,6 +1223,9 @@ const guardRun = (args) =>
 const pinnedGuard = guardRun(["web/check_pack.mjs"]);
 assert.notEqual(pinnedGuard.status, 0);
 assert.equal(pinnedGuard.stdout.trim(), "refuse");
+const parserGuard = guardRun(["FulfillmentHeartbeat/Storage/WorkbookParser.swift"]);
+assert.notEqual(parserGuard.status, 0);
+assert.equal(parserGuard.stdout.trim(), "refuse");
 const cleanGuard = guardRun([]);
 assert.equal(cleanGuard.status, 0);
 assert.equal(cleanGuard.stdout.trim(), "cook");
@@ -1178,6 +1252,9 @@ assert.match(untrackedCook.stderr, /refusing an untracked cook path/);
 const otherDirty = decidePublish(0, " M web/public/app.js\n");
 assert.equal(otherDirty.status, 0, otherDirty.stderr);
 assert.equal(otherDirty.stdout.trim(), "cook");
+const dirtyParser = decidePublish(0, " M FulfillmentHeartbeat/Storage/WorkbookParser.swift\n");
+assert.notEqual(dirtyParser.status, 0);
+assert.match(dirtyParser.stderr, /refusing a dirty cook path/);
 for (const path of ["web/functions/_middleware.js", "web/public/schema.js", "web/scripts/pack_publish.py"]) {
   const dirtyPublishPath = decidePublish(0, ` M ${path}\n`);
   assert.notEqual(dirtyPublishPath.status, 0, path);
@@ -1418,6 +1495,50 @@ with tempfile.TemporaryDirectory() as tmp:
         raise SystemExit("bad readback was accepted")
     except SystemExit as exc:
         assert "readback does not match" in str(exc.code), exc.code
+bucket_msg, bucket_puts = refused(None, None, "The specified bucket does not exist.")
+assert "get failed" in bucket_msg, bucket_msg
+assert "absent" not in bucket_msg
+assert bucket_puts == []
+buried_fake, buried_puts = bucket(None, None, "warning\\nThe specified key does not exist.\\n")
+assert preflight_pointer(Path("public/data"), buried_fake) == "absent"
+assert buried_puts == []
+from pack_publish import upload_pack
+upload_sha = "c" * 40
+upload_cooked = "2026-10-07T02:00:00Z"
+def pack_dir(tmp):
+    data = Path(tmp) / "data"
+    data.mkdir()
+    (data / "home.json").write_text(json.dumps({
+        "cookSha": upload_sha,
+        "publishedAt": PINNED_LIVE_PUBLISHED_AT,
+        "cookedAt": upload_cooked,
+        "schemaVersion": 1,
+        "metadata": {"schemaVersion": 1, "cookSha": upload_sha},
+    }), encoding="utf-8")
+    return data
+absent_upload, absent_upload_puts = bucket(None)
+with tempfile.TemporaryDirectory() as tmp:
+    try:
+        upload_pack(pack_dir(tmp), Path("check_pack.mjs"), absent_upload)
+        raise SystemExit("absent pointer was accepted")
+    except SystemExit as exc:
+        assert "absent" in str(exc.code) and "--first-publish" in str(exc.code), exc.code
+assert absent_upload_puts == []
+empty_upload, empty_upload_puts = bucket(b"   ")
+with tempfile.TemporaryDirectory() as tmp:
+    try:
+        upload_pack(pack_dir(tmp), Path("check_pack.mjs"), empty_upload)
+        raise SystemExit("empty pointer was accepted")
+    except SystemExit as exc:
+        assert "--first-publish" in str(exc.code), exc.code
+assert empty_upload_puts == []
+class Ok:
+    returncode = 0
+first_fake, first_puts = bucket(None)
+with tempfile.TemporaryDirectory() as tmp:
+    first_plan = upload_pack(pack_dir(tmp), Path("check_pack.mjs"), first_fake, checker=lambda downloaded: Ok(), first_publish=True)
+assert first_plan["cookSha"] == upload_sha
+assert any(item.endswith("current.json") for item in first_puts), first_puts
 `,
   ],
   { cwd: root, encoding: "utf8" },
@@ -1499,6 +1620,9 @@ assert.match(fetchPackSrc, /state\.failedPacks\.clear\(\)/);
 assert.match(fetchPackSrc, /acceptHome\(home\)/);
 assert.equal(fetchPackSrc.includes('state.packs.delete("home")'), false);
 const publishPy = readFileSync(join(root, "scripts/pack_publish.py"), "utf8");
+assert.match(publishPy, /The specified key does not exist\./);
+assert.equal(publishPy.includes("NOT_FOUND_MARKERS"), false);
+assert.match(publishPy, /pass --first-publish/);
 assert.match(publishPy, /web-pack\/current\.json/);
 assert.match(publishPy, /check_pack failed on the uploaded set/);
 assert.match(publishPy, /refusing to write into the live pack folder/);
@@ -1868,6 +1992,74 @@ const packed = await basicGate({
 assert.equal(packed.status, 200);
 assert.equal(packed.headers.get("cache-control"), "private, no-store");
 assert.match(await packed.text(), /Mountain West/);
+resetPackCache();
+{
+  const flightSha = "e".repeat(40);
+  const nextSha = "f".repeat(40);
+  const flightCooked = "2026-10-08T00:00:00Z";
+  const nextCooked = "2026-10-08T01:00:00Z";
+  const flightPrefix = `web-pack/${flightSha}-${flightCooked}`;
+  const nextPrefix = `web-pack/${nextSha}-${nextCooked}`;
+  const packHome = (sha, cooked) =>
+    JSON.stringify({
+      publishedAt,
+      schemaVersion: SCHEMA_VERSION,
+      cookSha: sha,
+      cookedAt: cooked,
+      metadata: { schemaVersion: SCHEMA_VERSION, cookSha: sha, cookedAt: cooked },
+      summaries: [{ section: "sales" }],
+      laborMarket: { aiv_impact_pct: 0, uplh_impact_pct: 0, wage_impact_pct: 0, target_vs_actual_pct: 0 },
+      regionTables: [{}],
+      companyTiles: { sales: { labels: [], values: [] } },
+      filters: { stores: [{ store: "1" }] },
+    });
+  const files = {
+    [PACK_POINTER_KEY]: JSON.stringify({
+      prefix: flightPrefix,
+      cookSha: flightSha,
+      cookedAt: flightCooked,
+      publishedAt,
+      schemaVersion: SCHEMA_VERSION,
+    }),
+    [`${flightPrefix}/home.json`]: packHome(flightSha, flightCooked),
+    [`${nextPrefix}/home.json`]: packHome(nextSha, nextCooked),
+  };
+  let swapped = false;
+  const flightBucket = {
+    async get(key) {
+      if (key === `${flightPrefix}/home.json` && !swapped) {
+        swapped = true;
+        files[PACK_POINTER_KEY] = JSON.stringify({
+          prefix: nextPrefix,
+          cookSha: nextSha,
+          cookedAt: nextCooked,
+          publishedAt,
+          schemaVersion: SCHEMA_VERSION,
+        });
+        const nested = await readPackObject(flightBucket, "https://fulfillment-heartbeat-web.pages.dev/data/home.json");
+        assert.equal(nested.missing, undefined);
+        assert.match(await nested.text(), new RegExp(nextSha));
+      }
+      if (!Object.prototype.hasOwnProperty.call(files, key)) return null;
+      const text = files[key];
+      return { text: async () => text };
+    },
+    async list({ prefix } = {}) {
+      return {
+        objects: Object.keys(files)
+          .filter((key) => !prefix || key.startsWith(prefix))
+          .map((key) => ({ key })),
+        truncated: false,
+      };
+    },
+  };
+  const dropped = await readPackObject(
+    flightBucket,
+    `https://fulfillment-heartbeat-web.pages.dev/data/home.json?cookSha=${flightSha}&publishedAt=${encodeURIComponent(publishedAt)}&cookedAt=${encodeURIComponent(flightCooked)}`,
+  );
+  assert.equal(dropped.missing, true);
+}
+resetPackCache();
 const skewSha = "c".repeat(40);
 const skewPrefix = packPrefix(skewSha, publishedAt);
 const skewCookedAt = "2026-10-07T05:00:00Z";

@@ -124,6 +124,8 @@ def newer(live: dict, local: dict, ancestor_ok=None) -> str:
     local_sha = str(local.get("cookSha") or "")
     if not live_sha or not local_sha:
         return "refuse"
+    if is_pinned_live(live) and is_pinned_live(local):
+        return "keep"
     if is_pinned_live(live) and local_at:
         return "keep"
     if not live_at or not local_at:
@@ -135,6 +137,14 @@ def newer(live: dict, local: dict, ancestor_ok=None) -> str:
             return "refuse"
         return "fetch"
     return "keep"
+
+
+def live_against(live: dict, local: dict, ancestor_ok=None) -> str:
+    """keep or refuse. A newer live pack is refused instead of downloaded."""
+    choice = newer(live, local, ancestor_ok)
+    if choice == "fetch":
+        return "refuse"
+    return choice
 
 
 def commit_is_ancestor(sha: str, root: Path = ROOT) -> bool:
@@ -149,7 +159,7 @@ def commit_is_ancestor(sha: str, root: Path = ROOT) -> bool:
 
 def main() -> int:
     if len(sys.argv) < 3:
-        print("usage: pack_identity.py check DIR | prefer FRESH HAVE | newer LIVE.json LOCAL", file=sys.stderr)
+        print("usage: pack_identity.py check DIR | prefer FRESH HAVE | newer LIVE.json LOCAL | live LIVE.json LOCAL", file=sys.stderr)
         return 2
     command = sys.argv[1]
     if command == "check":
@@ -180,6 +190,17 @@ def main() -> int:
         decision = newer(identity_of(live_payload), load_identity(local_path), commit_is_ancestor)
         print(decision)
         return 0 if decision in {"fetch", "keep"} else 1
+    if command == "live":
+        live_path = Path(sys.argv[2])
+        local_path = Path(sys.argv[3])
+        try:
+            live_payload = json.loads(live_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            print("refuse")
+            return 1
+        decision = live_against(identity_of(live_payload), load_identity(local_path), commit_is_ancestor)
+        print(decision)
+        return 0 if decision == "keep" else 1
     print(f"unknown command {command}", file=sys.stderr)
     return 2
 

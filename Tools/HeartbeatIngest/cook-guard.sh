@@ -6,6 +6,8 @@
 #   Tools/HeartbeatIngest/cook-local.sh
 #   Tools/HeartbeatIngest/          every file under this directory
 #   web/check_pack.mjs
+#   FulfillmentHeartbeat/Storage/WorkbookParser.swift
+#                                   labor rows feed the cook through prepare-sources.sh
 #   web/functions/pack-store.js     the middleware schema and required-key
 #                                   list, guardHome:
 #                                     schemaVersion
@@ -39,7 +41,8 @@ classify_one() {
     || "$path" == "Tools/HeartbeatIngest/cook-local.sh" \
     || "$path" == Tools/HeartbeatIngest/* \
     || "$path" == "web/check_pack.mjs" \
-    || "$path" == "web/functions/pack-store.js" ]]; then
+    || "$path" == "web/functions/pack-store.js" \
+    || "$path" == "FulfillmentHeartbeat/Storage/WorkbookParser.swift" ]]; then
     echo refuse
     return
   fi
@@ -53,7 +56,8 @@ on_cook_path() {
     || "$path" == "Tools/HeartbeatIngest/cook-local.sh" \
     || "$path" == Tools/HeartbeatIngest/* \
     || "$path" == "web/check_pack.mjs" \
-    || "$path" == "web/functions/pack-store.js" ]]
+    || "$path" == "web/functions/pack-store.js" \
+    || "$path" == "FulfillmentHeartbeat/Storage/WorkbookParser.swift" ]]
 }
 
 porcelain_path() {

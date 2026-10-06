@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { SCHEMA_VERSION } from "./public/schema.js";
+import { SCHEMA_VERSION, WORKBOOK_TOTAL_FIELDS } from "./public/schema.js";
 import { guardHome, PACK_FILES, PINNED_LIVE_COOK_SHA, rawDivisionName } from "./functions/pack-store.js";
 
 function readJson(dir, name) {
@@ -209,6 +209,30 @@ export function storeCountErrors(home, files) {
   return errors;
 }
 
+export function workbookTotalErrors(home) {
+  const metadata = home && home.metadata && typeof home.metadata === "object" ? home.metadata : {};
+  const cooked =
+    (home && typeof home.cookedAt === "string" && home.cookedAt) ||
+    (typeof metadata.cookedAt === "string" && metadata.cookedAt) ||
+    "";
+  if (!cooked) return [];
+  const block = home && home.workbookTotal;
+  if (!block || typeof block !== "object" || Array.isArray(block)) return ["workbookTotal missing"];
+  const errors = [];
+  for (const [section, fields] of Object.entries(WORKBOOK_TOTAL_FIELDS)) {
+    const row = block[section];
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      errors.push(`workbookTotal ${section} missing`);
+      continue;
+    }
+    for (const field of fields) {
+      const value = row[field];
+      if (typeof value !== "number" || !Number.isFinite(value)) errors.push(`workbookTotal ${section}.${field} missing`);
+    }
+  }
+  return errors;
+}
+
 export function checkPack(dir) {
   const errors = [...packIdentityErrors(dir)];
   const homeRead = readJson(dir, "home.json");
@@ -232,6 +256,7 @@ export function checkPack(dir) {
   }
 
   errors.push(...guardHome(homeRead.value));
+  errors.push(...workbookTotalErrors(homeRead.value));
 
   const labor = home.laborMarket && typeof home.laborMarket === "object" ? home.laborMarket : {};
   if ("weight" in labor && !errors.some((item) => item.includes("weight"))) errors.push("laborMarket has a weight field");

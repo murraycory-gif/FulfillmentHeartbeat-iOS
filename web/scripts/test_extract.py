@@ -143,7 +143,7 @@ def main() -> None:
                 "Ada",
                 "Store 1",
                 "2026-09-28",
-                json.dumps({"act_hrs": 383, "aiv_impact_pct": -0.38645958215580284, "cost_trgt_pct": 11.4}),
+                json.dumps({"act_hrs": 383, "act_cost_dollar": 6181, "aiv_impact_pct": -0.38645958215580284, "cost_trgt_pct": 11.4}),
                 json.dumps({"labor_grain": "store", "district": "01"}),
             ),
         )
@@ -233,6 +233,7 @@ def main() -> None:
         assert all(row["store"].upper() != "TOTAL" for row in labor["rows"])
         labor_one = next(row for row in labor["rows"] if row["store"] == "1")
         assert labor_one["payload"]["weight"] == 383
+        assert labor_one["payload"]["act_cost_dollars"] == 6181
         assert "weight" not in (home.get("laborMarket") or {})
         assert stores["117"]["district"] == "03"
         assert stores["117"]["division"] == "Shaws"
@@ -700,6 +701,17 @@ def pack_identity_choice() -> None:
         {"cookSha": pinned, "cookedAt": "", "errors": []},
         {"cookSha": pinned, "cookedAt": "", "errors": []},
     ) == "refuse"
+    pinned_both = {
+        "cookSha": pinned,
+        "cookedAt": "",
+        "publishedAt": "2026-10-06T01:35:23Z",
+        "errors": [],
+    }
+    assert choice.newer(pinned_both, pinned_both) == "keep"
+    newer_local = {"cookSha": "a" * 40, "cookedAt": "2026-10-07T04:00:00Z", "errors": []}
+    older_local = {"cookSha": "b" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []}
+    assert choice.live_against(older_local, newer_local, lambda sha: True) == "keep"
+    assert choice.live_against(newer_local, older_local, lambda sha: True) == "refuse"
     assert choice.newer(
         {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
         {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
@@ -726,6 +738,69 @@ def pack_identity_choice() -> None:
     print("pack identity ok")
 
 
+def workbook_total_sources() -> None:
+    import math
+    import os
+
+    from workbook_totals import labor_store_ids, read_workbook_totals
+
+    path = os.environ.get("HEARTBEAT_DAILY_XLSX") or "/tmp/hb-icloud/Heartbeat Daily Report.xlsx"
+    assert Path(path).is_file(), path
+    got = read_workbook_totals(path)
+    expected = {
+        "sales": {
+            "sales_dollars": 81833890.57000001,
+            "yoy_pct": 0.17156333213937902,
+            "orders_yoy_pct": 0.17823178138047124,
+        },
+        "lost_revenue": {
+            "ecomm_dollars": 81865991.14999996,
+            "lost_dollars": 4248638.425832152,
+            "post_sub_dollars": 2944950.0,
+            "refund_dollars": 591545.0,
+            "missed_dollars": 420030.8708321518,
+            "cancel_dollars": 272300.0,
+            "kill_dollars": 19812.555000000004,
+        },
+        "labor": {
+            "schedule_efficiency_pct": 0.8822231683849824,
+            "act_cost_dollars": 18849844.0,
+            "cost_trgt_pct": 0.11810996221455011,
+            "uplh_impact_pct": -0.04150171707252105,
+            "wage_impact_pct": 0.0008531258417799059,
+            "aiv_impact_pct": 2.610916545167652e-05,
+            "act_cost_pct": 0.07748748014926157,
+            "target_vs_actual_pct": -0.04062248206528947,
+        },
+        "missing_items": {"missing_rate": 0.07553722973090837},
+        "pre_sub_oos": {"pre_sub_rate": 0.055682480841363624},
+        "schedule_quality": {
+            "schedule_efficiency_pct": 0.8996549831038603,
+            "under_schedule_pct": 0.043122082616643714,
+            "over_schedule_pct": 0.05722293427949598,
+            "staffing_efficiency_pct": 0.7352512606590209,
+        },
+        "pick_path": {"compliance_pct": 0.8021088294904692, "pph": 75.45866087242787},
+        "dynacap": {"pieces_per_hour": 63.14703661811971, "utilization_pct": 0.22439931464860194},
+        "pph": {"pph": 73.50856886797969},
+    }
+    schema = (ROOT.parent / "public" / "schema.js").read_text(encoding="utf-8")
+    assert "WORKBOOK_TOTAL_FIELDS" in schema
+    for section, fields in expected.items():
+        assert section in schema
+        for name, value in fields.items():
+            assert name in schema
+            assert math.isclose(got[section][name], value, rel_tol=1e-9, abs_tol=1e-9), (section, name, got[section][name], value)
+    stores = labor_store_ids(path)
+    assert len(stores) == 2169, len(stores)
+    for store in ["10", "23", "24", "25", "28", "31", "33", "42", "62", "63", "65", "66", "72", "73", "76", "91", "93", "94"]:
+        assert store in stores, store
+    parser = (ROOT.parents[1] / "FulfillmentHeartbeat" / "Storage" / "WorkbookParser.swift").read_text(encoding="utf-8")
+    assert "include: nil" in parser
+    assert "columnLooksLikeStore(data" not in parser
+    print("workbook totals ok")
+
+
 if __name__ == "__main__":
     main()
     raw_sheet_divisions()
@@ -733,3 +808,4 @@ if __name__ == "__main__":
     off_roster_loss_ok()
     lost_excl_rollup()
     pack_identity_choice()
+    workbook_total_sources()

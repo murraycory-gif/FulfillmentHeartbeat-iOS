@@ -101,20 +101,21 @@ Key layout:
 ```text
 web-pack/current.json
   {
-    "prefix": "web-pack/<cookSha>-<publishedAt>",
+    "prefix": "web-pack/<cookSha>-<cookedAt>",
     "cookSha": "<40-hex cookSha>",
+    "cookedAt": "<cookedAt>",
     "publishedAt": "<publishedAt>",
     "schemaVersion": 1,
-    "previous": { "prefix": "...", "cookSha": "...", "publishedAt": "...", "schemaVersion": 1 }
+    "previous": { "prefix": "...", "cookSha": "...", "cookedAt": "...", "publishedAt": "...", "schemaVersion": 1 }
   }
 
-web-pack/<cookSha>-<publishedAt>/home.json
-web-pack/<cookSha>-<publishedAt>/schedule.json
-web-pack/<cookSha>-<publishedAt>/presub.json
-web-pack/<cookSha>-<publishedAt>/section/<section>.json
+web-pack/<cookSha>-<cookedAt>/home.json
+web-pack/<cookSha>-<cookedAt>/schedule.json
+web-pack/<cookSha>-<cookedAt>/presub.json
+web-pack/<cookSha>-<cookedAt>/section/<section>.json
 ```
 
-`cookSha` is `metadata.cookSha` in `home.json`. The object paths under `web-pack/<cookSha>-<publishedAt>/` match the paths under `/data/`.
+`cookSha` is `metadata.cookSha` in `home.json`. A new cook's prefix uses `cookedAt`. The pinned live cook has no `cookedAt`, so its prefix stays `web-pack/74d44dde02a0e1c6430a9a78b06034099c84e001-2026-10-06T01:35:23Z` (`publishedAt`). The object paths under the prefix match the paths under `/data/`.
 
 The function reads `current.json` only. It does not read a bare `web-pack/home.json` key. A September 2026 object at that key was an older pack with no `schemaVersion`, and serving it made `home.json` disagree with `schedule.json`. Each served file's `schemaVersion` and `cookSha` have to match the pointer entry, and `home.json` has to pass `guardHome` in `web/functions/pack-store.js` (`schemaVersion`, `cookSha`, `laborMarket`, `regionTables`, `summaries`, `companyTiles`, `filters.stores`). If the current prefix fails, the function serves `previous` and leaves the pointer object unchanged. If neither pack is valid, or the bucket has no pointer yet, `/data/*` falls through to the static files from the last full Pages deploy. Those static files are still behind the sign-in middleware. `/api/*` uses the same guarded pack and does not fall through to a bare bucket key. An unsigned `/api` request is `401`, the same as `/data`.
 
@@ -130,7 +131,7 @@ From the repo, after `node web/check_pack.mjs web/public/data` exits 0:
 HEARTBEAT_DATA_ONLY=1 bash Tools/HeartbeatIngest/publish-web.sh
 ```
 
-That command puts every pack JSON at `web-pack/<cookSha>-<publishedAt>/`, downloads that set, and runs `check_pack` on it. It writes `web-pack/current.json` last. `previous` becomes the prior pointer entry. A pack that fails `check_pack` does not move the pointer. A served file whose `schemaVersion` or `cookSha` disagrees with the pointer does not replace the last good entry. When `~/.config/heartbeat/web-email` and `web-password` are present, the data-only upload signs in and reads every `/data` JSON file back.
+That command puts every pack JSON at `web-pack/<cookSha>-<cookedAt>/`, downloads that set, and runs `check_pack` on it. It writes `web-pack/current.json` last, because a data-only publish has no Pages deploy. A full publish uploads those objects first and moves `current.json` only after `wrangler pages deploy` exits 0. `previous` becomes the prior pointer entry. A pack that fails `check_pack` does not move the pointer. The extract temp dir and the live-check temp dir are removed on every exit. A served file whose `schemaVersion` or `cookSha` disagrees with the pointer does not replace the last good entry. When `~/.config/heartbeat/web-email` and `web-password` are present, the data-only upload signs in and reads every `/data` JSON file back.
 
 The sqlite extract and the live-pack download both write to a temp directory. They do not copy into tracked `web/public/data`, so a new pack does not dirty the tree before the dirty-worktree check. A dirty tree blocks a data-only upload the same way it blocks a full publish.
 

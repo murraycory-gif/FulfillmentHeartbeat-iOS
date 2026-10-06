@@ -38,7 +38,7 @@ PINNED_FILE_SHA256 = {
     "section/schedule_quality.json": "b77a0309c20cec4084aac27cc2cea3328fc7a0fcad25f8bdd1b0f29a89b0d62d",
 }
 POINTER_KEY = "heartbeat-packs/web-pack/current.json"
-NOT_FOUND_MARKERS = ("does not exist", "not found", "nosuchkey", "error 404", "status code: 404")
+NOT_FOUND_LINE = "The specified key does not exist."
 
 
 def pointer_entry(old: dict) -> dict:
@@ -92,7 +92,7 @@ def plan_pointer(old: dict, sha: str, cooked: str, published: str, schema) -> di
     }
 
 
-def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> dict:
+def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None, *, first_publish=False, move_pointer=True) -> dict:
     def run(args, check=True):
         return _run(wrangler, args, check=check)
 
@@ -119,8 +119,11 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
         tmp_path = Path(tmp)
         pointer_file = tmp_path / "current.json"
         raw = _remote_bytes(run, POINTER_KEY, pointer_file)
-        old = {}
-        if raw is not None:
+        if raw is None or not raw.strip():
+            if not first_publish:
+                raise SystemExit("data-only upload: current.json is absent; pass --first-publish")
+            old = {}
+        else:
             try:
                 loaded = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError:
@@ -134,7 +137,7 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
             raise SystemExit("data-only upload: refusing to replace a newer pointer")
         if old_cooked and old_cooked == cooked and old_sha == sha:
             print("data-only upload: pointer already has this cook")
-            return old
+            return {**old, "unchanged": True}
         plan = plan_pointer(old, sha, cooked, published, schema)
         prefix = plan["prefix"]
         for path in files:
@@ -154,10 +157,16 @@ def upload_pack(root: Path, check_pack: Path, wrangler=None, checker=None) -> di
             checked = subprocess.run(["node", str(check_pack), str(downloaded)], check=False)
         if getattr(checked, "returncode", 1) != 0:
             raise SystemExit("data-only upload: check_pack failed on the uploaded set; current.json was not moved")
-        _put_pointer(run, tmp_path, plan)
-    print(
-        f"data-only upload: {len(files)} pack files at {plan['prefix']}/, check_pack passed, current.json updated, site tree not deployed"
-    )
+        if move_pointer:
+            _put_pointer(run, tmp_path, plan)
+    if move_pointer:
+        print(
+            f"data-only upload: {len(files)} pack files at {plan['prefix']}/, check_pack passed, current.json updated, site tree not deployed"
+        )
+    else:
+        print(
+            f"data-only upload: {len(files)} pack files at {plan['prefix']}/, check_pack passed, current.json deferred until pages deploy succeeds, site tree not deployed"
+        )
     return plan
 
 
@@ -184,9 +193,19 @@ def _result_text(result) -> str:
     return f"{stdout}\n{stderr}".lower()
 
 
+def _output_lines(result) -> list[str]:
+    stdout = getattr(result, "stdout", "") or ""
+    stderr = getattr(result, "stderr", "") or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", "replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    return f"{stdout}\n{stderr}".splitlines()
+
+
 def _is_not_found(result) -> bool:
-    text = _result_text(result)
-    return any(marker in text for marker in NOT_FOUND_MARKERS)
+    """Only wrangler's exact missing-key line. A missing bucket is not a missing key."""
+    return any(line.strip() == NOT_FOUND_LINE for line in _output_lines(result))
 
 
 def _remote_bytes(run, key: str, dest: Path):
@@ -223,6 +242,29 @@ def _put_pointer(run, tmp_path: Path, pointer: dict) -> dict:
         raise SystemExit("pointer write: current.json readback is not json")
     if loaded != pointer:
         raise SystemExit("pointer write: current.json readback does not match")
+    return loaded
+
+
+def commit_pointer(plan_path: Path, wrangler=None) -> dict:
+    """Move current.json after a pages deploy has succeeded.
+
+    Data-only upload moves the pointer inside upload_pack. A full deploy
+    defers that put until wrangler pages deploy exits 0.
+    """
+    plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    if not isinstance(plan, dict):
+        raise SystemExit("pointer commit: plan is not an object")
+    if plan.get("unchanged"):
+        print("pointer commit: current.json already has this cook")
+        return plan
+    body = {key: value for key, value in plan.items() if key != "unchanged"}
+
+    def run(args, check=True):
+        return _run(wrangler, args, check=check)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        loaded = _put_pointer(run, Path(tmp), body)
+    print("pointer commit: current.json updated after the pages deploy")
     return loaded
 
 
@@ -311,25 +353,47 @@ def preflight_pointer(root: Path, wrangler=None) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) >= 2 and sys.argv[1] == "preflight":
-        if len(sys.argv) != 3:
+    argv = sys.argv[1:]
+    if argv[:1] == ["preflight"]:
+        if len(argv) != 2:
             print("usage: pack_publish.py preflight DATA_DIR", file=sys.stderr)
             return 2
-        preflight_pointer(Path(sys.argv[2]))
+        preflight_pointer(Path(argv[1]))
         return 0
-    if len(sys.argv) >= 2 and sys.argv[1] == "migrate-pinned":
-        if len(sys.argv) != 3:
+    if argv[:1] == ["migrate-pinned"]:
+        if len(argv) != 2:
             print("usage: pack_publish.py migrate-pinned DATA_DIR", file=sys.stderr)
             return 2
-        migrate_pinned_pointer(Path(sys.argv[2]))
+        migrate_pinned_pointer(Path(argv[1]))
         return 0
-    if len(sys.argv) != 3:
+    if argv[:1] == ["--commit-pointer"]:
+        if len(argv) != 2:
+            print("usage: pack_publish.py --commit-pointer PLAN.json", file=sys.stderr)
+            return 2
+        commit_pointer(Path(argv[1]))
+        return 0
+    first_publish = "--first-publish" in argv
+    defer_pointer = "--defer-pointer" in argv
+    rest = [item for item in argv if item not in {"--first-publish", "--defer-pointer"}]
+    if defer_pointer:
+        if len(rest) != 3:
+            print(
+                "usage: pack_publish.py --defer-pointer [--first-publish] DATA_DIR check_pack.mjs PLAN.json",
+                file=sys.stderr,
+            )
+            return 2
+        plan = upload_pack(Path(rest[0]), Path(rest[1]), first_publish=first_publish, move_pointer=False)
+        Path(rest[2]).write_text(json.dumps(plan), encoding="utf-8")
+        return 0
+    if len(rest) != 2:
         print(
-            "usage: pack_publish.py DATA_DIR check_pack.mjs | preflight DATA_DIR | migrate-pinned DATA_DIR",
+            "usage: pack_publish.py [--first-publish] DATA_DIR check_pack.mjs"
+            " | --defer-pointer DATA_DIR check_pack.mjs PLAN.json"
+            " | --commit-pointer PLAN.json | preflight DATA_DIR | migrate-pinned DATA_DIR",
             file=sys.stderr,
         )
         return 2
-    upload_pack(Path(sys.argv[1]), Path(sys.argv[2]))
+    upload_pack(Path(rest[0]), Path(rest[1]), first_publish=first_publish)
     return 0
 
 

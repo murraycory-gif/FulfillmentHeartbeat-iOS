@@ -90,6 +90,7 @@ KEEP = {
     "over_scheduled",
     "target_vs_actual_pct",
     "act_cost_pct",
+    "act_cost_dollars",
     "cost_trgt_pct",
     "uplh_impact_pct",
     "wage_impact_pct",
@@ -1309,9 +1310,17 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "section": section,
             }
             if section == "labor":
-                hours = labor_act_hours(loads(fact["payload_json"], {}))
+                raw_payload = loads(fact["payload_json"], {})
+                if not isinstance(raw_payload, dict):
+                    raw_payload = {}
+                hours = labor_act_hours(raw_payload)
                 if hours is not None:
                     record["payload"]["weight"] = hours
+                dollars = raw_payload.get("act_cost_dollars")
+                if dollars is None:
+                    dollars = raw_payload.get("act_cost_dollar")
+                if isinstance(dollars, (int, float)) and not isinstance(dollars, bool):
+                    record["payload"]["act_cost_dollars"] = dollars
             if section in SHOPPER_SECTIONS:
                 # Path Picker rows have no store until the scorecard join below.
                 if not store and section != "pick_path_picker":
@@ -1458,6 +1467,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         "regionTables": table_rows,
     })
     round_pack_currency(home)
+    if roster_xlsx:
+        from workbook_totals import read_workbook_totals
+
+        home["workbookTotal"] = read_workbook_totals(roster_xlsx)
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
     schedule_path = out / "schedule.json"

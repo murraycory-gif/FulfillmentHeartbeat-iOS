@@ -3,6 +3,11 @@
 # deploy, and a touched workbook deploys again. Uses stub cook/deploy commands.
 set -euo pipefail
 
+# This test invokes cook-local.sh directly. Skip the real git fetch and the
+# detached/behind refusal so CI can run on a checkout that is not the Mac.
+# The LaunchAgent path does not set this variable.
+export HEARTBEAT_SKIP_GIT_CHECK=1
+
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

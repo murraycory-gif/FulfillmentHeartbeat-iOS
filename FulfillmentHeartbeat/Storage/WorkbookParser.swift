@@ -2408,10 +2408,7 @@ enum WorkbookParser {
                 compressed: compressed,
                 strings: strings,
                 keep: { keep },
-                include: { data in
-                    if header.isEmpty || idxStore < 0 { return true }
-                    return SheetXML.columnLooksLikeStore(data, letter: SheetXML.colLetter(idxStore))
-                },
+                include: nil,
                 handle: handle
             )
         } else if let data {
@@ -2679,7 +2676,10 @@ enum WorkbookParser {
             } else if tvaWeight > 0 {
                 storePayload["target_vs_actual_pct"] = weightedTva / tvaWeight
             }
-            if sumDollars > 0 { storePayload["act_cost_dollar"] = sumDollars }
+            if sumDollars > 0 {
+                storePayload["act_cost_dollar"] = sumDollars
+                storePayload["act_cost_dollars"] = sumDollars
+            }
             if sumHours > 0 { storePayload["act_hrs"] = sumHours }
             if sumSch > 0 { storePayload["sch_hrs"] = sumSch }
             if sumEmp > 0 { storePayload["empower_hrs"] = sumEmp }
@@ -2828,6 +2828,9 @@ enum WorkbookParser {
             number *= 100
         }
         payload[mapped] = number
+        if mapped == "act_cost_dollar" {
+            payload["act_cost_dollars"] = number
+        }
     }
 
     private static func excelSerialDate(_ raw: String) -> String? {

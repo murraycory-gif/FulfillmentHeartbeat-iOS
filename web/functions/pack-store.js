@@ -275,7 +275,8 @@ async function listPackKeys(bucket, prefix) {
 
 // Every JSON object under the prefix has to match the pointer. One bad file
 // rejects the whole prefix so a later read cannot serve a sibling from it.
-async function prefixKeys(bucket, entry) {
+async function prefixKeys(bucket, entry, seenPointer) {
+  if (seenPointer != null && cache.pointer !== seenPointer) return null;
   if (cache.acceptedPrefix === entry.prefix && cache.acceptedKeys) return cache.acceptedKeys;
   const keys = await listPackKeys(bucket, entry.prefix);
   if (!keys) return null;
@@ -303,6 +304,7 @@ async function prefixKeys(bucket, entry) {
     if (fileStamp(read.json).cookedAt !== entry.cookedAt) return null;
   }
   if (!homeSeen) return null;
+  if (seenPointer != null && cache.pointer !== seenPointer) return null;
   cache.acceptedPrefix = entry.prefix;
   cache.acceptedKeys = new Set(keys);
   return cache.acceptedKeys;
@@ -364,6 +366,7 @@ export async function readPackObject(bucket, url) {
   if (!target || !target.rel || !bucket || typeof bucket.get !== "function") return null;
   const loaded = await loadPointer(bucket);
   if (loaded.absent) return { absent: true };
+  const seenPointer = cache.pointer;
   const { current, previous } = loaded;
   const candidates = [];
   if (current && cache.rejectedPrefix !== current.prefix) candidates.push(current);
@@ -380,7 +383,9 @@ export async function readPackObject(bucket, url) {
     }
   }
   for (const entry of list) {
-    const keys = await prefixKeys(bucket, entry);
+    const keys = await prefixKeys(bucket, entry, seenPointer);
+    if (cache.pointer !== seenPointer) return { missing: true };
+    if (target.pin.cookSha && !samePinnedPack(entry, target.pin)) return { missing: true };
     if (!keys) {
       if (cache.acceptedPrefix === entry.prefix) {
         cache.acceptedPrefix = "";
@@ -398,6 +403,8 @@ export async function readPackObject(bucket, url) {
       continue;
     }
     const object = await readGuardedObject(bucket, entry, target.rel);
+    if (cache.pointer !== seenPointer) return { missing: true };
+    if (target.pin.cookSha && !samePinnedPack(entry, target.pin)) return { missing: true };
     if (!object) {
       if (current && entry.prefix === current.prefix) cache.rejectedPrefix = current.prefix;
       cache.acceptedPrefix = "";
@@ -405,6 +412,8 @@ export async function readPackObject(bucket, url) {
       if (target.pin.cookSha) return { missing: true };
       continue;
     }
+    if (cache.pointer !== seenPointer) return { missing: true };
+    if (target.pin.cookSha && !samePinnedPack(entry, target.pin)) return { missing: true };
     cache.entry = entry;
     return object;
   }

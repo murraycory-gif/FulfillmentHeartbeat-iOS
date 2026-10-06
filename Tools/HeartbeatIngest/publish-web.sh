@@ -71,6 +71,21 @@ PACK_DIR="$DATA"
 CONFIG_DIR="${HOME}/.config/heartbeat"
 EMAIL_FILE="${HEARTBEAT_WEB_EMAIL_FILE:-$CONFIG_DIR/web-email}"
 PASS_FILE="${HEARTBEAT_WEB_PASSWORD_FILE:-$CONFIG_DIR/web-password}"
+EXTRACT=""
+LIVE_STAGE=""
+POINTER_PLAN=""
+cleanup_stages() {
+  if [[ -n "${EXTRACT}" ]]; then
+    rm -rf "$EXTRACT"
+  fi
+  if [[ -n "${LIVE_STAGE}" ]]; then
+    rm -rf "$LIVE_STAGE"
+  fi
+  if [[ -n "${POINTER_PLAN}" ]]; then
+    rm -f "$POINTER_PLAN"
+  fi
+}
+trap cleanup_stages EXIT
 
 if [[ -z "$UI_ONLY" ]]; then
   EXTRACT="$(mktemp -d)"
@@ -106,7 +121,7 @@ fi
 LIVE_CHECKED=0
 LIVE_STAGE="$(mktemp -d)"
 if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
-  python3 - "$DATA" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" "$LIVE_STAGE" << 'PY'
+  python3 - "$PACK_DIR" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" "$LIVE_STAGE" << 'PY'
 import http.cookiejar
 import json
 import shutil
@@ -156,52 +171,18 @@ live_file = stage / ".live-home.json"
 stage.mkdir(parents=True, exist_ok=True)
 live_file.write_text(json.dumps(live), encoding="utf-8")
 ranked = subprocess.run(
-    [sys.executable, identity_script, "newer", str(live_file), str(dest)],
+    [sys.executable, identity_script, "live", str(live_file), str(dest)],
     capture_output=True,
     text=True,
 )
 live_file.unlink(missing_ok=True)
 choice = (ranked.stdout or "").strip()
-if ranked.returncode != 0 or choice not in {"fetch", "keep"}:
-    print("live pack check refused: cookSha and cookedAt disagree", file=sys.stderr)
+if ranked.returncode != 0 or choice != "keep":
+    print("live pack check refused: local pack is older or the stamps disagree", file=sys.stderr)
     raise SystemExit(2)
-if choice == "keep":
-    print(f"local pack cookSha={live.get('cookSha')} cookedAt={live.get('cookedAt') or 'missing'} is current")
-    raise SystemExit(0)
-names = [path.relative_to(dest).as_posix() for path in dest.rglob("*") if path.is_file()]
-if "home.json" not in names:
-    names.insert(0, "home.json")
-# The download stays in this temp dir. It must not replace tracked web/public/data.
-staged = stage
-for name in names:
-    status, payload = call("/data/" + name)
-    if status != 200 or not payload:
-        shutil.rmtree(staged, ignore_errors=True)
-        print(f"live pack check failed: /data/{name} returned {status}", file=sys.stderr)
-        raise SystemExit(2)
-    target = staged / name
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(payload)
-checked = subprocess.run([sys.executable, identity_script, "check", str(staged)], capture_output=True, text=True)
-if checked.returncode != 0:
-    shutil.rmtree(staged, ignore_errors=True)
-    print("live pack check failed: downloaded files disagree", file=sys.stderr)
-    raise SystemExit(2)
-staged_home = json.loads((staged / "home.json").read_text(encoding="utf-8"))
-live_cooked = str(live.get("cookedAt") or "")
-staged_cooked = str(staged_home.get("cookedAt") or "")
-if staged_home.get("cookSha") != live.get("cookSha") or staged_cooked != live_cooked:
-    shutil.rmtree(staged, ignore_errors=True)
-    print("live pack check failed: downloaded stamp does not match", file=sys.stderr)
-    raise SystemExit(2)
-got = staged_cooked or str(staged_home.get("publishedAt") or "")
-print(f"fetched live pack publishedAt={got}")
+print(f"local pack cookSha={live.get('cookSha')} cookedAt={live.get('cookedAt') or 'missing'} is current")
 PY
   LIVE_CHECKED=1
-  if [[ -f "$LIVE_STAGE/home.json" && "$PACK_DIR" == "$DATA" ]]; then
-    PACK_DIR="$LIVE_STAGE"
-    echo "publish-web: live pack stays out of tracked web/public/data"
-  fi
 fi
 
 if [[ -n "$UI_ONLY" && "$LIVE_CHECKED" -ne 1 && "$USE_LOCAL" != "1" ]]; then
@@ -317,6 +298,9 @@ node "$WEB/scripts/print_pack_stamp.mjs" "$PACK_DIR"
 # A full deploy used to pages-deploy static JSON and leave current.json alone.
 # Once a pointer exists, data has to move through that pointer or the deploy stops.
 # UI-only does not upload. A missing pointer is not filled with the legacy pin.
+# A full deploy uploads the objects first and moves current.json only after
+# wrangler pages deploy exits 0. Data-only has no pages deploy, so it moves
+# the pointer as the publish.
 publish_pack_pointer() {
   python3 "$ROOT/web/scripts/pack_publish.py" "$PACK_DIR" "$WEB/check_pack.mjs"
 }
@@ -329,8 +313,11 @@ require_verified_pointer() {
     exit 1
   fi
 }
-if [[ -z "$UI_ONLY" ]]; then
+if [[ -n "$DATA_ONLY" ]]; then
   publish_pack_pointer
+elif [[ -z "$UI_ONLY" ]]; then
+  POINTER_PLAN="$(mktemp)"
+  python3 "$ROOT/web/scripts/pack_publish.py" --defer-pointer "$PACK_DIR" "$WEB/check_pack.mjs" "$POINTER_PLAN"
 fi
 
 if [[ -n "$DATA_ONLY" ]]; then
@@ -403,14 +390,16 @@ PY
   exit 0
 fi
 
-if [[ -z "$UI_ONLY" ]]; then
-  require_verified_pointer
-else
+if [[ -n "$UI_ONLY" ]]; then
   python3 "$ROOT/web/scripts/pack_publish.py" preflight "$PACK_DIR"
 fi
 npx wrangler pages deploy dist \
   --project-name "$PROJECT" \
   --branch main
+if [[ -n "$POINTER_PLAN" ]]; then
+  python3 "$ROOT/web/scripts/pack_publish.py" --commit-pointer "$POINTER_PLAN"
+  require_verified_pointer
+fi
 
 python3 - "$SITE_URL" << 'PY'
 import sys
