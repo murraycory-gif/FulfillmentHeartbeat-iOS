@@ -403,6 +403,15 @@ function hideResults() {
   if (scopeSearch) scopeSearch.setAttribute("aria-expanded", "false");
 }
 
+function paintPendingSearch() {
+  if (!scopeResults || !scopeSearch) return false;
+  if (!state.scopeQuery.trim() || state.home || state.homeError) return false;
+  scopeResults.hidden = false;
+  scopeSearch.setAttribute("aria-expanded", "true");
+  scopeResults.innerHTML = `<p class="scope-group">Loading…</p>`;
+  return true;
+}
+
 function paintResults() {
   if (!scopeResults || !scopeSearch) return;
   const query = state.scopeQuery.trim();
@@ -410,12 +419,7 @@ function paintResults() {
     hideResults();
     return;
   }
-  if (!state.home && !state.homeError) {
-    scopeResults.hidden = false;
-    scopeSearch.setAttribute("aria-expanded", "true");
-    scopeResults.innerHTML = `<p class="scope-group">Loading…</p>`;
-    return;
-  }
+  if (paintPendingSearch()) return;
   const groups = searchScope(roster(), state.filters, query);
   searchHits = groups.flatMap((group) => group.hits);
   if (!searchHits.length) {
@@ -1965,6 +1969,7 @@ async function renderMetric(page, token) {
 // Home chrome paints before section files. Shopper tape stays parked until a seat opens it.
 async function render() {
   const token = ++renderToken;
+  paintPendingSearch();
   const page = pageById(state.page);
   if (paintedPage !== page.id) {
     paintedPage = page.id;
@@ -2325,6 +2330,7 @@ clearFilters.addEventListener("click", () => {
 scopeSearch.addEventListener("input", () => {
   state.scopeQuery = scopeSearch.value;
   state.browseOpen = false;
+  paintPendingSearch();
   paintResults();
   paintBrowse();
 });

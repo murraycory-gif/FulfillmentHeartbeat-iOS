@@ -648,21 +648,27 @@ async function assertSearchWaits(client, port) {
       if (ready) break;
       await sleep(50);
     }
-    await evaluate(
-      client,
-      `(() => {
-        const input = document.querySelector("#scope-search");
-        input.focus();
-        input.value = "688";
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      })()`,
-    );
-    await sleep(250);
-    const text = await evaluate(
-      client,
-      `document.querySelector("#scope-results") ? document.querySelector("#scope-results").innerText : ""`,
-    );
-    const shown = String(text);
+    const typedAt = Date.now();
+    let text = "";
+    while (Date.now() - typedAt < 8000) {
+      text = await evaluate(
+        client,
+        `(() => {
+          const input = document.querySelector("#scope-search");
+          const node = document.querySelector("#scope-results");
+          if (!input || !node) return "";
+          const shown = (node.textContent || "").replace(/\\s+/g, " ").trim();
+          if (shown) return shown;
+          const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+          proto.set.call(input, "688");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          return (node.textContent || "").replace(/\\s+/g, " ").trim();
+        })()`,
+      );
+      if (String(text || "").trim()) break;
+      await sleep(40);
+    }
+    const shown = String(text || "");
     if (!shown.toLowerCase().includes("loading")) throw new Error(`search while loading said ${JSON.stringify(text)}`);
     if (shown.toLowerCase().includes("no matches")) throw new Error("search said No matches before home loaded");
   } finally {
