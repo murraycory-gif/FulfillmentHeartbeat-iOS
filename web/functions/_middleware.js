@@ -483,7 +483,8 @@ async function routeRequest(context, jar = []) {
     return redirect(request, "/login", clearedCookies(), 303);
   }
 
-  let session = readyDb ? await readLiveSession(readyDb, request, now, env) : null;
+  const waitUntil = context && typeof context.waitUntil === "function" ? context.waitUntil.bind(context) : null;
+  let session = readyDb ? await readLiveSession(readyDb, request, now, env, true, waitUntil) : null;
   if (session && session.rotate) {
     jar.push(sessionCookie(session.account ? ACCOUNT_COOKIE : SHARED_COOKIE, session.rotate));
   }

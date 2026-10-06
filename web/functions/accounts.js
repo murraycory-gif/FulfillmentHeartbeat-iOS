@@ -13,6 +13,7 @@ export const IDLE_TTL = 12 * 60 * 60;
 export const ABSOLUTE_TTL = 7 * 24 * 60 * 60;
 export const BACKOFF_CAP = 15 * 60;
 export const IP_WINDOW = 60 * 60;
+export const SEEN_INTERVAL = 5 * 60;
 export const SCHEMA_VERSION = 2;
 export const ACCOUNT_COOKIE = "hb_session";
 export const SHARED_COOKIE = "hb_shared";
@@ -509,6 +510,12 @@ export async function createAccountSession(db, userId, now) {
   return token;
 }
 
+function scheduleSeen(waitUntil, db, table, id, seen, now) {
+  if (typeof waitUntil !== "function" || !id) return;
+  if (now - Number(seen || 0) < SEEN_INTERVAL) return;
+  waitUntil(db.prepare(`UPDATE ${table} SET last_seen_at = ? WHERE id = ?`).bind(now, id).run());
+}
+
 function sessionFresh(row, now, legacy) {
   if (!row || row.revoked_at) return false;
   if (Number(row.expires_at) < now) return false;
@@ -529,15 +536,15 @@ async function sessionIdForCookie(token, env) {
   return legacyRawId(token, env);
 }
 
-export async function readLiveSession(db, request, now, env, rotate = true) {
+export async function readLiveSession(db, request, now, env, rotate = true, waitUntil = null) {
   const account = readCookie(request, ACCOUNT_COOKIE);
   const shared = readCookie(request, SHARED_COOKIE);
   if (account) {
-    const session = await readAccountSession(db, request, now, env, rotate);
+    const session = await readAccountSession(db, request, now, env, rotate, waitUntil);
     if (session || accountCookie(account) || authCutover(env)) return session;
-    return readSharedSession(db, request, now, env, rotate);
+    return readSharedSession(db, request, now, env, rotate, waitUntil);
   }
-  if (shared && !authCutover(env)) return readSharedSession(db, request, now, env, rotate);
+  if (shared && !authCutover(env)) return readSharedSession(db, request, now, env, rotate, waitUntil);
   return null;
 }
 
@@ -551,7 +558,7 @@ export async function revokePresentedSessions(db, request, now, env) {
   if (legacy) await revokeSharedSession(db, legacy, now);
 }
 
-export async function readAccountSession(db, request, now, env, rotate = true) {
+export async function readAccountSession(db, request, now, env, rotate = true, waitUntil = null) {
   const token = readCookie(request, ACCOUNT_COOKIE);
   const legacy = !accountCookie(token);
   const id = await sessionIdForCookie(token, env);
@@ -577,6 +584,7 @@ export async function readAccountSession(db, request, now, env, rotate = true) {
       rotate: fresh,
     };
   }
+  scheduleSeen(waitUntil, db, "sessions", row.session_id, row.last_seen_at, now);
   return { user: row.email, role: row.role, exp: Number(row.expires_at), sessionId: row.session_id, account: true };
 }
 
@@ -630,7 +638,7 @@ async function passForMark(env, mark) {
   return "";
 }
 
-export async function readSharedSession(db, request, now, env, rotate = true) {
+export async function readSharedSession(db, request, now, env, rotate = true, waitUntil = null) {
   const token = readCookie(request, SHARED_COOKIE);
   const legacyToken = readCookie(request, ACCOUNT_COOKIE);
   let id = accountCookie(token) ? await sha256Hex(token) : "";
@@ -659,6 +667,7 @@ export async function readSharedSession(db, request, now, env, rotate = true) {
       rotate: fresh,
     };
   }
+  scheduleSeen(waitUntil, db, "shared_sessions", row.id, row.last_seen_at, now);
   return { user: row.subject, role: "viewer", exp: Number(row.expires_at), sessionId: row.id, account: false, shared: true };
 }
 

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   IDLE_TTL,
   IP_WINDOW,
+  SEEN_INTERVAL,
   SCHEMA_VERSION as AUTH_SCHEMA_VERSION,
   backoffSeconds,
   hashPassword,
@@ -2452,7 +2453,7 @@ function accountEnv(db, extra = {}) {
 
 let accountRequestIp = 1;
 
-async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null, fetchSite = "same-origin" } = {}) {
+async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null, fetchSite = "same-origin", waitUntil = null } = {}) {
   const requestHeaders = { ...headers };
   if (!headers["cf-connecting-ip"] && !headers["x-forwarded-for"]) {
     accountRequestIp += 1;
@@ -2470,6 +2471,7 @@ async function accountRequest(db, path, { method = "GET", body = "", cookie = ""
       body: body || undefined,
     }),
     env: env || accountEnv(db),
+    waitUntil,
     next: async () => new Response("page", { status: 200 }),
   });
 }
@@ -3579,6 +3581,45 @@ assert.equal(legacyRotatedLogin.status, 303);
 const legacyRotatedHashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(legacyRotated[1])));
 const legacyRotatedHash = [...legacyRotatedHashBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotatedHash).revoked_at == null, false);
+
+const seenDb = openAuth();
+await ensureSchema(seenDb.db);
+const seenHash = await hashPassword("long-enough-1");
+const seenNow = 1_800_100_000;
+seenDb.raw
+  .prepare(
+    "INSERT INTO users (id, email, password_hash, password_salt, password_algo, password_iterations, role, status, created_at) VALUES ('seen', 'seen@example.com', ?, ?, 'PBKDF2-SHA256', 100000, 'viewer', 'active', ?)",
+  )
+  .run(seenHash.hash, seenHash.salt, seenNow - 60);
+setAuthClock(() => seenNow);
+const seenLogin = await accountRequest(seenDb.db, "/login", {
+  method: "POST",
+  body: "email=seen@example.com&password=long-enough-1",
+});
+assert.equal(seenLogin.status, 303);
+const seenCookie = cookieHeader(seenLogin);
+const seenRow = seenDb.raw.prepare("SELECT id, last_seen_at FROM sessions WHERE user_id = 'seen' AND revoked_at IS NULL").get();
+assert.equal(seenRow.last_seen_at, seenNow);
+seenDb.raw.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(seenNow - SEEN_INTERVAL - 1, seenRow.id);
+const seenJobs = [];
+const seenTouch = await accountRequest(seenDb.db, "/session", {
+  cookie: seenCookie,
+  waitUntil: (job) => seenJobs.push(job),
+});
+assert.equal(seenTouch.status, 200);
+assert.equal(seenJobs.length, 1);
+await seenJobs[0];
+assert.equal(seenDb.raw.prepare("SELECT last_seen_at FROM sessions WHERE id = ?").get(seenRow.id).last_seen_at, seenNow);
+setAuthClock(() => seenNow + 60);
+const seenQuietJobs = [];
+const seenQuiet = await accountRequest(seenDb.db, "/session", {
+  cookie: seenCookie,
+  waitUntil: (job) => seenQuietJobs.push(job),
+});
+assert.equal(seenQuiet.status, 200);
+assert.equal(seenQuietJobs.length, 0);
+assert.equal(seenDb.raw.prepare("SELECT last_seen_at FROM sessions WHERE id = ?").get(seenRow.id).last_seen_at, seenNow);
+setAuthClock(null);
 
 const { runFakeCountLab } = await import("./test_fake_counts.mjs");
 await runFakeCountLab(join(root, "public"));
