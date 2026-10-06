@@ -1070,7 +1070,19 @@ assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
 assert.match(wrangler, /pages_build_output_dir = "dist"/);
 assert.match(wrangler, /binding = "HB_AUTH"/);
 assert.match(wrangler, /database_name = "fulfillment-heartbeat-auth"/);
-assert.match(wrangler, /646c017a-802f-4395-b635-d4b5bd66c1cb/);
+assert.match(wrangler, /database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
+assert.match(wrangler, /preview_database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
+assert.match(wrangler, /database_name = "hb-auth-preview"/);
+assert.equal(wrangler.includes('preview_database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"'), false);
+const wranglerEnvs = new Set([...wrangler.matchAll(/\[\[env\.([^.]+)\./g)].map((match) => match[1]));
+assert.deepEqual([...wranglerEnvs].sort(), ["preview", "production"]);
+for (const name of wranglerEnvs) {
+  const block = wrangler.slice(wrangler.indexOf(`[[env.${name}.r2_buckets]]`));
+  assert.match(block, /binding = "HEARTBEAT_PACKS"/);
+  assert.match(block, /bucket_name = "heartbeat-packs"/);
+}
+assert.match(wrangler, /\[\[env\.preview\.d1_databases\]\][\s\S]*database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"/);
+assert.match(wrangler, /\[\[env\.production\.d1_databases\]\][\s\S]*database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"/);
 assert.equal(wrangler.includes("heartbeat-web.pages.dev"), false);
 const built = spawnSync(process.execPath, ["scripts/stage_pages.mjs"], { cwd: root });
 assert.equal(built.status, 0, built.stderr.toString());

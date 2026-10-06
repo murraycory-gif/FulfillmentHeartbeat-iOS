@@ -6,14 +6,36 @@ compatibility_date = "2026-09-28"
 pages_build_output_dir = "dist"
 
 # Existing bucket. The function reads it. The site never publishes a bucket URL.
+# Env blocks do not inherit this binding. Each env repeats it below.
 [[r2_buckets]]
 binding = "HEARTBEAT_PACKS"
 bucket_name = "heartbeat-packs"
 
 # Account store. Created in this account as fulfillment-heartbeat-auth.
 # Pages deploy reads this binding. Local `pages dev` uses its own sqlite copy.
+# preview_database_id is hb-auth-preview, not the production auth database.
 [[d1_databases]]
 binding = "HB_AUTH"
 database_name = "fulfillment-heartbeat-auth"
 database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"
-preview_database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"
+preview_database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"
+
+# Preview Pages deploys. Bindings are not inherited from the top level.
+[[env.preview.r2_buckets]]
+binding = "HEARTBEAT_PACKS"
+bucket_name = "heartbeat-packs"
+
+[[env.preview.d1_databases]]
+binding = "HB_AUTH"
+database_name = "hb-auth-preview"
+database_id = "291dfe6d-fcc1-4b15-90c7-768db26d1f8e"
+
+# Production Pages deploys. Same pack bucket, production auth database.
+[[env.production.r2_buckets]]
+binding = "HEARTBEAT_PACKS"
+bucket_name = "heartbeat-packs"
+
+[[env.production.d1_databases]]
+binding = "HB_AUTH"
+database_name = "fulfillment-heartbeat-auth"
+database_id = "646c017a-802f-4395-b635-d4b5bd66c1cb"
