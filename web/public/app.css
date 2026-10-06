@@ -59,8 +59,7 @@ button, select {
 }
 
 .sticky-top {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 5;
   background: var(--canvas);
 }
@@ -667,8 +666,6 @@ th {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  position: sticky;
-  top: 0;
   background: var(--table);
 }
 
