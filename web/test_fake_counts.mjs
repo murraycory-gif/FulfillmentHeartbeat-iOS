@@ -1,12 +1,55 @@
-// Architecture's fake-count lab. Every home.json count is rewritten to
-// 900000000 + the original. The pages must keep painting section-row counts.
+// Architecture's fake-count lab. Every digit in a home.json text field is
+// rewritten, and each hit is tagged. A count tag on screen fails the run
+// unless it is the Sales Orders or Items tile labeled workbook total.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, normalize } from "node:path";
 
-const POISON = 900_000_000;
+const DIGITS = "5678901234";
+const LABEL_KEYS = new Set([
+  "section",
+  "region",
+  "title",
+  "label",
+  "labels",
+  "division",
+  "health",
+  "name",
+  "store",
+  "om",
+  "district",
+  "headlineLabel",
+  "id",
+  "kind",
+  "grain",
+  "page",
+  "role",
+  "email",
+  "cookSha",
+  "schemaVersion",
+  "publishedAt",
+  "asOf",
+  "updatedAt",
+  "generatedAt",
+  "week",
+]);
+const NUMBER_KEYS = new Set([
+  "headline",
+  "watchCount",
+  "riskCount",
+  "healthyCount",
+  "atGoalCount",
+  "betweenCount",
+  "count",
+  "storeCount",
+  "shoppers",
+  "healthy",
+  "watch",
+  "risk",
+  "stores",
+]);
 const PAGES = [
   "dashboard",
   "sales",
@@ -23,71 +66,111 @@ const PAGES = [
   "pph",
   "labor",
 ];
-const COUNT_KEYS = new Set(["count", "storeCount", "shoppers", "healthy", "watch", "risk", "stores"]);
+function mapDigits(text) {
+  return String(text).replace(/\d/g, (digit) => DIGITS[digit]);
+}
 
-function remember(fakes, number) {
-  const value = POISON + Math.round(Math.abs(Number(number)));
-  fakes.add(String(value));
-  fakes.add(value.toLocaleString("en-US"));
-  return value;
+function classify(source, index, raw) {
+  const before = source.slice(Math.max(0, index - 24), index);
+  const after = source.slice(index + raw.length, index + raw.length + 24);
+  const window = source.slice(Math.max(0, index - 24), index + raw.length + 24);
+  if (/\d{4}-\d{2}-\d{2}/.test(window) || /T\d{2}:\d{2}/.test(window) || /\d[/-]$/.test(before) || /^[/-]\d/.test(after)) {
+    return "date";
+  }
+  if (raw.includes("$") || /\$\s*$/.test(before)) return "money";
+  if (raw.includes("%") || after.startsWith("%")) return "percent";
+  if (raw.includes(".")) return "decimal";
+  return "count";
+}
+
+function tagNumber(key, value, section) {
+  if (key !== "headline") return "count";
+  if (section === "picker_scorecard") return "count";
+  if (section === "sales" || section === "lost_revenue") return "money";
+  if (section === "five_star" || section === "dynacap" || section === "pph") return "decimal";
+  if (Number.isInteger(value)) return "count";
+  return "percent";
+}
+
+function bareDigits(token) {
+  return String(token).replace(/[^\d]/g, "");
+}
+
+function remember(book, literal, tag, allowWorkbook) {
+  const bare = bareDigits(literal);
+  book.tags.push({ literal, bare, tag });
+  if (tag !== "count" || !bare) return literal;
+  book.countBares.add(bare);
+  book.countBares.add(Number(bare).toLocaleString("en-US").replace(/,/g, ""));
+  if (allowWorkbook) book.allowBares.add(bare);
+  return literal;
+}
+
+function prefixCount(raw) {
+  const lead = (/^(\$?-?)/.exec(raw) || ["", ""])[1];
+  return `${lead}900${raw.slice(lead.length)}`;
+}
+
+function rewriteString(text, book, allowWorkbook) {
+  return String(text).replace(/\$?-?\d[\d,]*(?:\.\d+)?%?/g, (raw, index) => {
+    const tag = classify(text, index, raw);
+    const mapped = mapDigits(raw);
+    const fake = tag === "count" ? prefixCount(mapped) : mapped;
+    return remember(book, fake, tag, allowWorkbook && tag === "count");
+  });
+}
+
+function rewriteNumber(value, tag, book) {
+  const negative = Number(value) < 0;
+  const mapped = mapDigits(String(Math.abs(Number(value))));
+  const fake = `${negative ? "-" : ""}${tag === "count" ? "900" : ""}${mapped}`;
+  remember(book, fake, tag, false);
+  const numeric = Number(fake);
+  return Number.isFinite(numeric) ? numeric : value;
 }
 
 export function poisonHome(home) {
   const copy = structuredClone(home);
-  const fakes = new Set();
+  const book = { tags: [], countBares: new Set(), allowBares: new Set(), orders: "", items: "" };
+  const sales = copy.companyTiles && copy.companyTiles.sales;
+  if (sales && Array.isArray(sales.labels) && Array.isArray(sales.values)) {
+    const orders = sales.labels.indexOf("Orders");
+    const items = sales.labels.indexOf("Items");
+    if (orders >= 0) {
+      sales.values[orders] = rewriteString(sales.values[orders], book, true);
+      book.orders = sales.values[orders];
+    }
+    if (items >= 0) {
+      sales.values[items] = rewriteString(sales.values[items], book, true);
+      book.items = sales.values[items];
+    }
+  }
   const walk = (node) => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) {
       node.forEach(walk);
       return;
     }
+    const section = typeof node.section === "string" ? node.section : "";
+    const tiled = Array.isArray(node.labels) && Array.isArray(node.values);
+    if (tiled) {
+      node.labels.forEach((label, index) => {
+        if (node === sales && (label === "Orders" || label === "Items")) return;
+        if (typeof node.values[index] === "string") {
+          node.values[index] = rewriteString(node.values[index], book, false);
+        }
+      });
+    }
     for (const [key, value] of Object.entries(node)) {
-      if (typeof value === "number" && Number.isFinite(value) && COUNT_KEYS.has(key)) {
-        node[key] = remember(fakes, value);
-      } else if (key === "value" && typeof value === "string" && /^\d[\d,]* shoppers$/.test(value.trim())) {
-        node[key] = `${remember(fakes, Number(value.replace(/[^\d]/g, ""))).toLocaleString("en-US")} shoppers`;
-      } else if (value && typeof value === "object") {
-        walk(value);
-      }
+      if (LABEL_KEYS.has(key) || (tiled && key === "values")) continue;
+      if (typeof value === "string") node[key] = rewriteString(value, book, false);
+      else if (typeof value === "number" && Number.isFinite(value) && NUMBER_KEYS.has(key)) {
+        node[key] = rewriteNumber(value, tagNumber(key, value, section), book);
+      } else if (value && typeof value === "object") walk(value);
     }
   };
   walk(copy);
-  for (const summary of copy.summaries || []) {
-    if (summary.section !== "picker_scorecard") continue;
-    if (typeof summary.headline === "number") summary.headline = remember(fakes, summary.headline);
-    if (typeof summary.secondary === "string") {
-      summary.secondary = summary.secondary.replace(/\d[\d,]*/g, (token) =>
-        remember(fakes, Number(token.replace(/,/g, ""))).toLocaleString("en-US"),
-      );
-    }
-  }
-  for (const tile of Object.values(copy.companyTiles || {})) {
-    const labels = tile.labels || [];
-    const values = tile.values || [];
-    labels.forEach((label, index) => {
-      if (label === "Orders" || label === "Items") return;
-      const raw = String(values[index] ?? "").trim();
-      if (!/^[\d,]+$/.test(raw)) return;
-      values[index] = remember(fakes, Number(raw.replace(/,/g, ""))).toLocaleString("en-US");
-    });
-  }
-  return { home: copy, fakes };
-}
-
-function fakeHits(text, fakes) {
-  const hits = [];
-  const seen = new Set();
-  const re = /\d[\d,]*/g;
-  let match;
-  while ((match = re.exec(text))) {
-    const token = match[0];
-    const bare = token.replace(/,/g, "");
-    if ((fakes.has(token) || fakes.has(bare)) && !seen.has(bare)) {
-      seen.add(bare);
-      hits.push(token);
-    }
-  }
-  return hits;
+  return { home: copy, book };
 }
 
 function hasNumber(text, number) {
@@ -291,21 +374,91 @@ async function clearScope(client) {
   await settle(client);
 }
 
-function assertClean(text, fakes, where) {
-  const hits = fakeHits(text, fakes);
-  if (hits.length) {
-    throw new Error(`${where} rendered fake count ${hits.slice(0, 6).join(", ")}`);
+function assertClean(text, book, where) {
+  const hits = [];
+  const re = /\d[\d,]*/g;
+  let match;
+  while ((match = re.exec(text))) {
+    const token = match[0];
+    const bare = token.replace(/,/g, "");
+    if (!book.countBares.has(bare)) continue;
+    const after = text[match.index + token.length] || "";
+    const before = text[match.index - 1] || "";
+    if (after === "." || after === "%" || before === "$" || before === ".") continue;
+    if (book.allowBares.has(bare)) {
+      const around = text.slice(Math.max(0, match.index - 90), match.index + token.length + 40).toLowerCase();
+      if (around.includes("workbook total")) continue;
+    }
+    hits.push(token);
   }
+  if (hits.length) throw new Error(`${where} rendered fake count ${hits.slice(0, 6).join(", ")}`);
+}
+
+async function regionPickerChips(client) {
+  return evaluate(
+    client,
+    `(() => [...document.querySelectorAll(".region-cards article")].map((card) => {
+      const name = card.querySelector("h2") ? card.querySelector("h2").textContent.trim() : "";
+      const chip = [...card.querySelectorAll(".chip")].find((node) => {
+        const span = node.querySelector("span");
+        return span && span.textContent.trim() === "Picker";
+      });
+      const strong = chip && chip.querySelector("strong");
+      return { name, value: strong ? strong.textContent.trim() : "" };
+    }))()`,
+  );
+}
+
+function expectChips(chips, expected, where) {
+  const got = Object.fromEntries((chips || []).map((chip) => [chip.name, chip.value]));
+  for (const [name, value] of Object.entries(expected)) {
+    if (got[name] !== value) throw new Error(`${where} ${name} picker chip ${got[name] || "missing"}, expected ${value}`);
+  }
+}
+
+async function searchStore(client, query) {
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector("#scope-search");
+      const proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+      proto.set.call(input, ${JSON.stringify(query)});
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`,
+  );
+  await sleep(250);
+  const clicked = await evaluate(
+    client,
+    `(() => {
+      const rows = [...document.querySelectorAll("#scope-results [data-hit]")];
+      const hit = rows.find((row) => row.textContent.trim().startsWith("0688"));
+      if (!hit) return rows.map((row) => row.textContent.trim()).slice(0, 8).join(" | ") || "no hits";
+      hit.click();
+      return "ok";
+    })()`,
+  );
+  if (clicked !== "ok") throw new Error(`store search missed 0688: ${clicked}`);
+  await settle(client);
+  const chips = await evaluate(
+    client,
+    `[...document.querySelectorAll("#scope-chips .scope-chip")].map((node) => node.textContent.trim()).join(" > ")`,
+  );
+  if (!String(chips).includes("0688")) throw new Error(`store scope is not 0688: ${chips}`);
 }
 
 export async function runFakeCountLab(publicDir) {
   const original = JSON.parse(readFileSync(join(publicDir, "data/home.json"), "utf8"));
-  const { home, fakes } = poisonHome(original);
+  const { home, book } = poisonHome(original);
   const laborEast = home.regionLines.find((line) => line.section === "labor" && line.region === "East");
   if (!laborEast || laborEast.count === 609) throw new Error("labor east count was not poisoned");
-  const orders = home.companyTiles.sales.values[home.companyTiles.sales.labels.indexOf("Orders")];
-  if (orders !== "905,034") throw new Error("sales orders workbook total was poisoned");
-  if (fakes.size < 20) throw new Error("fake-count set is too small");
+  const pickerEast = home.regionTables.find((row) => row.section === "picker_scorecard" && row.region === "East");
+  if (!pickerEast || pickerEast.headline === "9,352") throw new Error("picker east headline was not poisoned");
+  if (!book.orders || book.orders === "905,034") throw new Error("sales orders were not poisoned");
+  if (!book.items || book.items === "19,262,365") throw new Error("sales items were not poisoned");
+  if (book.countBares.size < 20) throw new Error("fake-count set is too small");
+  for (const bare of ["9368", "5476", "8125", "6869", "29838", "2167", "2151", "1613", "610", "392", "599", "548"]) {
+    if (book.countBares.has(bare)) throw new Error(`fake count collided with row count ${bare}`);
+  }
 
   const chromeBin = "/usr/bin/google-chrome";
   const server = await startServer(publicDir, home);
@@ -365,39 +518,71 @@ export async function runFakeCountLab(publicDir) {
       });
       await settle(client, 90000);
       const dashboard = await visibleText(client);
-      for (const marker of ["2,167", "2,151", "397", "600", "29,838", "workbook total", "905,034", "19,262,365"]) {
-        if (!dashboard.toLowerCase().includes(marker.toLowerCase())) {
+      for (const marker of ["2,167", "2,151", "397", "600", "29,838", "workbook total", book.orders, book.items]) {
+        if (!dashboard.toLowerCase().includes(String(marker).toLowerCase())) {
           throw new Error(`${width}px dashboard missing ${marker}`);
         }
       }
-      assertClean(dashboard, fakes, `${width}px dashboard`);
+      expectChips(
+        await regionPickerChips(client),
+        { East: "9,368", South: "5,476", California: "8,125", West: "6,869" },
+        `${width}px company`,
+      );
+      assertClean(dashboard, book, `${width}px dashboard`);
+      if (width === 1280) {
+        await pickBrowse(client, "South");
+        await showPage(client, "dashboard");
+        expectChips(await regionPickerChips(client), { South: "5,476" }, `${width}px South`);
+        assertClean(await visibleText(client), book, `${width}px South dashboard`);
+        await pickBrowse(client, "Southern");
+        await showPage(client, "dashboard");
+        expectChips(await regionPickerChips(client), { South: "1,613" }, `${width}px Southern`);
+        assertClean(await visibleText(client), book, `${width}px Southern dashboard`);
+        await clearScope(client);
+      }
       const scopes = [
         async () => {},
         async () => pickBrowse(client, "East"),
         async () => pickBrowse(client, ""),
         async () => pickBrowse(client, ""),
-        async () => pickBrowse(client, ""),
+        async () => searchStore(client, "0688"),
       ];
       const scopeNames = ["company", "region", "division", "district", "store"];
       for (let index = 0; index < scopes.length; index += 1) {
-        if (index === 0) await clearScope(client);
+        if (index === 0 || index === 4) await clearScope(client);
         await scopes[index]();
         for (const id of PAGES) {
           await showPage(client, id);
           const text = await visibleText(client);
           const where = `${width}px ${scopeNames[index]} ${id}`;
-          assertClean(text, fakes, where);
+          assertClean(text, book, where);
           if (index === 0 && id === "labor") {
             for (const count of [610, 392, 599, 548]) {
               if (!hasNumber(text, count)) throw new Error(`${where} missing row count ${count}`);
             }
+            if (!text.includes("2 stores with no division (1708, 3197)")) {
+              throw new Error(`${where} missing the no-division note`);
+            }
+            if (!text.includes("4 stores with source issues not scored")) {
+              throw new Error(`${where} missing the source-issue note`);
+            }
+          }
+          if (index === 0 && id === "dynacap") {
+            if (!hasNumber(text, 67.8) && !text.includes("67.8")) throw new Error(`${where} missing row mean 67.8`);
+            if (!text.includes("75 stores have capacity but no Pcs/Hr")) {
+              throw new Error(`${where} missing the capacity note`);
+            }
           }
           if (index === 1 && id === "picker_scorecard") {
             if (!hasNumber(text, 9368)) throw new Error(`${where} missing 9,368 shoppers`);
+            if (!text.includes("612") || !text.includes("401")) throw new Error(`${where} missing watch or healthy`);
             if (hasNumber(text, 9391) || hasNumber(text, 9352)) {
               throw new Error(`${where} still shows a pack or row-length shopper count`);
             }
             if (text.includes("cooked shoppers")) throw new Error(`${where} still says cooked shoppers`);
+            if (!text.toLowerCase().includes("watch") || !text.toLowerCase().includes("at risk")) {
+              throw new Error(`${where} hid the filtered tiles or badge`);
+            }
           }
           if (index === 0 && id === "sales" && !text.toLowerCase().includes("orders workbook total")) {
             throw new Error(`${where} missing workbook total label`);

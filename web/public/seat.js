@@ -9,7 +9,37 @@
 // District, OM, and Store rebuild from fact rows in scope. They never keep
 // the company number. A missing rate stays blank.
 
+import { formatHeadline, pct } from "./clock.js";
 import { canonicalDivision, filtersActive, includesScope, matchesDivision, regionForDivision, regionLineInScope } from "./filters.js";
+
+// Averages and shares of the rows on screen. Dynacap, PPH, and 5 Star use
+// the company-figure precision. Percent metrics use two decimals.
+const ROW_RATE_SECTIONS = new Set([
+  "missing_items",
+  "five_star",
+  "pre_sub_oos",
+  "pick_path",
+  "prep_not_ready",
+  "dynacap",
+  "schedule_quality",
+  "pph",
+]);
+
+export function shownRate(section, value) {
+  if (value == null || value === "" || !Number.isFinite(Number(value))) return "—";
+  if (
+    section === "five_star" ||
+    section === "pph" ||
+    section === "dynacap" ||
+    section === "picker_scorecard" ||
+    section === "sales" ||
+    section === "lost_revenue" ||
+    section === "labor"
+  ) {
+    return formatHeadline(section, value);
+  }
+  return pct(value);
+}
 
 export function formatCompanyAiv(value) {
   const number = Number(value);
@@ -397,9 +427,11 @@ export function summarizeSeat(section, rows) {
       const values = scored.map((row) => field(row, ["dynacap_rate", "pieces_per_hour"]));
       const atGoal = values.filter((value) => value >= 65).length;
       const atRisk = values.filter((value) => value < 60).length;
+      const capacityOnly = capacity.filter((row) => field(row, ["dynacap_rate", "pieces_per_hour"]) == null);
+      const gap = capacityOnly.length ? ` · ${capacityOnly.length} stores have capacity but no Pcs/Hr` : "";
       return {
         headline: average(values),
-        secondary: `${atGoal} of ${scored.length} at 65 · ${atRisk} below 60`,
+        secondary: `${atGoal} of ${scored.length} at 65 · ${atRisk} below 60${gap}`,
         health: band(average(values), 65, 60),
         storeCount: scored.length,
       };
@@ -463,10 +495,11 @@ export function summarizeSeat(section, rows) {
     case "picker_scorecard": {
       if (!latest.length) return empty("No shopper rows in this filter");
       const bands = pickerShopperBands(latest);
+      const health = bands.risk ? "risk" : bands.watch ? "watch" : bands.healthy ? "good" : "none";
       return {
         headline: bands.shoppers,
-        secondary: `${bands.risk} opportunity · ${bands.healthy} doing well`,
-        health: "none",
+        secondary: `${bands.risk} opportunity · ${bands.watch} watch · ${bands.healthy} doing well`,
+        health,
         storeCount: bands.shoppers,
         healthyCount: bands.healthy,
         watchCount: bands.watch,
@@ -578,6 +611,24 @@ function chromeGrainValue(lines, section, region, division) {
   return child.value;
 }
 
+function grainMetric(section, bucket, lines, region, division) {
+  const count = section === "picker_scorecard" ? distinctShopperCount(bucket) : bucket.length;
+  if (section === "picker_scorecard") {
+    return { value: `${countText(count)} shoppers`, count, workbook: false };
+  }
+  if (section === "sales") {
+    return { value: chromeGrainValue(lines, section, region, division), count, workbook: true };
+  }
+  if (section === "labor" && !division) {
+    return { value: chromeGrainValue(lines, section, region, ""), count, workbook: false };
+  }
+  if (ROW_RATE_SECTIONS.has(section) || (section === "labor" && division)) {
+    const built = summarizeSeat(section, bucket);
+    return { value: shownRate(section, built.headline), count, workbook: false };
+  }
+  return { value: chromeGrainValue(lines, section, region, division), count, workbook: false };
+}
+
 function orderedDivisionKeys(lines, section, region, divisionMap) {
   const line = (lines || []).find((item) => item && item.section === section && regionLabel(item.region) === region);
   const names = [];
@@ -622,23 +673,25 @@ export function sectionRowGrain(section, rows, filters, roster, lines) {
       const bucket = divisions.get(division) || [];
       if (!bucket.length) continue;
       regionRows.push(...bucket);
-      const count = section === "picker_scorecard" ? distinctShopperCount(bucket) : bucket.length;
+      const counted = grainMetric(section, bucket, lines, region, division);
       children.push({
         grain: "division",
         label: division,
-        value: section === "picker_scorecard" ? `${count} shoppers` : chromeGrainValue(lines, section, region, division),
-        count,
+        value: counted.value,
+        count: counted.count,
+        workbook: counted.workbook,
         region,
       });
     }
     if (!children.length) continue;
     if (!filters.division) {
-      const count = section === "picker_scorecard" ? distinctShopperCount(regionRows) : regionRows.length;
+      const counted = grainMetric(section, regionRows, lines, region, "");
       out.push({
         grain: "region",
         label: region,
-        value: section === "picker_scorecard" ? `${count} shoppers` : chromeGrainValue(lines, section, region, ""),
-        count,
+        value: counted.value,
+        count: counted.count,
+        workbook: counted.workbook,
       });
     }
     out.push(...children);
@@ -662,20 +715,47 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     return lostScopeSeat(scoped);
   }
   const built = summarizeSeat(section, scoped);
+  // A rate that is an average of these rows is that average. The pack line
+  // stays only when this scope has no rows yet.
+  if (ROW_RATE_SECTIONS.has(section) && scoped.length && built.headline != null) {
+    return {
+      fixedCompany: false,
+      headline: built.headline,
+      headlineText: shownRate(section, built.headline),
+      secondary: built.secondary,
+      health: built.health,
+      storeCount: built.storeCount,
+      workbook: false,
+    };
+  }
   // Picker chrome value and count are cooked shopper totals. The card uses
   // distinct shopperId from these rows instead.
   const chrome = section === "picker_scorecard" ? null : chromeSeat(lines, section, filters);
   if (chrome) {
     // regionLines labor is the unweighted average of store Target vs Actual
-    // (East -8.59%). The dashboard region card reads regionTables, the cooked
-    // labor callout (East -3.97%). Extreme stores pull the unweighted average
-    // away from that callout, so the labor page uses the callout at region
-    // scope and both surfaces show one number. A division seat stays on
-    // regionLines because the callout has no division headline.
+    // (East -8.59%). The region callout is the weighted workbook figure
+    // (East -3.97%). It cannot be rebuilt from the rows, so the region seat
+    // keeps the callout and the page labels it workbook. A division seat is
+    // the average of that division's rows.
     let headlineText = chrome.value;
+    let workbook = section === "sales";
     if (section === "labor" && chrome.grain === "region") {
       const callout = laborRegionHeadline(tables, chrome.label);
-      if (callout) headlineText = callout;
+      if (callout) {
+        headlineText = callout;
+        workbook = true;
+      }
+    }
+    if (section === "labor" && chrome.grain === "division" && scoped.length && built.headline != null) {
+      return {
+        fixedCompany: false,
+        headline: built.headline,
+        headlineText: shownRate(section, built.headline),
+        secondary: built.secondary,
+        health: built.health,
+        storeCount: built.storeCount,
+        workbook: false,
+      };
     }
     return {
       fixedCompany: false,
@@ -684,14 +764,16 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
       secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
       health: chrome.health && chrome.health !== "none" ? chrome.health : built.health,
       storeCount: chrome.count || built.storeCount,
+      workbook,
     };
   }
   return {
     fixedCompany: false,
     headline: built.headline,
-    headlineText: null,
+    headlineText: built.headline != null && ROW_RATE_SECTIONS.has(section) ? shownRate(section, built.headline) : null,
     secondary: built.secondary,
     health: built.health,
     storeCount: built.storeCount,
+    workbook: false,
   };
 }

@@ -234,6 +234,13 @@ if grep -q "dynacapHealth" "$WEB/public/seat.js"; then
   exit 1
 fi
 
+# Before tests and secret upload. A dirty tree would stamp the build label
+# with a commit that does not match the files about to ship.
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "refusing publish: git worktree is dirty, so the build label would show a commit that does not match this tree" >&2
+  exit 1
+fi
+
 cd "$WEB"
 npm test
 
@@ -423,11 +430,6 @@ PY
     echo "publish-web: signed-in compare needs ${EMAIL_FILE} and ${PASS_FILE}; uploaded stamps were printed above" >&2
   fi
   exit 0
-fi
-
-if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
-  echo "refusing publish: git worktree is dirty, so the build label would show a commit that does not match this tree" >&2
-  exit 1
 fi
 
 npx wrangler pages deploy dist \

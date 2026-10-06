@@ -51,7 +51,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerShopperBands, reportedStoreLine, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
+import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerShopperBands, reportedStoreLine, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
@@ -415,11 +415,11 @@ assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=41/);
+assert.match(pageHtml, /app\.js\?v=42/);
 assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
 assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
 assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
-assert.match(app, /const APP_VERSION = "41"/);
+assert.match(app, /const APP_VERSION = "42"/);
 assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
 assert.match(app, /id="build-stamp"/);
 assert.match(app, /Build \$\{esc\(buildLine\)\}/);
@@ -1030,6 +1030,10 @@ assert.match(readFileSync(join(root, "package.json"), "utf8"), />=22\.5\.0/);
 assert.match(publishScript, /\{"error":"unauthorized"\}/);
 assert.equal(publishScript.includes("--commit-dirty=true"), false);
 assert.match(publishScript, /refusing publish: git worktree is dirty/);
+const dirtyAt = publishScript.indexOf("refusing publish: git worktree is dirty");
+const npmAt = publishScript.indexOf("\nnpm test");
+const secretAt = publishScript.indexOf("put_secret_if_missing");
+assert.ok(dirtyAt !== -1 && dirtyAt < npmAt && dirtyAt < secretAt);
 assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
 assert.match(wrangler, /name = "fulfillment-heartbeat-web"/);
@@ -1047,7 +1051,7 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
-assert.match(distIndex, /app\.js\?v=41/);
+assert.match(distIndex, /app\.js\?v=42/);
 assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
 const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
 assert.equal(distApp.includes("__BUILD_SHA__"), false);
@@ -1741,14 +1745,32 @@ const pickerRows = JSON.parse(readFileSync(join(root, "public/data/section/picke
 const pickerGrain = sectionRowGrain("picker_scorecard", pickerRows, noScope, packRoster, poisonedLines);
 const eastPickers = pickerGrain.find((row) => row.grain === "region" && row.label === "East");
 assert.equal(eastPickers.count, 9368);
-assert.equal(eastPickers.value, "9368 shoppers");
+assert.equal(eastPickers.value, "9,368 shoppers");
 assert.equal(distinctShopperCount(pickerRows), 29838);
 const pickerBands = pickerShopperBands(pickerRows);
 assert.equal(pickerBands.shoppers, 29838);
 assert.equal(pickerBands.healthy, 2846);
 assert.equal(pickerBands.watch, 3261);
 assert.equal(pickerBands.risk, 23731);
-assert.equal(summarizeSeat("picker_scorecard", pickerRows).secondary, "23731 opportunity · 2846 doing well");
+assert.equal(summarizeSeat("picker_scorecard", pickerRows).secondary, "23731 opportunity · 3261 watch · 2846 doing well");
+const eastPickerBuilt = summarizeSeat(
+  "picker_scorecard",
+  rowsInScope(pickerRows, filters({ region: "East Region" }), packRoster, "picker_scorecard"),
+);
+assert.equal(eastPickerBuilt.secondary, "8355 opportunity · 612 watch · 401 doing well");
+assert.equal(eastPickerBuilt.healthyCount + eastPickerBuilt.watchCount + eastPickerBuilt.riskCount, 9368);
+const southernPickers = summarizeSeat(
+  "picker_scorecard",
+  rowsInScope(pickerRows, filters({ division: "Southern" }), packRoster, "picker_scorecard"),
+);
+assert.equal(southernPickers.headline, 1613);
+const dynRows = JSON.parse(readFileSync(join(root, "public/data/section/dynacap.json"), "utf8")).rows;
+const dynBuilt = summarizeSeat("dynacap", dynRows);
+assert.equal(dynBuilt.storeCount, 2089);
+assert.equal(formatHeadline("dynacap", dynBuilt.headline), "67.8");
+assert.match(dynBuilt.secondary, /75 stores have capacity but no Pcs\/Hr/);
+assert.match(app, /stores with no division/);
+assert.match(app, /stores with source issues not scored/);
 const missingBuilt = summarizeSeat("missing_items", JSON.parse(readFileSync(join(root, "public/data/section/missing_items.json"), "utf8")).rows);
 assert.equal(missingBuilt.healthyCount, 252);
 assert.equal(missingBuilt.riskCount, 1319);
