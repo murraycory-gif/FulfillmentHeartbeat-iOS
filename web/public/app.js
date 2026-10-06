@@ -1,4 +1,4 @@
-import { updatedLine, considerPublished, pct, money, num, formatHeadline, publishStamp } from "./clock.js";
+import { updatedLine, considerPublished, pct, money, num, formatHeadline, publishStamp, buildLabel } from "./clock.js";
 import { schemaWarning } from "./schema.js?v=1";
 import {
   emptyFilters,
@@ -22,7 +22,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary, sectionStoreCount } from "./seat.js";
+import { chromeSeat, companyCountText, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, reportedStoreLine, rowsInScope, seatSummary, sectionStoreCount, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -39,6 +39,8 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
+const APP_VERSION = "39";
+const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
   { id: "dashboard", title: "Dashboard" },
@@ -325,7 +327,9 @@ function renderNav() {
     (page) =>
       `<li><button type="button" data-page="${page.id}" aria-current="${page.id === state.page ? "page" : "false"}">${navIcon(page)}<span>${esc(page.title)}</span></button></li>`,
   ).join("");
-  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot"><p id="stamp" class="drawer-stamp">${esc(packStamp)}</p>${settingsNav()}<button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
+  const buildLine = buildLabel(BUILD_SHA, APP_VERSION);
+  const buildHtml = buildLine ? `<p id="build-stamp" class="drawer-stamp">Build ${esc(buildLine)}</p>` : "";
+  drawer.innerHTML = `<div class="drawer-head"><p class="drawer-title">Pages</p><button type="button" class="drawer-close" data-close-drawer>Close</button></div><ul class="pages">${items}</ul><div class="drawer-foot">${buildHtml}<p id="stamp" class="drawer-stamp">${esc(packStamp)}</p>${settingsNav()}<button type="button" class="drawer-logout" data-logout>Logout</button></div>`;
 }
 
 function loadAccountSession() {
@@ -615,6 +619,48 @@ function headerStoreCount(section, seat) {
   return sectionStoreCount(pack.rows, state.filters, roster(), section);
 }
 
+function sectionPackPending(section) {
+  const path = `section/${section}`;
+  return !state.packs.has(path) && !state.failedPacks.has(path);
+}
+
+function sectionRows(section) {
+  const pack = state.packs.get(`section/${section}`);
+  if (!pack || !Array.isArray(pack.rows)) return null;
+  return pack.rows;
+}
+
+function companyCountLabel(section, seat) {
+  if (filtersActive(state.filters)) {
+    const counted = headerStoreCount(section, seat);
+    if (counted == null || !counted) return "";
+    if (section === "picker_scorecard") return `${num(counted, 0)} cooked shoppers`;
+    return `${num(counted, 0)} stores`;
+  }
+  if (sectionPackPending(section)) return companyCountText(null, true);
+  const rows = sectionRows(section);
+  if (!rows) return "";
+  if (section === "picker_scorecard") {
+    const count = new Set(rows.map((row) => canonicalStore(row.store)).filter(Boolean)).size;
+    return companyCountText(count, false);
+  }
+  return companyCountText(sectionStoreCount(rows, state.filters, roster(), section), false);
+}
+
+function companySecondaryText(section, seat) {
+  const cooked = shownSecondary(section, seat.secondary);
+  if (filtersActive(state.filters)) return shownStoreSentence(section, cooked, headerStoreCount(section, seat));
+  if (section === "picker_scorecard") return cooked || "";
+  if (sectionPackPending(section)) return "Loading…";
+  const rows = sectionRows(section);
+  if (!rows) return "";
+  if (section === "lost_revenue") {
+    return reportedStoreLine(sectionStoreCount(rows, state.filters, roster(), section), seat.secondary, false);
+  }
+  const built = summarizeSeat(section, rowsInScope(rows, state.filters, roster(), section));
+  return shownSecondary(section, built.secondary || "");
+}
+
 function companyBlock(section, title) {
   if (!seatReady(section)) {
     const name = title ? `<h2>${esc(title)}</h2>` : "";
@@ -625,6 +671,7 @@ function companyBlock(section, title) {
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
   const health = seat.health || "none";
   const counted = headerStoreCount(section, seat);
+  const countLabel = companyCountLabel(section, seat);
   const figureText =
     seat.headlineText != null && seat.headlineText !== ""
       ? seat.headlineText
@@ -640,16 +687,10 @@ function companyBlock(section, title) {
     (section === "picker_scorecard" || (section === "dynacap" && seat.headline == null));
   const badgeHtml = tone === "none" && (hideEmptyBadge || !figureAbsent(figureText) || Boolean(tiles)) ? "" : badge(tone);
   const name = title ? `<h2>${esc(title)}</h2>` : "";
-  const countLabel =
-    counted == null || !counted
-      ? ""
-      : !seat.fixedCompany && section === "picker_scorecard"
-        ? `${num(counted, 0)} cooked shoppers`
-        : `${num(counted, 0)} stores`;
   const figureLabel = !tiles && seat.figureLabel ? `<p class="eyebrow">${esc(seat.figureLabel)}</p>` : "";
   const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
   const missedLine = !tiles && seat.missed ? `<p class="secondary">Missed $ ${esc(seat.missed)}</p>` : "";
-  const secondaryText = shownStoreSentence(section, shownSecondary(section, seat.secondary), counted);
+  const secondaryText = companySecondaryText(section, seat);
   const secondary = secondaryText ? `<p class="secondary">${esc(secondaryText)}</p>` : "";
   const definition = METRIC_NOTES[section] ? `<p class="note">${esc(METRIC_NOTES[section])}</p>` : "";
   const scope = filtersActive(state.filters)
@@ -812,7 +853,9 @@ function regionCardsHtml() {
     .map((name) => {
       const rows = byRegion.get(name);
       const lostRoll = lostRegionRollup(name);
-      const storeCount = lostRoll ? lostRoll.count : 0;
+      const storeLine = sectionPackPending("lost_revenue")
+        ? companyCountText(null, true)
+        : companyCountText(lostRoll ? lostRoll.count : 0, false);
       const chips = rows
         .map((row) => {
           let title = row.title;
@@ -828,7 +871,7 @@ function regionCardsHtml() {
           return `<div class="chip bar-${tone}"><span>${esc(title)}</span><strong>${esc(shown)}</strong></div>`;
         })
         .join("");
-      return `<article class="scorecard"><div class="score-face"><h2>${esc(name)}</h2>${storeCount ? `<p class="sub">${esc(num(storeCount, 0))} stores</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
+      return `<article class="scorecard"><div class="score-face"><h2>${esc(name)}</h2>${storeLine ? `<p class="sub">${esc(storeLine)}</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
     })
     .join("");
   if (!cards) return "";
@@ -1387,6 +1430,16 @@ function seatFigure(section, seat) {
 }
 
 function shareCount(section, seat) {
+  if (!filtersActive(state.filters)) {
+    const rows = sectionRows(section);
+    if (!rows) return "";
+    if (section === "picker_scorecard") {
+      const count = new Set(rows.map((row) => canonicalStore(row.store)).filter(Boolean)).size;
+      return count ? `${num(count, 0)} stores` : "";
+    }
+    const count = sectionStoreCount(rows, state.filters, roster(), section);
+    return count ? `${num(count, 0)} stores` : "";
+  }
   if (!seat || !seat.storeCount) return "";
   const label = section === "picker_scorecard" ? "shoppers" : "stores";
   return `${num(seat.storeCount, 0)} ${label}`;
@@ -1406,7 +1459,7 @@ function companyTilePairs(section) {
 
 function metricShareBlock(page, withTiles) {
   const seat = seatFor(page.section);
-  const secondary = shownSecondary(page.section, seat.secondary);
+  const secondary = companySecondaryText(page.section, seat);
   return {
     title: page.title,
     status: healthWord(seat.health || (summaryFor(page.section) || {}).health),

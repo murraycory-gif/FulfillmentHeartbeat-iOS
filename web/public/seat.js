@@ -101,6 +101,30 @@ export function sectionStoreCount(rows, filters, roster, section) {
   return rowsInScope(rows, filters, roster, section).length;
 }
 
+function countText(count) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(count));
+}
+
+// A dashboard store count is either "Loading…" or the section-row count.
+// The placeholder has no digits, so a pack storeCount cannot flash first.
+export function companyCountText(count, pending) {
+  if (pending) return "Loading…";
+  const number = Number(count);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  return `${countText(number)} stores`;
+}
+
+export function reportedStoreLine(count, secondary, pending) {
+  if (pending || count == null || !Number.isFinite(Number(count))) return "Loading…";
+  const rest = String(secondary || "")
+    .split("·")
+    .slice(1)
+    .join("·")
+    .trim();
+  const lead = `${countText(count)} stores reported`;
+  return rest ? `${lead} · ${rest}` : lead;
+}
+
 export function figureAbsent(text) {
   const value = String(text ?? "").trim();
   return value === "" || value === "—" || value.toLowerCase() === "no data";

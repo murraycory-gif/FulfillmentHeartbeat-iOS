@@ -23,7 +23,7 @@ import {
 } from "./functions/gate.js";
 import { checkPack } from "./check_pack.mjs";
 import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
-import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
+import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
   canonicalDivision,
@@ -51,7 +51,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary, sectionStoreCount } from "./public/seat.js";
+import { chromeSeat, companyCountText, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, reportedStoreLine, seatSummary, sectionStoreCount } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
@@ -415,7 +415,25 @@ assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=38/);
+assert.match(pageHtml, /app\.js\?v=39/);
+assert.equal(buildLabel("1aeee20", "39"), "1aeee20 · v39");
+assert.equal(buildLabel("1AEEE20deadbeef", "v39"), "1aeee20 · v39");
+assert.equal(buildLabel("__BUILD_SHA__", "39"), "");
+assert.match(app, /const APP_VERSION = "39"/);
+assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
+assert.match(app, /id="build-stamp"/);
+assert.match(app, /Build \$\{esc\(buildLine\)\}/);
+assert.equal(companyCountText(2165, true), "Loading…");
+assert.equal(companyCountText(2165, true).includes("2165"), false);
+assert.equal(/\d/.test(companyCountText(null, true)), false);
+assert.equal(companyCountText(2167, false), "2,167 stores");
+assert.equal(reportedStoreLine(null, "2,165 stores reported · 9/27", true), "Loading…");
+assert.equal(/\d/.test(reportedStoreLine(2165, "2,165 stores reported · 9/27", true)), false);
+assert.equal(reportedStoreLine(2167, "2,165 stores reported · 9/27", false), "2,167 stores reported · 9/27");
+assert.equal(reportedStoreLine(2167, "2,165 stores reported · 9/27", false).includes("2,165"), false);
+assert.match(app, /function companyCountLabel/);
+assert.match(app, /function companySecondaryText/);
+assert.match(app, /summarizeSeat\(section, rowsInScope/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*height:\s*44px/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*min-height:\s*44px/);
 assert.match(css, /\.scope-reset \{[^}]*width:\s*44px/);
@@ -1007,6 +1025,12 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
+assert.match(distIndex, /app\.js\?v=39/);
+const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
+assert.equal(distApp.includes("__BUILD_SHA__"), false);
+const stagedSha = spawnSync("git", ["rev-parse", "--short=7", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
+assert.match(distApp, new RegExp(`Build \\$\\{esc\\(buildLine\\)\\}`));
+assert.match(distApp, new RegExp(`const BUILD_SHA = "${stagedSha}"`));
 assert.match(app, /class="figure"/);
 assert.equal(statSync(join(root, "functions/api/[[path]].js")).isFile(), true);
 assert.equal(statSync(join(root, "functions/_middleware.js")).isFile(), true);
