@@ -81,13 +81,11 @@ npx wrangler pages deploy dist --project-name fulfillment-heartbeat-web
 
 This environment has no Wrangler login. Set `CLOUDFLARE_API_TOKEN` to an account token with Cloudflare Pages Edit, then run the command. Do not pass `--project-name heartbeat-web`. That upload is the site. Re-run step 3 when the seat pack changes, then step 4. Do not deploy to `heartbeat-web.pages.dev`.
 
-### 5. Public bucket URL — read this before you click
+### 5. Private bucket
 
-The web app does not use a public R2 URL. `connect-src` is `'self'`. The function will not serve a key that points at a public bucket host or a sqlite file. `heartbeat-packs` has no custom domain. Its managed public hostname stays disabled. Pages reads the bucket only through the `HEARTBEAT_PACKS` binding, inside `_middleware.js`, after the session check. `/data` and `/api` responses send `Cache-Control: private, no-store`. A pack whose `schemaVersion` or required keys fail `guardHome` is not served; the function uses `current.json` `previous`, then the static files from the last full Pages deploy.
+The web app does not use a public bucket URL. `connect-src` is `'self'`. The function will not serve a key that points at a public bucket host or a sqlite file. `heartbeat-packs` has no custom domain. Its managed public hostname stays disabled. Pages reads the bucket only through the `HEARTBEAT_PACKS` binding, inside `_middleware.js`, after the session check. `/data` and `/api` responses send `Cache-Control: private, no-store`. A pack whose `schemaVersion` or required keys fail `guardHome` is not served; the function uses `current.json` `previous`, then the static files from the last full Pages deploy.
 
-The current iPhone / iPad / Mac build still downloads packs from the public host in `PulseCloud.defaultPackHost` (`HBPackHost`, the `r2.dev` URL). Turning **public access off** on `heartbeat-packs` is what keeps the bucket off the public internet. It also stops that phone build until a later build reads through a protected origin.
-
-Do that only when you are ready for the phone to miss packs. This change does not flip the switch and does not change the phone URL.
+The iPhone, iPad, and Mac app has no pack host. `HBPackHost` and `PulseCloud.defaultPackHost` are empty, so pack downloads fail closed until a protected origin is set there.
 
 ## Data-only refresh (R2)
 

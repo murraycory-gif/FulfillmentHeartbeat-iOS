@@ -53,7 +53,7 @@ export function objectKeyForPath(raw) {
   if (!path) return null;
   const lower = path.toLowerCase();
   if (lower.includes("..") || path.includes("\\") || path.includes("//")) return null;
-  if (lower.includes("://") || lower.includes("r2.dev")) return null;
+  if (lower.includes("://") || /r2\.dev/i.test(lower)) return null;
   if (lower.includes(".sqlite")) return null;
   if (path === "home") return "web-pack/home.json";
   if (path === "presub") return "web-pack/presub.json";

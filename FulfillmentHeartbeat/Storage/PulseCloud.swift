@@ -1,15 +1,18 @@
 import Foundation
 
 enum PulseCloud {
-    /// Public pack host (Cloudflare R2). Same host as tip 464 and main.
-    /// Swap `HBPackHost` in Info.plist — or this fallback — to a custom domain later.
-    static let defaultPackHost = "https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev"
+    /// No public pack host. Set `HBPackHost` in Info.plist to a protected origin
+    /// when the phone should download packs again. Empty fails closed.
+    static let defaultPackHost = ""
 
-    static var packHostBaseURL: URL {
+    static var packHostBaseURL: URL? {
         let raw = (Bundle.main.object(forInfoDictionaryKey: "HBPackHost") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let value = (raw?.isEmpty == false) ? raw! : defaultPackHost
-        return URL(string: value) ?? URL(string: defaultPackHost)!
+        guard !value.isEmpty, let url = URL(string: value), url.scheme?.isEmpty == false else {
+            return nil
+        }
+        return url
     }
 
     /// Workbook source still lives here. Tester pack downloads do not.
@@ -26,14 +29,15 @@ enum PulseCloud {
         "master.xlsx",
     ]
 
-    static var packURL: URL { packObjectURL(object) }
+    static var packURL: URL? { packObjectURL(object) }
 
-    static var publicPackURL: URL { packObjectURL(object) }
+    static var publicPackURL: URL? { packObjectURL(object) }
 
-    static func packObjectURL(_ name: String) -> URL {
+    static func packObjectURL(_ name: String) -> URL? {
+        guard let baseURL = packHostBaseURL else { return nil }
         let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        let base = packHostBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return URL(string: "\(base)/\(encoded)") ?? packHostBaseURL.appendingPathComponent(encoded)
+        let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: "\(base)/\(encoded)") ?? baseURL.appendingPathComponent(encoded)
     }
 
     static func isWorkbookName(_ name: String) -> Bool {
@@ -87,7 +91,8 @@ enum PulseCloud {
                 URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
             ].compactMap { $0 }
         }
-        return [packObjectURL(name)]
+        guard let url = packObjectURL(name) else { return [] }
+        return [url]
     }
 
     private static func listedWorkbookStats() async -> [String: ObjectStat] {
@@ -103,7 +108,7 @@ enum PulseCloud {
     }
 
     private static func headPackObject(_ name: String) async -> ObjectStat? {
-        let url = packObjectURL(name)
+        guard let url = packObjectURL(name) else { return nil }
         var head = URLRequest(url: url)
         head.httpMethod = "HEAD"
         head.timeoutInterval = 20
