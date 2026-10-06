@@ -273,34 +273,42 @@ fi
 node "$WEB/scripts/print_pack_stamp.mjs" "$WEB/dist/data"
 node "$WEB/check_pack.mjs" "$WEB/dist/data"
 
-# Session and setup secrets are created once. A later deploy must not rotate them.
-SECRET_LIST="$(npx wrangler pages secret list --project-name "$PROJECT" 2>/dev/null || true)"
-put_secret_if_missing() {
-  local name="$1"
-  local file="$2"
-  if grep -q "$name" <<<"$SECRET_LIST"; then
-    return
+# BEGIN secrets
+# Data-only publish never lists, creates, or uploads a Pages secret.
+# A failed secret list aborts. It must not mint a new SESSION_SECRET.
+if [[ -z "$DATA_ONLY" ]]; then
+  if ! SECRET_LIST="$(npx wrangler pages secret list --project-name "$PROJECT" 2>/dev/null)"; then
+    echo "refusing publish: Pages secret list failed, so no secret was created" >&2
+    exit 1
   fi
-  if [[ ! -s "$file" ]]; then
-    echo "publish-web: ${file} is missing, so ${name} was not uploaded" >&2
-    return
+  put_secret_if_missing() {
+    local name="$1"
+    local file="$2"
+    if grep -Fq "$name" <<<"$SECRET_LIST"; then
+      return 0
+    fi
+    if [[ ! -s "$file" ]]; then
+      echo "refusing publish: ${file} is missing, so ${name} was not created" >&2
+      exit 1
+    fi
+    npx wrangler pages secret put "$name" --project-name "$PROJECT" < "$file"
+  }
+  mkdir -p "$CONFIG_DIR"
+  umask 077
+  SESSION_FILE="${HEARTBEAT_SESSION_SECRET_FILE:-$CONFIG_DIR/session-secret}"
+  SETUP_FILE="${HEARTBEAT_SETUP_SECRET_FILE:-$CONFIG_DIR/setup-secret}"
+  ADMIN_FILE="${HEARTBEAT_ADMIN_EMAIL_FILE:-$CONFIG_DIR/admin-email}"
+  if ! grep -Fq "SESSION_SECRET" <<<"$SECRET_LIST" && [[ ! -s "$SESSION_FILE" ]]; then
+    openssl rand -base64 32 > "$SESSION_FILE"
   fi
-  npx wrangler pages secret put "$name" --project-name "$PROJECT" < "$file"
-}
-mkdir -p "$CONFIG_DIR"
-umask 077
-SESSION_FILE="${HEARTBEAT_SESSION_SECRET_FILE:-$CONFIG_DIR/session-secret}"
-SETUP_FILE="${HEARTBEAT_SETUP_SECRET_FILE:-$CONFIG_DIR/setup-secret}"
-ADMIN_FILE="${HEARTBEAT_ADMIN_EMAIL_FILE:-$CONFIG_DIR/admin-email}"
-if [[ ! -s "$SESSION_FILE" ]]; then
-  openssl rand -base64 32 > "$SESSION_FILE"
+  if ! grep -Fq "SETUP_SECRET" <<<"$SECRET_LIST" && [[ ! -s "$SETUP_FILE" ]]; then
+    openssl rand -base64 32 > "$SETUP_FILE"
+  fi
+  put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
+  put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
+  put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 fi
-if [[ ! -s "$SETUP_FILE" ]]; then
-  openssl rand -base64 32 > "$SETUP_FILE"
-fi
-put_secret_if_missing SESSION_SECRET "$SESSION_FILE"
-put_secret_if_missing SETUP_SECRET "$SETUP_FILE"
-put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
+# END secrets
 
 node "$WEB/scripts/print_pack_stamp.mjs" "$PACK_DIR"
 

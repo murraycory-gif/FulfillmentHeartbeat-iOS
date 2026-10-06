@@ -1891,6 +1891,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 if hours is not None:
                     record["payload"]["weight"] = hours
                 apply_labor_blanks(record["payload"], raw_payload)
+                # Cost dollars stay in sqlite. On a labor row they turn the
+                # site's store average into a cost-weighted mean.
+                record["payload"].pop("act_cost_dollars", None)
+                record["payload"].pop("act_cost_dollar", None)
             if section in SHOPPER_SECTIONS:
                 # Path Picker rows have no store until the scorecard join below.
                 if not store and section != "pick_path_picker":

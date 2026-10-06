@@ -22,6 +22,30 @@ function finite(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+// The census is this pack's own Labor rows whose four bridge parts add up.
+// The pinned cook bridges 2,109. Keeping two-digit store IDs (include: nil)
+// adds 18 stores (10, 23, 24, 25, 28, 31, …) and bridges 2,127. A fixed 2,109
+// rejects that cook. A complete row that does not add up still fails, and a
+// labor file with no bridged row fails closed.
+export function laborBridgeCensus(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const errors = [];
+  let bridged = 0;
+  for (const row of list) {
+    const payload = (row && row.payload) || {};
+    const parts = [payload.uplh_impact_pct, payload.wage_impact_pct, payload.aiv_impact_pct, payload.target_vs_actual_pct];
+    if (parts.some((part) => part == null || !Number.isFinite(Number(part)))) continue;
+    const sum = Number(parts[0]) + Number(parts[1]) + Number(parts[2]);
+    if (Math.abs(sum - Number(parts[3])) > 0.01) {
+      errors.push(`labor bridge ${row && row.store}`);
+      continue;
+    }
+    bridged += 1;
+  }
+  if (list.length > 0 && bridged === 0) errors.push(`labor bridge rows=${bridged}`);
+  return { bridged, errors };
+}
+
 function blend(stores, markets, region, field) {
   const scoped = stores.filter((store) => store && store.region === region);
   const divisions = new Set(scoped.map((store) => store.division));
@@ -278,18 +302,7 @@ export function checkPack(dir) {
   if (aivTile !== "0.00%") errors.push(`AIV tile=${aivTile}`);
 
   const laborRows = Array.isArray(laborFile.rows) ? laborFile.rows : [];
-  let bridged = 0;
-  for (const row of laborRows) {
-    const payload = row.payload || {};
-    const parts = [payload.uplh_impact_pct, payload.wage_impact_pct, payload.aiv_impact_pct, payload.target_vs_actual_pct];
-    if (parts.some((part) => part == null)) continue;
-    bridged += 1;
-    if (Math.abs(Number(parts[0]) + Number(parts[1]) + Number(parts[2]) - Number(parts[3])) > 0.01) {
-      errors.push(`labor bridge ${row.store}`);
-      break;
-    }
-  }
-  if (bridged !== 2109) errors.push(`labor bridge rows=${bridged}`);
+  errors.push(...laborBridgeCensus(laborRows).errors);
 
   const flagged = new Map(
     laborRows.filter((row) => row.sourceIssue === "source data issue").map((row) => [String(row.store), row]),

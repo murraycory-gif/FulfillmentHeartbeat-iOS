@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
@@ -21,7 +21,7 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors, workbookTotalErrors } from "./check_pack.mjs";
+import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, laborBridgeCensus, lostRollupErrors, packIdentityErrors, storeCountErrors, workbookTotalErrors } from "./check_pack.mjs";
 import { PACK_FILES, PACK_POINTER_KEY, PINNED_FILE_SHA256, PINNED_HOME_SHA256, PINNED_LIVE_COOK_SHA, PINNED_LIVE_PREFIX, PINNED_LIVE_PUBLISHED_AT, guardHome, isPinnedLivePack, packApiPath, packObjectKey, packPrefix, rawDivisionName, readPackObject, resetPackCache, sha256Hex } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, WORKBOOK_TOTAL_FIELDS, schemaWarning } from "./public/schema.js";
@@ -1213,6 +1213,44 @@ const dirtyAt = publishScript.indexOf("refusing publish: git worktree is dirty")
 const npmAt = publishScript.indexOf("\nnpm test");
 const secretAt = publishScript.indexOf("put_secret_if_missing");
 assert.ok(dirtyAt !== -1 && dirtyAt < npmAt && dirtyAt < secretAt);
+const secretBlock = publishScript.slice(publishScript.indexOf("# BEGIN secrets"), publishScript.indexOf("# END secrets"));
+assert.match(secretBlock, /if \[\[ -z "\$DATA_ONLY" \]\]/);
+assert.equal(secretBlock.includes("|| true"), false);
+const secretRun = (dataOnly, listStatus) => {
+  const dir = mkdtempSync(join(tmpdir(), "hb-secret-"));
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  const log = join(dir, "log");
+  writeFileSync(
+    join(bin, "npx"),
+    `#!/bin/bash\nprintf '%s\\n' "npx $*" >> ${JSON.stringify(log)}\nif [[ "$*" == *secret\\ list* ]]; then exit ${listStatus}; fi\nexit 0\n`,
+  );
+  writeFileSync(join(bin, "openssl"), `#!/bin/bash\nprintf '%s\\n' "openssl $*" >> ${JSON.stringify(log)}\nprintf '%s\\n' minted\n`);
+  chmodSync(join(bin, "npx"), 0o755);
+  chmodSync(join(bin, "openssl"), 0o755);
+  const script = [
+    "set -euo pipefail",
+    `DATA_ONLY=${dataOnly}`,
+    "PROJECT=fulfillment-heartbeat-web",
+    `CONFIG_DIR=${JSON.stringify(join(dir, "config"))}`,
+    secretBlock,
+  ].join("\n");
+  const ran = spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  const calls = existsSync(log) ? readFileSync(log, "utf8") : "";
+  rmSync(dir, { recursive: true, force: true });
+  return { ran, calls };
+};
+const dataOnlySecrets = secretRun("1", "1");
+assert.equal(dataOnlySecrets.ran.status, 0, dataOnlySecrets.ran.stderr);
+assert.equal(dataOnlySecrets.calls, "");
+const failedList = secretRun("", "1");
+assert.notEqual(failedList.ran.status, 0);
+assert.match(failedList.ran.stderr, /no secret was created/);
+assert.match(failedList.calls, /npx wrangler pages secret list/);
+assert.equal(failedList.calls.includes("openssl"), false);
 assert.match(publishScript, /pack_publish\.py" "\$PACK_DIR"/);
 assert.equal(publishScript.includes("migrate-pinned"), false);
 assert.equal(publishScript.includes("--commit-dirty"), false);
@@ -2710,6 +2748,21 @@ const laborBridge = laborFile.rows.filter((row) => {
   );
 });
 assert.equal(laborBridge.length, 2109);
+const pinnedBridge = laborBridgeCensus(laborFile.rows);
+assert.equal(pinnedBridge.bridged, 2109);
+assert.deepEqual(pinnedBridge.errors, []);
+const twoDigitBridge = laborBridgeCensus([
+  { store: "10", payload: { uplh_impact_pct: 1, wage_impact_pct: 1, aiv_impact_pct: 1, target_vs_actual_pct: 3 } },
+  { store: "23", payload: { uplh_impact_pct: 2, wage_impact_pct: 2, aiv_impact_pct: 2, target_vs_actual_pct: 6 } },
+]);
+assert.equal(twoDigitBridge.bridged, 2);
+assert.deepEqual(twoDigitBridge.errors, []);
+const brokenBridge = laborBridgeCensus([
+  { store: "1", payload: { uplh_impact_pct: 1, wage_impact_pct: 1, aiv_impact_pct: 1, target_vs_actual_pct: 9 } },
+]);
+assert.ok(brokenBridge.errors.some((item) => item === "labor bridge 1"));
+const emptyBridge = laborBridgeCensus([{ store: "1", payload: {} }]);
+assert.ok(emptyBridge.errors.some((item) => item === "labor bridge rows=0"));
 assert.ok(
   laborBridge.every((row) => {
     const payload = row.payload;

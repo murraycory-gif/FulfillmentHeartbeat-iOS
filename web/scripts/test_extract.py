@@ -233,7 +233,8 @@ def main() -> None:
         assert all(row["store"].upper() != "TOTAL" for row in labor["rows"])
         labor_one = next(row for row in labor["rows"] if row["store"] == "1")
         assert labor_one["payload"]["weight"] == 383
-        assert labor_one["payload"]["act_cost_dollars"] == 6181
+        assert "act_cost_dollars" not in labor_one["payload"]
+        assert "act_cost_dollar" not in labor_one["payload"]
         assert "weight" not in (home.get("laborMarket") or {})
         assert stores["117"]["district"] == "03"
         assert stores["117"]["division"] == "Shaws"
@@ -1037,16 +1038,51 @@ def labor_blanks_are_null() -> None:
         blank = rows["866"]
         assert blank["act_cost_pct"] is None, blank
         assert blank["act_hrs"] is None, blank
-        assert blank["act_cost_dollars"] is None, blank
+        assert "act_cost_dollars" not in blank
+        assert "act_cost_dollar" not in blank
         assert blank["cost_trgt_pct"] == 247.99
         assert "weight" not in blank
         zero = rows["1"]
         assert zero["act_cost_pct"] == 0
         assert zero["act_hrs"] == 0
-        assert zero["act_cost_dollars"] == 0
+        assert "act_cost_dollars" not in zero
+        assert "act_cost_dollar" not in zero
         assert zero["cost_trgt_pct"] == 0
         assert zero["weight"] == 0
     print("labor blanks ok")
+
+
+def labor_web_rows_are_plain_mean() -> None:
+    """act_cost_dollars must not leave sqlite. The site labels Labor a store average."""
+    records = [
+        {
+            "section": "labor",
+            "store": "1",
+            "division": "Shaws",
+            "payload": {"target_vs_actual_pct": -10, "act_cost_dollars": 1_000_000},
+        },
+        {
+            "section": "labor",
+            "store": "2",
+            "division": "Shaws",
+            "payload": {"target_vs_actual_pct": 0, "act_cost_dollars": 1},
+        },
+        {
+            "section": "labor",
+            "store": "3",
+            "division": "Shaws",
+            "sourceIssue": "source data issue",
+            "payload": {"target_vs_actual_pct": 500, "act_cost_dollars": 9_000_000},
+        },
+    ]
+    lines, tables = module.build_region_views(records)
+    east = next(line for line in lines if line["section"] == "labor" and line["region"] == "East")
+    assert east["value"] == "-5.00%"
+    assert east["count"] == 2
+    table = next(row for row in tables if row["section"] == "labor" and row["region"] == "East")
+    assert table["headline"] == "-5.00%"
+    assert table["storeCount"] == 2
+    print("labor plain mean ok")
 
 
 def _pack_section_records(section: str) -> list:
@@ -1169,4 +1205,5 @@ if __name__ == "__main__":
     workbook_total_sources()
     workbook_total_shifted_row()
     labor_blanks_are_null()
+    labor_web_rows_are_plain_mean()
     region_rows_cover_company()
