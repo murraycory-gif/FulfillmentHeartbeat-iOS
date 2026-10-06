@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SCHEMA_VERSION } from "./public/schema.js";
-import { guardHome, rawDivisionName } from "./functions/pack-store.js";
+import { guardHome, PINNED_LIVE_COOK_SHA, rawDivisionName } from "./functions/pack-store.js";
 
 function readJson(dir, name) {
   const file = join(dir, name);
@@ -84,6 +84,10 @@ export function packIdentityErrors(dir) {
     if (!stamp || stamp.publishedAt.length < 20) errors.push(`${rel} publishedAt missing`);
     if (!stamp || stamp.schemaVersion !== SCHEMA_VERSION) errors.push(`${rel} schemaVersion=${stamp ? stamp.schemaVersion : "missing"}`);
     if (!stamp || !/^[0-9a-f]{40}$/.test(stamp.cookSha)) errors.push(`${rel} cookSha missing`);
+    if (stamp && !stamp.cookedAt) {
+      const pinned = stamp.cookSha === PINNED_LIVE_COOK_SHA ? " (pinned live cook cannot be republished)" : "";
+      errors.push(`${rel} cookedAt missing${pinned}`);
+    }
     if (stamp && BANNED_PUBLISHED.some((pattern) => pattern.test(stamp.publishedAt))) {
       errors.push(`${rel} publishedAt ${stamp.publishedAt} is a retired pack`);
     }
@@ -431,17 +435,15 @@ export function checkPack(dir) {
   if (southUnder == null || Math.abs(southUnder - 3.05) > 0.02) errors.push(`South under=${southUnder}`);
   if (southOver == null || Math.abs(southOver - 5.91) > 0.02) errors.push(`South over=${southOver}`);
 
-  if (typeof home.cookedAt === "string" && home.cookedAt) {
-    errors.push(...lostRollupErrors(home, lost));
-    errors.push(...currencyPrecisionErrors(home));
-    const counted = {};
-    for (const section of ["lost_revenue", "missing_items", "five_star", "pre_sub_oos", "picker_scorecard"]) {
-      const read = section === "lost_revenue" ? lostRead : readJson(dir, `section/${section}.json`);
-      counted[section] = read.value && typeof read.value === "object" ? read.value : null;
-      if (read.error) errors.push(read.error);
-    }
-    errors.push(...storeCountErrors(home, counted));
+  errors.push(...lostRollupErrors(home, lost));
+  errors.push(...currencyPrecisionErrors(home));
+  const counted = {};
+  for (const section of ["lost_revenue", "missing_items", "five_star", "pre_sub_oos", "picker_scorecard"]) {
+    const read = section === "lost_revenue" ? lostRead : readJson(dir, `section/${section}.json`);
+    counted[section] = read.value && typeof read.value === "object" ? read.value : null;
+    if (read.error && section !== "lost_revenue") errors.push(read.error);
   }
+  errors.push(...storeCountErrors(home, counted));
 
   for (const name of ["section/missing_items.json", "section/schedule_quality.json"]) {
     const read = readJson(dir, name);
@@ -467,11 +469,30 @@ export function checkPack(dir) {
   return { errors, roster: roster.length, schedule: scheduleStores.length, lost: lostRows.length, aivTile, southEff };
 }
 
+export function cookedAtPublishErrors(dir) {
+  const errors = packIdentityErrors(dir);
+  const missing = errors.filter((item) => item.includes("cookedAt missing"));
+  if (missing.length) return missing;
+  if (errors.some((item) => item.includes("no json") || item.includes("pack directory is missing"))) return errors;
+  return [];
+}
+
 function main() {
-  const dir = process.argv[2];
+  const args = process.argv.slice(2);
+  const cookedOnly = args[0] === "--cooked-at";
+  const dir = cookedOnly ? args[1] : args[0];
   if (!dir) {
-    console.error("usage: node web/check_pack.mjs <dir>");
+    console.error("usage: node web/check_pack.mjs [--cooked-at] <dir>");
     process.exit(2);
+  }
+  if (cookedOnly) {
+    const missing = cookedAtPublishErrors(resolve(dir));
+    if (missing.length) {
+      console.error(`refusing publish: cookedAt is missing\n- ${missing.join("\n- ")}`);
+      process.exit(1);
+    }
+    console.log("cookedAt present");
+    return;
   }
   const result = checkPack(resolve(dir));
   if (result.errors.length) {

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Choose a pack by cookSha + cookedAt. publishedAt is the workbook time and is not a newer-than key.
 
-cookedAt may be empty on a pack that was cooked before the field existed. Every JSON
-file in one directory must agree. Two packs with no cookedAt and different cookSha
-are refused instead of ranked by publishedAt.
+Every JSON file in one directory must agree. A pack with no cookedAt is never
+published, including the live cook 74d44dde02a0e1c6430a9a78b06034099c84e001.
+The site may keep serving that cook. An extract with no cookedAt does not
+replace a pack that already has one.
 """
 
 from __future__ import annotations
@@ -59,22 +60,22 @@ def prefer(fresh: dict, have: dict | None) -> str:
     """replace, keep, or refuse. fresh is the new extract. have is the pack already on disk."""
     if fresh.get("errors"):
         return "refuse"
+    fresh_at = str(fresh.get("cookedAt") or "")
+    fresh_sha = str(fresh.get("cookSha") or "")
+    if not fresh_sha:
+        return "refuse"
     if have is None:
-        return "replace"
+        return "replace" if fresh_at else "refuse"
     if have.get("errors"):
         return "refuse"
-    fresh_at = str(fresh.get("cookedAt") or "")
     have_at = str(have.get("cookedAt") or "")
-    fresh_sha = str(fresh.get("cookSha") or "")
     have_sha = str(have.get("cookSha") or "")
-    if not fresh_sha or not have_sha:
+    if not have_sha:
         return "refuse"
-    if not fresh_at and not have_at:
-        return "keep" if fresh_sha == have_sha else "refuse"
-    if fresh_at and not have_at:
+    if not fresh_at:
+        return "refuse" if not have_at else "keep"
+    if not have_at:
         return "replace"
-    if have_at and not fresh_at:
-        return "keep"
     if fresh_at == have_at:
         return "keep" if fresh_sha == have_sha else "refuse"
     return "replace" if fresh_at > have_at else "keep"
@@ -91,7 +92,7 @@ def newer(live: dict, local: dict) -> str:
     if not live_sha or not local_sha:
         return "refuse"
     if not live_at and not local_at:
-        return "keep" if live_sha == local_sha else "refuse"
+        return "refuse"
     if live_at and not local_at:
         return "fetch"
     if local_at and not live_at:

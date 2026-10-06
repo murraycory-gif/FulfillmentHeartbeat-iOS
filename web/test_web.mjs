@@ -21,8 +21,8 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { checkPack, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors } from "./check_pack.mjs";
-import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
+import { checkPack, cookedAtPublishErrors, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors } from "./check_pack.mjs";
+import { PACK_POINTER_KEY, PINNED_LIVE_COOK_SHA, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
@@ -897,9 +897,51 @@ assert.notEqual(badCheck.status, 0);
 assert.match(badCheck.stderr, /schemaVersion=missing/);
 assert.match(badCheck.stderr, /cookSha missing/);
 rmSync(badPack, { recursive: true, force: true });
-const goodCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), join(root, "public/data")], { encoding: "utf8" });
-assert.equal(goodCheck.status, 0, goodCheck.stderr);
-assert.equal(checkPack(join(root, "public/data")).errors.length, 0);
+const livePack = join(root, "public/data");
+const liveCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), livePack], { encoding: "utf8" });
+assert.notEqual(liveCheck.status, 0);
+assert.match(liveCheck.stderr, /cookedAt missing/);
+assert.match(liveCheck.stderr, /pinned live cook cannot be republished/);
+const liveErrors = checkPack(livePack).errors;
+assert.ok(liveErrors.some((item) => item.includes("cookedAt missing")));
+assert.ok(liveErrors.some((item) => item.includes("storeCount=")));
+assert.ok(liveErrors.some((item) => item.includes("currency")));
+assert.ok(liveErrors.some((item) => item.startsWith("lost ")));
+const liveRepublish = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", livePack], { encoding: "utf8" });
+assert.notEqual(liveRepublish.status, 0);
+assert.match(liveRepublish.stderr, /refusing publish: cookedAt is missing/);
+assert.match(liveRepublish.stderr, /pinned live cook cannot be republished/);
+const otherCook = mkdtempSync(join(tmpdir(), "hb-nocook-"));
+const otherSha = "e".repeat(40);
+writeFileSync(
+  join(otherCook, "home.json"),
+  JSON.stringify({
+    publishedAt: "2026-10-06T01:35:23Z",
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: otherSha,
+  }),
+);
+const otherRefused = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", otherCook], { encoding: "utf8" });
+assert.notEqual(otherRefused.status, 0);
+assert.match(otherRefused.stderr, /refusing publish: cookedAt is missing/);
+assert.match(otherRefused.stderr, /cookedAt missing/);
+assert.equal(otherRefused.stderr.includes("pinned live cook"), false);
+assert.ok(cookedAtPublishErrors(otherCook).some((item) => item.includes("cookedAt missing")));
+rmSync(otherCook, { recursive: true, force: true });
+const cookedPack = mkdtempSync(join(tmpdir(), "hb-cooked-"));
+writeFileSync(
+  join(cookedPack, "home.json"),
+  JSON.stringify({
+    publishedAt: "2026-10-06T01:35:23Z",
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: otherSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+  }),
+);
+const cookedOk = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", cookedPack], { encoding: "utf8" });
+assert.equal(cookedOk.status, 0, cookedOk.stderr);
+assert.equal(cookedAtPublishErrors(cookedPack).length, 0);
+rmSync(cookedPack, { recursive: true, force: true });
 assert.ok(Array.isArray(packHome.regionTables) && packHome.regionTables.length > 10);
 const rosterByStore = Object.fromEntries(packHome.filters.stores.map((row) => [row.store, row]));
 assert.equal(rosterByStore["233"].division, "Seattle");
@@ -1050,6 +1092,8 @@ assert.match(publishScript, /HEARTBEAT_UI_ONLY/);
 assert.match(publishScript, /HEARTBEAT_USE_LOCAL_DATA/);
 assert.match(publishScript, /fulfillment-heartbeat-web/);
 assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" --cooked-at "\$DATA"/);
+assert.match(publishScript, /refusing publish: cookedAt is missing/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
 assert.match(publishScript, /web-pack\/\{sha\}-\{cooked\}/);
@@ -1400,8 +1444,10 @@ assert.equal(rawDivisionName("INTERMOUNTAIN"), true);
 const goodSha = "a".repeat(40);
 const badSha = "b".repeat(40);
 const publishedAt = "2026-10-06T01:35:23Z";
+const goodCookedAt = "2026-10-07T04:00:00Z";
 const goodPrefix = packPrefix(goodSha, publishedAt);
 const badPrefix = packPrefix(badSha, publishedAt);
+assert.equal(PINNED_LIVE_COOK_SHA, "74d44dde02a0e1c6430a9a78b06034099c84e001");
 assert.equal(PACK_POINTER_KEY, "web-pack/current.json");
 assert.equal(goodPrefix, `web-pack/${goodSha}-${publishedAt}`);
 assert.equal(packObjectKey(goodPrefix, "section/labor.json"), `${goodPrefix}/section/labor.json`);
@@ -1409,7 +1455,8 @@ const goodHome = {
   schemaVersion: SCHEMA_VERSION,
   cookSha: goodSha,
   publishedAt,
-  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha },
+  cookedAt: goodCookedAt,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha, cookedAt: goodCookedAt },
   laborMarket: { aiv_impact_pct: 3, uplh_impact_pct: 1, wage_impact_pct: 2, target_vs_actual_pct: 6 },
   regionTables: [{ region: "West" }],
   summaries: [{ section: "sales" }],
@@ -1448,20 +1495,23 @@ const packFiles = {
   [PACK_POINTER_KEY]: JSON.stringify({
     prefix: badPrefix,
     cookSha: badSha,
+    cookedAt: "2026-10-07T01:00:00Z",
     publishedAt,
     schemaVersion: SCHEMA_VERSION,
-    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+    previous: { prefix: goodPrefix, cookSha: goodSha, cookedAt: goodCookedAt, publishedAt, schemaVersion: SCHEMA_VERSION },
   }),
-  [packObjectKey(badPrefix, "home.json")]: JSON.stringify(badHome),
+  [packObjectKey(badPrefix, "home.json")]: JSON.stringify({ ...badHome, cookedAt: "2026-10-07T01:00:00Z" }),
   [packObjectKey(badPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: badSha,
+    cookedAt: "2026-10-07T01:00:00Z",
     rows: [{ store: "879", division: "DENVER" }],
   }),
   [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
   [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: goodCookedAt,
     rows: [{ store: "879", division: "Mountain West" }],
   }),
 };
@@ -1478,29 +1528,34 @@ assert.equal(packed.headers.get("cache-control"), "private, no-store");
 assert.match(await packed.text(), /Mountain West/);
 const skewSha = "c".repeat(40);
 const skewPrefix = packPrefix(skewSha, publishedAt);
+const skewCookedAt = "2026-10-07T05:00:00Z";
 const skewHome = {
   ...goodHome,
   cookSha: skewSha,
-  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: skewSha },
+  cookedAt: skewCookedAt,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: skewSha, cookedAt: skewCookedAt },
 };
 const skewFiles = {
   [PACK_POINTER_KEY]: JSON.stringify({
     prefix: skewPrefix,
     cookSha: skewSha,
+    cookedAt: skewCookedAt,
     publishedAt,
     schemaVersion: SCHEMA_VERSION,
-    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+    previous: { prefix: goodPrefix, cookSha: goodSha, cookedAt: goodCookedAt, publishedAt, schemaVersion: SCHEMA_VERSION },
   }),
   [packObjectKey(skewPrefix, "home.json")]: JSON.stringify(skewHome),
   [packObjectKey(skewPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: skewCookedAt,
     rows: [{ store: "879", division: "DENVER" }],
   }),
   [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
   [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: goodCookedAt,
     rows: [{ store: "879", division: "Mountain West" }],
   }),
 };
@@ -1538,7 +1593,7 @@ const siblingFiles = {
     cookedAt: "2026-10-07T00:00:00Z",
     publishedAt,
     schemaVersion: SCHEMA_VERSION,
-    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+    previous: { prefix: goodPrefix, cookSha: goodSha, cookedAt: goodCookedAt, publishedAt, schemaVersion: SCHEMA_VERSION },
   }),
   [packObjectKey(siblingPrefix, "home.json")]: JSON.stringify(siblingHome),
   [packObjectKey(siblingPrefix, "section/missing_items.json")]: JSON.stringify({
@@ -1557,6 +1612,7 @@ const siblingFiles = {
   [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
     schemaVersion: SCHEMA_VERSION,
     cookSha: goodSha,
+    cookedAt: goodCookedAt,
     rows: [{ store: "879", division: "Mountain West" }],
   }),
 };
@@ -1616,6 +1672,76 @@ const staticFallback = await basicGate({
 });
 assert.equal(await staticFallback.text(), "static-home");
 assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
+const pinnedPrefix = `web-pack/${PINNED_LIVE_COOK_SHA}-${publishedAt}`;
+const pinnedHome = {
+  ...goodHome,
+  cookSha: PINNED_LIVE_COOK_SHA,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: PINNED_LIVE_COOK_SHA },
+};
+delete pinnedHome.cookedAt;
+const pinnedFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: pinnedPrefix,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+  }),
+  [packObjectKey(pinnedPrefix, "home.json")]: JSON.stringify(pinnedHome),
+  [packObjectKey(pinnedPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: PINNED_LIVE_COOK_SHA,
+    rows: [{ store: "210", division: "United" }],
+  }),
+};
+resetPackCache();
+const pinnedServed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(pinnedFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(pinnedServed.status, 200);
+assert.match(await pinnedServed.text(), /United/);
+const looseSha = "f".repeat(40);
+const loosePrefix = packPrefix(looseSha, publishedAt);
+const looseHome = {
+  ...goodHome,
+  cookSha: looseSha,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: looseSha },
+};
+delete looseHome.cookedAt;
+const pinnedObjects = { ...pinnedFiles };
+delete pinnedObjects[PACK_POINTER_KEY];
+resetPackCache();
+const looseRefused = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({
+      ...pinnedObjects,
+      [packObjectKey(loosePrefix, "home.json")]: JSON.stringify(looseHome),
+      [packObjectKey(loosePrefix, "section/missing_items.json")]: JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        cookSha: looseSha,
+        rows: [{ store: "1", division: "Haggen" }],
+      }),
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: loosePrefix,
+        cookSha: looseSha,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+        previous: { prefix: pinnedPrefix, cookSha: PINNED_LIVE_COOK_SHA, publishedAt, schemaVersion: SCHEMA_VERSION },
+      }),
+    }),
+  }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+const looseText = await looseRefused.text();
+assert.equal(looseText.includes("Haggen"), false);
+assert.match(looseText, new RegExp(PINNED_LIVE_COOK_SHA));
+assert.equal(looseText.includes(looseSha), false);
 resetPackCache();
 const apiPacked = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/api/section/missing_items", {

@@ -200,6 +200,13 @@ if [[ -n "$UI_ONLY" && "$LIVE_CHECKED" -ne 1 && "$USE_LOCAL" != "1" ]]; then
   exit 1
 fi
 
+# Every pack needs cookedAt, including the pinned live cook. The site may
+# keep serving that cook. This script must not publish it again.
+if ! node "$WEB/check_pack.mjs" --cooked-at "$DATA"; then
+  echo "refusing publish: cookedAt is missing" >&2
+  exit 1
+fi
+
 node "$WEB/check_pack.mjs" "$DATA"
 
 python3 - "$DATA" << 'PY'

@@ -658,6 +658,15 @@ def pack_identity_choice() -> None:
         {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
         {"cookSha": "b" * 40, "cookedAt": "", "errors": []},
     ) == "refuse"
+    pinned = "74d44dde02a0e1c6430a9a78b06034099c84e001"
+    assert choice.prefer(
+        {"cookSha": pinned, "cookedAt": "", "errors": []},
+        {"cookSha": pinned, "cookedAt": "", "errors": []},
+    ) == "refuse"
+    assert choice.prefer(
+        {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
+    ) == "refuse"
     assert choice.prefer(fresh, {"cookSha": fresh["cookSha"], "cookedAt": fresh["cookedAt"], "errors": []}) == "keep"
     assert choice.newer(
         {"cookSha": "a" * 40, "cookedAt": "2026-10-07T03:00:00Z", "errors": []},
@@ -671,6 +680,14 @@ def pack_identity_choice() -> None:
         {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
         {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
     ) == "keep"
+    assert choice.newer(
+        {"cookSha": pinned, "cookedAt": "", "errors": []},
+        {"cookSha": pinned, "cookedAt": "", "errors": []},
+    ) == "refuse"
+    assert choice.newer(
+        {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "e" * 40, "cookedAt": "", "errors": []},
+    ) == "refuse"
     print("pack identity ok")
 
 

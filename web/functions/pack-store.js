@@ -7,14 +7,17 @@
 //     home.json, schedule.json, presub.json, section/<section>.json
 //
 // current.json is written last, after check_pack on the uploaded set. The
-// prefix is the pointer's stored prefix. A pack uploaded before cookedAt
-// keeps web-pack/<cookSha>-<publishedAt>. A prefix is one cook: if any JSON
+// prefix is the pointer's stored prefix. A prefix is one cook: if any JSON
 // file under it fails the pointer, every read uses the previous pack. No
 // pointer yet falls through to the static /data files from the last full
 // deploy. A bare web-pack/home.json is not a pack.
+//
+// A pack with no cookedAt is not served, except the live cook pinned below.
+// That cook stays readable. Nothing may publish it again.
 
 import { SCHEMA_VERSION } from "../public/schema.js";
 
+export const PINNED_LIVE_COOK_SHA = "74d44dde02a0e1c6430a9a78b06034099c84e001";
 export const PACK_POINTER_KEY = "web-pack/current.json";
 
 const SHA = /^[0-9a-f]{40}$/;
@@ -105,6 +108,7 @@ function pointerEntry(value) {
   const prefix = typeof value.prefix === "string" && value.prefix ? value.prefix : packPrefix(cookSha, publishedAt);
   if (!SHA.test(cookSha) || schemaVersion !== SCHEMA_VERSION) return null;
   if (!prefix.startsWith("web-pack/") || prefix.includes("..") || /[\\]/.test(prefix)) return null;
+  if (!cookedAt && cookSha !== PINNED_LIVE_COOK_SHA) return null;
   return { prefix, cookSha, publishedAt, cookedAt, schemaVersion };
 }
 
@@ -122,7 +126,8 @@ function fileMatches(json, entry) {
   if (!json || typeof json !== "object" || Array.isArray(json)) return false;
   const stamp = fileStamp(json);
   if (stamp.schemaVersion !== entry.schemaVersion || stamp.cookSha !== entry.cookSha) return false;
-  if (entry.cookedAt && stamp.cookedAt !== entry.cookedAt) return false;
+  if ((stamp.cookedAt || "") !== (entry.cookedAt || "")) return false;
+  if (!entry.cookedAt && entry.cookSha !== PINNED_LIVE_COOK_SHA) return false;
   return true;
 }
 
