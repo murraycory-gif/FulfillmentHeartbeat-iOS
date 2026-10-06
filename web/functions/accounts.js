@@ -43,6 +43,13 @@ const SCHEMA = [
     window_start INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
   )`,
+  `CREATE TABLE IF NOT EXISTS shared_sessions (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
   "CREATE INDEX IF NOT EXISTS invites_user ON invites (user_id, used_at)",
   "CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, revoked_at)",
 ];
@@ -185,17 +192,17 @@ async function attemptRow(db, bucket) {
   return db.prepare("SELECT failures, window_start, locked_until FROM login_attempts WHERE bucket = ?").bind(bucket).first();
 }
 
+function attemptBucket(request, email) {
+  return `ip:${clientIp(request)}|email:${normalizeEmail(email)}`;
+}
+
 export async function loginThrottled(db, request, email, now) {
-  const buckets = [`ip:${clientIp(request)}`, `email:${normalizeEmail(email)}`];
-  for (const bucket of buckets) {
-    const row = await attemptRow(db, bucket);
-    if (row && Number(row.locked_until) > now) return true;
-  }
-  return false;
+  const row = await attemptRow(db, attemptBucket(request, email));
+  return Boolean(row && Number(row.locked_until) > now);
 }
 
 export async function recordLoginFailure(db, request, email, now) {
-  const buckets = [`ip:${clientIp(request)}`, `email:${normalizeEmail(email)}`];
+  const buckets = [attemptBucket(request, email)];
   for (const bucket of buckets) {
     const row = await attemptRow(db, bucket);
     const fresh = !row || now - Number(row.window_start) > LOGIN_WINDOW;
@@ -213,7 +220,7 @@ export async function recordLoginFailure(db, request, email, now) {
 }
 
 export async function clearLoginFailures(db, request, email) {
-  await db.prepare("DELETE FROM login_attempts WHERE bucket = ? OR bucket = ?").bind(`ip:${clientIp(request)}`, `email:${normalizeEmail(email)}`).run();
+  await db.prepare("DELETE FROM login_attempts WHERE bucket = ?").bind(attemptBucket(request, email)).run();
 }
 
 async function findUserByEmail(db, email) {
@@ -367,6 +374,49 @@ export async function readAccountSession(db, request, env, now) {
 export async function revokeSession(db, sessionId, now) {
   if (!sessionId) return;
   await db.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
+}
+
+export async function createSharedSession(db, env, subject, now) {
+  const secret = sessionSecret(env);
+  const name = String(subject || "").trim();
+  if (!secret || !db || !name || /[|\r\n]/.test(name)) return "";
+  const id = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+  const exp = now + SESSION_TTL;
+  await db
+    .prepare("INSERT INTO shared_sessions (id, subject, expires_at, revoked_at, created_at) VALUES (?, ?, ?, NULL, ?)")
+    .bind(id, name, exp, now)
+    .run();
+  const sig = await hmacHex(secret, id);
+  return `${id}.${sig}`;
+}
+
+export async function readSharedSession(db, request, env, now) {
+  const secret = sessionSecret(env);
+  const header = (request && request.headers && request.headers.get("cookie")) || "";
+  let token = "";
+  for (const part of header.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith("hb_session=")) token = trimmed.slice("hb_session=".length);
+  }
+  if (!secret || !db || !accountCookie(token)) return null;
+  const id = token.slice(0, 64);
+  const sig = token.slice(65);
+  const expected = await hmacHex(secret, id);
+  if (expected.length !== sig.length) return null;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i += 1) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+  if (diff !== 0) return null;
+  const row = await db
+    .prepare("SELECT id, subject, expires_at, revoked_at FROM shared_sessions WHERE id = ?")
+    .bind(id)
+    .first();
+  if (!row || row.revoked_at || Number(row.expires_at) < now) return null;
+  return { user: row.subject, role: "viewer", exp: Number(row.expires_at), sessionId: row.id, account: false, shared: true };
+}
+
+export async function revokeSharedSession(db, sessionId, now) {
+  if (!db || !sessionId) return;
+  await db.prepare("UPDATE shared_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
 }
 
 export async function changePassword(db, env, request, session, current, password, confirm, now) {
@@ -619,7 +669,7 @@ function shell(title, heading, body, chrome) {
   <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/login.css?v=2">
-  <script src="/nav-boot.js?v=2"></script>
+  <script src="/nav-boot.js?v=3"></script>
 </head>
 <body>
   ${head}
@@ -637,7 +687,7 @@ export function loginHTML(message, email) {
     `<form class="login-card" method="POST" action="/login" autocomplete="on">
       <h2>Fulfillment Heartbeat</h2>
       ${alert}
-      <label>Email<input name="email" type="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required value="${escapeHtml(email)}"></label>
+      <label>Email or username<input name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required value="${escapeHtml(email)}"></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Sign in</button>
     </form>`,
@@ -664,7 +714,7 @@ export function deniedHTML(chrome) {
   return shell(
     "People · Fulfillment Heartbeat",
     "People",
-    `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+    `<section class="login-card"><h2>Admins only</h2><p>This page is for an admin account.</p></section>`,
     chrome || { admin: false, account: false, here: "" },
   );
 }
@@ -682,7 +732,6 @@ export function accountHTML(email, message, notice, chrome) {
       <label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="10" required></label>
       <p class="hint">At least 10 characters.</p>
       <button type="submit">Save password</button>
-      <p><a href="/">Back to Heartbeat</a></p>
     </form>`,
     chrome || { admin: false, account: true, here: "account" },
   );
@@ -692,7 +741,7 @@ export function accountSharedHTML(chrome) {
   return shell(
     "Account · Fulfillment Heartbeat",
     "Account",
-    `<section class="login-card"><h2>Shared sign-in</h2><p>This sign-in does not have its own password.</p><p><a href="/">Back to Heartbeat</a></p></section>`,
+    `<section class="login-card"><h2>Shared sign-in</h2><p>This sign-in does not have its own password.</p></section>`,
     chrome || { admin: false, account: false, here: "account" },
   );
 }
@@ -741,7 +790,6 @@ export function adminHTML({ users, notice, error, link, emailOn, chrome }) {
         <label>Role<select name="role"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
         <button type="submit">Create invite</button>
       </form>
-      <p><a href="/">Back to Heartbeat</a></p>
     </section>
     <div class="user-list">${cards}</div>
     <script src="/auth-copy.js"></script>`,

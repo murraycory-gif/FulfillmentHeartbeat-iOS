@@ -3,6 +3,12 @@
 // Picker ScoreCard rows already in the pack. Pick Path shoppers are a
 // separate employee sheet and do not include hours.
 
+export function shopperHoursText(value, format) {
+  const number = Number(value);
+  if (value != null && value !== "" && Number.isFinite(number) && number < 0) return "source data issue";
+  return format(value);
+}
+
 export function shopperPph(row) {
   const payload = (row && row.payload) || {};
   const value = payload.pph;

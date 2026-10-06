@@ -14,6 +14,30 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+if [[ -z "${HEARTBEAT_SKIP_GIT_CHECK:-}" && "${1:-}" != "--install" ]]; then
+  git -C "$ROOT" fetch origin
+  BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
+  if ! git -C "$ROOT" rev-parse --verify --quiet "origin/${BRANCH}" >/dev/null; then
+    echo "refusing cook: origin/${BRANCH} is missing after fetch" >&2
+    exit 1
+  fi
+  BEHIND="$(git -C "$ROOT" rev-list --count "HEAD..origin/${BRANCH}")"
+  if [[ "$BEHIND" -gt 0 ]]; then
+    echo "refusing cook: ${BRANCH} is ${BEHIND} commit(s) behind origin/${BRANCH}" >&2
+    exit 1
+  fi
+  # cook-guard.sh documents the pinned cook paths. A dirty publish-web.sh
+  # is flagged for review and does not stop the cook. Any other dirty path
+  # outside that list is refused.
+  changed=()
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && changed+=("$path")
+  done < <(git -C "$ROOT" diff --name-only HEAD)
+  if ((${#changed[@]})) && ! bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" "${changed[@]}"; then
+    echo "refusing cook: a change is outside the cook path" >&2
+    exit 1
+  fi
+fi
 ICLOUD="${HEARTBEAT_ICLOUD_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/Heartbeat_Reports}"
 MARKERS="${HEARTBEAT_COOK_MARKERS:-$HOME/Library/Application Support/Heartbeat/cook-markers}"
 OUT="${HEARTBEAT_COOK_OUT:-$HOME/Library/Application Support/Heartbeat}"
@@ -170,11 +194,16 @@ cook_schedule_file() {
 }
 
 deploy_site() {
+  local daily="${1:-}"
   if [[ -n "${HEARTBEAT_DEPLOY_CMD:-}" ]]; then
     bash -lc "$HEARTBEAT_DEPLOY_CMD"
     return $?
   fi
-  bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
+  if [[ -n "$daily" && -f "$daily" ]]; then
+    HEARTBEAT_DATA_ONLY=1 HEARTBEAT_DAILY_XLSX="$daily" bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
+    return $?
+  fi
+  HEARTBEAT_DATA_ONLY=1 bash "$ROOT/Tools/HeartbeatIngest/publish-web.sh" "$SQLITE"
 }
 
 run_pipeline() {
@@ -226,7 +255,7 @@ run_pipeline() {
     fi
   fi
 
-  deploy_site || return 1
+  deploy_site "$daily" || return 1
   published_at > "$deploy_marker"
   echo "deployed $(cat "$deploy_marker")"
   return 0

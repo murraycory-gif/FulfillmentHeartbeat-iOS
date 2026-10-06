@@ -1,4 +1,5 @@
 import { updatedLine, considerPublished, pct, money, num, formatHeadline, publishStamp } from "./clock.js";
+import { schemaWarning } from "./schema.js?v=1";
 import {
   emptyFilters,
   filtersActive,
@@ -10,6 +11,7 @@ import {
   finestScope,
   searchScope,
   cascadePick,
+  regionStoreCount,
   scopeChips,
   filtersUpTo,
   browseLevel,
@@ -20,8 +22,8 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, lossPercentPoints, seatSummary } from "./seat.js";
-import { metricsInSource, pphBar, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
+import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./seat.js";
+import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -34,7 +36,7 @@ import {
   barelyScheduled,
   percentHealth,
   effHealth,
-} from "./schedule-math.js?v=2";
+} from "./schedule-math.js?v=4";
 
 let packStamp = "";
 
@@ -66,7 +68,7 @@ const COLUMNS = {
     ["Lost %", ["lost_revenue_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue"]), cell(row, ["ecomm_sales"])))],
     ["Goal %", ["lost_revenue_goal_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue_goal"]), cell(row, ["ecomm_sales"])))],
     ["eComm", ["ecomm_sales"], money],
-    ["Missed", ["missed_sales", "reduced_capacity"], money],
+    ["Missed", ["missed_sales"], money],
   ],
   missing_items: [["Rate", ["mi_pct"], pct]],
   five_star: [
@@ -184,11 +186,12 @@ function tilesFor(section) {
   return (tiles && tiles[section]) || null;
 }
 
-function raiseBanner(text) {
+function raiseBanner(text, sticky = false) {
   if (!text) return;
   banner.hidden = false;
   banner.textContent = text;
   clearTimeout(state.bannerTimer);
+  if (sticky) return;
   state.bannerTimer = setTimeout(() => {
     banner.hidden = true;
   }, 5000);
@@ -521,6 +524,11 @@ function shownTileLabel(section, label) {
 }
 
 function shownTileValue(section, label, raw) {
+  if (section === "labor" && label === "AIV") {
+    const market = state.home && state.home.laborMarket;
+    const aiv = market && market.aiv_impact_pct;
+    if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
+  }
   if (raw == null || raw === "") return "—";
   const text = String(raw).trim();
   return text.startsWith("$") ? money(raw) : text;
@@ -549,6 +557,7 @@ function seatFor(section) {
   return seatSummary(section, {
     company: summaryFor(section),
     lines: (state.home && state.home.regionLines) || [],
+    tables: (state.home && state.home.regionTables) || [],
     rows: (pack && pack.rows) || [],
     filters: state.filters,
     roster: roster(),
@@ -629,6 +638,13 @@ function displayDivision(row, known) {
   return canonicalDivision(row.division) || row.division || "—";
 }
 
+function shownMetric(section, row, column) {
+  if (section === "labor" && row.sourceIssue) return "source data issue";
+  const value = cell(row, column[1]);
+  if ((column[1] || []).includes("pick_hours")) return shopperHoursText(value, (hours) => column[2](hours, row));
+  return column[2](value, row);
+}
+
 function table(section, rows) {
   const columns = COLUMNS[section] || [];
   const known = rosterByStore();
@@ -645,7 +661,7 @@ function table(section, rows) {
   const body = shown
     .map((row) => {
       const metrics = columns
-        .map((column) => `<td>${esc(column[2](cell(row, column[1]), row))}</td>`)
+        .map((column) => `<td>${esc(shownMetric(section, row, column))}</td>`)
         .join("");
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
@@ -661,7 +677,7 @@ function table(section, rows) {
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(column[2](cell(row, column[1]), row))}</strong></div>`,
+            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(shownMetric(section, row, column))}</strong></div>`,
         )
         .join("");
       const division = displayDivision(row, known);
@@ -728,9 +744,10 @@ function regionCardsHtml() {
     .map((name) => {
       const rows = byRegion.get(name);
       const sales = rows.find((row) => row.section === "sales");
-      const storeCount = sales && sales.storeCount
+      const listed = regionStoreCount(roster(), name);
+      const storeCount = listed || (sales && sales.storeCount
         ? sales.storeCount
-        : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0);
+        : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0));
       const chips = rows
         .map((row) => {
           const raw = row.headline;
@@ -819,10 +836,15 @@ function shopperListHtml() {
   const head = ["", "Shopper", "Store", ...columns.map((column) => column.label)]
     .map((label) => `<th${label ? "" : ' class="bar"'}>${esc(label)}</th>`)
     .join("");
+  const hoursText = (column, row) => {
+    const value = cell(row, column.keys);
+    if ((column.keys || []).includes("pick_hours")) return shopperHoursText(value, (hours) => column.format(hours));
+    return column.format(value);
+  };
   const body = shown
     .map((row) => {
       const tone = pphBar(shopperPph(row));
-      const metrics = columns.map((column) => `<td>${esc(column.format(cell(row, column.keys)))}</td>`).join("");
+      const metrics = columns.map((column) => `<td>${esc(hoursText(column, row))}</td>`).join("");
       const name = shopperIdentity(row) || "—";
       return `<tr><td class="bar bar-${tone}"></td><td>${esc(name)}</td><td>${esc(canonicalStore(row.store))}</td>${metrics}</tr>`;
     })
@@ -833,7 +855,7 @@ function shopperListHtml() {
       const metrics = columns
         .map(
           (column) =>
-            `<div class="metric"><span>${esc(column.label)}</span><strong>${esc(column.format(cell(row, column.keys)))}</strong></div>`,
+            `<div class="metric"><span>${esc(column.label)}</span><strong>${esc(hoursText(column, row))}</strong></div>`,
         )
         .join("");
       const name = shopperIdentity(row) || "—";
@@ -956,8 +978,11 @@ function renderSchedule(pack) {
 
 function scheduleSeat(store) {
   const known = rosterByStore().get(canonicalStore(store.store)) || {};
+  const division = canonicalDivision(known.division || store.division) || known.division || store.division || "";
+  const region = String(store.region || "").trim() || regionForDivision(division) || "";
   return {
-    division: canonicalDivision(known.division || store.division) || known.division || store.division || "—",
+    region: region || "—",
+    division: division || "—",
     district: known.district || store.district || "—",
     om: known.om || store.om || "—",
   };
@@ -965,7 +990,7 @@ function scheduleSeat(store) {
 
 function seatText(store) {
   const seat = scheduleSeat(store);
-  return `${seat.division} · ${seat.district} · OM ${seat.om}`;
+  return `${seat.region} · ${seat.division} · ${seat.district} · OM ${seat.om}`;
 }
 
 function whyFlags(store) {
@@ -985,7 +1010,7 @@ function scheduleActionHtml(pack, card) {
             .slice(0, 80)
             .map((store) => {
               const seat = scheduleSeat(store);
-              return `<tr><td>${esc(store.store)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td>${esc(pct(store.under))}</td><td>${esc(pct(store.over))}</td><td>${esc(whyFlags(store))}</td></tr>`;
+              return `<tr><td>${esc(store.store)}</td><td>${esc(seat.region)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td>${esc(pct(store.under))}</td><td>${esc(pct(store.over))}</td><td>${esc(whyFlags(store))}</td></tr>`;
             })
             .join("");
           const cards = group.stores
@@ -995,7 +1020,7 @@ function scheduleActionHtml(pack, card) {
                 `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`,
             )
             .join("");
-          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
+          return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
         })
         .join("")
     : `<p class="note">No stores qualify in this scope.</p>`;
@@ -1080,7 +1105,7 @@ function scheduleDetailHtml(pack) {
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
       const seat = scheduleSeat(store);
-      return `<tr><td>${name}${tag}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(scheduleRate(store, store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(scheduleRate(store, store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(scheduleRate(store, store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
+      return `<tr><td>${name}${tag}</td><td>${esc(seat.region)}</td><td>${esc(seat.division)}</td><td>${esc(seat.district)}</td><td>${esc(seat.om)}</td><td class="${toneClass(percentHealth(store.under, quiet))}">${esc(scheduleRate(store, store.under))}</td><td class="${toneClass(percentHealth(store.over, quiet))}">${esc(scheduleRate(store, store.over))}</td><td class="${toneClass(effHealth(store.eff, quiet))}">${esc(scheduleRate(store, store.eff))}</td><td>${esc(pct(store.pch))}</td><td>${esc(money(store.sales))}</td></tr>`;
     })
     .join("");
   const cards = rows
@@ -1096,7 +1121,7 @@ function scheduleDetailHtml(pack) {
       return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
-  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
+  return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
 }
 
 let renderToken = 0;
@@ -1253,10 +1278,30 @@ function closeDrawer() {
   if (!desktopNav()) navToggle.setAttribute("aria-expanded", "false");
 }
 
-async function ensureSeatRows() {
-  await Promise.all(
-    PAGES.filter((page) => page.section).map((page) => load(`section/${page.section}`).catch(() => null)),
-  );
+async function ensureSeatRows(pages) {
+  const shared = Array.isArray(pages) ? pages : [];
+  const needPicker = shared.some((page) => page.section === "picker_scorecard");
+  const regionOnly =
+    Boolean(state.filters.region) &&
+    !state.filters.division &&
+    !state.filters.district &&
+    !state.filters.om &&
+    !state.filters.store;
+  const rendered = [];
+  for (const page of shared) {
+    if (page && page.id === "dashboard") rendered.push(...PAGES);
+    else if (page) rendered.push(page);
+  }
+  const sections = [];
+  const seen = new Set();
+  for (const page of rendered.filter((page) => page.section && (needPicker || page.section !== "picker_scorecard"))) {
+    if (seen.has(page.section)) continue;
+    seen.add(page.section);
+    // Region chrome already paints this seat. Load a section file only when the share has to render its rows.
+    if (regionOnly && seatReady(page.section)) continue;
+    sections.push(`section/${page.section}`);
+  }
+  await Promise.all(sections.map((path) => load(path).catch(() => null)));
 }
 
 function seatFigure(section, seat) {
@@ -1422,7 +1467,7 @@ async function sendShare() {
   shareSend.disabled = true;
   try {
     if (filtersActive(state.filters) && pages.some((page) => page.section || page.id === "dashboard")) {
-      await ensureSeatRows();
+      await ensureSeatRows(pages);
     }
     if (pages.some((page) => page.id === "schedule" || page.id === "dashboard")) {
       await load("schedule").catch(() => null);
@@ -1666,7 +1711,9 @@ function acceptHome(home) {
   state.home = home;
   state.homeError = "";
   applyPackStamp(home && home.publishedAt);
-  raiseBanner(considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt));
+  const staleSchema = schemaWarning(home);
+  if (staleSchema) console.warn(staleSchema);
+  raiseBanner(staleSchema || considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt), Boolean(staleSchema));
   render();
 }
 
@@ -1691,8 +1738,20 @@ function applyPageQuery() {
   history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
-if (location.username || location.password) {
-  location.replace(location.origin + location.pathname + location.search + location.hash);
+function pageHasCredentials() {
+  try {
+    const url = new URL(location.href);
+    return Boolean(url.username || url.password);
+  } catch (e) {
+    return false;
+  }
+}
+
+if (pageHasCredentials()) {
+  const url = new URL(location.href);
+  url.username = "";
+  url.password = "";
+  location.replace(url.href);
 } else {
   applyPageQuery();
   renderNav();

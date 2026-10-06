@@ -3,6 +3,7 @@
 // The shared BASIC_PASS login stays until AUTH_CUTOVER=1, after the account sign-in is verified.
 // Nothing here is a password. A missing secret fails closed.
 
+import { packApiPath, readPackObject } from "./pack-store.js";
 import {
   acceptInvite,
   accountHTML,
@@ -22,9 +23,12 @@ import {
   clearLoginFailures,
   loginThrottled,
   openInvite,
+  createSharedSession,
   readAccountSession,
+  readSharedSession,
   recordLoginFailure,
   revokeSession,
+  revokeSharedSession,
   setupText,
   authenticateAccount,
 } from "./accounts.js";
@@ -103,101 +107,6 @@ function sessionSecret(env) {
   return secret.length >= 16 ? secret : "";
 }
 
-function passwordForSessionUser(env, user) {
-  const masterUser = envSecret(env, "BASIC_USER");
-  const testerNamed = envSecret(env, "BASIC_USER_TESTER");
-  if (masterUser && timingSafeEqualString(user, masterUser)) return envSecret(env, "BASIC_PASS");
-  if (timingSafeEqualString(user, "tester")) return envSecret(env, "BASIC_PASS_TESTER");
-  if (testerNamed && timingSafeEqualString(user, testerNamed)) return envSecret(env, "BASIC_PASS_TESTER");
-  return "";
-}
-
-async function sha256Hex(text) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text ?? "")));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function passwordVersion(password) {
-  return (await sha256Hex(password)).slice(0, 32);
-}
-
-async function hmacHex(secret, message) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
-  return [...new Uint8Array(signed)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function encodeToken(text) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
-}
-
-function decodeToken(text) {
-  const pad = text.length % 4 === 0 ? "" : "=".repeat(4 - (text.length % 4));
-  const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/") + pad);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-export async function createSessionToken(env, user, pass, nowSeconds = Math.floor(Date.now() / 1000)) {
-  const secret = sessionSecret(env);
-  const account = matchedAccount(user, pass, env);
-  if (!secret || !account || /[|\r\n]/.test(account.user)) return "";
-  const exp = Math.floor(nowSeconds) + MAX_AGE;
-  const version = await passwordVersion(account.pass);
-  const body = `${account.user}|${exp}|${version}`;
-  const encoded = encodeToken(body);
-  const sig = await hmacHex(secret, encoded);
-  return `${encoded}.${sig}`;
-}
-
-function readCookie(request, name) {
-  const header = (request && request.headers && request.headers.get("cookie")) || "";
-  for (const part of header.split(";")) {
-    const trimmed = part.trim();
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    if (trimmed.slice(0, eq) !== name) continue;
-    return trimmed.slice(eq + 1);
-  }
-  return "";
-}
-
-export async function readSession(request, env, nowSeconds = Math.floor(Date.now() / 1000)) {
-  const secret = sessionSecret(env);
-  const token = readCookie(request, COOKIE);
-  const dot = token.lastIndexOf(".");
-  if (!secret || dot <= 0) return null;
-  const encoded = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  const expected = await hmacHex(secret, encoded);
-  if (!timingSafeEqualString(sig, expected)) return null;
-  let body = "";
-  try {
-    body = decodeToken(encoded);
-  } catch {
-    return null;
-  }
-  const parts = body.split("|");
-  if (parts.length !== 3) return null;
-  const [user, expRaw, version] = parts;
-  const exp = Number(expRaw);
-  if (!user || !version || !Number.isFinite(exp) || exp < nowSeconds) return null;
-  const password = passwordForSessionUser(env, user);
-  if (!password) return null;
-  const current = await passwordVersion(password);
-  if (!timingSafeEqualString(version, current)) return null;
-  return { user, exp };
-}
-
 function sessionCookie(token) {
   return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`;
 }
@@ -205,6 +114,9 @@ function sessionCookie(token) {
 function clearCookie() {
   return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
+
+const REFERRER_POLICY = "same-origin";
+const CROSS_SITE_MESSAGE = "Sign-in blocked: please open the site directly and try again.";
 
 function htmlResponse(html, status = 200) {
   return new Response(html, {
@@ -214,7 +126,7 @@ function htmlResponse(html, status = 200) {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
-      "Referrer-Policy": "no-referrer",
+      "Referrer-Policy": REFERRER_POLICY,
       "Content-Security-Policy":
         "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
     },
@@ -244,22 +156,46 @@ function redirect(request, path, cookie, status = 303) {
   return new Response(null, { status, headers });
 }
 
+function requestHost(request) {
+  const forwarded = String(request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
+    .split(",")[0]
+    .trim();
+  if (forwarded) return forwarded;
+  try {
+    return new URL(request.url).host;
+  } catch {
+    return "";
+  }
+}
+
+function hostFrom(value) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return "";
+  }
+}
+
+function refererMatches(request, host) {
+  if (!host) return false;
+  const referer = request.headers.get("referer") || request.headers.get("referrer") || "";
+  if (!referer) return false;
+  return hostFrom(referer) === host;
+}
+
 function sameOrigin(request) {
-  const origin = request.headers.get("origin");
-  if (!origin) return true;
-  let originHost = "";
-  try {
-    originHost = new URL(origin).host;
-  } catch {
-    return false;
+  const host = requestHost(request);
+  const origin = (request.headers.get("origin") || "").trim();
+  if (!origin || origin.toLowerCase() === "null") {
+    const site = (request.headers.get("sec-fetch-site") || "").trim().toLowerCase();
+    if (site === "same-origin") return true;
+    return refererMatches(request, host);
   }
-  const host = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "").split(",")[0].trim();
+  const originHost = hostFrom(origin);
+  if (!originHost) return false;
   if (host && originHost === host) return true;
-  try {
-    return originHost === new URL(request.url).host;
-  } catch {
-    return false;
-  }
+  const urlHost = hostFrom(request.url);
+  return Boolean(urlHost) && originHost === urlHost;
 }
 
 async function readForm(request) {
@@ -273,17 +209,13 @@ async function readForm(request) {
   return new URLSearchParams(text);
 }
 
-function sessionIsAdmin(session, env) {
-  if (!session) return false;
-  if (session.account) return session.role === "admin";
-  if (authCutover(env)) return false;
-  const master = envSecret(env, "BASIC_USER");
-  return Boolean(master) && session.user === master;
+function sessionIsAdmin(session) {
+  return Boolean(session && session.account && session.role === "admin");
 }
 
-function settingsChrome(session, env, here) {
+function settingsChrome(session, here) {
   return {
-    admin: sessionIsAdmin(session, env),
+    admin: sessionIsAdmin(session),
     account: Boolean(session && session.account),
     here,
   };
@@ -291,7 +223,7 @@ function settingsChrome(session, env, here) {
 
 async function submitLogin(request, env, db, now) {
   if (!sessionSecret(env)) return loginResponse("Sign-in is unavailable.", "", 503);
-  if (!sameOrigin(request)) return loginResponse("That email or password is wrong.", "", 403);
+  if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
   const params = await readForm(request);
   if (!params) return loginResponse("That email or password is wrong.", "", 401);
   const email = params.get("email") || params.get("username") || "";
@@ -309,7 +241,8 @@ async function submitLogin(request, env, db, now) {
   if (!authCutover(env)) {
     const account = matchedAccount(email, password, env);
     if (account) {
-      const token = await createSessionToken(env, account.user, account.pass, now);
+      if (!db) return loginResponse("Sign-in is unavailable.", "", 503);
+      const token = await createSharedSession(db, env, account.user, now);
       if (!token) return loginResponse("Sign-in is unavailable.", "", 503);
       if (db) {
         try {
@@ -328,7 +261,7 @@ async function submitLogin(request, env, db, now) {
 async function inviteResponse(request, env, db, token, now) {
   if (!db) return loginResponse("Sign-in is unavailable.", "", 503);
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 403);
+    if (!sameOrigin(request)) return htmlResponse(inviteHTML("", token, CROSS_SITE_MESSAGE), 403);
     const params = await readForm(request);
     if (!params) return htmlResponse(inviteHTML("", token, "This link is no longer valid."), 400);
     const result = await acceptInvite(db, env, token, params.get("password") || "", params.get("confirm") || "", now);
@@ -341,14 +274,16 @@ async function inviteResponse(request, env, db, token, now) {
 }
 
 async function adminResponse(request, env, db, session, now) {
-  const chrome = settingsChrome(session, env, "admin");
+  const chrome = settingsChrome(session, "admin");
   if (!chrome.admin) return htmlResponse(deniedHTML(chrome), 403);
   if (!db) return htmlResponse(adminHTML({ users: [], error: "Accounts are not set up yet.", emailOn: false, chrome }), 503);
   let notice = "";
   let error = "";
   let link = "";
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(deniedHTML(chrome), 403);
+    if (!sameOrigin(request)) {
+      return htmlResponse(adminHTML({ users: [], error: CROSS_SITE_MESSAGE, emailOn: emailInvitesEnabled(env), chrome }), 403);
+    }
     const params = await readForm(request);
     if (!params) return htmlResponse(adminHTML({ users: await listUsers(db), error: "That form was empty.", emailOn: emailInvitesEnabled(env), chrome }), 400);
     const fields = Object.fromEntries(params.entries());
@@ -360,17 +295,16 @@ async function adminResponse(request, env, db, session, now) {
   return htmlResponse(adminHTML({ users: await listUsers(db), notice, error, link, emailOn: emailInvitesEnabled(env), chrome }));
 }
 
-function sessionPayload(session, env) {
-  const admin = sessionIsAdmin(session, env);
+function sessionPayload(session) {
   return {
     email: session.user,
-    role: session.account ? session.role : admin ? "admin" : "viewer",
+    role: session.account && session.role === "admin" ? "admin" : session.account ? session.role : "viewer",
     account: Boolean(session.account),
   };
 }
 
-function sessionJSON(session, env) {
-  return new Response(JSON.stringify(sessionPayload(session, env)), {
+function sessionJSON(session) {
+  return new Response(JSON.stringify(sessionPayload(session)), {
     status: 200,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
@@ -381,11 +315,11 @@ function sessionJSON(session, env) {
 
 async function accountResponse(request, env, db, session, now) {
   if (!session) return loginResponse("", "", 200);
-  const chrome = settingsChrome(session, env, "account");
+  const chrome = settingsChrome(session, "account");
   if (!session.account) return htmlResponse(accountSharedHTML(chrome));
   if (!db) return htmlResponse(accountHTML(session.user, "Accounts are not set up yet.", "", chrome), 503);
   if (request.method === "POST") {
-    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, "That password is wrong.", "", chrome), 403);
+    if (!sameOrigin(request)) return htmlResponse(accountHTML(session.user, CROSS_SITE_MESSAGE, "", chrome), 403);
     const params = await readForm(request);
     if (!params) return htmlResponse(accountHTML(session.user, "That form was empty.", "", chrome), 400);
     const result = await changePassword(
@@ -404,7 +338,53 @@ async function accountResponse(request, env, db, session, now) {
   return htmlResponse(accountHTML(session.user, "", "", chrome));
 }
 
+function packHeaders() {
+  return {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+  };
+}
+
+function packJSON(body, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: packHeaders() });
+}
+
+// HEARTBEAT_PACKS is read here, after the session check, and nowhere else.
+async function packFromBucket(env, pathname) {
+  const bucket = env && env.HEARTBEAT_PACKS;
+  if (!bucket || typeof bucket.get !== "function") return null;
+  const object = await readPackObject(bucket, pathname);
+  if (!object) return null;
+  return new Response(object.body, { status: 200, headers: packHeaders() });
+}
+
+async function apiPackResponse(request, env, pathname) {
+  if (request.method !== "GET" && request.method !== "HEAD") return packJSON({ error: "NO DATA" }, 405);
+  const rel = packApiPath(pathname);
+  if (!rel) return packJSON({ error: "NO DATA" }, 404);
+  const bucket = env && env.HEARTBEAT_PACKS;
+  const object = await readPackObject(bucket, `/data/${rel}`);
+  if (!object) return packJSON({ error: "NO DATA" }, 404);
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers: packHeaders() });
+  return new Response(object.body, { status: 200, headers: packHeaders() });
+}
+
+function withReferrerPolicy(response) {
+  const headers = new Headers(response.headers);
+  headers.set("Referrer-Policy", REFERRER_POLICY);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export async function onRequest(context) {
+  return withReferrerPolicy(await routeRequest(context));
+}
+
+async function routeRequest(context) {
   const request = context.request;
   const env = (context && context.env) || {};
   const url = new URL(request.url || "https://fulfillment-heartbeat-web.pages.dev/");
@@ -438,6 +418,10 @@ export async function onRequest(context) {
     if (readyDb) {
       const current = await readAccountSession(readyDb, request, env, now);
       if (current) await revokeSession(readyDb, current.sessionId, now);
+      else {
+        const shared = await readSharedSession(readyDb, request, env, now);
+        if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
+      }
     }
     return redirect(request, "/login", clearCookie(), 302);
   }
@@ -449,15 +433,20 @@ export async function onRequest(context) {
   }
 
   let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
-  if (!session && !authCutover(env)) session = await readSession(request, env, now);
+  if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, env, now);
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {
-    if (pathname.startsWith("/data/") || pathname === "/session") return unauthorizedJSON();
+    if (pathname.startsWith("/data/") || pathname.startsWith("/api/") || pathname === "/session") return unauthorizedJSON();
     return loginResponse("", "", 200);
   }
   if (pathname === "/login") return redirect(request, "/");
-  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session, env);
+  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/session") return sessionJSON(session);
+  if (pathname.startsWith("/api/")) return apiPackResponse(request, env, pathname);
+  if (pathname.startsWith("/data/")) {
+    const packed = await packFromBucket(env, pathname);
+    if (packed) return packed;
+  }
 
   const response = await context.next();
   if (!pathname.startsWith("/data/")) return response;
