@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fulfillment Heartbeat</title>
-  <link rel="stylesheet" href="/app.css?v=31">
+  <link rel="stylesheet" href="/app.css?v=32">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
@@ -22,9 +22,9 @@
           <svg class="heart" viewBox="0 0 36 33" aria-hidden="true">
             <defs>
               <linearGradient id="hb-heart" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#9fd4ff"/>
-                <stop offset="48%" stop-color="#3d8dff"/>
-                <stop offset="100%" stop-color="#00a9e0"/>
+                <stop offset="0%" stop-color="#2E6FD4"/>
+                <stop offset="48%" stop-color="#00285C"/>
+                <stop offset="100%" stop-color="#00245F"/>
               </linearGradient>
               <radialGradient id="hb-shine" cx="34%" cy="26%" r="62%">
                 <stop offset="0%" stop-color="#ffffff" stop-opacity="0.42"/>
@@ -44,24 +44,29 @@
           </svg>
       </p>
       <div class="titles">
+        <p class="greeting" id="greeting">Good <span id="greet-part">Morning</span></p>
         <h1 id="page-title">Dashboard</h1>
       </div>
       <div class="header-foot">
-        <button id="nav-toggle" type="button" aria-controls="drawer" aria-expanded="false">Pages</button>
         <p id="updated">Updated —</p>
       </div>
     </header>
     <p id="banner" class="banner" hidden></p>
     <div class="filter-bar">
+      <div class="pill-row">
+        <button id="nav-toggle" type="button" class="chrome-pill pages-pill" aria-controls="drawer" aria-expanded="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Pages</span></button>
+        <div id="grain-pills" class="grain-pills"></div>
+        <button id="share-open" type="button" class="chrome-pill share-pill" aria-label="Share">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 16V4M7 8l5-5 5 5M5 20h14"/></svg>
+          <span>Share</span>
+        </button>
+      </div>
       <div class="find-row">
         <div class="find">
           <input id="scope-search" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search store, OM, district, division…" aria-label="Search store, OM, district, division" aria-controls="scope-results" aria-expanded="false">
           <div id="scope-results" class="scope-results" hidden></div>
         </div>
         <button id="browse-open" type="button" aria-expanded="false" aria-controls="browse">Browse</button>
-        <button id="share-open" type="button" aria-label="Share">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 16V4M7 8l5-5 5 5M5 20h14"/></svg>
-        </button>
       </div>
       <div class="chip-row">
         <div id="scope-chips" class="scope-chips"></div>
@@ -102,6 +107,6 @@
       </div>
     </div>
   </div>
-  <script type="module" src="/app.js?v=49"></script>
+  <script type="module" src="/app.js?v=50"></script>
 </body>
 </html>

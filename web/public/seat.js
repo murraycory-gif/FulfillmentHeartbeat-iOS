@@ -298,6 +298,38 @@ export function pickerShopperBands(rows) {
   return { shoppers: worst.size, healthy, watch, risk };
 }
 
+function keepHighlight(bucket, score, row, limit) {
+  if (bucket.length < limit) {
+    bucket.push({ score, row });
+    if (bucket.length === limit) bucket.sort((a, b) => b.score - a.score);
+    return;
+  }
+  if (score <= bucket[limit - 1].score) return;
+  bucket[limit - 1] = { score, row };
+  bucket.sort((a, b) => b.score - a.score);
+}
+
+// Top opportunity and doing-well shoppers. Same 6-row cap as the iPad board.
+// Ranking uses pick hours volume and PPH versus the 80 goal. Real pack rows only.
+export function pickerHighlights(rows, limit = 6) {
+  const opportunity = [];
+  const strong = [];
+  const cap = limit > 0 ? limit : 6;
+  for (const row of rows || []) {
+    if (!pickerHasVolume(row)) continue;
+    const pph = field(row, ["pph"]);
+    if (pph == null || pph <= 0 || pph >= 200) continue;
+    const orders = field(row, ["orders"]) || 0;
+    const composite = Math.min(Math.max(pph / 80, 0), 1.15) / 1.15;
+    if (pickerStatusTone(row) === "good") keepHighlight(strong, orders * composite, row, cap);
+    else keepHighlight(opportunity, orders * Math.max(0, 1 - composite), row, cap);
+  }
+  return {
+    opportunity: opportunity.map((item) => item.row),
+    strong: strong.map((item) => item.row),
+  };
+}
+
 // Sales rows with no division and zero sales and orders are not stores. They are
 // not in any region, so the company count has to leave them out too.
 function salesRowCounts(row) {
