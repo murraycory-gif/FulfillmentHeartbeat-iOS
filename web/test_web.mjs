@@ -52,7 +52,7 @@ import {
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
-import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
+import { metricsInSource, pphBar, PPH_SOURCE_CHECK, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -553,7 +553,14 @@ const rankedShoppers = sortShoppersByPph([
   { store: "1", shopper: "Low", shopperId: "Low", payload: { pph: 22.7, pick_hours: 0.9, orders: 1 } },
   { store: "1", shopper: "Zero", shopperId: "Zero", payload: { pph: 0, pick_hours: 1, orders: 1 } },
 ]);
-assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Zero", "Low", "High", "Blank"]);
+assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Low", "High", "Blank", "Zero"]);
+assert.equal(PPH_SOURCE_CHECK(0), true);
+assert.equal(PPH_SOURCE_CHECK(-1), true);
+assert.equal(PPH_SOURCE_CHECK(300), false);
+assert.equal(PPH_SOURCE_CHECK(300.01), true);
+assert.equal(PPH_SOURCE_CHECK(80), false);
+assert.equal(shopperPphLabel(0, (value) => Number(value).toFixed(1)), "0.0 check source");
+assert.equal(shopperPphLabel(81.2, (value) => Number(value).toFixed(1)), "81.2");
 assert.deepEqual(
   metricsInSource(rankedShoppers, [
     { label: "PPH", keys: ["pph"] },
@@ -580,7 +587,13 @@ assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Sch
 assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /export function formatCompanyAiv/);
 assert.match(app, /formatCompanyAiv\(aiv\)/);
 assert.match(app, /laborMarket/);
-assert.equal(formatCompanyAiv(0.002610916545167652), "0.00%");
+assert.equal(formatCompanyAiv(0.002610916545167652), "0.00% (+0.0026%)");
+assert.notEqual(formatCompanyAiv(0.002610916545167652), "0.26%");
+assert.notEqual(formatCompanyAiv(0.002610916545167652), "0.0000%");
+assert.equal(pct(-0.38645958215580284), "-0.39%");
+assert.notEqual(pct(-0.38645958215580284 * 100), "-0.39%");
+assert.equal(pct(-0.38645958215580284 / 100), "-0.00%");
+assert.match(app, /\["AIV", \["aiv_impact_pct"\], pct\]/);
 assert.equal(shopperHoursText(-0.45583333333333337, (value) => value.toFixed(1)), "source data issue");
 assert.equal(shopperHoursText(1.2, (value) => value.toFixed(1)), "1.2");
 assert.match(css, /\.share\[hidden\]/);
@@ -592,6 +605,11 @@ assert.match(phoneCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(phoneCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
 assert.match(deskCss, /#nav-toggle \{[^}]*min-height:\s*44px/);
 assert.match(deskCss, /#nav-toggle \{[^}]*min-width:\s*44px/);
+assert.match(phoneCss, /\.wordmark \{ font-size: 1\.48rem; \}/);
+assert.match(deskCss, /\.wordmark \{ font-size: 1\.48rem; \}/);
+assert.match(phoneCss, /\.heart \{ width: 32px; height: 29px; \}/);
+assert.match(deskCss, /\.heart \{ width: 32px; height: 29px; \}/);
+assert.match(deskCss, /\.brand-lockup \{[^}]*justify-self:\s*center/);
 assert.equal(phoneCss.includes("min-height: 32px"), false);
 assert.equal(deskCss.includes("min-height: 22px"), false);
 assert.match(css, /grid-template-areas:\s*"lockup"\s*"title"\s*"foot"/);
@@ -607,10 +625,10 @@ assert.equal(app.includes("worstHealth"), false);
 assert.equal(pageHtml.includes('id="stamp"'), false);
 assert.equal(pageHtml.includes('class="stamp"'), false);
 assert.match(pageHtml, /class="header-foot"/);
-assert.match(deskCss, /\.wordmark \{ font-size: 1\.55rem/);
-assert.match(deskCss, /h1 \{ font-size: 1\.05rem/);
-assert.match(deskCss, /#updated \{ font-size: 0\.78rem/);
-assert.match(deskCss, /\.pulse \{[^}]*margin-left:\s*-28px/);
+assert.match(deskCss, /\.wordmark \{ font-size: 1\.48rem/);
+assert.match(deskCss, /h1 \{\s*font-size: 0\.98rem/);
+assert.match(deskCss, /#updated \{[^}]*font-size: 0\.72rem/);
+assert.match(deskCss, /\.pulse \{[^}]*margin-left:\s*-26px/);
 assert.equal(deskCss.includes('"nav stamp"'), false);
 assert.equal(app.includes("Hide pages"), false);
 assert.equal(deskCss.includes(".chip strong"), false);
@@ -1724,8 +1742,78 @@ else if (midRate >= 60) assert.equal(cookedMidAtlantic.health, "watch");
 else assert.equal(cookedMidAtlantic.health, "risk");
 const schedule = JSON.parse(readFileSync(join(root, "dist/data/schedule.json"), "utf8"));
 const pickerFile = JSON.parse(readFileSync(join(root, "dist/data/section/picker_scorecard.json"), "utf8"));
-assert.ok(pickerFile.rows.length > 1000);
+assert.equal(pickerFile.rows.length, 29923);
 assert.ok(pickerFile.rows.some((row) => row.shopper));
+const pickerSummary = shopperPphSummary(pickerFile.rows);
+assert.equal(pickerSummary.withPph, 29906);
+assert.equal(pickerSummary.atGoal, 9973);
+assert.equal(pickerSummary.between, 3470);
+assert.equal(pickerSummary.below, 16463);
+assert.equal(pickerSummary.missing, 17);
+assert.equal(pickerSummary.flagged, 27);
+assert.equal(pickerSummary.average.toFixed(2), "73.68");
+assert.equal(pickerSummary.workbookTotal.toFixed(2), "73.94");
+let negativePph = 0;
+let zeroPph = 0;
+let highPph = 0;
+for (const row of pickerFile.rows) {
+  const pph = shopperPph(row);
+  if (pph == null || !PPH_SOURCE_CHECK(pph)) continue;
+  if (pph < 0) negativePph += 1;
+  else if (pph === 0) zeroPph += 1;
+  else highPph += 1;
+}
+assert.equal(negativePph, 1);
+assert.equal(zeroPph, 9);
+assert.equal(highPph, 17);
+const store688 = pickerFile.rows.filter((row) => canonicalStore(row.store) === "688");
+const store688Summary = shopperPphSummary(store688);
+assert.equal(store688.length, 31);
+assert.equal(store688Summary.withPph, 29);
+assert.equal(store688Summary.atGoal, 14);
+assert.equal(store688Summary.between, 2);
+assert.equal(store688Summary.below, 13);
+assert.equal(store688Summary.missing, 2);
+assert.equal(store688Summary.flagged, 0);
+const lowest688 = sortShoppersByPph(store688).find((row) => {
+  const pph = shopperPph(row);
+  return pph != null && !PPH_SOURCE_CHECK(pph);
+});
+assert.equal(lowest688.shopperId, "CPAD103");
+assert.equal(lowest688.payload.pph.toFixed(2), "51.88");
+const gric = pickerFile.rows.find((row) => row.shopperId === "GRIC122");
+const trowe = pickerFile.rows.find((row) => row.shopperId === "TROWE26");
+assert.equal(gric.store, "617");
+assert.equal(trowe.store, "2675");
+assert.equal(PPH_SOURCE_CHECK(gric.payload.pph), true);
+assert.equal(PPH_SOURCE_CHECK(trowe.payload.pph), true);
+assert.match(shopperPphLabel(gric.payload.pph, (value) => Number(value).toFixed(2)), /-169\.41 check source/);
+assert.match(shopperPphLabel(trowe.payload.pph, (value) => Number(value).toFixed(1)), /5,?142\.9 check source/);
+assert.equal(shopperMatchesQuery(gric, "GRIC122"), true);
+assert.equal(shopperMatchesQuery(trowe, "TROWE26"), true);
+assert.equal(sortShoppersByPph(pickerFile.rows).filter((row) => shopperMatchesQuery(row, "GRIC122")).length, 1);
+assert.equal(sortShoppersByPph(pickerFile.rows).filter((row) => shopperMatchesQuery(row, "TROWE26")).length, 1);
+assert.equal(PPH_SOURCE_CHECK(shopperPph(sortShoppersByPph(pickerFile.rows)[0])), false);
+assert.equal(app.includes("GRIC122"), false);
+assert.equal(app.includes("TROWE26"), false);
+assert.equal(readFileSync(join(root, "public/shoppers.js"), "utf8").includes("GRIC122"), false);
+assert.match(app, /excluding check source/);
+assert.match(app, /Tap a region or store to see its shoppers/);
+assert.match(app, /data-pph-drill/);
+assert.match(app, /class="metric person"><span>OM<\/span>/);
+const qualityFile = JSON.parse(readFileSync(join(root, "public/data/section/schedule_quality.json"), "utf8"));
+const rosterDistrict = Object.fromEntries(packRoster.map((row) => [canonicalStore(row.store), row.district]));
+let acmeDistricts = 0;
+for (const row of qualityFile.rows) {
+  const rosterCode = rosterDistrict[canonicalStore(row.store)];
+  if (!rosterCode || !/^A\d$/i.test(rosterCode)) continue;
+  const shown = shownDistrict("schedule_quality", row.district, rosterCode);
+  acmeDistricts += 1;
+  assert.match(shown, new RegExp(`^${rosterCode}\\b`));
+  assert.equal(/^H/i.test(shown), false);
+}
+assert.ok(acmeDistricts > 100);
+assert.equal(pct(laborByStore["1"].payload.aiv_impact_pct), "-0.39%");
 const pathPickers = JSON.parse(readFileSync(join(root, "dist/data/section/pick_path_picker.json"), "utf8"));
 assert.ok(pathPickers.rows.length > 1000);
 assert.equal(schedule.empty, undefined);

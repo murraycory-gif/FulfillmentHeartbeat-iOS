@@ -41,10 +41,14 @@ export function shownRate(section, value) {
   return pct(value);
 }
 
+// Pack aiv_impact_pct is already Labor column M times 100 (percent points).
+// Company 0.0026% rounds to 0.00% at two decimals, so keep the precise points.
+// Do not multiply or divide by 100 again.
 export function formatCompanyAiv(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
-  return `${number.toFixed(2)}%`;
+  const sign = number > 0 ? "+" : "";
+  return `${number.toFixed(2)}% (${sign}${number.toFixed(4)}%)`;
 }
 
 function field(row, keys) {

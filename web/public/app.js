@@ -22,7 +22,7 @@ import {
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
 import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
-import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
+import { metricsInSource, pphBar, PPH_SOURCE_CHECK, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
   scheduleVisibleTitle,
@@ -124,6 +124,7 @@ const state = {
   tableWindow: ROW_PAGE,
   shopperWindow: ROW_PAGE,
   shopperQuery: "",
+  shopperSection: "",
   shopperPrepared: [],
   shopperColumns: [],
   failedPacks: new Set(),
@@ -962,11 +963,12 @@ function cookedTiles(section) {
       const toneClass = tone && tileUsesSectionTone(label) ? ` tone-${tone}` : "";
       const countLine = tileCountLine(section, label) || moneyCoverageLine(section, label) || laborFlagLine(section, label);
       const count = countLine ? `<small class="count">${esc(countLine)}</small>` : "";
+      const precise = shown.includes("(") ? ` class="precise"` : "";
       const labelHtml =
         section === "lost_revenue" && label === "eComm $"
           ? `<span class="keep-case">eComm $</span><span>${esc(name.slice("eComm $".length).trim())}</span>`
           : `<span>${esc(name)}</span>`;
-      return `<div class="chip${toneClass}">${labelHtml}<strong>${esc(shown)}</strong>${count}</div>`;
+      return `<div class="chip${toneClass}">${labelHtml}<strong${precise}>${esc(shown)}</strong>${count}</div>`;
     })
     .join("");
   return body ? `<div class="tiles">${body}</div>` : "";
@@ -1223,8 +1225,10 @@ function table(section, rows) {
         .join("");
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
+      const storeId = canonicalStore(row.store);
       const flag = section === "labor" && laborNeedsSourceCheck(row) ? ` <span class="source-check">${esc(LABOR_SOURCE_CHECK)}</span>` : "";
-      return `<tr><td>${esc(canonicalStore(row.store))}${flag}</td><td>${esc(division)}</td><td>${esc(district)}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
+      const storeCell = section === "pph" ? pphDrillButton("store", storeId, storeId) : esc(storeId);
+      return `<tr><td>${storeCell}${flag}</td><td>${esc(division)}</td><td>${esc(district)}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
     })
     .join("");
   const more =
@@ -1242,11 +1246,13 @@ function table(section, rows) {
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
       const manager = row.om || "—";
+      const storeId = canonicalStore(row.store);
+      const storeTitle = section === "pph" ? pphDrillButton("store", storeId, storeId) : esc(storeId);
       const place = section === "schedule_quality"
         ? `${esc(division)} · ${esc(district)} · OM ${esc(manager)}`
         : `${esc(division)} · ${esc(district)} · ${esc(manager)}`;
       const flag = section === "labor" && laborNeedsSourceCheck(row) ? ` <span class="source-check">${esc(LABOR_SOURCE_CHECK)}</span>` : "";
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}${flag}</p><p class="sub">${place}</p><div class="metric-row">${metrics}</div></li>`;
+      return `<li class="store-card"><p class="store-id">${storeTitle}${flag}</p><p class="sub">${place}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
@@ -1279,17 +1285,23 @@ function grainBlock(section) {
       ? lostGrainRows(pack.rows, state.filters, roster())
       : sectionRowGrain(section, pack.rows, state.filters, roster(), (state.home && state.home.regionLines) || []);
   if (!rows.length) return "";
+  const grainName = (row) => {
+    if (section !== "pph") return esc(row.label);
+    const kind = row.grain === "region" ? "region" : "division";
+    const value = row.grain === "region" ? `${row.label} Region` : row.label;
+    return pphDrillButton(kind, value, row.label);
+  };
   const body = rows
     .map((row) => {
       const value = grainShown(section, row);
-      return `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${esc(row.label)}</td><td>${esc(value)}</td><td>${esc(row.count)}</td></tr>`;
+      return `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${grainName(row)}</td><td>${esc(value)}</td><td>${esc(row.count)}</td></tr>`;
     })
     .join("");
   const cards = rows
     .map((row) => {
       const value = grainShown(section, row);
       const extra = String(value ?? "").replace(/[^\d]/g, "") === String(row.count ?? "") ? "" : `<span>${esc(row.count)}</span>`;
-      return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${esc(row.label)}</p></div><div class="line-value"><strong>${esc(value)}</strong>${extra}</div></li>`;
+      return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${grainName(row)}</p></div><div class="line-value"><strong>${esc(value)}</strong>${extra}</div></li>`;
     })
     .join("");
   const heading = filtersActive(state.filters) ? scopeLabel(state.filters) : "Regions";
@@ -1463,8 +1475,17 @@ function renderDashboard() {
   main.innerHTML = `<div class="cards">${cards}</div>${regionCardsHtml()}`;
 }
 
-function shopperSeat(filters) {
-  return Boolean(filters.division || filters.district || filters.om || filters.store);
+function shopperSeat(filters, section) {
+  if (section === "pph" && filters && filters.region) return true;
+  return Boolean(filters && (filters.division || filters.district || filters.om || filters.store));
+}
+
+function pphDrillButton(kind, value, label) {
+  return `<button type="button" class="drill" data-pph-drill="${esc(kind)}" data-pph-value="${esc(value)}">${esc(label)}</button>`;
+}
+
+function phoneOmMetric(name) {
+  return `<div class="metric person"><span>OM</span><strong>${esc(name || "—")}</strong></div>`;
 }
 
 const SHOPPER_COLUMNS = {
@@ -1490,8 +1511,17 @@ const SHOPPER_COLUMNS = {
   ],
 };
 
+function shopperMetricText(column, row) {
+  const value = cell(row, column.keys);
+  if ((column.keys || []).includes("pick_hours")) return shopperHoursText(value, (hours) => column.format(hours));
+  if ((column.keys || []).includes("pph")) return shopperPphLabel(value, column.format);
+  return column.format(value);
+}
+
 function shopperListHtml() {
   const query = state.shopperQuery || "";
+  const opened = state.shopperSection === "pph" ? shopperSeat(state.filters, "pph") || Boolean(query.trim()) : true;
+  if (!opened) return `<p class="note">Tap a region or store to see its shoppers.</p>`;
   const filtered = (state.shopperPrepared || []).filter((row) => shopperMatchesQuery(row, query));
   if (!filtered.length) {
     const message = query.trim() ? "No shoppers match this search." : "No shopper data";
@@ -1506,30 +1536,30 @@ function shopperListHtml() {
   const head = ["", "Shopper", "Store", ...columns.map((column) => column.label)]
     .map((label) => `<th${label ? "" : ' class="bar"'}>${esc(label)}</th>`)
     .join("");
-  const hoursText = (column, row) => {
-    const value = cell(row, column.keys);
-    if ((column.keys || []).includes("pick_hours")) return shopperHoursText(value, (hours) => column.format(hours));
-    return column.format(value);
-  };
   const body = shown
     .map((row) => {
       const tone = pphBar(shopperPph(row));
-      const metrics = columns.map((column) => `<td>${esc(hoursText(column, row))}</td>`).join("");
+      const metrics = columns.map((column) => `<td>${esc(shopperMetricText(column, row))}</td>`).join("");
       const name = shopperIdentity(row) || "—";
-      return `<tr><td class="bar bar-${tone}"></td><td>${esc(name)}</td><td>${esc(canonicalStore(row.store))}</td>${metrics}</tr>`;
+      const store = canonicalStore(row.store);
+      const storeCell = state.shopperSection === "pph" ? pphDrillButton("store", store, store) : esc(store);
+      return `<tr><td class="bar bar-${tone}"></td><td>${esc(name)}</td><td>${storeCell}</td>${metrics}</tr>`;
     })
     .join("");
   const cards = shown
     .map((row) => {
       const tone = pphBar(shopperPph(row));
+      const flagged = PPH_SOURCE_CHECK(shopperPph(row));
       const metrics = columns
-        .map(
-          (column) =>
-            `<div class="metric"><span>${esc(column.label)}</span><strong>${esc(hoursText(column, row))}</strong></div>`,
-        )
+        .map((column) => {
+          const source = (column.keys || []).includes("pph") && flagged ? " source" : "";
+          return `<div class="metric${source}"><span>${esc(column.label)}</span><strong>${esc(shopperMetricText(column, row))}</strong></div>`;
+        })
         .join("");
       const name = shopperIdentity(row) || "—";
-      return `<li class="store-card bar-${tone}"><p class="store-id">${esc(name)}</p><p class="sub">Store ${esc(canonicalStore(row.store))}</p><div class="metric-row">${metrics}</div></li>`;
+      const store = canonicalStore(row.store);
+      const storeLine = state.shopperSection === "pph" ? pphDrillButton("store", store, `Store ${store}`) : `Store ${esc(store)}`;
+      return `<li class="store-card bar-${tone}"><p class="store-id">${esc(name)}</p><p class="sub">${storeLine}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
@@ -1540,22 +1570,36 @@ function paintShopperList() {
   if (slot) slot.innerHTML = shopperListHtml();
 }
 
-function shopperBlock(rows, columns, sourceNote) {
+function shopperSummaryHtml(rows) {
+  const summary = shopperPphSummary(rows);
+  const split = `${num(summary.atGoal, 0)} at 80 or above · ${num(summary.between, 0)} between 74 and 80 · ${num(summary.below, 0)} below 74 · ${num(summary.missing, 0)} with no PPH`;
+  const average = summary.average == null ? "—" : `${num(summary.average, 2)} excluding check source`;
+  const workbook =
+    !filtersActive(state.filters) && summary.workbookTotal != null
+      ? `<p class="note">${esc(`${num(summary.workbookTotal, 2)} workbook total`)}</p>`
+      : "";
+  return `<p class="note">${esc(split)}</p><p class="note">${esc(average)}</p>${workbook}`;
+}
+
+function shopperBlock(rows, columns, sourceNote, section) {
   const matched = sortShoppersByPph(
     (rows || []).filter(
       (row) => row.store && (row.shopper || row.shopperId) && includesScope(row, state.filters, roster()),
     ),
   );
   const shaped = (columns || []).map((column) => ({ label: column[0], keys: column[1], format: column[2] }));
+  state.shopperSection = section || "";
   state.shopperPrepared = matched;
   state.shopperColumns = metricsInSource(matched, shaped);
   if (!matched.length) return `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
-  const search =
-    matched.length > ROW_PAGE
-      ? `<input class="shopper-find" data-shopper-search type="search" enterkeyhint="search" value="${esc(state.shopperQuery)}" placeholder="Search shopper or store" aria-label="Search shopper or store">`
-      : "";
+  const searching = section === "pph" || matched.length > ROW_PAGE;
+  const placeholder = section === "pph" ? "Search shopper name, ID, or store" : "Search shopper or store";
+  const search = searching
+    ? `<input class="shopper-find" data-shopper-search type="search" enterkeyhint="search" value="${esc(state.shopperQuery)}" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}">`
+    : "";
   const note = sourceNote ? `<p class="note">${esc(sourceNote)}</p>` : "";
-  return `<section class="shoppers"><h2>Shoppers</h2>${note}${search}<div data-shopper-list>${shopperListHtml()}</div></section>`;
+  const summary = section === "pph" ? shopperSummaryHtml(matched) : "";
+  return `<section class="shoppers"><h2>Shoppers</h2>${note}${summary}${search}<div data-shopper-list>${shopperListHtml()}</div></section>`;
 }
 
 function renderPicker() {
@@ -1689,10 +1733,10 @@ function scheduleActionHtml(pack, card) {
             .join("");
           const cards = group.stores
             .slice(0, 80)
-            .map(
-              (store) =>
-                `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`,
-            )
+            .map((store) => {
+              const seat = scheduleSeat(store);
+              return `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row">${phoneOmMetric(seat.om)}<div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`;
+            })
             .join("");
           return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
         })
@@ -1798,7 +1842,8 @@ function scheduleDetailHtml(pack) {
         : thin
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+      const seat = scheduleSeat(store);
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row">${phoneOmMetric(seat.om)}<div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
@@ -1816,7 +1861,7 @@ function shopperPackPath(section) {
 function shopperNote(section) {
   const path = shopperPackPath(section);
   if (!path) return "";
-  if (!shopperSeat(state.filters)) {
+  if (section !== "pph" && !shopperSeat(state.filters, section)) {
     return `<p class="note">Shopper rows open from a division, district, OM, or store.</p>`;
   }
   if (!state.packs.has(path)) {
@@ -1826,7 +1871,7 @@ function shopperNote(section) {
   const pack = state.packs.get(path);
   const columns = SHOPPER_COLUMNS[section === "pph" ? "pph" : "path"];
   const sourceNote = section === "pph" ? "Shopper PPH, hours, and orders are from the Picker ScoreCard." : "";
-  return shopperBlock((pack && pack.rows) || [], columns, sourceNote);
+  return shopperBlock((pack && pack.rows) || [], columns, sourceNote, section);
 }
 
 function presubNote() {
@@ -1893,7 +1938,8 @@ async function renderMetric(page, token) {
     main.innerHTML = scorecardHtml(page, false);
   }
   const shopperPath = shopperPackPath(page.section);
-  if (shopperPath && shopperSeat(state.filters) && !state.packs.has(shopperPath) && !state.failedPacks.has(shopperPath)) {
+  const needShoppers = shopperPath && (page.section === "pph" || shopperSeat(state.filters, page.section));
+  if (needShoppers && !state.packs.has(shopperPath) && !state.failedPacks.has(shopperPath)) {
     await loadOptional(shopperPath);
     if (token !== renderToken) return;
     main.innerHTML = scorecardHtml(page, false);
@@ -2383,6 +2429,13 @@ document.body.addEventListener("click", (event) => {
   }
   if (event.target.closest("[data-close-drawer]")) {
     closeDrawer();
+    return;
+  }
+  const drill = event.target.closest("[data-pph-drill]");
+  if (drill && state.page === "pph") {
+    const kind = drill.getAttribute("data-pph-drill");
+    const value = drill.getAttribute("data-pph-value");
+    if (kind && value) applyScope(scopeFromPick({ kind, value }));
     return;
   }
   const more = event.target.closest("[data-more]");
