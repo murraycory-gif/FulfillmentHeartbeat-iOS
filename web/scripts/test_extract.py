@@ -769,7 +769,7 @@ def _synthetic_workbook(path: Path, total_row: int) -> None:
 
     sheets = {
         "Sales": {"CH": 81000, "CI": 0.17, "CK": 0.18},
-        "Loss Revenue": {"C": 82000, "D": 4200, "J": 2900, "M": 590, "V": 420, "Y": 270, "AC": 19},
+        "Loss Revenue": {"C": 82000, "D": 4200, "F": 0.03547, "J": 2900, "M": 590, "V": 420, "Y": 270, "AC": 19},
         "Labor": {"B": 0.88, "I": 1800, "J": 0.11, "K": -0.04, "L": 0.001, "M": 0.00002, "N": 0.07, "O": -0.04},
         "MI": {"U": 0.07},
         "Pre-Sub OOS": {"P": 0.05},

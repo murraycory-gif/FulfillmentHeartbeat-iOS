@@ -484,19 +484,95 @@ export function packValueErrors(home, salesFile, lostFile) {
     const matchesRows = storeLostPct != null && lostPctTile != null && Math.abs(lostPctTile - storeLostPct) <= 0.02;
     if (!matchesTiles && !matchesRows) errors.push(`Lost % tile=${lostPctTile} rows=${storeLostPct}`);
   }
-  // Company Goal % is the market total. Store-row goal/ecomm sits a few hundredths
-  // away from that total, so the band is wider than a displayed hundredth and
-  // still rejects a prior week's percent.
-  if (goalPctTile == null || storeGoalPct == null || Math.abs(goalPctTile - storeGoalPct) > 0.1) {
+  // Loss Revenue Total column F. A fraction (0.03547) is the same rate as 3.547%.
+  // The tile prints that rate to the hundredth (3.55). Store-row goal/ecomm is only
+  // the fallback when this pack has no workbook goal total, and that band is wide
+  // enough for a market total that is not the sum of the store rows.
+  const workbookGoalRaw =
+    workbookLost && typeof workbookLost.goal_pct === "number"
+      ? workbookLost.goal_pct
+      : workbookLost && typeof workbookLost.lost_revenue_goal_pct === "number"
+        ? workbookLost.lost_revenue_goal_pct
+        : null;
+  const workbookGoal = workbookGoalRaw == null ? null : Math.abs(workbookGoalRaw) <= 1.5 ? workbookGoalRaw * 100 : workbookGoalRaw;
+  if (workbookGoal != null) {
+    if (goalPctTile == null || Math.abs(goalPctTile - workbookGoal) > 0.02) {
+      errors.push(`Goal % tile=${goalPctTile} workbook=${workbookGoal}`);
+    }
+  } else if (goalPctTile == null || storeGoalPct == null || Math.abs(goalPctTile - storeGoalPct) > 1) {
     errors.push(`Goal % tile=${goalPctTile} rows=${storeGoalPct}`);
   }
   if (missedTile != null && missedTile <= 0) errors.push(`Missed tile collapsed=${missedTile}`);
   return errors;
 }
 
-// Store 6 / 210 / 239 dollars and roster identity from the Oct 5 cook.
-// A later cook must not have to match these. Callers run it only on that pack.
-export function octoberStoreFixture(home, lost, schedule) {
+function scheduleWeekNumbers(text) {
+  const found = [];
+  const source = String(text || "");
+  for (const match of source.matchAll(/WK\s*(\d+)/gi)) found.push(Number(match[1]));
+  for (const match of source.matchAll(/Week\s+(\d+)/gi)) found.push(Number(match[1]));
+  return found;
+}
+
+function scheduleMarketBlend(stores, markets, field) {
+  const divisions = new Set(stores.map((store) => store && store.division).filter(Boolean));
+  let weight = 0;
+  let total = 0;
+  for (const division of divisions) {
+    const market = markets.get(division) || {};
+    const value = market[field];
+    if (value == null || value === "") continue;
+    const number = Number(value);
+    if (!Number.isFinite(number)) continue;
+    const count = stores.filter((store) => store && store.division === division).length;
+    if (!count) continue;
+    weight += count;
+    total += number * count;
+  }
+  return weight ? total / weight : null;
+}
+
+// Week comes from the schedule filename or the Summary tab title, not a pinned WK32.
+// Company Sch Eff / Under / Over are the store-weighted division markets, and they
+// have to match the Summary Total row. United's blank market stays out of that blend.
+export function scheduleValueErrors(schedule, rosterCount) {
+  const errors = [];
+  const week = Number(schedule && schedule.week);
+  const named = [...scheduleWeekNumbers(schedule && schedule.filename), ...scheduleWeekNumbers(schedule && schedule.summaryTitle)];
+  if (!named.length || !Number.isFinite(week) || named.some((item) => item !== week)) {
+    errors.push(`week=${schedule && schedule.week} name=${schedule && schedule.filename} title=${schedule && schedule.summaryTitle}`);
+  }
+  const stores = schedule && Array.isArray(schedule.stores) ? schedule.stores : [];
+  const roster = Number(rosterCount);
+  if (Number.isFinite(roster) && roster > 60 && stores.length < roster - 60) {
+    errors.push(`schedule stores=${stores.length} floor=${roster - 60}`);
+  }
+  for (const name of ["East Region", "South Region", "California Region", "West Region"]) {
+    if (!stores.some((store) => store && store.region === name)) errors.push(`schedule region ${name} missing`);
+  }
+  const markets = new Map(
+    (Array.isArray(schedule && schedule.markets) ? schedule.markets : [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => [item.label, item]),
+  );
+  const summary = markets.get("Total") || {};
+  const labels = { eff: "Sch Eff", under: "Under", over: "Over" };
+  for (const field of ["eff", "under", "over"]) {
+    const company = scheduleMarketBlend(stores, markets, field);
+    const total = summary[field] == null || summary[field] === "" ? null : Number(summary[field]);
+    const totalOk = total != null && Number.isFinite(total);
+    if (company == null || !totalOk || Math.abs(company - total) > 1) {
+      errors.push(`${labels[field]} company=${company} total=${total}`);
+    } else if (total < 0 || total > 100) {
+      errors.push(`${labels[field]} out of range=${total}`);
+    }
+  }
+  return errors;
+}
+
+// Oct 5 store, schedule, and labor pins. A later cook must not have to match these.
+// Callers run it only on that pack.
+export function octoberStoreFixture(home, lost, schedule, laborFile) {
   const sha = (home && home.metadata && home.metadata.cookSha) || (home && home.cookSha) || "";
   if (sha !== PINNED_LIVE_COOK_SHA) return ["october fixture runs only on the pinned Oct 5 pack"];
   const errors = [];
@@ -543,6 +619,42 @@ export function octoberStoreFixture(home, lost, schedule) {
     const got = [row.region, row.division, row.district, row.om];
     const want = ["South Region", ...expected[store]];
     if (got.join("\0") !== want.join("\0")) errors.push(`schedule ${store}=${got.join(",")}`);
+  }
+  const rosterExpected = {
+    233: ["Seattle", "28", "Ryan Burns"],
+    339: ["Mountain West", "I5", "Chris Banuelos"],
+    879: ["Mountain West", "66", "Ellas Ware"],
+    1509: ["Mountain West", "I5", "Chris Banuelos"],
+    4799: ["Jewel Osco", "J6", "Mike Macdonald"],
+  };
+  for (const [store, ident] of Object.entries(rosterExpected)) {
+    const row = byStore.get(store) || {};
+    const got = [row.division, row.district, row.om];
+    if (got.join("\0") !== ident.join("\0")) errors.push(`roster ${store}=${got.join(",")}`);
+  }
+  if (Number(schedule && schedule.week) !== 32) errors.push(`week=${schedule && schedule.week}`);
+  const fixtureMarkets = new Map(
+    (Array.isArray(schedule && schedule.markets) ? schedule.markets : [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => [item.label, item]),
+  );
+  const southEff = blend(scheduleStores, fixtureMarkets, "South Region", "eff");
+  const southUnder = blend(scheduleStores, fixtureMarkets, "South Region", "under");
+  const southOver = blend(scheduleStores, fixtureMarkets, "South Region", "over");
+  if (southEff == null || Math.abs(southEff - 91.04) > 0.02) errors.push(`South eff=${southEff}`);
+  if (southUnder == null || Math.abs(southUnder - 3.05) > 0.02) errors.push(`South under=${southUnder}`);
+  if (southOver == null || Math.abs(southOver - 5.91) > 0.02) errors.push(`South over=${southOver}`);
+  const laborRows = laborFile && Array.isArray(laborFile.rows) ? laborFile.rows : [];
+  const flagged = new Set(
+    laborRows.filter((row) => row && row.sourceIssue === "source data issue").map((row) => String(row.store)),
+  );
+  for (const store of ["233", "4799", "1509"]) {
+    if (!flagged.has(store)) errors.push(`missing source data issue ${store}`);
+  }
+  const plain = laborRows.find((row) => String(row.store) === "1");
+  const plainAiv = finite((plain && plain.payload && plain.payload.aiv_impact_pct) ?? null);
+  if (!plain || plain.sourceIssue || plainAiv == null || Math.abs(plainAiv - -0.38645958215580284) > 1e-6) {
+    errors.push("store 1 AIV changed");
   }
   return errors;
 }
@@ -595,19 +707,8 @@ export function checkPack(dir) {
   const storeRoster = home.filters && Array.isArray(home.filters.stores) ? home.filters.stores : [];
   errors.push(...laborBridgeCensus(laborRows, storeRoster.length).errors);
 
-  const flagged = new Map(
-    laborRows.filter((row) => row.sourceIssue === "source data issue").map((row) => [String(row.store), row]),
-  );
-  for (const store of ["233", "4799", "1509"]) {
-    if (!flagged.has(store)) errors.push(`missing source data issue ${store}`);
-  }
   const laborFlags = laborRows.filter(laborSourceFlag).length;
   if (laborFlags < 40 || laborFlags > 80) errors.push(`labor flagged=${laborFlags}`);
-  const plain = laborRows.find((row) => String(row.store) === "1");
-  const plainAiv = finite((plain && plain.payload && plain.payload.aiv_impact_pct) ?? null);
-  if (!plain || plain.sourceIssue || plainAiv == null || Math.abs(plainAiv - -0.38645958215580284) > 1e-6) {
-    errors.push("store 1 AIV changed");
-  }
   let weightedNum = 0;
   let weightedDen = 0;
   let simpleNum = 0;
@@ -654,20 +755,6 @@ export function checkPack(dir) {
   if (pph.health === "risk") errors.push("pph health is risk at a 74+ average");
 
   const roster = storeRoster;
-  const byStore = new Map(roster.filter((item) => item && typeof item === "object").map((item) => [String(item.store), item]));
-  const expected = {
-    233: ["Seattle", "28", "Ryan Burns"],
-    339: ["Mountain West", "I5", "Chris Banuelos"],
-    879: ["Mountain West", "66", "Ellas Ware"],
-    1509: ["Mountain West", "I5", "Chris Banuelos"],
-    4799: ["Jewel Osco", "J6", "Mike Macdonald"],
-  };
-  for (const [store, ident] of Object.entries(expected)) {
-    const row = byStore.get(store) || {};
-    const got = [row.division, row.district, row.om];
-    if (got.join("\0") !== ident.join("\0")) errors.push(`roster ${store}=${got.join(",")}`);
-  }
-
   const rosterCounts = new Map();
   for (const item of roster) {
     const division = item && item.division;
@@ -716,9 +803,8 @@ export function checkPack(dir) {
   if (united.eff != null || united.under != null || united.over != null) {
     errors.push(`United market=${united.under},${united.over},${united.eff}`);
   }
-  if (Number(schedule.week || 0) !== 32) errors.push(`week=${schedule.week}`);
   const scheduleStores = Array.isArray(schedule.stores) ? schedule.stores : [];
-  if (scheduleStores.length < 2100) errors.push(`schedule stores=${scheduleStores.length}`);
+  errors.push(...scheduleValueErrors(schedule, roster.length));
   const bogusUnder = scheduleStores.filter(
     (store) =>
       store &&
@@ -729,11 +815,6 @@ export function checkPack(dir) {
   );
   if (bogusUnder.length) errors.push(`100% under with invalid eff=${bogusUnder.length}`);
   const southEff = blend(scheduleStores, markets, "South Region", "eff");
-  const southUnder = blend(scheduleStores, markets, "South Region", "under");
-  const southOver = blend(scheduleStores, markets, "South Region", "over");
-  if (southEff == null || Math.abs(southEff - 91.04) > 0.02) errors.push(`South eff=${southEff}`);
-  if (southUnder == null || Math.abs(southUnder - 3.05) > 0.02) errors.push(`South under=${southUnder}`);
-  if (southOver == null || Math.abs(southOver - 5.91) > 0.02) errors.push(`South over=${southOver}`);
 
   errors.push(...lostRollupErrors(home, lost));
   errors.push(...currencyPrecisionErrors(home));

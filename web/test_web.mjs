@@ -960,8 +960,9 @@ assert.equal(liveErrors.some((item) => item.includes("labor flagged=")), false);
 const pinnedSales = JSON.parse(readFileSync(join(livePack, "section/sales.json"), "utf8"));
 const pinnedLost = JSON.parse(readFileSync(join(livePack, "section/lost_revenue.json"), "utf8"));
 const pinnedSchedule = JSON.parse(readFileSync(join(livePack, "schedule.json"), "utf8"));
+const pinnedLabor = JSON.parse(readFileSync(join(livePack, "section/labor.json"), "utf8"));
 assert.deepEqual(packValueErrors(packHome, pinnedSales, pinnedLost), []);
-assert.deepEqual(octoberStoreFixture(packHome, pinnedLost, pinnedSchedule), []);
+assert.deepEqual(octoberStoreFixture(packHome, pinnedLost, pinnedSchedule, pinnedLabor), []);
 assert.deepEqual(octoberStoreFixture({ metadata: { cookSha: "e".repeat(40) } }, pinnedLost, pinnedSchedule), [
   "october fixture runs only on the pinned Oct 5 pack",
 ]);
@@ -1182,11 +1183,68 @@ const missingRegion = corruptFresh((dir) => {
   writeFileSync(join(dir, "home.json"), JSON.stringify(home));
 });
 assert.ok(checkPack(missingRegion).errors.some((item) => item === "sales region East missing"));
+
+const goalMatch = corruptFresh((dir) => {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  home.workbookTotal.lost_revenue.goal_pct = 0.03547;
+  const labels = home.companyTiles.lost_revenue.labels;
+  home.companyTiles.lost_revenue.values[labels.indexOf("Goal %")] = "3.55%";
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+});
+assert.deepEqual(checkPack(goalMatch).errors, [], checkPack(goalMatch).errors.join("\n"));
+const goalMismatch = corruptFresh((dir) => {
+  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
+  home.workbookTotal.lost_revenue.goal_pct = 0.03547;
+  const labels = home.companyTiles.lost_revenue.labels;
+  home.companyTiles.lost_revenue.values[labels.indexOf("Goal %")] = "9.00%";
+  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
+});
+assert.ok(checkPack(goalMismatch).errors.some((item) => item.startsWith("Goal %")));
+
+function writeSchedule(dir, mutate) {
+  const schedule = JSON.parse(readFileSync(join(dir, "schedule.json"), "utf8"));
+  mutate(schedule);
+  writeFileSync(join(dir, "schedule.json"), JSON.stringify(schedule));
+}
+
+const week33 = corruptFresh((dir) => {
+  writeSchedule(dir, (schedule) => {
+    schedule.week = 33;
+    schedule.filename = "Schedule Review Week 33 - Summary.xlsx";
+    schedule.summaryTitle = "Schedule Review Summary — Week 33 (WK33)";
+    for (const market of schedule.markets) {
+      if (market.label === "United") continue;
+      market.eff = 80;
+      market.under = 4;
+      market.over = 6;
+    }
+  });
+});
+assert.deepEqual(checkPack(week33).errors, [], checkPack(week33).errors.join("\n"));
+const schEffMismatch = corruptFresh((dir) => {
+  writeSchedule(dir, (schedule) => {
+    schedule.week = 33;
+    schedule.filename = "Schedule Review Week 33 - Summary.xlsx";
+    schedule.summaryTitle = "Schedule Review Summary — Week 33 (WK33)";
+    for (const market of schedule.markets) {
+      if (market.label === "United") continue;
+      market.eff = 80;
+      market.under = 4;
+      market.over = 6;
+    }
+    schedule.markets.find((market) => market.label === "Total").eff = 70;
+  });
+});
+assert.ok(checkPack(schEffMismatch).errors.some((item) => item.startsWith("Sch Eff")));
 rmSync(freshWeek, { recursive: true, force: true });
 rmSync(salesDisagree, { recursive: true, force: true });
 rmSync(droppedLost, { recursive: true, force: true });
 rmSync(zeroedMissed, { recursive: true, force: true });
 rmSync(missingRegion, { recursive: true, force: true });
+rmSync(goalMatch, { recursive: true, force: true });
+rmSync(goalMismatch, { recursive: true, force: true });
+rmSync(week33, { recursive: true, force: true });
+rmSync(schEffMismatch, { recursive: true, force: true });
 const liveRepublish = spawnSync(process.execPath, [join(root, "check_pack.mjs"), "--cooked-at", livePack], { encoding: "utf8" });
 assert.notEqual(liveRepublish.status, 0);
 assert.match(liveRepublish.stderr, /refusing publish: cookedAt is missing/);
