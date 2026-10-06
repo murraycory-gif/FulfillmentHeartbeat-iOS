@@ -1184,22 +1184,24 @@ const missingRegion = corruptFresh((dir) => {
 });
 assert.ok(checkPack(missingRegion).errors.some((item) => item === "sales region East missing"));
 
-const goalMatch = corruptFresh((dir) => {
+const goalDollars = 607506.8;
+const goalRate = 0.035466;
+function writeGoalTotal(dir, rate) {
   const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
-  home.workbookTotal.lost_revenue.goal_pct = 0.03547;
+  const lost = home.workbookTotal.lost_revenue;
+  lost.goal_dollars = goalDollars;
+  lost.goal_pct = rate;
+  lost.ecomm_dollars = goalDollars / goalRate;
   const labels = home.companyTiles.lost_revenue.labels;
-  home.companyTiles.lost_revenue.values[labels.indexOf("Goal %")] = "3.55%";
+  const values = home.companyTiles.lost_revenue.values;
+  values[labels.indexOf("Goal %")] = "3.55%";
+  values[labels.indexOf("Lost %")] = `${((lost.lost_dollars / lost.ecomm_dollars) * 100).toFixed(2)}%`;
   writeFileSync(join(dir, "home.json"), JSON.stringify(home));
-});
+}
+const goalMatch = corruptFresh((dir) => writeGoalTotal(dir, goalRate));
 assert.deepEqual(checkPack(goalMatch).errors, [], checkPack(goalMatch).errors.join("\n"));
-const goalMismatch = corruptFresh((dir) => {
-  const home = JSON.parse(readFileSync(join(dir, "home.json"), "utf8"));
-  home.workbookTotal.lost_revenue.goal_pct = 0.03547;
-  const labels = home.companyTiles.lost_revenue.labels;
-  home.companyTiles.lost_revenue.values[labels.indexOf("Goal %")] = "9.00%";
-  writeFileSync(join(dir, "home.json"), JSON.stringify(home));
-});
-assert.ok(checkPack(goalMismatch).errors.some((item) => item.startsWith("Goal %")));
+const goalMismatch = corruptFresh((dir) => writeGoalTotal(dir, 0.09));
+assert.ok(checkPack(goalMismatch).errors.some((item) => item.startsWith("Goal % tile=")));
 
 function writeSchedule(dir, mutate) {
   const schedule = JSON.parse(readFileSync(join(dir, "schedule.json"), "utf8"));

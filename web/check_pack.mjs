@@ -484,10 +484,9 @@ export function packValueErrors(home, salesFile, lostFile) {
     const matchesRows = storeLostPct != null && lostPctTile != null && Math.abs(lostPctTile - storeLostPct) <= 0.02;
     if (!matchesTiles && !matchesRows) errors.push(`Lost % tile=${lostPctTile} rows=${storeLostPct}`);
   }
-  // Loss Revenue Total column F. A fraction (0.03547) is the same rate as 3.547%.
-  // The tile prints that rate to the hundredth (3.55). Store-row goal/ecomm is only
-  // the fallback when this pack has no workbook goal total, and that band is wide
-  // enough for a market total that is not the sum of the store rows.
+  // Loss Revenue Total column G is the goal rate. 0.035466 is 3.5466%, which prints as 3.55.
+  // Column F is goal dollars. F / eComm should match G. Store-row goal/ecomm is only
+  // the fallback when this pack has no workbook goal rate.
   const workbookGoalRaw =
     workbookLost && typeof workbookLost.goal_pct === "number"
       ? workbookLost.goal_pct
@@ -501,6 +500,13 @@ export function packValueErrors(home, salesFile, lostFile) {
     }
   } else if (goalPctTile == null || storeGoalPct == null || Math.abs(goalPctTile - storeGoalPct) > 1) {
     errors.push(`Goal % tile=${goalPctTile} rows=${storeGoalPct}`);
+  }
+  const goalDollars = workbookLost && typeof workbookLost.goal_dollars === "number" ? workbookLost.goal_dollars : null;
+  if (goalDollars != null && workbookEcomm && workbookGoalRaw != null) {
+    const fraction = Math.abs(workbookGoalRaw) <= 1.5 ? workbookGoalRaw : workbookGoalRaw / 100;
+    if (Math.abs(goalDollars / workbookEcomm - fraction) > 0.0005) {
+      errors.push(`Goal dollars=${goalDollars} ecomm=${workbookEcomm} rate=${fraction}`);
+    }
   }
   if (missedTile != null && missedTile <= 0) errors.push(`Missed tile collapsed=${missedTile}`);
   return errors;

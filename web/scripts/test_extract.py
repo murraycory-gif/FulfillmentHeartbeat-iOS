@@ -769,7 +769,7 @@ def _synthetic_workbook(path: Path, total_row: int) -> None:
 
     sheets = {
         "Sales": {"CH": 81000, "CI": 0.17, "CK": 0.18},
-        "Loss Revenue": {"C": 82000, "D": 4200, "F": 0.03547, "J": 2900, "M": 590, "V": 420, "Y": 270, "AC": 19},
+        "Loss Revenue": {"C": 82000, "D": 4200, "F": 607506.80, "G": 0.035466, "J": 2900, "M": 590, "V": 420, "Y": 270, "AC": 19},
         "Labor": {"B": 0.88, "I": 1800, "J": 0.11, "K": -0.04, "L": 0.001, "M": 0.00002, "N": 0.07, "O": -0.04},
         "MI": {"U": 0.07},
         "Pre-Sub OOS": {"P": 0.05},
@@ -914,6 +914,8 @@ def workbook_total_shifted_row() -> None:
         assert got["pph"]["pph"] == 73
         assert got["labor"]["act_cost_pct"] == 0.07
         assert got["lost_revenue"]["kill_dollars"] == 19
+        assert abs(got["lost_revenue"]["goal_dollars"] - 607506.80) < 1e-6
+        assert abs(got["lost_revenue"]["goal_pct"] - 0.035466) < 1e-12
         stores = labor_store_ids(book)
         assert stores == ["10", "866"], stores
         db_path = Path(tmp) / "current.sqlite"

@@ -28,7 +28,8 @@ TOTALS = {
         "fields": {
             "ecomm_dollars": "C",
             "lost_dollars": "D",
-            "goal_pct": "F",
+            "goal_dollars": "F",
+            "goal_pct": "G",
             "post_sub_dollars": "J",
             "refund_dollars": "M",
             "missed_dollars": "V",
