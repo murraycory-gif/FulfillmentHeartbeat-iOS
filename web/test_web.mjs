@@ -51,7 +51,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary } from "./public/seat.js";
+import { chromeSeat, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary, sectionStoreCount } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
@@ -408,14 +408,14 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=23/);
+assert.match(pageHtml, /app\.css\?v=24/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=36/);
+assert.match(pageHtml, /app\.js\?v=38/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*height:\s*44px/);
 assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*min-height:\s*44px/);
 assert.match(css, /\.scope-reset \{[^}]*width:\s*44px/);
@@ -1658,7 +1658,31 @@ assert.equal(southDivisions.find((row) => row.division === "Southern").scope, 13
 assert.equal(southDivisions.find((row) => row.division === "United").scope, 71);
 assert.equal(countStores(cooked.filters.stores, filters({ region: "South Region" })), 397);
 assert.equal(regionStoreCount(cooked.filters.stores, "South"), 397);
-assert.match(app, /regionStoreCount\(roster\(\), name\)/);
+assert.match(app, /sectionStoreCount/);
+assert.match(app, /roster stores/);
+assert.match(app, /figureAbsent/);
+assert.equal(figureAbsent("$1.00"), false);
+assert.equal(figureAbsent("—"), true);
+assert.equal(figureAbsent(""), true);
+const stickyTop = css.slice(css.indexOf(".sticky-top"), css.indexOf(".titles { min-width"));
+assert.equal(stickyTop.includes("position: sticky"), false);
+const thRule = css.slice(css.indexOf("\nth {"), css.indexOf("td.good"));
+assert.equal(thRule.includes("position: sticky"), false);
+const laborRows = JSON.parse(readFileSync(join(root, "public/data/section/labor.json"), "utf8")).rows;
+const lostRows = JSON.parse(readFileSync(join(root, "public/data/section/lost_revenue.json"), "utf8")).rows;
+const noScope = filters({});
+assert.equal(packHome.summaries.find((item) => item.section === "labor").storeCount, 2149);
+assert.equal(sectionStoreCount(laborRows, noScope, packRoster, "labor"), 2151);
+const californiaScope = filters({ region: "California Region" });
+assert.equal(countStores(packRoster, californiaScope), 601);
+assert.equal(sectionStoreCount(lostRows, californiaScope, packRoster, "lost_revenue"), 600);
+for (const region of ["East Region", "South Region", "West Region"]) {
+  const scope = filters({ region });
+  const rosterCount = countStores(packRoster, scope);
+  const lostCount = sectionStoreCount(lostRows, scope, packRoster, "lost_revenue");
+  assert.equal(lostCount, rosterCount, region);
+}
+assert.match(app, /const valueHead = section === "lost_revenue" \? LOST_EXCL_LABEL : "Value"/);
 const liveUnited = summary(schedule, filters({ division: "United" }), []);
 assert.equal(liveUnited.under, null);
 assert.equal(liveUnited.over, null);

@@ -11,10 +11,10 @@ import {
   finestScope,
   searchScope,
   cascadePick,
-  regionStoreCount,
   scopeChips,
   filtersUpTo,
   browseLevel,
+  browseScope,
   sectionGrainRows,
   canonicalStore,
   canonicalDivision,
@@ -22,7 +22,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { chromeSeat, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary } from "./seat.js";
+import { chromeSeat, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, seatSummary, sectionStoreCount } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -359,6 +359,14 @@ function scopeFromPick(pick) {
   return next;
 }
 
+function scrollChromeToTop() {
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  const shell = document.querySelector(".shell");
+  if (shell) shell.scrollTop = 0;
+}
+
 function applyScope(next) {
   state.filters = next;
   state.scopeQuery = "";
@@ -367,6 +375,7 @@ function applyScope(next) {
   state.shopperWindow = ROW_PAGE;
   state.shopperQuery = "";
   if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(next)}`;
+  scrollChromeToTop();
   render();
 }
 
@@ -429,11 +438,21 @@ function paintBrowse() {
   if (browseTitle) browseTitle.textContent = level.title;
   if (browseBack) browseBack.hidden = !filtersActive(state.filters);
   browseList.innerHTML = level.rows
-    .map(
-      (item, index) =>
-        `<button type="button" class="browse-row" data-browse="${index}">${esc(item.label)}<small>${esc(String(item.count))}</small></button>`,
-    )
+    .map((item, index) => {
+      const count = browseCountLabel(item);
+      const small = count ? `<small>${esc(count)}</small>` : "";
+      return `<button type="button" class="browse-row" data-browse="${index}">${esc(item.label)}${small}</button>`;
+    })
     .join("");
+}
+
+function browseCountLabel(item) {
+  const section = pageById(state.page).section || "";
+  if (!section) return `${num(item.count, 0)} roster stores`;
+  const pack = state.packs.get(`section/${section}`);
+  if (!pack || !Array.isArray(pack.rows)) return "";
+  const count = sectionStoreCount(pack.rows, browseScope(state.filters, item.kind, item.value), roster(), section);
+  return count == null ? "" : num(count, 0);
 }
 
 function paintChips() {
@@ -592,8 +611,8 @@ function seatReady(section) {
 function headerStoreCount(section, seat) {
   if (section === "picker_scorecard") return seat.storeCount || 0;
   const pack = state.packs.get(`section/${section}`);
-  if (!pack || !Array.isArray(pack.rows)) return seat.storeCount || 0;
-  return pack.rows.filter((row) => row && row.store && includesScope(row, state.filters, roster(), section)).length;
+  if (!pack || !Array.isArray(pack.rows)) return null;
+  return sectionStoreCount(pack.rows, state.filters, roster(), section);
 }
 
 function companyBlock(section, title) {
@@ -606,16 +625,6 @@ function companyBlock(section, title) {
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
   const health = seat.health || "none";
   const counted = headerStoreCount(section, seat);
-  const hideEmptyBadge =
-    counted > 0 &&
-    health === "none" &&
-    (section === "picker_scorecard" || (section === "dynacap" && seat.headline == null));
-  const name = title ? `<h2>${esc(title)}</h2>` : "";
-  const countLabel = !counted
-    ? ""
-    : !seat.fixedCompany && section === "picker_scorecard"
-      ? `${num(counted, 0)} cooked shoppers`
-      : `${num(counted, 0)} stores`;
   const figureText =
     seat.headlineText != null && seat.headlineText !== ""
       ? seat.headlineText
@@ -624,6 +633,19 @@ function companyBlock(section, title) {
         : filtersActive(state.filters)
           ? "—"
           : "";
+  const tone = health === "good" || health === "watch" || health === "risk" ? health : "none";
+  const hideEmptyBadge =
+    counted > 0 &&
+    tone === "none" &&
+    (section === "picker_scorecard" || (section === "dynacap" && seat.headline == null));
+  const badgeHtml = tone === "none" && (hideEmptyBadge || !figureAbsent(figureText) || Boolean(tiles)) ? "" : badge(tone);
+  const name = title ? `<h2>${esc(title)}</h2>` : "";
+  const countLabel =
+    counted == null || !counted
+      ? ""
+      : !seat.fixedCompany && section === "picker_scorecard"
+        ? `${num(counted, 0)} cooked shoppers`
+        : `${num(counted, 0)} stores`;
   const figureLabel = !tiles && seat.figureLabel ? `<p class="eyebrow">${esc(seat.figureLabel)}</p>` : "";
   const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
   const missedLine = !tiles && seat.missed ? `<p class="secondary">Missed $ ${esc(seat.missed)}</p>` : "";
@@ -633,7 +655,7 @@ function companyBlock(section, title) {
   const scope = filtersActive(state.filters)
     ? `<p class="scope">In this scope: ${esc(countLabel || "no cooked grade")}.</p>`
     : "";
-  return `<div class="score-face">${name}${hideEmptyBadge ? "" : badge(health)}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figureLabel}${figure}${missedLine}${tiles}${secondary}${definition}${scope}</div>`;
+  return `<div class="score-face">${name}${badgeHtml}${countLabel ? `<p class="sub">${esc(countLabel)}</p>` : ""}${figureLabel}${figure}${missedLine}${tiles}${secondary}${definition}${scope}</div>`;
 }
 
 function cell(row, keys) {
@@ -746,7 +768,8 @@ function grainBlock(section) {
     })
     .join("");
   const heading = filtersActive(state.filters) ? scopeLabel(state.filters) : "Regions";
-  return `<section class="grain"><h2>${esc(heading)}</h2><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>Value</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul></section>`;
+  const valueHead = section === "lost_revenue" ? LOST_EXCL_LABEL : "Value";
+  return `<section class="grain"><h2>${esc(heading)}</h2><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>${esc(valueHead)}</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul></section>`;
 }
 
 const REGION_CARD_ORDER = ["East", "South", "California", "West"];
@@ -788,14 +811,8 @@ function regionCardsHtml() {
   const cards = REGION_CARD_ORDER.filter((name) => byRegion.has(name) && regionVisible(name))
     .map((name) => {
       const rows = byRegion.get(name);
-      const sales = rows.find((row) => row.section === "sales");
       const lostRoll = lostRegionRollup(name);
-      const listed = regionStoreCount(roster(), name);
-      const storeCount = lostRoll
-        ? lostRoll.count
-        : listed || (sales && sales.storeCount
-          ? sales.storeCount
-          : rows.reduce((max, row) => (row.section === "picker_scorecard" ? max : Math.max(max, Number(row.storeCount) || 0)), 0));
+      const storeCount = lostRoll ? lostRoll.count : 0;
       const chips = rows
         .map((row) => {
           let title = row.title;
@@ -1237,7 +1254,7 @@ function warmDashboard(token) {
     jobs.push(loadOptional("section/lost_revenue"));
   }
   for (const page of PAGES) {
-    if (!page.section || page.section === "picker_scorecard" || seatReady(page.section)) continue;
+    if (!page.section) continue;
     const path = `section/${page.section}`;
     if (state.packs.has(path) || state.failedPacks.has(path)) continue;
     jobs.push(loadOptional(path));
@@ -1251,12 +1268,12 @@ function warmDashboard(token) {
 async function renderMetric(page, token) {
   const path = `section/${page.section}`;
   const pending = !state.packs.has(path) && !state.failedPacks.has(path);
-  main.innerHTML = scorecardHtml(page, pending);
   if (pending) {
+    main.innerHTML = `<p class="note">Loading…</p>`;
     await loadOptional(path);
     if (token !== renderToken) return;
-    main.innerHTML = scorecardHtml(page, false);
   }
+  main.innerHTML = scorecardHtml(page, false);
   if (page.section === "pre_sub_oos" && !state.packs.has("presub") && !state.failedPacks.has("presub")) {
     await loadOptional("presub");
     if (token !== renderToken) return;
@@ -1276,7 +1293,7 @@ async function render() {
   const page = pageById(state.page);
   if (paintedPage !== page.id) {
     paintedPage = page.id;
-    window.scrollTo(0, 0);
+    scrollChromeToTop();
   }
   title.textContent = page.title;
   renderNav();
@@ -1653,6 +1670,7 @@ browseBack.addEventListener("click", () => {
   state.filters = parentScope(state.filters);
   state.tableWindow = ROW_PAGE;
   if (!shareRoot.hidden) shareScope.textContent = `Filters · ${scopeLabel(state.filters)}`;
+  scrollChromeToTop();
   render();
 });
 

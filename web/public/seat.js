@@ -96,6 +96,16 @@ export function rowsInScope(rows, filters, roster, section) {
   return (rows || []).filter((row) => row && row.store && includesScope(row, filters, roster, section));
 }
 
+export function sectionStoreCount(rows, filters, roster, section) {
+  if (!Array.isArray(rows)) return null;
+  return rowsInScope(rows, filters, roster, section).length;
+}
+
+export function figureAbsent(text) {
+  const value = String(text ?? "").trim();
+  return value === "" || value === "—" || value.toLowerCase() === "no data";
+}
+
 // Cooked region or division line. District / OM / Store have no chrome grade.
 export function chromeSeat(lines, section, filters) {
   if (!filters || filters.district || filters.om || filters.store) return null;
