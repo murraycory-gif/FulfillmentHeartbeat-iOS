@@ -1106,7 +1106,7 @@ const signedAuth = openAuth();
 const signedIn = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
     body: "username=heartbeat&password=test-only-secret",
   }),
   env: accountEnv(signedAuth.db),
@@ -1243,7 +1243,7 @@ assert.deepEqual(await apiUnsigned.json(), { error: "unauthorized" });
 const wrong = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
     body: "username=heartbeat&password=wrong",
   }),
   env: gateEnv,
@@ -1261,7 +1261,7 @@ assert.equal(await rotated.text(), "page");
 const testerIn = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
     body: "username=tester&password=tester-only-secret",
   }),
   env: accountEnv(signedAuth.db),
@@ -1548,7 +1548,7 @@ function accountEnv(db, extra = {}) {
 }
 
 async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null } = {}) {
-  const requestHeaders = { ...headers };
+  const requestHeaders = { "sec-fetch-site": "same-origin", ...headers };
   if (body) requestHeaders["content-type"] = "application/x-www-form-urlencoded";
   if (cookie) requestHeaders.cookie = cookie;
   return basicGate({
@@ -1805,9 +1805,12 @@ assert.equal(cutoverDenied.status, 401);
 const crossSite = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=admin@example.com&password=long-enough-1",
-  headers: { origin: "https://evil.example" },
+  headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
 });
 assert.equal(crossSite.status, 403);
+const crossSiteHtml = await crossSite.text();
+assert.match(crossSiteHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(crossSiteHtml.includes("That email or password is wrong."), false);
 
 const adminBack = await accountRequest(auth.db, "/login", {
   method: "POST",
@@ -1887,12 +1890,43 @@ assert.equal(legacyAccountHtml.includes('href="/admin">User management'), false)
 assert.equal(legacyAccountHtml.includes("Back to Heartbeat"), false);
 const sessionDenied = await accountRequest(auth.db, "/session");
 assert.equal(sessionDenied.status, 401);
-const nullOrigin = await accountRequest(auth.db, "/login", {
+const loginPage = await accountRequest(auth.db, "/login");
+assert.equal(loginPage.status, 200);
+assert.equal(loginPage.headers.get("referrer-policy"), "same-origin");
+const browserLogin = openAuth();
+const nullOrigin = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
-  headers: { origin: "null" },
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
 });
-assert.equal(nullOrigin.status, 403);
+assert.equal(nullOrigin.status, 303);
+assert.match(nullOrigin.headers.get("set-cookie") || "", /^hb_session=/);
+const nullOriginWrong = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=not-the-shared-password",
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
+});
+assert.equal(nullOriginWrong.status, 401);
+const nullOriginWrongHtml = await nullOriginWrong.text();
+assert.match(nullOriginWrongHtml, /That email or password is wrong/);
+assert.equal(nullOriginWrongHtml.includes("Sign-in blocked:"), false);
+assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, 1);
+const nullOriginBlocked = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", "sec-fetch-site": "cross-site" },
+});
+assert.equal(nullOriginBlocked.status, 403);
+const nullOriginBlockedHtml = await nullOriginBlocked.text();
+assert.match(nullOriginBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(nullOriginBlockedHtml.includes("That email or password is wrong."), false);
+assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, 1);
+const refererLogin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", "sec-fetch-site": "none", referer: "https://fulfillment-heartbeat-web.pages.dev/login" },
+});
+assert.equal(refererLogin.status, 303);
 const sameOriginLogin = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
