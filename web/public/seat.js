@@ -7,6 +7,12 @@
 
 import { filtersActive, includesScope, matchesDivision, regionLineInScope } from "./filters.js";
 
+export function formatCompanyAiv(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `${number.toFixed(2)}%`;
+}
+
 function field(row, keys) {
   const payload = (row && row.payload) || {};
   for (const key of keys) {
@@ -286,16 +292,18 @@ export function summarizeSeat(section, rows) {
       if (!scored.length) return empty("No stores in view");
       const values = scored.map((row) => field(row, ["pph"]));
       const atGoal = values.filter((value) => value >= 80).length;
+      const between = values.filter((value) => value >= 74 && value < 80).length;
       const atRisk = values.filter((value) => value < 74).length;
+      const headline = average(values);
       return {
-        headline: average(values),
-        secondary: `${atGoal} of ${scored.length} at 80 · ${atRisk} below 74`,
-        health: band(average(values), 80, 74),
+        headline,
+        secondary: `${atGoal} of ${scored.length} at 80 · ${between} between 74 and 80 · ${atRisk} below 74`,
+        health: headline != null && headline >= 80 ? "good" : band(headline, 80, 74),
         storeCount: scored.length,
       };
     }
     case "labor": {
-      const scored = latest.filter((row) => field(row, ["target_vs_actual_pct"]) != null);
+      const scored = latest.filter((row) => !row.sourceIssue && field(row, ["target_vs_actual_pct"]) != null);
       if (!scored.length) return empty("No Labor rows in this filter");
       const values = scored.map((row) => field(row, ["target_vs_actual_pct"]));
       let healthy = 0;

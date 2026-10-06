@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,10 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
+import { checkPack } from "./check_pack.mjs";
+import { PACK_POINTER_KEY, guardHome, packObjectKey, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
+import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -40,6 +44,7 @@ import {
   sectionGrainRows,
   searchScope,
   cascadePick,
+  regionStoreCount,
   scopeChips,
   filtersUpTo,
   browseLevel,
@@ -47,8 +52,8 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { chromeSeat, lossPercentPoints, seatSummary } from "./public/seat.js";
-import { metricsInSource, pphBar, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
+import { chromeSeat, formatCompanyAiv, lossPercentPoints, seatSummary } from "./public/seat.js";
+import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -284,11 +289,12 @@ assert.match(app, /Shopper rows open from a division/);
 const css = readFileSync(join(root, "public/app.css"), "utf8");
 assert.equal(/\.brand-lockup\s*\{[^}]*background:\s*#fff/.test(css), false);
 const pageHtml = readFileSync(join(root, "public/index.html"), "utf8");
-assert.match(pageHtml, /src="\/nav-boot\.js\?v=2"/);
+assert.match(pageHtml, /src="\/nav-boot\.js\?v=3"/);
 assert.equal(/<script>\s*try/.test(pageHtml), false);
 assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /nav-collapsed/);
-assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /location\.username/);
-assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /location\.replace\(location\.origin/);
+assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /new URL\(location\.href\)/);
+assert.match(readFileSync(join(root, "public/nav-boot.js"), "utf8"), /url\.username/);
+assert.equal(readFileSync(join(root, "public/nav-boot.js"), "utf8").includes("location.username"), false);
 const lockup = pageHtml.slice(pageHtml.indexOf('class="brand-lockup"'), pageHtml.indexOf("</p>", pageHtml.indexOf('class="brand-lockup"')));
 assert.ok(lockup.indexOf("wordmark") < lockup.indexOf('class="heart"'));
 assert.ok(lockup.indexOf('class="heart"') < lockup.indexOf('class="pulse"'));
@@ -347,14 +353,31 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=20/);
+assert.match(pageHtml, /app\.css\?v=21/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
+assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
+assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=29/);
+assert.match(pageHtml, /app\.js\?v=33/);
+assert.match(app, /schema\.js\?v=1/);
+assert.match(app, /console\.warn\(staleSchema\)/);
+assert.match(app, /raiseBanner\(staleSchema \|\| considerPublished/);
+assert.equal(SCHEMA_VERSION, 1);
+assert.equal(schemaWarning({ metadata: { schemaVersion: SCHEMA_VERSION } }), "");
+assert.equal(schemaWarning({ metadata: { schemaVersion: SCHEMA_VERSION + 1 } }), "");
+assert.match(schemaWarning({}), /schema missing/);
+assert.match(schemaWarning({ metadata: { schemaVersion: 0 } }), /schema 0/);
+assert.match(schemaWarning({ metadata: { schemaVersion: SCHEMA_VERSION - 1 } }), /schema 0/);
 const renderSrc = app.slice(app.indexOf("async function render("), app.indexOf("function desktopNav("));
 assert.equal(renderSrc.includes("await ensureSeatRows"), false);
+assert.match(app, /source data issue/);
+assert.match(app, /async function ensureSeatRows\(pages\)/);
+assert.match(app, /page\.section !== "picker_scorecard"/);
+assert.equal(app.includes("location.username"), false);
+assert.equal(readFileSync(join(root, "public/nav-boot.js"), "utf8").includes("location.username"), false);
+assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /between 74 and 80/);
 assert.match(renderSrc, /renderDashboard\(\);\s*warmDashboard\(token\)/);
 assert.match(renderSrc, /renderPicker\(\)/);
 assert.equal(renderSrc.includes('await load("section/picker_scorecard")'), false);
@@ -369,7 +392,7 @@ assert.match(pageHtml, /rel="apple-touch-icon" href="\/apple-touch-icon\.png"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
 assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
-assert.match(pageHtml, /<script src="\/nav-boot\.js\?v=2"><\/script>/);
+assert.match(pageHtml, /<script src="\/nav-boot\.js\?v=3"><\/script>/);
 assert.match(app, /· OM \$\{seat\.om\}/);
 assert.match(app, /section === "schedule_quality"[\s\S]*OM \$\{esc\(manager\)\}/);
 assert.match(app, /section\/picker_scorecard/);
@@ -410,9 +433,12 @@ assert.deepEqual(
 );
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
-assert.equal(readFileSync(join(root, "public/seat.js"), "utf8").includes("formatCompanyAiv"), false);
-assert.equal(app.includes("formatCompanyAiv"), false);
-assert.equal(app.includes("laborMarket"), false);
+assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /export function formatCompanyAiv/);
+assert.match(app, /formatCompanyAiv\(aiv\)/);
+assert.match(app, /laborMarket/);
+assert.equal(formatCompanyAiv(0.002610916545167652), "0.00%");
+assert.equal(shopperHoursText(-0.45583333333333337, (value) => value.toFixed(1)), "source data issue");
+assert.equal(shopperHoursText(1.2, (value) => value.toFixed(1)), "1.2");
 assert.match(css, /\.share\[hidden\]/);
 assert.match(app, /tileUsesSectionTone/);
 assert.match(app, /tone-\$\{tone\}/);
@@ -570,6 +596,10 @@ assert.equal(qualifies(30000, 0, 9.0002, 0), true);
 assert.equal(qualifies(30000, 0, 0, 15), true);
 assert.equal(notScheduled({ under: 100, eff: 0 }), true);
 assert.equal(notScheduled({ under: 100, eff: 1 }), false);
+assert.equal(notScheduled({ under: 4, eff: 0 }), true);
+assert.equal(notScheduled({ under: 100, eff: null }), true);
+assert.equal(notScheduled({ under: 100, eff: -17.777778 }), true);
+assert.equal(notScheduled({ under: 100, eff: -282.352941 }), true);
 assert.equal(percentHealth(12, true), "none");
 assert.equal(percentHealth(0, false), "good");
 assert.equal(percentHealth(0.2, false), "risk");
@@ -700,8 +730,39 @@ assert.equal(shownDistrict("schedule_quality", "62 DEN WEST & MTNS", "62"), "62 
 assert.equal(shownDistrict("schedule_quality", "65 DENVER/SPRINGS", "66"), "66");
 assert.equal(shownDistrict("sales", "62 DEN WEST & MTNS", "62"), "62 DEN WEST & MTNS");
 assert.equal(shownDistrict("schedule_quality", "H1 NE PHILA SUBURB", ""), "H1 NE PHILA SUBURB");
-assert.equal(packHome.laborMarket, undefined);
+assert.equal(packHome.laborMarket.weight, undefined);
+assert.ok(Math.abs(packHome.laborMarket.aiv_impact_pct - 0.002610916545167652) < 1e-12);
+assert.ok(
+  Math.abs(
+    packHome.laborMarket.uplh_impact_pct +
+      packHome.laborMarket.wage_impact_pct +
+      packHome.laborMarket.aiv_impact_pct -
+      packHome.laborMarket.target_vs_actual_pct,
+  ) <= 0.01,
+);
 assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.00%");
+assert.equal(packHome.metadata.schemaVersion, SCHEMA_VERSION);
+assert.match(packHome.metadata.cookSha, /^[0-9a-f]{40}$/);
+const badPack = mkdtempSync(join(tmpdir(), "hb-pack-"));
+writeFileSync(join(badPack, "home.json"), "{}\n");
+const badCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), badPack], { encoding: "utf8" });
+assert.notEqual(badCheck.status, 0);
+assert.match(badCheck.stderr, /schemaVersion=missing/);
+assert.match(badCheck.stderr, /cookSha missing/);
+rmSync(badPack, { recursive: true, force: true });
+const goodCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), join(root, "public/data")], { encoding: "utf8" });
+assert.equal(goodCheck.status, 0, goodCheck.stderr);
+assert.equal(checkPack(join(root, "public/data")).errors.length, 0);
+assert.ok(Array.isArray(packHome.regionTables) && packHome.regionTables.length > 10);
+const rosterByStore = Object.fromEntries(packHome.filters.stores.map((row) => [row.store, row]));
+assert.equal(rosterByStore["233"].division, "Seattle");
+assert.equal(rosterByStore["339"].division, "Mountain West");
+assert.equal(rosterByStore["879"].division, "Mountain West");
+assert.equal(rosterByStore["1509"].division, "Mountain West");
+assert.equal(rosterByStore["4799"].division, "Jewel Osco");
+assert.equal(rosterByStore["4799"].district, "J6");
+assert.equal(rosterByStore["210"].om, "Andrew Quinn");
+assert.equal(rosterByStore["239"].om, "Ben Sarmadi");
 assert.equal(Number(lossPercentPoints(0.05189747740362091, 4248638.425832152, 81865991.15).toFixed(2)), 5.19);
 assert.equal(lossPercentPoints(5.19, 4248638.425832152, 81865991.15), 5.19);
 assert.equal(lossPercentPoints(4.84, 4.84, 1), 4.84);
@@ -824,6 +885,18 @@ const publishScript = readFileSync(join(root, "../Tools/HeartbeatIngest/publish-
 assert.match(publishScript, /HEARTBEAT_UI_ONLY/);
 assert.match(publishScript, /HEARTBEAT_USE_LOCAL_DATA/);
 assert.match(publishScript, /fulfillment-heartbeat-web/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
+assert.match(publishScript, /behind origin/);
+assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
+assert.match(publishScript, /web-pack\/packs\//);
+assert.match(publishScript, /web-pack\/pointer\.json/);
+assert.match(publishScript, /site tree not deployed/);
+assert.match(publishScript, /print_pack_stamp\.mjs/);
+assert.match(publishScript, /signed-in compare/);
+assert.match(publishScript, /2026-09-29/);
+assert.match(publishScript, /2026-09-30/);
+assert.match(readFileSync(join(root, "../Tools/HeartbeatIngest/cook-local.sh"), "utf8"), /HEARTBEAT_DATA_ONLY=1/);
+assert.match(readFileSync(join(root, "package.json"), "utf8"), />=22\.5\.0/);
 assert.match(publishScript, /\{"error":"unauthorized"\}/);
 assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
@@ -946,17 +1019,21 @@ assert.equal(gateDenied.status, 200);
 assert.equal(gateDenied.headers.get("WWW-Authenticate"), null);
 const loginHTML = await gateDenied.text();
 assert.match(loginHTML, /action="\/login"/);
-assert.match(loginHTML, /type="email"/);
+assert.match(loginHTML, /Email or username/);
+assert.match(loginHTML, /type="text"/);
+assert.match(loginHTML, /inputmode="email"/);
+assert.match(loginHTML, /autocapitalize="none"/);
+assert.equal(loginHTML.includes('type="email"'), false);
 assert.match(loginHTML, /name="email"/);
 assert.match(loginHTML, /type="password"/);
 assert.match(loginHTML, /autocomplete="username"/);
 assert.match(loginHTML, /autocomplete="current-password"/);
 assert.match(loginHTML, /<span class="fulfill">Fulfill<\/span><span class="ment">ment<\/span>/);
-assert.match(loginHTML, /src="\/nav-boot\.js\?v=2"/);
+assert.match(loginHTML, /src="\/nav-boot\.js\?v=3"/);
 assert.equal(loginHTML.includes('class="header-back"'), false);
 assert.match(accountsSrc, /class="header-back"/);
 assert.match(accountsSrc, />Dashboard</);
-assert.match(accountsSrc, /Back to Heartbeat/);
+assert.equal(accountsSrc.includes("Back to Heartbeat"), false);
 assert.match(accountsSrc, /aria-controls="drawer"/);
 assert.match(accountsSrc, /"\/\?page=pph"/);
 assert.match(accountsSrc, /"\/\?page=schedule"/);
@@ -973,7 +1050,7 @@ for (const file of ["public/favicon-16.png", "public/favicon-32.png", "public/ap
 }
 let bootServed = false;
 const boot = await basicGate({
-  request: new Request("https://fulfillment-heartbeat-web.pages.dev/nav-boot.js?v=2"),
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/nav-boot.js?v=3"),
   env: gateEnv,
   next: async () => {
     bootServed = true;
@@ -1019,13 +1096,14 @@ assert.equal(dataDenied.headers.get("cache-control"), "private, no-store");
 assert.equal(dataDenied.headers.get("set-cookie"), null);
 assert.equal(dataDenied.headers.get("WWW-Authenticate"), null);
 assert.deepEqual(await dataDenied.json(), { error: "unauthorized" });
+const signedAuth = openAuth();
 const signedIn = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
     body: "username=heartbeat&password=test-only-secret",
   }),
-  env: gateEnv,
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
 assert.equal(signedIn.status, 303);
@@ -1037,24 +1115,95 @@ assert.match(setCookie, /Secure/);
 assert.match(setCookie, /SameSite=Lax/);
 assert.match(setCookie, /Max-Age=2592000/);
 const sessionCookie = setCookie.split(";")[0];
+assert.match(sessionCookie.split("=")[1], /^[a-f0-9]{64}\.[a-f0-9]{64}$/);
 const opened = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: sessionCookie } }),
-  env: gateEnv,
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
 assert.equal(opened.status, 200);
 assert.equal(await opened.text(), "page");
 const dataOpened = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
-  env: gateEnv,
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
 });
 assert.equal(dataOpened.status, 200);
 assert.equal(dataOpened.headers.get("cache-control"), "private, no-store");
+assert.equal(rawDivisionName("JEWEL"), true);
+assert.equal(rawDivisionName("Jewel Osco"), false);
+assert.equal(rawDivisionName("DENVER"), true);
+assert.equal(rawDivisionName("INTERMOUNTAIN"), true);
+const goodSha = "a".repeat(40);
+const badSha = "b".repeat(40);
+const goodHome = {
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha },
+  laborMarket: { aiv_impact_pct: 3, uplh_impact_pct: 1, wage_impact_pct: 2, target_vs_actual_pct: 6 },
+  regionTables: [{ region: "West" }],
+  summaries: [{ section: "sales" }],
+  companyTiles: { sales: { labels: [], values: [] } },
+  filters: { stores: [{ store: "1", division: "Mountain West" }] },
+};
+const badHome = {
+  metadata: { schemaVersion: 0, cookSha: badSha },
+  laborMarket: { aiv_impact_pct: 1, uplh_impact_pct: 1, wage_impact_pct: 1, target_vs_actual_pct: 3 },
+  regionTables: [{ region: "West" }],
+  summaries: [{ section: "sales" }],
+  companyTiles: {},
+  filters: { stores: [{ store: "1" }] },
+};
+assert.equal(guardHome(goodHome).length, 0);
+assert.ok(guardHome(badHome).some((item) => item.startsWith("schemaVersion=")));
+function memoryBucket(files) {
+  return {
+    async get(key) {
+      if (!Object.prototype.hasOwnProperty.call(files, key)) return null;
+      const text = files[key];
+      return { text: async () => text, body: text };
+    },
+  };
+}
+const packFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({ current: badSha, previous: goodSha }),
+  [packObjectKey(badSha, "home.json")]: JSON.stringify(badHome),
+  [packObjectKey(badSha, "section/missing_items.json")]: JSON.stringify({ rows: [{ store: "879", division: "DENVER" }] }),
+  [packObjectKey(goodSha, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(goodSha, "section/missing_items.json")]: JSON.stringify({ rows: [{ store: "879", division: "Mountain West" }] }),
+};
+resetPackCache();
+const packed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(packFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(packed.status, 200);
+assert.equal(packed.headers.get("cache-control"), "private, no-store");
+assert.match(await packed.text(), /Mountain West/);
+resetPackCache();
+const unsignedPack = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json"),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(packFiles) }),
+  next: async () => new Response("static-pack", { status: 200 }),
+});
+assert.equal(unsignedPack.status, 401);
+assert.equal(unsignedPack.headers.get("cache-control"), "private, no-store");
+assert.deepEqual(await unsignedPack.json(), { error: "unauthorized" });
+resetPackCache();
+const staticFallback = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
+  env: accountEnv(signedAuth.db, {
+    HEARTBEAT_PACKS: memoryBucket({ [PACK_POINTER_KEY]: JSON.stringify({ current: badSha, previous: "" }) }),
+  }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(await staticFallback.text(), "static-home");
+assert.equal(staticFallback.headers.get("cache-control"), "private, no-store");
 const wrong = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
     body: "username=heartbeat&password=wrong",
   }),
   env: gateEnv,
@@ -1065,35 +1214,51 @@ assert.equal(wrong.headers.get("set-cookie"), null);
 assert.match(await wrong.text(), /That email or password is wrong/);
 const rotated = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: sessionCookie } }),
-  env: { ...gateEnv, BASIC_PASS: "rotated-secret" },
+  env: accountEnv(signedAuth.db, { BASIC_PASS: "rotated-secret" }),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.match(await rotated.text(), /action="\/login"/);
-const testerToken = await createSessionToken(gateEnv, "tester", "tester-only-secret");
-const testerCookie = `hb_session=${testerToken}`;
-const testerAfterMasterRotate = await basicGate({
+assert.equal(await rotated.text(), "page");
+const testerIn = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/login", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
+    body: "username=tester&password=tester-only-secret",
+  }),
+  env: accountEnv(signedAuth.db),
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(testerIn.status, 303);
+const testerCookie = (testerIn.headers.get("set-cookie") || "").split(";")[0];
+assert.match(testerCookie.split("=")[1], /^[a-f0-9]{64}\.[a-f0-9]{64}$/);
+const testerAfterRotate = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: testerCookie } }),
-  env: { ...gateEnv, BASIC_PASS: "rotated-secret" },
+  env: accountEnv(signedAuth.db, { BASIC_PASS_TESTER: "rotated-tester" }),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.equal(await testerAfterMasterRotate.text(), "page");
-const testerAfterOwnRotate = await basicGate({
+assert.equal(await testerAfterRotate.text(), "page");
+const testerLogout = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/logout", { method: "POST", headers: { cookie: testerCookie } }),
+  env: accountEnv(signedAuth.db),
+  next: async () => new Response("page", { status: 200 }),
+});
+assert.equal(testerLogout.status, 302);
+const testerReplay = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: testerCookie } }),
-  env: { ...gateEnv, BASIC_PASS_TESTER: "rotated-tester" },
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.match(await testerAfterOwnRotate.text(), /action="\/login"/);
+assert.match(await testerReplay.text(), /action="\/login"/);
 const stale = await createSessionToken(gateEnv, "heartbeat", "test-only-secret", 0);
 const expiredSession = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: `hb_session=${stale}` } }),
-  env: gateEnv,
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
 assert.match(await expiredSession.text(), /action="\/login"/);
 const flippedCookie = sessionCookie.slice(0, -1) + (sessionCookie.endsWith("a") ? "b" : "a");
 const tampered = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: flippedCookie } }),
-  env: gateEnv,
+  env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
 assert.match(await tampered.text(), /action="\/login"/);
@@ -1152,15 +1317,55 @@ const eastLoss = cooked.regionLines.find((line) => line.section === "lost_revenu
 assert.match(eastLoss.value, /^\$/);
 assert.ok(eastLoss.children.some((child) => child.division === "Shaws"));
 const lostTiles = cooked.companyTiles.lost_revenue;
-assert.equal(cooked.publishedAt, "2026-10-05T22:57:06Z");
-assert.equal(lostTiles.values[lostTiles.labels.indexOf("Lost %")], "0.05%");
-assert.equal(lostTiles.values[lostTiles.labels.indexOf("Goal %")], "0.03%");
-assert.equal(lostTiles.values[lostTiles.labels.indexOf("Missed")], "—");
+assert.equal(cooked.publishedAt, "2026-10-06T01:35:23Z");
+assert.equal(cooked.metadata.schemaVersion, SCHEMA_VERSION);
+assert.equal(cooked.metadata.cookSha, packHome.metadata.cookSha);
+assert.ok(cooked.publishedAt > "2026-10-05T22:57:06Z");
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Lost %")], "5.19%");
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Goal %")], "3.06%");
+assert.equal(lostTiles.values[lostTiles.labels.indexOf("Missed")], "$178,705.37");
 const southDyn = cooked.regionLines.find((line) => line.section === "dynacap" && line.region === "South");
-assert.equal(southDyn.children.some((child) => child.division === "United"), false);
+assert.equal(southDyn.children.find((child) => child.division === "United").value, "—");
 assert.equal(southDyn.children.find((child) => child.division === "Southwest").value, "51.1");
 assert.equal(southDyn.children.find((child) => child.division === "Southern").value, "71.0");
-assert.equal(cooked.regionTables, undefined);
+assert.ok(Array.isArray(cooked.regionTables) && cooked.regionTables.length > 10);
+const cookedPph = cooked.summaries.find((item) => item.section === "pph");
+assert.match(cookedPph.secondary, /between 74 and 80/);
+assert.notEqual(cookedPph.health, "risk");
+const laborFile = JSON.parse(readFileSync(join(root, "dist/data/section/labor.json"), "utf8"));
+const laborBridge = laborFile.rows.filter((row) => {
+  const payload = row.payload || {};
+  return ["uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct", "target_vs_actual_pct"].every(
+    (key) => payload[key] != null,
+  );
+});
+assert.equal(laborBridge.length, 2109);
+assert.ok(
+  laborBridge.every((row) => {
+    const payload = row.payload;
+    return (
+      Math.abs(payload.uplh_impact_pct + payload.wage_impact_pct + payload.aiv_impact_pct - payload.target_vs_actual_pct) <=
+      0.01
+    );
+  }),
+);
+const laborByStore = Object.fromEntries(laborFile.rows.map((row) => [row.store, row]));
+assert.equal(laborByStore["233"].sourceIssue, "source data issue");
+assert.ok(Math.abs(laborByStore["233"].payload.aiv_impact_pct - 587.2133705452294) < 1e-6);
+assert.equal(laborByStore["4799"].sourceIssue, "source data issue");
+assert.ok(Math.abs(laborByStore["4799"].payload.aiv_impact_pct - 12.298494468568636) < 1e-6);
+assert.equal(laborByStore["1509"].sourceIssue, "source data issue");
+assert.equal(laborByStore["1509"].payload.sch_hrs, 0);
+assert.equal(laborByStore["1"].sourceIssue, undefined);
+assert.ok(Math.abs(laborByStore["1"].payload.aiv_impact_pct - -0.38645958215580284) < 1e-9);
+const lostFile = JSON.parse(readFileSync(join(root, "dist/data/section/lost_revenue.json"), "utf8"));
+assert.ok(new Set(lostFile.rows.map((row) => row.division)).size > 8);
+assert.ok(lostFile.rows.filter((row) => row.division === "Haggen").length < 30);
+const unitedDyn = JSON.parse(readFileSync(join(root, "dist/data/section/dynacap.json"), "utf8")).rows.filter(
+  (row) => row.division === "United",
+);
+assert.ok(unitedDyn.length >= 50);
+assert.ok(unitedDyn.every((row) => row.payload.eot_capacity != null && row.payload.used_capacity != null));
 const eastDynacap = cooked.regionLines.find((line) => line.section === "dynacap" && line.region === "East");
 const cookedMidAtlantic = (eastDynacap?.children || []).find((child) => child.division === "Mid-Atlantic");
 assert.ok(cookedMidAtlantic, "cooked dynacap pack includes Mid-Atlantic");
@@ -1180,7 +1385,8 @@ assert.equal(schedule.stores.length, 2163);
 const liveCompany = summary(schedule, empty, []);
 assert.equal(pct(liveCompany.eff), "88.44%");
 const southSched = rankedRegions(schedule, empty, []).find((row) => row.region === "South Region");
-assert.equal(pct(southSched.eff), "92.64%");
+assert.equal(pct(southSched.eff), "91.04%");
+assert.notEqual(pct(southSched.eff), "92.64%");
 assert.equal(southSched.scope, 397);
 assert.equal(pct(southSched.under), "3.05%");
 assert.equal(pct(southSched.over), "5.91%");
@@ -1211,22 +1417,33 @@ assert.equal(weightedSummary.underCount, 3);
 assert.equal(weightedSummary.storeUnder, 10 / 3);
 assert.match(app, /function scheduleRate/);
 assert.match(app, /if \(notScheduled\(store\)\) return "—"/);
-assert.equal(pct(southOnly.eff), "92.64%");
+assert.equal(pct(southOnly.eff), "91.04%");
 const southDivisions = rankedDivisions(schedule, filters({ region: "South Region" }), []);
 assert.equal(southDivisions.find((row) => row.division === "Southwest").scope, 190);
 assert.equal(southDivisions.find((row) => row.division === "Southern").scope, 136);
 assert.equal(southDivisions.find((row) => row.division === "United").scope, 71);
 assert.equal(countStores(cooked.filters.stores, filters({ region: "South Region" })), 397);
+assert.equal(regionStoreCount(cooked.filters.stores, "South"), 397);
+assert.match(app, /regionStoreCount\(roster\(\), name\)/);
 const liveUnited = summary(schedule, filters({ division: "United" }), []);
 assert.equal(liveUnited.under, null);
 assert.equal(liveUnited.over, null);
-assert.equal(pct(liveUnited.eff), "100.00%");
+assert.equal(liveUnited.eff, null);
 const unitedDivision = rankedDivisions(schedule, empty, []).find((row) => row.division === "United");
 assert.equal(unitedDivision.under, null);
 assert.equal(unitedDivision.over, null);
-assert.equal(pct(unitedDivision.eff), "100.00%");
-assert.equal(scheduleGapNote(schedule, filters({ division: "United" }), []), "");
-assert.equal(scheduleGapNote(schedule, empty, []).includes("United: No data"), false);
+assert.equal(unitedDivision.eff, null);
+assert.equal(scheduleGapNote(schedule, filters({ division: "United" }), []), "No data");
+assert.equal(scheduleGapNote(schedule, empty, []).includes("United: No data"), true);
+const scheduleByStore = Object.fromEntries(schedule.stores.map((row) => [row.store, row]));
+assert.equal(scheduleByStore["210"].om, "Andrew Quinn");
+assert.equal(scheduleByStore["239"].om, "Ben Sarmadi");
+assert.equal(notScheduled(scheduleByStore["3066"]), true);
+assert.equal(notScheduled(scheduleByStore["3566"]), true);
+assert.equal(
+  schedule.stores.filter((row) => row.under != null && row.under >= 99.5 && (row.eff == null || row.eff <= 0)).length,
+  0,
+);
 assert.match(schedule.summaryTitle, new RegExp(`Week ${schedule.week}`));
 assert.equal(schedule.summaryTitle.includes("Week 31"), false);
 assert.match(scheduleVisibleTitle(schedule.summaryTitle, schedule.week), new RegExp(`Week ${schedule.week}`));
@@ -1268,8 +1485,11 @@ function accountEnv(db, extra = {}) {
   };
 }
 
-async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null } = {}) {
+async function accountRequest(db, path, { method = "GET", body = "", cookie = "", headers = {}, env = null, fetchSite = "same-origin" } = {}) {
   const requestHeaders = { ...headers };
+  if (fetchSite && !Object.prototype.hasOwnProperty.call(headers, "sec-fetch-site")) {
+    requestHeaders["sec-fetch-site"] = fetchSite;
+  }
   if (body) requestHeaders["content-type"] = "application/x-www-form-urlencoded";
   if (cookie) requestHeaders.cookie = cookie;
   return basicGate({
@@ -1343,7 +1563,7 @@ assert.match(peopleHtml, /admin@example.com/);
 assert.match(peopleHtml, /src="\/auth-copy\.js"/);
 assert.match(peopleHtml, /class="header-back" href="\/"/);
 assert.match(peopleHtml, />Dashboard</);
-assert.match(peopleHtml, /Back to Heartbeat/);
+assert.equal(peopleHtml.includes("Back to Heartbeat"), false);
 assert.match(peopleHtml, /id="nav-toggle"/);
 assert.match(peopleHtml, /href="\/\?page=labor"/);
 assert.match(peopleHtml, /href="\/admin" aria-current="page">User management/);
@@ -1367,6 +1587,7 @@ assert.equal(viewerDenied.status, 403);
 const viewerDeniedHtml = await viewerDenied.text();
 assert.match(viewerDeniedHtml, /Admins only/);
 assert.match(viewerDeniedHtml, /class="header-back"/);
+assert.equal(viewerDeniedHtml.includes("Back to Heartbeat"), false);
 assert.match(viewerDeniedHtml, /href="\/account">Account/);
 assert.equal(viewerDeniedHtml.includes(">User management<"), false);
 const inviteReuse = await accountRequest(auth.db, `/invite/${viewerInvite}`, {
@@ -1472,6 +1693,17 @@ const throttled = await accountRequest(throttle.db, "/login", {
   body: "email=nobody@example.com&password=not-a-real-password",
 });
 assert.equal(throttled.status, 429);
+const otherIp = await accountRequest(throttle.db, "/login", {
+  method: "POST",
+  body: "email=nobody@example.com&password=not-a-real-password",
+  headers: { "x-forwarded-for": "203.0.113.9" },
+});
+assert.equal(otherIp.status, 401);
+const heartbeatSameIp = await accountRequest(throttle.db, "/login", {
+  method: "POST",
+  body: "email=heartbeat&password=not-the-shared-password",
+});
+assert.equal(heartbeatSameIp.status, 401);
 
 const legacy = openAuth();
 const legacyIn = await accountRequest(legacy.db, "/login", {
@@ -1479,6 +1711,30 @@ const legacyIn = await accountRequest(legacy.db, "/login", {
   body: "username=heartbeat&password=test-only-secret",
 });
 assert.equal(legacyIn.status, 303);
+const sharedWhileAccounts = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=heartbeat&password=test-only-secret",
+});
+assert.equal(sharedWhileAccounts.status, 303);
+const sharedSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(sharedWhileAccounts) });
+assert.deepEqual(await sharedSession.json(), { email: "heartbeat", role: "viewer", account: false });
+const sharedAdmin = await accountRequest(auth.db, "/admin", { cookie: cookieHeader(sharedWhileAccounts) });
+assert.equal(sharedAdmin.status, 403);
+const sharedCookie = cookieHeader(sharedWhileAccounts);
+const sharedLogout = await accountRequest(auth.db, "/logout", { method: "POST", cookie: sharedCookie });
+assert.equal(sharedLogout.status, 302);
+assert.match(sharedLogout.headers.get("set-cookie") || "", /Max-Age=0/);
+const sharedReplay = await accountRequest(auth.db, "/session", { cookie: sharedCookie });
+assert.equal(sharedReplay.status, 401);
+const sharedReplayPage = await accountRequest(auth.db, "/", { cookie: sharedCookie });
+assert.match(await sharedReplayPage.text(), /action="\/login"/);
+const testerWhileAccounts = await accountRequest(auth.db, "/login", {
+  method: "POST",
+  body: "email=tester&password=tester-only-secret",
+});
+assert.equal(testerWhileAccounts.status, 303);
+const testerSession = await accountRequest(auth.db, "/session", { cookie: cookieHeader(testerWhileAccounts) });
+assert.deepEqual(await testerSession.json(), { email: "tester", role: "viewer", account: false });
 assert.equal(legacy.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
 const cutover = openAuth();
 const cutoverDenied = await accountRequest(cutover.db, "/login", {
@@ -1490,9 +1746,12 @@ assert.equal(cutoverDenied.status, 401);
 const crossSite = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "email=admin@example.com&password=long-enough-1",
-  headers: { origin: "https://evil.example" },
+  headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
 });
 assert.equal(crossSite.status, 403);
+const crossSiteHtml = await crossSite.text();
+assert.match(crossSiteHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(crossSiteHtml.includes("That email or password is wrong."), false);
 
 const adminBack = await accountRequest(auth.db, "/login", {
   method: "POST",
@@ -1515,6 +1774,8 @@ assert.equal(viewerAccount.status, 200);
 const viewerAccountHtml = await viewerAccount.text();
 assert.match(viewerAccountHtml, /Change password|Current password/);
 assert.match(viewerAccountHtml, /autocomplete="current-password"/);
+assert.match(viewerAccountHtml, /class="header-back"/);
+assert.equal(viewerAccountHtml.includes("Back to Heartbeat"), false);
 assert.equal(viewerAccountHtml.includes("Add a person"), false);
 const shortChange = await accountRequest(auth.db, "/account", {
   method: "POST",
@@ -1561,21 +1822,80 @@ const newViewerPass = await accountRequest(auth.db, "/login", {
 });
 assert.equal(newViewerPass.status, 303);
 const legacySession = await accountRequest(legacy.db, "/session", { cookie: cookieHeader(legacyIn) });
-assert.deepEqual(await legacySession.json(), { email: "heartbeat", role: "admin", account: false });
+assert.deepEqual(await legacySession.json(), { email: "heartbeat", role: "viewer", account: false });
 const legacyAccount = await accountRequest(legacy.db, "/account", { cookie: cookieHeader(legacyIn) });
 const legacyAccountHtml = await legacyAccount.text();
 assert.match(legacyAccountHtml, /does not have its own password/);
 assert.match(legacyAccountHtml, /class="header-back"/);
-assert.match(legacyAccountHtml, /href="\/admin">User management/);
-assert.match(legacyAccountHtml, /Back to Heartbeat/);
+assert.equal(legacyAccountHtml.includes('href="/admin">User management'), false);
+assert.equal(legacyAccountHtml.includes("Back to Heartbeat"), false);
 const sessionDenied = await accountRequest(auth.db, "/session");
 assert.equal(sessionDenied.status, 401);
-const nullOrigin = await accountRequest(auth.db, "/login", {
+const loginPage = await accountRequest(auth.db, "/login");
+assert.equal(loginPage.status, 200);
+assert.equal(loginPage.headers.get("referrer-policy"), "same-origin");
+const browserLogin = openAuth();
+const nullOrigin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
+});
+assert.equal(nullOrigin.status, 303);
+assert.match(nullOrigin.headers.get("set-cookie") || "", /^hb_session=/);
+const nullOriginWrong = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=not-the-shared-password",
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
+});
+assert.equal(nullOriginWrong.status, 401);
+const nullOriginWrongHtml = await nullOriginWrong.text();
+assert.match(nullOriginWrongHtml, /That email or password is wrong/);
+assert.equal(nullOriginWrongHtml.includes("Sign-in blocked:"), false);
+assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, 1);
+const nullOriginBlocked = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", "sec-fetch-site": "cross-site" },
+});
+assert.equal(nullOriginBlocked.status, 403);
+const nullOriginBlockedHtml = await nullOriginBlocked.text();
+assert.match(nullOriginBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(nullOriginBlockedHtml.includes("That email or password is wrong."), false);
+assert.equal(browserLogin.raw.prepare("SELECT failures FROM login_attempts").get().failures, 1);
+const refererLogin = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", "sec-fetch-site": "none", referer: "https://fulfillment-heartbeat-web.pages.dev/login" },
+});
+assert.equal(refererLogin.status, 303);
+const missingFetchBlocked = await accountRequest(browserLogin.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",
   headers: { origin: "null" },
+  fetchSite: false,
 });
-assert.equal(nullOrigin.status, 403);
+assert.equal(missingFetchBlocked.status, 403);
+const missingFetchBlockedHtml = await missingFetchBlocked.text();
+assert.match(missingFetchBlockedHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(missingFetchBlockedHtml.includes("That email or password is wrong."), false);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+const missingFetchWrongHost = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", referer: "https://evil.example/login" },
+  fetchSite: false,
+});
+assert.equal(missingFetchWrongHost.status, 403);
+assert.match(await missingFetchWrongHost.text(), /Sign-in blocked: please open the site directly and try again/);
+assert.equal(browserLogin.raw.prepare("SELECT COUNT(*) AS n FROM login_attempts").get().n, 0);
+const missingFetch = await accountRequest(browserLogin.db, "/login", {
+  method: "POST",
+  body: "username=heartbeat&password=test-only-secret",
+  headers: { origin: "null", referer: "https://fulfillment-heartbeat-web.pages.dev/login" },
+  fetchSite: false,
+});
+assert.equal(missingFetch.status, 303);
+assert.match(missingFetch.headers.get("set-cookie") || "", /^hb_session=/);
 const sameOriginLogin = await accountRequest(auth.db, "/login", {
   method: "POST",
   body: "username=heartbeat&password=test-only-secret",

@@ -32,8 +32,10 @@ export function qualifies(sales, under, fourUnder, over) {
 }
 
 export function notScheduled(store) {
-  if (store.under == null || store.eff == null) return false;
-  return Number(store.under) >= 99.5 && Math.abs(Number(store.eff)) < 0.05;
+  if (!store || store.eff == null || store.eff === "") return true;
+  const eff = Number(store.eff);
+  // Negative, zero, or missing efficiency is not a measured week, so it is never 100% under.
+  return !Number.isFinite(eff) || eff <= 0;
 }
 
 // High under with almost no efficiency. Same shape as not scheduled, short of that gate.

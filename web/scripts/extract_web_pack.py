@@ -15,8 +15,10 @@ Writes:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -91,6 +93,7 @@ KEEP = {
     "uplh_impact_pct",
     "wage_impact_pct",
     "aiv_impact_pct",
+    "sch_hrs",
     "pick_hours",
     "orders",
     "subs",
@@ -146,6 +149,16 @@ _DIVISION_REGION = {
 }
 for _name in OFFICIAL_DIVISIONS:
     _DIVISION_ALIAS["".join(ch for ch in _name.lower() if ch.isalnum())] = _name
+
+
+def roster_division(record: dict, roster: dict) -> str:
+    """Display division for a fact. Roster name first, then the sheet token."""
+    current = roster.get(record.get("store") or "")
+    if current and current.get("division"):
+        named = canonical_division(current.get("division") or "")
+        if named:
+            return named
+    return canonical_division(record.get("division") or "")
 
 
 def canonical_division(raw: str) -> str:
@@ -266,7 +279,8 @@ def region_lines(packs) -> list:
             for child in item.get("children") or []:
                 if not isinstance(child, dict):
                     continue
-                label = str(child.get("label") or "").strip()
+                raw_label = str(child.get("label") or "").strip()
+                label = canonical_division(raw_label) or raw_label
                 child_value = child.get("value")
                 if not label or child_value is None or str(child_value).strip() in {"", "—", "-", "–"}:
                     continue
@@ -342,23 +356,27 @@ def labor_market_payload(db: sqlite3.Connection) -> dict:
     return {}
 
 
-def company_aiv_percent(value: float) -> float:
-    """The only ×100. Total AIV is a fraction. Store rows are already percent points."""
-    if value != 0 and abs(value) < 0.05:
-        return value * 100
-    return value
-
-
 def format_company_aiv(value: float) -> str:
-    """Print percent points. Scaling stays in company_aiv_percent."""
+    """Percent points, same unit as the store rows. 0.0026109 prints as 0.00%."""
     return f"{float(value):.2f}%"
 
 
-def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
-    """Company AIV is the Labor workbook Total scaled once from a fraction to percent points.
+def labor_bridge(payload: dict) -> dict:
+    """Company AIV is the workbook Total, not a weighted store average. No weight field."""
+    out = {}
+    for key in ("uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct", "target_vs_actual_pct"):
+        raw = payload.get(key)
+        if raw is None:
+            continue
+        try:
+            out[key] = float(raw)
+        except (TypeError, ValueError):
+            continue
+    return out
 
-    The stored Total 0.0026109 is a fraction. ×100 once is about 0.26%. Store rows stay as cooked.
-    """
+
+def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
+    """Print the Labor Total AIV. Do not scale it again and do not average the stores."""
     block = tiles.get("labor")
     if not isinstance(block, dict) or not market:
         return
@@ -366,7 +384,7 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
     if raw is None:
         return
     try:
-        number = company_aiv_percent(float(raw))
+        number = float(raw)
     except (TypeError, ValueError):
         return
     labels = list(block.get("labels") or [])
@@ -377,6 +395,42 @@ def apply_labor_aiv_tile(tiles: dict, market: dict) -> None:
     if index < len(values):
         values[index] = format_company_aiv(number)
         block["values"] = values
+
+
+def labor_source_issue(payload: dict) -> bool:
+    """Bad Labor source rows stay in the pack, flagged instead of read as a real AIV.
+
+    Cost target blank and UPLH/Wage/AIV/Act Cost/Target vs Actual the same magnitude
+    (UPLH carries the opposite sign). Or scheduled hours are 0.
+    """
+    if not isinstance(payload, dict):
+        return False
+    scheduled = payload.get("sch_hrs")
+    if scheduled is not None:
+        try:
+            if float(scheduled) == 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+    if payload.get("cost_trgt_pct") is not None:
+        return False
+    keys = (
+        "uplh_impact_pct",
+        "wage_impact_pct",
+        "aiv_impact_pct",
+        "act_cost_pct",
+        "target_vs_actual_pct",
+    )
+    magnitudes = []
+    for key in keys:
+        raw = payload.get(key)
+        if raw is None:
+            return False
+        try:
+            magnitudes.append(abs(float(raw)))
+        except (TypeError, ValueError):
+            return False
+    return max(magnitudes) - min(magnitudes) <= 0.01
 
 
 def apply_lost_tile_scale(tiles: dict, market: dict) -> None:
@@ -684,6 +738,22 @@ def _blank_schedule_artifact(store: dict) -> bool:
     return True
 
 
+def clear_invalid_schedule_under(schedule: dict) -> None:
+    """Negative, zero, or missing efficiency is not a measured week. It is never 100% under."""
+    for store in schedule.get("stores") or []:
+        if not isinstance(store, dict):
+            continue
+        eff = store.get("eff")
+        invalid = eff is None
+        if not invalid:
+            try:
+                invalid = float(eff) <= 0
+            except (TypeError, ValueError):
+                invalid = True
+        if invalid:
+            store["under"] = None
+
+
 def clear_blank_schedule(schedule: dict) -> None:
     for store in schedule.get("stores") or []:
         if isinstance(store, dict) and _blank_schedule_artifact(store):
@@ -782,17 +852,20 @@ def read_roster_people(path: str) -> dict:
                 division = canonical_division(div)
             if dist and dist.lower() != "total":
                 district = dist
-            if om_raw and om_raw.lower() != "total":
-                om = om_raw if is_person_om(om_raw) else ""
+            if om_raw and om_raw.lower() != "total" and is_person_om(om_raw):
+                om = om_raw
+            elif om_raw:
+                om = ""
             if not store_raw or store_raw.lower() == "total":
                 continue
             store = canonical_store(store_raw)
             if not store or is_total_store(store):
                 continue
+            # A blank OM_ID on this store does not inherit the previous person.
             people[store] = {
                 "division": division,
                 "district": district,
-                "om": om if is_person_om(om) else "",
+                "om": om if (om_raw and is_person_om(om_raw)) else "",
             }
         return people
     finally:
@@ -822,23 +895,67 @@ def apply_roster_people(roster: dict, records: list, people: dict) -> dict:
                 current["division"] = ident["division"]
             if ident.get("district"):
                 current["district"] = ident["district"]
-            current["om"] = person
-    known = set(people)
+            if person:
+                current["om"] = person
     for record in records:
         ident = people.get(record["store"])
-        if ident:
-            if ident.get("division"):
-                record["division"] = ident["division"]
-            if ident.get("district"):
-                record["district"] = ident["district"]
-            record["om"] = ident.get("om") or ""
-        else:
-            # The Daily roster is the OM source. A stray section name is not a seat.
-            record["om"] = ""
-    for current in roster.values():
-        if current["store"] not in known:
-            current["om"] = ""
+        if not ident:
+            continue
+        if ident.get("division"):
+            record["division"] = ident["division"]
+        if ident.get("district"):
+            record["district"] = ident["district"]
+        if ident.get("om"):
+            record["om"] = ident["om"]
     return {"stores": len(people), "named": named}
+
+
+def prefer_pph_identity(roster: dict, records: list) -> None:
+    """PPH names the store when the Daily Roster sheet has no row for it."""
+    for record in records:
+        if record.get("section") != "pph":
+            continue
+        current = roster.get(record.get("store") or "")
+        if not current:
+            continue
+        if record.get("division"):
+            current["division"] = canonical_division(record["division"])
+        if record.get("district"):
+            current["district"] = record["district"]
+        if is_person_om(record.get("om") or ""):
+            current["om"] = record["om"]
+
+
+def apply_pph_summary(summaries: list, records: list) -> None:
+    """80 and above is the goal. 74 up to 80 is the gap. Below 74 is the risk count."""
+    values = []
+    for record in records:
+        if record.get("section") != "pph":
+            continue
+        raw = (record.get("payload") or {}).get("pph")
+        if raw is None:
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return
+    at_goal = sum(value >= 80 for value in values)
+    between = sum(74 <= value < 80 for value in values)
+    below = sum(value < 74 for value in values)
+    average = sum(values) / len(values)
+    if average >= 80:
+        health = "good"
+    elif average >= 74:
+        health = "watch"
+    else:
+        health = "risk"
+    secondary = f"{at_goal} of {len(values)} at 80 · {between} between 74 and 80 · {below} below 74"
+    for item in summaries:
+        if item.get("section") == "pph":
+            item["secondary"] = secondary
+            item["health"] = health
 
 
 def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> None:
@@ -934,6 +1051,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         if record.get("section") == "pick_path_picker" and record.get("store"):
             _merge_roster(roster, record, prefer_roster=False)
     records = list(latest.values()) + list(shoppers.values())
+    prefer_pph_identity(roster, records)
     people = read_roster_people(roster_xlsx) if roster_xlsx else {}
     if people:
         stats = apply_roster_people(roster, records, people)
@@ -943,13 +1061,12 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         )
     for item in roster.values():
         item["division"] = canonical_division(item.get("division") or "")
-    # Division belongs to the store. The roster wins over a sheet that mis-tags the row.
+    # Division belongs to the store. Missing Items and Schedule Quality sheets
+    # say DENVER, INTERMOUNTAIN, and JEWEL. The roster display name wins, and
+    # a sheet token that is not on the roster still goes through the same map.
     for record in records:
+        record["division"] = roster_division(record, roster)
         current = roster.get(record["store"])
-        if current and current.get("division"):
-            record["division"] = current["division"]
-        elif record.get("division"):
-            record["division"] = canonical_division(record["division"])
         if not current:
             continue
         for field in ("district", "om"):
@@ -981,21 +1098,30 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 "riskCount": item.get("riskCount") or 0,
             }
         )
+    apply_pph_summary(summaries, records)
     company_tiles = json.loads(json.dumps(chrome.get("companyTiles") or {}))
     apply_lost_tile_scale(company_tiles, lost_market_payload(db))
     labor_market = labor_market_payload(db)
     apply_labor_aiv_tile(company_tiles, labor_market)
-    labor_aiv = labor_market.get("aiv_impact_pct")
-    if labor_aiv is not None:
-        try:
-            labor_aiv = company_aiv_percent(float(labor_aiv))
-        except (TypeError, ValueError):
-            labor_aiv = None
-    home = {
-        "publishedAt": published,
+    if not published or len(str(published)) < 20:
+        raise SystemExit(f"refusing pack write: publishedAt {published!r}")
+    schema = schema_version()
+    sha = cook_sha()
+
+    def stamped(payload: dict) -> dict:
+        payload["publishedAt"] = published
+        payload["schemaVersion"] = schema
+        payload["cookSha"] = sha
+        return payload
+
+    home = stamped({
+        "metadata": {
+            "schemaVersion": schema,
+            "cookSha": sha,
+        },
         "summaries": summaries,
         "companyTiles": company_tiles,
-        "laborMarket": {"aiv_impact_pct": labor_aiv} if labor_aiv is not None else {},
+        "laborMarket": labor_bridge(labor_market),
         "pickerRollups": chrome.get("pickerRollups") or {},
         "preSubItemTabPresent": item_tab,
         "filters": {
@@ -1013,33 +1139,35 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
             records,
         ),
         "regionTables": region_tables(chrome.get("tables") or {}),
-    }
+    })
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
     schedule_path = out / "schedule.json"
     if schedule:
         _fill_schedule_roster(schedule, roster)
         clear_blank_schedule(schedule)
+        clear_invalid_schedule_under(schedule)
         schedule["summaryTitle"] = schedule_summary_title(schedule.get("summaryTitle") or "", schedule.get("week") or 0)
-        _write(schedule_path, schedule)
+        _write(schedule_path, stamped(schedule))
     else:
         # Keep the URL as JSON. An older file must not keep stores this pack lacks.
-        _write(schedule_path, empty_schedule())
+        _write(schedule_path, stamped(empty_schedule()))
     grouped: dict[str, list] = {section: [] for section in SECTIONS}
     for record in latest.values():
-        grouped[record["section"]].append(
-            {
-                "store": record["store"],
-                "name": record["name"],
-                "division": record["division"],
-                "district": record["district"],
-                "om": record["om"],
-                "payload": record["payload"],
-            }
-        )
+        row = {
+            "store": record["store"],
+            "name": record["name"],
+            "division": record["division"],
+            "district": record["district"],
+            "om": record["om"],
+            "payload": record["payload"],
+        }
+        if record["section"] == "labor" and labor_source_issue(record["payload"]):
+            row["sourceIssue"] = "source data issue"
+        grouped[record["section"]].append(row)
     for section, rows in grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"]))
-        _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
+        _write(section_dir / f"{section}.json", stamped({"section": section, "rows": rows}))
     shopper_grouped: dict[str, list] = {section: [] for section in SHOPPER_SECTIONS}
     for record in shoppers.values():
         shopper_grouped[record["section"]].append(
@@ -1056,9 +1184,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         )
     for section, rows in shopper_grouped.items():
         rows.sort(key=lambda item: (len(item["store"]), item["store"], item.get("shopper") or ""))
-        _write(section_dir / f"{section}.json", {"section": section, "rows": rows})
-    _write(out / "presub.json", {"scopes": presub})
+        _write(section_dir / f"{section}.json", stamped({"section": section, "rows": rows}))
+    _write(out / "presub.json", stamped({"scopes": presub}))
     db.close()
+    check_pack(out)
 
 
 def attach_unique_scorecard_store(shoppers: dict) -> int:
@@ -1144,6 +1273,48 @@ def _table(db: sqlite3.Connection, name: str) -> bool:
 
 def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def schema_version() -> int:
+    text = (Path(__file__).resolve().parents[1] / "public" / "schema.js").read_text(encoding="utf-8")
+    match = re.search(r"export const SCHEMA_VERSION = (\d+)", text)
+    if not match:
+        raise SystemExit("pack metadata: schema.js has no SCHEMA_VERSION")
+    return int(match.group(1))
+
+
+def cook_sha() -> str:
+    """Git SHA of the cook that wrote this pack. HEARTBEAT_COOK_SHA overrides git."""
+    override = os.environ.get("HEARTBEAT_COOK_SHA", "").strip()
+    if override:
+        return override
+    root = Path(__file__).resolve().parents[2]
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        sha = ""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise SystemExit("pack metadata: cook git SHA is missing")
+    return sha
+
+
+def check_pack(out: Path) -> None:
+    """Refuse a pack that is missing the keys a later cook already depends on.
+
+    The committed checker is `node web/check_pack.mjs <dir>`. Extract runs it
+    so a bad pack is not written for upload. HEARTBEAT_SKIP_PACK_CHECK is only
+    for the synthetic extract fixture.
+    """
+    if os.environ.get("HEARTBEAT_SKIP_PACK_CHECK"):
+        return
+    script = Path(__file__).resolve().parents[1] / "check_pack.mjs"
+    completed = subprocess.run(["node", str(script), str(out)], check=False)
+    if completed.returncode != 0:
+        raise SystemExit(completed.returncode or 1)
 
 
 def main() -> None:

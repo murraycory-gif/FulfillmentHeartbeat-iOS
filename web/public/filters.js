@@ -127,6 +127,15 @@ export function canonicalDivision(raw) {
   return "";
 }
 
+export function regionStoreCount(roster, regionName) {
+  const wanted = String(regionName || "").replace(/\s*region$/i, "");
+  if (!wanted) return 0;
+  return (roster || []).filter((row) => {
+    const home = String(regionForDivision(row && row.division) || "").replace(/\s*region$/i, "");
+    return home === wanted;
+  }).length;
+}
+
 export function regionForDivision(raw) {
   const key = lookupKey(raw);
   if (REGION_TITLES[key]) return REGION_TITLES[key];
