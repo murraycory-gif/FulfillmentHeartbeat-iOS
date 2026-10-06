@@ -58,9 +58,9 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCO
 Mint the first admin on the preview database only. Both commands run on your machine and use that HTTP API. The site does not serve them.
 
 ```bash
-ADMIN_EMAIL=you@example.com node scripts/hb-setup.mjs --database hb-auth-preview --origin https://YOUR-PREVIEW.pages.dev
-node scripts/hb-user.mjs create --email qc-viewer@example.com --role viewer --database hb-auth-preview
-node scripts/hb-user.mjs create --email qc-admin@example.com --role admin --database hb-auth-preview
+ADMIN_EMAIL=you@example.com node admin-scripts/hb-setup.mjs --database hb-auth-preview --origin https://YOUR-PREVIEW.pages.dev
+node admin-scripts/hb-user.mjs create --email qc-viewer@example.com --role viewer --database hb-auth-preview
+node admin-scripts/hb-user.mjs create --email qc-admin@example.com --role admin --database hb-auth-preview
 ```
 
 `hb-setup.mjs` prints a one-time link for `ADMIN_EMAIL` to stdout. It expires in 24 hours, works once, and only while no active admin exists. `hb-user.mjs` prints a random password once. Neither command writes the secret into the repo. `fulfillment-heartbeat-auth` and database id `646c017a-802f-4395-b635-d4b5bd66c1cb` are production; both scripts refuse them unless `HB_ALLOW_PROD=1`.

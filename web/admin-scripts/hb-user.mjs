@@ -1,7 +1,7 @@
 // Local only. Creates one user in a named D1 database and prints the password once.
 // The site does not serve this script. It calls the D1 HTTP API, not wrangler d1.
 //
-//   node web/scripts/hb-user.mjs create --email person@example.com --role viewer --database hb-auth-preview
+//   node web/admin-scripts/hb-user.mjs create --email person@example.com --role viewer --database hb-auth-preview
 //
 // Refuses fulfillment-heartbeat-auth unless HB_ALLOW_PROD=1.
 
@@ -41,7 +41,7 @@ function arg(name) {
 async function main() {
   const command = process.argv[2];
   if (command !== "create") {
-    console.error("Usage: node web/scripts/hb-user.mjs create --email EMAIL --role admin|viewer --database hb-auth-preview");
+    console.error("Usage: node web/admin-scripts/hb-user.mjs create --email EMAIL --role admin|viewer --database hb-auth-preview");
     process.exit(1);
   }
   const email = String(arg("--email") || "").trim().toLowerCase();

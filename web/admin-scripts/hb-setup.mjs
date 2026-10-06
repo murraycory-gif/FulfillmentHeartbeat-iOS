@@ -3,7 +3,7 @@
 // The site does not serve this script. It uses the D1 HTTP API, not wrangler d1.
 // It works only while no active admin exists.
 //
-//   ADMIN_EMAIL=you@example.com node web/scripts/hb-setup.mjs --database hb-auth-preview --origin https://YOUR-PREVIEW.pages.dev
+//   ADMIN_EMAIL=you@example.com node web/admin-scripts/hb-setup.mjs --database hb-auth-preview --origin https://YOUR-PREVIEW.pages.dev
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

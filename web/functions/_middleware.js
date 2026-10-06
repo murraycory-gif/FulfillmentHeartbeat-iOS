@@ -442,7 +442,7 @@ async function routeRequest(context, jar = []) {
   const pathname = url.pathname;
   const now = Math.floor(Date.now() / 1000);
 
-  if (pathname === "/setup" || pathname === "/hb-user" || pathname.startsWith("/scripts/")) {
+  if (pathname === "/setup" || pathname === "/hb-user" || pathname.startsWith("/scripts/") || pathname.startsWith("/admin-scripts/")) {
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
   if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {

@@ -21,12 +21,6 @@
 # Tools/HeartbeatIngest/publish-web.sh is flagged for review. That is not a
 # silent cook-path pass and it is not an auto-refuse. The cook still runs.
 #
-# Account CLI scripts are not cook paths. A dirty tree that only touches
-# them does not refuse the cook and does not cook them:
-#   web/scripts/hb-user.mjs
-#   web/scripts/hb-setup.mjs
-#   web/scripts/d1-http.mjs
-#
 # Any other path is auto-refused.
 #
 # Usage: cook-guard.sh [path...]
@@ -40,12 +34,6 @@ classify_one() {
   local path="${1#./}"
   if [[ "$path" == "Tools/HeartbeatIngest/publish-web.sh" ]]; then
     echo review
-    return
-  fi
-  if [[ "$path" == "web/scripts/hb-user.mjs" \
-    || "$path" == "web/scripts/hb-setup.mjs" \
-    || "$path" == "web/scripts/d1-http.mjs" ]]; then
-    echo skip
     return
   fi
   if [[ "$path" == "web/scripts/extract_web_pack.py" \
@@ -62,9 +50,6 @@ classify_one() {
 result="cook"
 for path in "$@"; do
   one="$(classify_one "$path")"
-  if [[ "$one" == "skip" ]]; then
-    continue
-  fi
   if [[ "$one" == "refuse" ]]; then
     result="refuse"
   elif [[ "$one" == "review" && "$result" != "refuse" ]]; then

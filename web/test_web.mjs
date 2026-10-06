@@ -18,8 +18,8 @@ import {
   verifyPassword,
 } from "./functions/accounts.js";
 import { paintWhileLoading, afterPackStatus } from "./public/auth-boot.js";
-import { generatePassword, userInsertSql } from "./scripts/hb-user.mjs";
-import { productionBlocked } from "./scripts/d1-http.mjs";
+import { generatePassword, userInsertSql } from "./admin-scripts/hb-user.mjs";
+import { productionBlocked } from "./admin-scripts/d1-http.mjs";
 
 const ADMIN_EMAIL = "admin@example.com";
 import {
@@ -2500,6 +2500,8 @@ assert.equal(setupDenied.status, 404);
 assert.equal(setupDenied.headers.get("cache-control"), "no-store");
 const setupPost = await accountRequest(auth.db, "/setup", { method: "POST", body: "email=person@example.com" });
 assert.equal(setupPost.status, 404);
+const adminScripts = await accountRequest(auth.db, "/admin-scripts/hb-user.mjs");
+assert.equal(adminScripts.status, 404);
 await ensureSchema(auth.db);
 const issued = await issueFirstAdminLink(auth.db, accountEnv(auth.db), Math.floor(Date.now() / 1000));
 assert.equal(issued.email, ADMIN_EMAIL);
