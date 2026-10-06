@@ -118,18 +118,26 @@ test "$refuse" -ne 0
 guard() {
   bash "$ROOT/Tools/HeartbeatIngest/cook-guard.sh" "$@"
 }
-test "$(guard web/scripts/extract_web_pack.py)" = "cook"
-test "$(guard Tools/HeartbeatIngest/cook-local.sh)" = "cook"
-test "$(guard Tools/HeartbeatIngest/prepare-sources.sh)" = "cook"
-test "$(guard Tools/HeartbeatIngest/nested/file.sh)" = "cook"
-test "$(guard web/check_pack.mjs)" = "cook"
-test "$(guard web/functions/pack-store.js)" = "cook"
+expect_refuse() {
+  set +e
+  local out
+  out="$(guard "$@" 2>/dev/null)"
+  local status=$?
+  set -e
+  test "$status" -ne 0
+  test "$out" = "refuse"
+}
+expect_refuse web/scripts/extract_web_pack.py
+expect_refuse Tools/HeartbeatIngest/cook-local.sh
+expect_refuse Tools/HeartbeatIngest/prepare-sources.sh
+expect_refuse Tools/HeartbeatIngest/nested/file.sh
+expect_refuse web/check_pack.mjs
+expect_refuse web/functions/pack-store.js
 test "$(guard)" = "cook"
 review_out="$(guard Tools/HeartbeatIngest/publish-web.sh 2>"$WORK/review.err")"
 test "$review_out" = "review"
 grep -q "flagged for review" "$WORK/review.err"
-mix="$(guard web/scripts/extract_web_pack.py Tools/HeartbeatIngest/publish-web.sh 2>"$WORK/review-mix.err")"
-test "$mix" = "review"
+expect_refuse web/scripts/extract_web_pack.py Tools/HeartbeatIngest/publish-web.sh
 set +e
 refuse_out="$(guard web/public/app.js 2>"$WORK/refuse.err")"
 refuse_status=$?
@@ -157,7 +165,7 @@ for needle in \
   "companyTiles" \
   "filters.stores" \
   "flagged for review" \
-  "not an auto-refuse"
+  "refusing a dirty cook path"
 do
   grep -q "$needle" <<<"$guard_src"
 done

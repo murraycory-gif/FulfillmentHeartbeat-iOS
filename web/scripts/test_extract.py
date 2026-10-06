@@ -254,9 +254,13 @@ def main() -> None:
         assert lines[0]["children"][0]["division"] == "Shaws"
         assert lines[0]["children"][0]["value"] == "$1.00"
         assert lines[1]["region"] == "South"
+        assert lines[1]["value"] == "$136,425.00"
+        assert home["metadata"]["cookedAt"] == home["cookedAt"]
+        assert loss["storeCount"] == 0
         assert all(line["region"] != "Shaws" for line in lines)
         assert not any(line["title"] == "5 Star" for line in lines)
         schedule = json.loads((out / "schedule.json").read_text())
+        assert home["cookedAt"] == sales["cookedAt"] == schedule["cookedAt"]
         assert schedule["summaryTitle"] == "Week 32"
         assert "Week 31" not in schedule["summaryTitle"]
         assert schedule["stores"][0]["store"] == "117"
@@ -568,8 +572,112 @@ def off_roster_loss_ok() -> None:
         print("off roster loss ok")
 
 
+def lost_excl_rollup() -> None:
+    records = [
+        {"section": "lost_revenue", "store": "1", "division": "Shaws", "payload": {"lost_revenue": 100, "missed_sales": 10}},
+        {"section": "lost_revenue", "store": "210", "division": "United", "payload": {"lost_revenue": 263}},
+        {"section": "lost_revenue", "store": "239", "division": "Southwest", "payload": {"lost_revenue": 239.4, "missed_sales": 0}},
+        {"section": "sales", "store": "1", "division": "Shaws", "payload": {"sales_dollars": 5}},
+    ]
+    lines = module.realign_lost_revenue(
+        [{"section": "lost_revenue", "region": "East", "title": "Loss", "value": "$9.00", "count": 1, "children": []}],
+        records,
+    )
+    by_region = {line["region"]: line for line in lines if line["section"] == "lost_revenue"}
+    assert set(by_region) == {"East", "South"}
+    assert by_region["East"]["title"] == "Lost $ excl. Missed"
+    assert by_region["East"]["value"] == "$90.00"
+    assert by_region["East"]["count"] == 1
+    assert by_region["East"]["missed"] == "Not available"
+    assert by_region["East"]["children"][0]["division"] == "Shaws"
+    assert by_region["East"]["children"][0]["missed"] == "Not available"
+    assert by_region["South"]["value"] == "$502.40"
+    assert by_region["South"]["count"] == 2
+    tables = [
+        {"section": "lost_revenue", "region": "South", "title": "Lost Revenue", "headline": "$779,589.702", "storeCount": 395},
+        {"section": "sales", "region": "South", "title": "Sales", "headline": "$1.00", "storeCount": 1},
+    ]
+    module.sync_lost_region_tables(tables, lines)
+    assert tables[0]["title"] == "Lost $ excl. Missed"
+    assert tables[0]["headline"] == "$502.40"
+    assert tables[0]["storeCount"] == 2
+    assert tables[1]["headline"] == "$1.00"
+    home = {
+        "companyTiles": {"lost_revenue": {"labels": ["Lost $", "Kill"], "values": ["$4,248,638.426", "$19,812.555"]}},
+        "regionLines": lines,
+        "regionTables": tables,
+    }
+    module.round_pack_currency(home)
+    assert home["companyTiles"]["lost_revenue"]["values"] == ["$4,248,638.43", "$19,812.56"]
+    assert home["regionTables"][0]["headline"] == "$502.40"
+    summaries = [
+        {"section": "lost_revenue", "storeCount": 2165, "secondary": "2,165 stores reported · 9/27"},
+        {"section": "missing_items", "storeCount": 2165},
+        {"section": "five_star", "storeCount": 2165},
+        {"section": "pre_sub_oos", "storeCount": 2165},
+        {"section": "sales", "storeCount": 9},
+    ]
+    latest = {
+        ("lost_revenue", "210"): {},
+        ("lost_revenue", "239"): {},
+        ("missing_items", "210"): {},
+        ("five_star", "1"): {},
+        ("pre_sub_oos", "1"): {},
+        ("pre_sub_oos", "2"): {},
+    }
+    shoppers = {
+        "a": {"section": "picker_scorecard", "store": "210"},
+        "b": {"section": "picker_scorecard", "store": "210"},
+        "c": {"section": "picker_scorecard", "store": "239"},
+    }
+    rollups = {"company": {"stores": 2165, "shoppers": 3}}
+    module.apply_own_store_counts(summaries, latest, shoppers, rollups)
+    counted = {item["section"]: item["storeCount"] for item in summaries}
+    assert counted["lost_revenue"] == 2
+    assert summaries[0]["secondary"] == "2 stores reported · 9/27"
+    assert counted["missing_items"] == 1
+    assert counted["five_star"] == 1
+    assert counted["pre_sub_oos"] == 2
+    assert counted["sales"] == 9
+    assert rollups["company"]["stores"] == 2
+    assert rollups["company"]["shoppers"] == 3
+    print("lost excl rollup ok")
+
+
+def pack_identity_choice() -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("pack_identity", ROOT / "pack_identity.py")
+    choice = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(choice)
+    fresh = {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []}
+    have = {"cookSha": "b" * 40, "cookedAt": "", "errors": []}
+    assert choice.prefer(fresh, have) == "replace"
+    assert choice.prefer(fresh, {"cookSha": "a" * 40, "cookedAt": "2026-10-07T02:00:00Z", "errors": []}) == "keep"
+    assert choice.prefer(
+        {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "b" * 40, "cookedAt": "", "errors": []},
+    ) == "refuse"
+    assert choice.prefer(fresh, {"cookSha": fresh["cookSha"], "cookedAt": fresh["cookedAt"], "errors": []}) == "keep"
+    assert choice.newer(
+        {"cookSha": "a" * 40, "cookedAt": "2026-10-07T03:00:00Z", "errors": []},
+        {"cookSha": "b" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
+    ) == "fetch"
+    assert choice.newer(
+        {"cookSha": "c" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "d" * 40, "cookedAt": "", "errors": []},
+    ) == "refuse"
+    assert choice.newer(
+        {"cookSha": "a" * 40, "cookedAt": "", "errors": []},
+        {"cookSha": "a" * 40, "cookedAt": "2026-10-07T01:00:00Z", "errors": []},
+    ) == "keep"
+    print("pack identity ok")
+
+
 if __name__ == "__main__":
     main()
     raw_sheet_divisions()
     blank_schedule_ok()
     off_roster_loss_ok()
+    lost_excl_rollup()
+    pack_identity_choice()

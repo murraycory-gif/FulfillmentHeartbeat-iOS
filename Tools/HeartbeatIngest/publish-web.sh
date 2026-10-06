@@ -67,29 +67,25 @@ if [[ -z "$UI_ONLY" ]]; then
   else
     python3 "$ROOT/web/scripts/extract_web_pack.py" "$SQLITE" "$EXTRACT"
   fi
-  python3 - "$DATA" "$EXTRACT" << 'PY'
-import json, shutil, sys
-from pathlib import Path
-
-dest = Path(sys.argv[1])
-fresh = Path(sys.argv[2])
-
-def stamp(root):
-    home = root / "home.json"
-    if not home.is_file():
-        return ""
-    return str(json.loads(home.read_text()).get("publishedAt") or "")
-
-have = stamp(dest)
-cooked = stamp(fresh)
-if have and cooked < have:
-    print(f"keeping newer pack publishedAt={have} (sqlite is {cooked})")
-    raise SystemExit(0)
-if dest.exists():
-    shutil.rmtree(dest)
-shutil.copytree(fresh, dest)
-print(f"using sqlite pack publishedAt={cooked}")
-PY
+  set +e
+  decision="$(python3 "$ROOT/web/scripts/pack_identity.py" prefer "$EXTRACT" "$DATA")"
+  prefer_status=$?
+  set -e
+  if [[ "$prefer_status" -ne 0 || ( "$decision" != "replace" && "$decision" != "keep" ) ]]; then
+    echo "refusing pack replace: cookSha and cookedAt disagree or cannot be ranked" >&2
+    rm -rf "$EXTRACT"
+    exit 1
+  fi
+  if [[ "$decision" == "replace" ]]; then
+    if [[ -d "$DATA" ]]; then
+      rm -rf "$DATA"
+    fi
+    mkdir -p "$(dirname "$DATA")"
+    cp -R "$EXTRACT" "$DATA"
+    python3 "$ROOT/web/scripts/pack_identity.py" check "$DATA"
+  else
+    echo "keeping pack $(python3 "$ROOT/web/scripts/pack_identity.py" check "$DATA")"
+  fi
   rm -rf "$EXTRACT"
 else
   echo "UI-only deploy: not extracting sqlite"
@@ -97,10 +93,11 @@ fi
 
 LIVE_CHECKED=0
 if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
-  python3 - "$DATA" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" << 'PY'
+  python3 - "$DATA" "$EMAIL_FILE" "$PASS_FILE" "$SITE_URL" "$ROOT/web/scripts/pack_identity.py" << 'PY'
 import http.cookiejar
 import json
 import shutil
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -110,13 +107,8 @@ dest = Path(sys.argv[1])
 email = Path(sys.argv[2]).read_text().strip()
 password = Path(sys.argv[3]).read_text().strip()
 site = sys.argv[4].rstrip("/")
+identity_script = sys.argv[5]
 ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-
-def stamp(root):
-    home = root / "home.json"
-    if not home.is_file():
-        return ""
-    return str(json.loads(home.read_text()).get("publishedAt") or "")
 
 jar = http.cookiejar.CookieJar()
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
@@ -146,10 +138,20 @@ if status != 200:
     print(f"live pack check failed: /data/home.json returned {status}", file=sys.stderr)
     raise SystemExit(2)
 live = json.loads(raw)
-live_stamp = str(live.get("publishedAt") or "")
-local_stamp = stamp(dest)
-if not live_stamp or live_stamp <= local_stamp:
-    print(f"local pack publishedAt={local_stamp or 'missing'} is current (live {live_stamp or 'missing'})")
+live_file = dest.parent / ".live-home.json"
+live_file.write_text(json.dumps(live), encoding="utf-8")
+ranked = subprocess.run(
+    [sys.executable, identity_script, "newer", str(live_file), str(dest)],
+    capture_output=True,
+    text=True,
+)
+live_file.unlink(missing_ok=True)
+choice = (ranked.stdout or "").strip()
+if ranked.returncode != 0 or choice not in {"fetch", "keep"}:
+    print("live pack check refused: cookSha and cookedAt disagree", file=sys.stderr)
+    raise SystemExit(2)
+if choice == "keep":
+    print(f"local pack cookSha={live.get('cookSha')} cookedAt={live.get('cookedAt') or 'missing'} is current")
     raise SystemExit(0)
 names = [path.relative_to(dest).as_posix() for path in dest.rglob("*") if path.is_file()]
 if "home.json" not in names:
@@ -167,11 +169,19 @@ for name in names:
     target = staged / name
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload)
-got = stamp(staged)
-if got != live_stamp:
+checked = subprocess.run([sys.executable, identity_script, "check", str(staged)], capture_output=True, text=True)
+if checked.returncode != 0:
+    shutil.rmtree(staged, ignore_errors=True)
+    print("live pack check failed: downloaded files disagree", file=sys.stderr)
+    raise SystemExit(2)
+staged_home = json.loads((staged / "home.json").read_text(encoding="utf-8"))
+live_cooked = str(live.get("cookedAt") or "")
+staged_cooked = str(staged_home.get("cookedAt") or "")
+if staged_home.get("cookSha") != live.get("cookSha") or staged_cooked != live_cooked:
     shutil.rmtree(staged, ignore_errors=True)
     print("live pack check failed: downloaded stamp does not match", file=sys.stderr)
     raise SystemExit(2)
+got = staged_cooked or str(staged_home.get("publishedAt") or "")
 backup = dest.parent / ".data-prev"
 if backup.exists():
     shutil.rmtree(backup)
@@ -296,6 +306,7 @@ home = json.loads(home_path.read_text())
 meta = home.get("metadata") or {}
 sha = str(meta.get("cookSha") or home.get("cookSha") or "")
 published = str(home.get("publishedAt") or "")
+cooked = str(home.get("cookedAt") or meta.get("cookedAt") or "")
 schema = home.get("schemaVersion")
 if schema is None:
     schema = meta.get("schemaVersion")
@@ -303,17 +314,49 @@ if not re.fullmatch(r"[0-9a-f]{40}", sha):
     raise SystemExit("data-only upload: cookSha missing")
 if not published or "/" in published or "\\" in published:
     raise SystemExit("data-only upload: publishedAt missing")
-prefix = f"web-pack/{sha}-{published}"
+if not cooked or "/" in cooked or "\\" in cooked:
+    raise SystemExit("data-only upload: cookedAt missing")
+if cooked == published:
+    raise SystemExit("data-only upload: cookedAt must not copy publishedAt")
+prefix = f"web-pack/{sha}-{cooked}"
 
 def wrangler(args, check=True):
     return subprocess.run(["npx", "wrangler", *args], check=check)
 
-for path in files:
-    rel = path.relative_to(root).as_posix()
-    key = f"heartbeat-packs/{prefix}/{rel}"
-    wrangler(["r2", "object", "put", key, f"--file={path}", "--remote"])
+def pointer_entry(old):
+    entry = {
+        "prefix": old.get("prefix") or f"web-pack/{old.get('cookSha')}-{old.get('publishedAt')}",
+        "cookSha": old.get("cookSha"),
+        "publishedAt": old.get("publishedAt"),
+        "schemaVersion": old.get("schemaVersion"),
+    }
+    if old.get("cookedAt"):
+        entry["cookedAt"] = old.get("cookedAt")
+    return entry
 
 with tempfile.TemporaryDirectory() as tmp:
+    pointer_file = Path(tmp) / "current.json"
+    got = wrangler(
+        ["r2", "object", "get", "heartbeat-packs/web-pack/current.json", f"--file={pointer_file}", "--remote"],
+        check=False,
+    )
+    old = {}
+    if got.returncode == 0 and pointer_file.is_file():
+        try:
+            loaded = json.loads(pointer_file.read_text())
+        except json.JSONDecodeError:
+            loaded = {}
+        if isinstance(loaded, dict):
+            old = loaded
+    live_prefix = str(old.get("prefix") or "")
+    if live_prefix and live_prefix == prefix:
+        raise SystemExit("data-only upload: refusing to write into the live pack folder")
+
+    for path in files:
+        rel = path.relative_to(root).as_posix()
+        key = f"heartbeat-packs/{prefix}/{rel}"
+        wrangler(["r2", "object", "put", key, f"--file={path}", "--remote"])
+
     downloaded = Path(tmp) / "uploaded"
     for path in files:
         rel = path.relative_to(root).as_posix()
@@ -325,36 +368,17 @@ with tempfile.TemporaryDirectory() as tmp:
     if checked.returncode != 0:
         raise SystemExit("data-only upload: check_pack failed on the uploaded set; current.json was not moved")
 
-    pointer_file = Path(tmp) / "current.json"
-    got = wrangler(
-        ["r2", "object", "get", "heartbeat-packs/web-pack/current.json", f"--file={pointer_file}", "--remote"],
-        check=False,
-    )
     previous = None
-    if got.returncode == 0 and pointer_file.is_file():
-        try:
-            old = json.loads(pointer_file.read_text())
-        except json.JSONDecodeError:
-            old = {}
-        if isinstance(old, dict) and re.fullmatch(r"[0-9a-f]{40}", str(old.get("cookSha") or "")) and old.get("cookSha") != sha:
-            previous = {
-                "prefix": old.get("prefix") or f"web-pack/{old.get('cookSha')}-{old.get('publishedAt')}",
-                "cookSha": old.get("cookSha"),
-                "publishedAt": old.get("publishedAt"),
-                "schemaVersion": old.get("schemaVersion"),
-            }
-        elif isinstance(old, dict) and isinstance(old.get("previous"), dict):
-            kept = old["previous"]
-            if re.fullmatch(r"[0-9a-f]{40}", str(kept.get("cookSha") or "")) and kept.get("cookSha") != sha:
-                previous = {
-                    "prefix": kept.get("prefix"),
-                    "cookSha": kept.get("cookSha"),
-                    "publishedAt": kept.get("publishedAt"),
-                    "schemaVersion": kept.get("schemaVersion"),
-                }
+    if re.fullmatch(r"[0-9a-f]{40}", str(old.get("cookSha") or "")) and old.get("cookSha") != sha:
+        previous = pointer_entry(old)
+    elif isinstance(old.get("previous"), dict):
+        kept = old["previous"]
+        if re.fullmatch(r"[0-9a-f]{40}", str(kept.get("cookSha") or "")) and kept.get("cookSha") != sha:
+            previous = pointer_entry(kept)
     new_pointer = {
         "prefix": prefix,
         "cookSha": sha,
+        "cookedAt": cooked,
         "publishedAt": published,
         "schemaVersion": schema,
         "previous": previous,
@@ -418,12 +442,15 @@ for rel in files:
         live = json.loads(raw)
     except json.JSONDecodeError:
         raise SystemExit(f"signed-in compare: /data/{rel} was not json")
-    for key in ("publishedAt", "schemaVersion", "cookSha"):
+    keys = ["publishedAt", "schemaVersion", "cookSha"]
+    if local.get("cookedAt") or live.get("cookedAt"):
+        keys.append("cookedAt")
+    for key in keys:
         if live.get(key) != local.get(key):
             raise SystemExit(
                 f"signed-in compare: /data/{rel} {key}={live.get(key)!r} uploaded {local.get(key)!r}"
             )
-    print(f"live {rel} publishedAt={live.get('publishedAt')} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
+    print(f"live {rel} publishedAt={live.get('publishedAt')} cookedAt={live.get('cookedAt') or 'missing'} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
 print(f"signed-in pack matches {len(files)} files")
 PY
   else
@@ -531,12 +558,15 @@ for rel in files:
         live = json.loads(raw)
     except json.JSONDecodeError:
         raise SystemExit(f"signed-in compare: /data/{rel} was not json")
-    for key in ("publishedAt", "schemaVersion", "cookSha"):
+    keys = ["publishedAt", "schemaVersion", "cookSha"]
+    if local.get("cookedAt") or live.get("cookedAt"):
+        keys.append("cookedAt")
+    for key in keys:
         if live.get(key) != local.get(key):
             raise SystemExit(
                 f"signed-in compare: /data/{rel} {key}={live.get(key)!r} uploaded {local.get(key)!r}"
             )
-    print(f"live {rel} publishedAt={live.get('publishedAt')} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
+    print(f"live {rel} publishedAt={live.get('publishedAt')} cookedAt={live.get('cookedAt') or 'missing'} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
 print(f"signed-in pack matches {len(files)} files")
 PY
 else

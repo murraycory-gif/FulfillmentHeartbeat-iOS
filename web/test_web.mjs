@@ -21,7 +21,7 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
-import { checkPack } from "./check_pack.mjs";
+import { checkPack, currencyPrecisionErrors, lostRollupErrors, packIdentityErrors, storeCountErrors } from "./check_pack.mjs";
 import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, buildLabel, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
@@ -1052,7 +1052,77 @@ assert.match(publishScript, /fulfillment-heartbeat-web/);
 assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
-assert.match(publishScript, /web-pack\/\{sha\}-\{published\}/);
+assert.match(publishScript, /web-pack\/\{sha\}-\{cooked\}/);
+assert.match(publishScript, /pack_identity\.py/);
+assert.match(publishScript, /refusing to write into the live pack folder/);
+assert.equal(publishScript.includes("cooked < have"), false);
+assert.equal(publishScript.includes("live_stamp <="), false);
+const guardRun = (args) =>
+  spawnSync("bash", [join(root, "../Tools/HeartbeatIngest/cook-guard.sh"), ...args], { encoding: "utf8" });
+const pinnedGuard = guardRun(["web/check_pack.mjs"]);
+assert.notEqual(pinnedGuard.status, 0);
+assert.equal(pinnedGuard.stdout.trim(), "refuse");
+const cleanGuard = guardRun([]);
+assert.equal(cleanGuard.status, 0);
+assert.equal(cleanGuard.stdout.trim(), "cook");
+const reviewGuard = guardRun(["Tools/HeartbeatIngest/publish-web.sh"]);
+assert.equal(reviewGuard.status, 0);
+assert.equal(reviewGuard.stdout.trim(), "review");
+const lostRegions = [
+  ["East", "$100.00"],
+  ["South", "$200.00"],
+  ["California", "$300.00"],
+  ["West", "$400.00"],
+];
+const goodLostHome = {
+  cookedAt: "2026-10-07T00:00:00Z",
+  companyTiles: { lost_revenue: { labels: ["Lost $", "Missed"], values: ["$1,050.00", "$50.00"] } },
+  regionLines: lostRegions.map(([region, value]) => ({
+    section: "lost_revenue",
+    region,
+    title: "Lost $ excl. Missed",
+    value,
+    count: 1,
+    missed: "Not available",
+    children: [{ division: "Shaws", value, count: 1, missed: "Not available" }],
+  })),
+  regionTables: [{ section: "lost_revenue", region: "South", headline: "$200.00" }],
+  summaries: [
+    { section: "lost_revenue", storeCount: 4 },
+    { section: "missing_items", storeCount: 1 },
+    { section: "five_star", storeCount: 1 },
+    { section: "pre_sub_oos", storeCount: 2 },
+  ],
+  pickerRollups: { company: { stores: 2 } },
+};
+const goodLostRows = { rows: [{ store: "1" }, { store: "2" }, { store: "3" }, { store: "4" }] };
+assert.deepEqual(lostRollupErrors(goodLostHome, goodLostRows), []);
+assert.deepEqual(currencyPrecisionErrors(goodLostHome), []);
+const shortLost = structuredClone(goodLostHome);
+shortLost.companyTiles.lost_revenue.values[0] = "$1,080.00";
+assert.ok(lostRollupErrors(shortLost, goodLostRows).some((item) => item.startsWith("lost rollup")));
+const roughMoney = structuredClone(goodLostHome);
+roughMoney.regionTables[0].headline = "$779,589.702";
+assert.ok(currencyPrecisionErrors(roughMoney).some((item) => item.includes("$779,589.702")));
+const countFiles = {
+  lost_revenue: goodLostRows,
+  missing_items: { rows: [{ store: "1" }] },
+  five_star: { rows: [{ store: "1" }] },
+  pre_sub_oos: { rows: [{ store: "1" }, { store: "2" }] },
+  picker_scorecard: { rows: [{ store: "210" }, { store: "210" }, { store: "239" }] },
+};
+assert.deepEqual(storeCountErrors(goodLostHome, countFiles), []);
+const staleCounts = structuredClone(goodLostHome);
+staleCounts.summaries[0].storeCount = 2165;
+staleCounts.pickerRollups.company.stores = 2165;
+assert.ok(storeCountErrors(staleCounts, countFiles).some((item) => item.includes("lost_revenue storeCount")));
+assert.ok(storeCountErrors(staleCounts, countFiles).some((item) => item.includes("picker stores")));
+const identDir = mkdtempSync(join(tmpdir(), "hb-ident-"));
+const identStamp = { publishedAt: "2026-10-06T01:35:23Z", schemaVersion: SCHEMA_VERSION, cookSha: "a".repeat(40) };
+writeFileSync(join(identDir, "home.json"), JSON.stringify({ ...identStamp, cookedAt: "2026-10-07T00:00:00Z" }));
+writeFileSync(join(identDir, "schedule.json"), JSON.stringify(identStamp));
+assert.ok(packIdentityErrors(identDir).some((item) => item.includes("does not match")));
+rmSync(identDir, { recursive: true, force: true });
 assert.match(publishScript, /web-pack\/current\.json/);
 assert.match(publishScript, /check_pack failed on the uploaded set/);
 assert.equal(publishScript.includes("web-pack/packs/"), false);
@@ -1366,6 +1436,12 @@ function memoryBucket(files) {
       const text = files[key];
       return { text: async () => text, body: text };
     },
+    async list({ prefix } = {}) {
+      const objects = Object.keys(files)
+        .filter((key) => !prefix || key.startsWith(prefix))
+        .map((key) => ({ key }));
+      return { objects, truncated: false };
+    },
   };
 }
 const packFiles = {
@@ -1447,6 +1523,72 @@ const skewedHome = await basicGate({
 const skewedHomeText = await skewedHome.text();
 assert.match(skewedHomeText, new RegExp(goodSha));
 assert.equal(skewedHomeText.includes(skewSha), false);
+const siblingSha = "d".repeat(40);
+const siblingPrefix = `web-pack/${siblingSha}-2026-10-07T00:00:00Z`;
+const siblingHome = {
+  ...goodHome,
+  cookSha: siblingSha,
+  cookedAt: "2026-10-07T00:00:00Z",
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: siblingSha, cookedAt: "2026-10-07T00:00:00Z" },
+};
+const siblingFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: siblingPrefix,
+    cookSha: siblingSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+  }),
+  [packObjectKey(siblingPrefix, "home.json")]: JSON.stringify(siblingHome),
+  [packObjectKey(siblingPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: siblingSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+    rows: [{ store: "879", division: "DENVER" }],
+  }),
+  [packObjectKey(siblingPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    cookedAt: "2026-10-07T00:00:00Z",
+    rows: [{ store: "1" }],
+  }),
+  [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    rows: [{ store: "879", division: "Mountain West" }],
+  }),
+};
+resetPackCache();
+const siblingSection = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(siblingFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+const siblingText = await siblingSection.text();
+assert.match(siblingText, /Mountain West/);
+assert.equal(siblingText.includes("DENVER"), false);
+resetPackCache();
+const cookedMismatch = {
+  ...siblingFiles,
+  [packObjectKey(siblingPrefix, "section/labor.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: siblingSha,
+    cookedAt: "2026-10-06T00:00:00Z",
+    rows: [{ store: "1" }],
+  }),
+};
+const cookedSkew = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(cookedMismatch) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await cookedSkew.text(), /Mountain West/);
 resetPackCache();
 const unsignedPack = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json"),

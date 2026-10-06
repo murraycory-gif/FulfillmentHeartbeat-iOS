@@ -2,15 +2,16 @@
 // It does not create a Pages deployment.
 //
 //   heartbeat-packs / web-pack/current.json
-//     { prefix, cookSha, publishedAt, schemaVersion, previous: { same } }
-//   heartbeat-packs / web-pack/<cookSha>-<publishedAt>/<same path as /data/...>
+//     { prefix, cookSha, cookedAt, publishedAt, schemaVersion, previous: { same } }
+//   heartbeat-packs / web-pack/<cookSha>-<cookedAt>/<same path as /data/...>
 //     home.json, schedule.json, presub.json, section/<section>.json
 //
-// current.json is written last, after check_pack on the uploaded set. A prefix
-// whose home fails the guard, or whose file schemaVersion/cookSha disagrees
-// with the pointer, is left in the bucket. Reads keep the last good pointer
-// entry. No pointer yet falls through to the static /data files from the last
-// full deploy. A bare web-pack/home.json is not a pack.
+// current.json is written last, after check_pack on the uploaded set. The
+// prefix is the pointer's stored prefix. A pack uploaded before cookedAt
+// keeps web-pack/<cookSha>-<publishedAt>. A prefix is one cook: if any JSON
+// file under it fails the pointer, every read uses the previous pack. No
+// pointer yet falls through to the static /data files from the last full
+// deploy. A bare web-pack/home.json is not a pack.
 
 import { SCHEMA_VERSION } from "../public/schema.js";
 
@@ -89,35 +90,40 @@ export function rawDivisionName(value) {
   return RAW_DIVISIONS.has(String(value || "").trim().toUpperCase());
 }
 
-let cache = { pointer: "", entry: null, rejectedPrefix: "" };
+let cache = { pointer: "", entry: null, rejectedPrefix: "", acceptedPrefix: "", acceptedKeys: null };
 
 export function resetPackCache() {
-  cache = { pointer: "", entry: null, rejectedPrefix: "" };
+  cache = { pointer: "", entry: null, rejectedPrefix: "", acceptedPrefix: "", acceptedKeys: null };
 }
 
 function pointerEntry(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const cookSha = typeof value.cookSha === "string" ? value.cookSha : "";
   const publishedAt = typeof value.publishedAt === "string" ? value.publishedAt : "";
+  const cookedAt = typeof value.cookedAt === "string" ? value.cookedAt : "";
   const schemaVersion = value.schemaVersion;
   const prefix = typeof value.prefix === "string" && value.prefix ? value.prefix : packPrefix(cookSha, publishedAt);
   if (!SHA.test(cookSha) || schemaVersion !== SCHEMA_VERSION) return null;
   if (!prefix.startsWith("web-pack/") || prefix.includes("..") || /[\\]/.test(prefix)) return null;
-  return { prefix, cookSha, publishedAt, schemaVersion };
+  return { prefix, cookSha, publishedAt, cookedAt, schemaVersion };
 }
 
 function fileStamp(json) {
   const metadata = json.metadata && typeof json.metadata === "object" ? json.metadata : {};
+  const cookedAt = typeof json.cookedAt === "string" ? json.cookedAt : typeof metadata.cookedAt === "string" ? metadata.cookedAt : "";
   return {
     schemaVersion: json.schemaVersion != null ? json.schemaVersion : metadata.schemaVersion,
     cookSha: json.cookSha != null ? json.cookSha : metadata.cookSha,
+    cookedAt,
   };
 }
 
 function fileMatches(json, entry) {
   if (!json || typeof json !== "object" || Array.isArray(json)) return false;
   const stamp = fileStamp(json);
-  return stamp.schemaVersion === entry.schemaVersion && stamp.cookSha === entry.cookSha;
+  if (stamp.schemaVersion !== entry.schemaVersion || stamp.cookSha !== entry.cookSha) return false;
+  if (entry.cookedAt && stamp.cookedAt !== entry.cookedAt) return false;
+  return true;
 }
 
 async function readJson(bucket, key) {
@@ -144,7 +150,7 @@ async function readJson(bucket, key) {
 async function loadPointer(bucket) {
   const pointerRead = await readJson(bucket, PACK_POINTER_KEY);
   const pointerText = pointerRead ? pointerRead.text : "";
-  if (cache.pointer !== pointerText) cache = { pointer: pointerText, entry: null, rejectedPrefix: "" };
+  if (cache.pointer !== pointerText) cache = { pointer: pointerText, entry: null, rejectedPrefix: "", acceptedPrefix: "", acceptedKeys: null };
   const pointer = pointerRead && pointerRead.json && typeof pointerRead.json === "object" ? pointerRead.json : {};
   return { current: pointerEntry(pointer), previous: pointerEntry(pointer.previous) };
 }
@@ -157,18 +163,51 @@ async function readGuardedObject(bucket, entry, rel) {
   return { body: read.text, text: async () => read.text };
 }
 
-async function homeOk(bucket, entry) {
-  const home = await readGuardedObject(bucket, entry, "home.json");
-  if (!home) return false;
-  let json = null;
-  try {
-    json = JSON.parse(await home.text());
-  } catch {
-    return false;
+async function listPackKeys(bucket, prefix) {
+  if (!bucket || typeof bucket.list !== "function") return null;
+  const base = `${String(prefix || "").replace(/\/+$/, "")}/`;
+  const keys = [];
+  let cursor = undefined;
+  do {
+    let page;
+    try {
+      page = await bucket.list(cursor ? { prefix: base, cursor } : { prefix: base });
+    } catch {
+      return null;
+    }
+    const objects = page && Array.isArray(page.objects) ? page.objects : [];
+    for (const object of objects) {
+      const key = typeof object === "string" ? object : object && object.key;
+      if (typeof key === "string" && key.endsWith(".json") && key.startsWith(base)) keys.push(key);
+    }
+    cursor = page && page.truncated && page.cursor ? page.cursor : "";
+  } while (cursor);
+  return keys;
+}
+
+// Every JSON object under the prefix has to match the pointer. One bad file
+// rejects the whole prefix so a later read cannot serve a sibling from it.
+async function prefixKeys(bucket, entry) {
+  if (cache.acceptedPrefix === entry.prefix && cache.acceptedKeys) return cache.acceptedKeys;
+  const keys = await listPackKeys(bucket, entry.prefix);
+  if (!keys) return null;
+  const base = `${entry.prefix.replace(/\/+$/, "")}/`;
+  let homeSeen = false;
+  for (const key of keys) {
+    const rel = key.slice(base.length);
+    const read = await readJson(bucket, key);
+    if (!read || !read.json || !fileMatches(read.json, entry)) return null;
+    if (rel !== "home.json") continue;
+    homeSeen = true;
+    if (guardHome(read.json).length) return null;
+    const metadata = read.json.metadata && typeof read.json.metadata === "object" ? read.json.metadata : {};
+    if (metadata.cookSha !== entry.cookSha || metadata.schemaVersion !== entry.schemaVersion) return null;
+    if (entry.cookedAt && fileStamp(read.json).cookedAt !== entry.cookedAt) return null;
   }
-  if (guardHome(json).length) return false;
-  const metadata = json.metadata && typeof json.metadata === "object" ? json.metadata : {};
-  return metadata.cookSha === entry.cookSha && metadata.schemaVersion === entry.schemaVersion;
+  if (!homeSeen) return null;
+  cache.acceptedPrefix = entry.prefix;
+  cache.acceptedKeys = new Set(keys);
+  return cache.acceptedKeys;
 }
 
 export function dataPath(pathname) {
@@ -207,13 +246,25 @@ export async function readPackObject(bucket, pathname) {
     }
   }
   for (const entry of candidates) {
-    if (!(await homeOk(bucket, entry))) {
+    const keys = await prefixKeys(bucket, entry);
+    if (!keys) {
+      if (cache.acceptedPrefix === entry.prefix) {
+        cache.acceptedPrefix = "";
+        cache.acceptedKeys = null;
+      }
       if (current && entry.prefix === current.prefix) cache.rejectedPrefix = current.prefix;
       continue;
     }
-    const object = rel === "home.json" ? await readGuardedObject(bucket, entry, "home.json") : await readGuardedObject(bucket, entry, rel);
+    const key = packObjectKey(entry.prefix, rel);
+    if (!key || !keys.has(key)) {
+      // This prefix is one cook. A file it does not contain is not filled from the other pack.
+      return null;
+    }
+    const object = await readGuardedObject(bucket, entry, rel);
     if (!object) {
       if (current && entry.prefix === current.prefix) cache.rejectedPrefix = current.prefix;
+      cache.acceptedPrefix = "";
+      cache.acceptedKeys = null;
       continue;
     }
     cache.entry = entry;

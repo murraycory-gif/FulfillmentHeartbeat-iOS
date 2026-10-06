@@ -20,6 +20,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 SECTIONS = (
@@ -589,8 +590,31 @@ def include_unrated_dynacap(lines: list, records: list) -> list:
     return lines
 
 
+LOST_EXCL_TITLE = "Lost $ excl. Missed"
+OWN_STORE_SECTIONS = ("lost_revenue", "missing_items", "five_star", "pre_sub_oos")
+
+
+def _number_or_zero(payload: dict, key: str) -> float:
+    if not isinstance(payload, dict):
+        return 0.0
+    raw = payload.get(key)
+    if raw is None or raw == "":
+        return 0.0
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if number != number or number in (float("inf"), float("-inf")):
+        return 0.0
+    return number
+
+
 def realign_lost_revenue(lines: list, records: list) -> list:
-    """Lost-revenue facts stamp every store as Haggen. Recount from the roster division."""
+    """Lost $ excl. Missed is lost_revenue minus missed_sales on this section's rows.
+
+    A missing missed_sales is 0. Company Lost $ and Missed $ stay on the workbook
+    tiles. Region, division, and district do not sum missed_sales.
+    """
     buckets: dict[str, dict[str, dict]] = {}
     for record in records:
         if record.get("section") != "lost_revenue":
@@ -603,10 +627,7 @@ def realign_lost_revenue(lines: list, records: list) -> list:
         if not region:
             continue
         payload = record.get("payload") or {}
-        try:
-            amount = float(payload.get("lost_revenue") or 0)
-        except (TypeError, ValueError):
-            amount = 0.0
+        amount = _number_or_zero(payload, "lost_revenue") - _number_or_zero(payload, "missed_sales")
         slot = buckets.setdefault(region, {}).setdefault(division, {"sum": 0.0, "count": 0})
         slot["sum"] += amount
         slot["count"] += 1
@@ -637,16 +658,18 @@ def realign_lost_revenue(lines: list, records: list) -> list:
                     "value": _money_label(slot["sum"]),
                     "count": slot["count"],
                     "health": old_health.get(division) or "none",
+                    "missed": "Not available",
                 }
             )
         rebuilt.append(
             {
                 "section": "lost_revenue",
                 "region": region,
-                "title": prior.get("title") or LINE_TITLE["lost_revenue"],
+                "title": LOST_EXCL_TITLE,
                 "value": _money_label(total),
                 "count": count,
                 "health": prior.get("health") or "none",
+                "missed": "Not available",
                 "children": children,
             }
         )
@@ -667,6 +690,97 @@ def realign_lost_revenue(lines: list, records: list) -> list:
         if item["region"] not in seen:
             out.append(item)
     return out
+
+
+def sync_lost_region_tables(tables: list, lines: list) -> None:
+    """Region cards copy the section roll-up, including stores the old chrome omitted."""
+    by_region = {
+        item.get("region"): item
+        for item in lines
+        if isinstance(item, dict) and item.get("section") == "lost_revenue" and item.get("title") == LOST_EXCL_TITLE
+    }
+    if not by_region:
+        return
+    for row in tables:
+        if not isinstance(row, dict) or row.get("section") != "lost_revenue":
+            continue
+        line = by_region.get(row.get("region"))
+        if not line:
+            continue
+        row["headline"] = line.get("value")
+        row["storeCount"] = line.get("count") or 0
+        row["title"] = LOST_EXCL_TITLE
+
+
+def round_money_text(value):
+    """$-prefixed pack strings print cents. Payload numbers stay as cooked."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text.startswith("$") and not text.startswith("-$"):
+        return value
+    cleaned = text.replace("$", "").replace(",", "").strip()
+    try:
+        number = float(cleaned)
+    except ValueError:
+        return value
+    return _money_label(number)
+
+
+def round_pack_currency(home: dict) -> None:
+    tiles = home.get("companyTiles") or {}
+    if isinstance(tiles, dict):
+        for block in tiles.values():
+            if not isinstance(block, dict) or not isinstance(block.get("values"), list):
+                continue
+            block["values"] = [round_money_text(item) for item in block["values"]]
+    for line in home.get("regionLines") or []:
+        if not isinstance(line, dict):
+            continue
+        line["value"] = round_money_text(line.get("value"))
+        for child in line.get("children") or []:
+            if isinstance(child, dict):
+                child["value"] = round_money_text(child.get("value"))
+    for row in home.get("regionTables") or []:
+        if isinstance(row, dict):
+            row["headline"] = round_money_text(row.get("headline"))
+
+
+def apply_own_store_counts(summaries: list, latest: dict, shoppers: dict, picker_rollups: dict) -> None:
+    """Each tile counts its own section. The shared chrome base lags stores 210 and 239."""
+    counts: dict[str, int] = {}
+    for section, _store in latest:
+        counts[section] = counts.get(section, 0) + 1
+    for item in summaries:
+        section = item.get("section")
+        if section in OWN_STORE_SECTIONS:
+            item["storeCount"] = counts.get(section, 0)
+            if section == "lost_revenue" and isinstance(item.get("secondary"), str):
+                item["secondary"] = re.sub(
+                    r"^[\d,]+ stores reported",
+                    f"{item['storeCount']:,} stores reported",
+                    item["secondary"],
+                    count=1,
+                )
+    company = picker_rollups.get("company") if isinstance(picker_rollups, dict) else None
+    if not isinstance(company, dict):
+        return
+    stores = {
+        record.get("store")
+        for record in shoppers.values()
+        if record.get("section") == "picker_scorecard" and record.get("store")
+    }
+    company["stores"] = len(stores)
+
+
+def cooked_at() -> str:
+    """UTC time of this cook. HEARTBEAT_COOKED_AT overrides the clock in tests."""
+    override = os.environ.get("HEARTBEAT_COOKED_AT", "").strip()
+    if override:
+        if len(override) < 20 or "/" in override or "\\" in override:
+            raise SystemExit(f"pack metadata: cookedAt {override!r}")
+        return override
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def schedule_summary_title(title: str, week) -> str:
@@ -1300,11 +1414,24 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         raise SystemExit(f"refusing pack write: publishedAt {published!r}")
     schema = schema_version()
     sha = cook_sha()
+    cooked = cooked_at()
+    picker_rollups = json.loads(json.dumps(chrome.get("pickerRollups") or {}))
+    apply_own_store_counts(summaries, latest, shoppers, picker_rollups)
+    region_line_rows = include_unrated_dynacap(
+        realign_lost_revenue(region_lines(chrome.get("packs") or {}), records),
+        records,
+    )
+    table_rows = region_tables(chrome.get("tables") or {})
+    sync_lost_region_tables(table_rows, region_line_rows)
 
     def stamped(payload: dict) -> dict:
         payload["publishedAt"] = published
         payload["schemaVersion"] = schema
         payload["cookSha"] = sha
+        payload["cookedAt"] = cooked
+        metadata = payload.get("metadata")
+        if isinstance(metadata, dict):
+            metadata["cookedAt"] = cooked
         return payload
 
     home = stamped({
@@ -1315,7 +1442,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
         "summaries": summaries,
         "companyTiles": company_tiles,
         "laborMarket": labor_bridge(labor_market),
-        "pickerRollups": chrome.get("pickerRollups") or {},
+        "pickerRollups": picker_rollups,
         "preSubItemTabPresent": item_tab,
         "filters": {
             "stores": sorted(
@@ -1327,12 +1454,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 key=lambda item: (len(item["store"]), item["store"]),
             ),
         },
-        "regionLines": include_unrated_dynacap(
-            realign_lost_revenue(region_lines(chrome.get("packs") or {}), records),
-            records,
-        ),
-        "regionTables": region_tables(chrome.get("tables") or {}),
+        "regionLines": region_line_rows,
+        "regionTables": table_rows,
     })
+    round_pack_currency(home)
     _write(out / "home.json", home)
     schedule = read_schedule(db) or read_schedule_file(source.parent / "schedule-check.json")
     schedule_path = out / "schedule.json"

@@ -54,10 +54,13 @@ function jsonFiles(dir, rel = "") {
 
 export function packFileStamp(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const metadata = value.metadata && typeof value.metadata === "object" ? value.metadata : {};
+  const cookedAt = typeof value.cookedAt === "string" ? value.cookedAt : typeof metadata.cookedAt === "string" ? metadata.cookedAt : "";
   return {
     publishedAt: typeof value.publishedAt === "string" ? value.publishedAt : "",
     schemaVersion: value.schemaVersion,
     cookSha: typeof value.cookSha === "string" ? value.cookSha : "",
+    cookedAt,
   };
 }
 
@@ -85,10 +88,115 @@ export function packIdentityErrors(dir) {
       errors.push(`${rel} publishedAt ${stamp.publishedAt} is a retired pack`);
     }
     if (stamp && stamp.publishedAt && stamp.schemaVersion === SCHEMA_VERSION && /^[0-9a-f]{40}$/.test(stamp.cookSha)) {
-      const key = `${stamp.publishedAt}\0${stamp.schemaVersion}\0${stamp.cookSha}`;
+      const key = `${stamp.publishedAt}\0${stamp.schemaVersion}\0${stamp.cookSha}\0${stamp.cookedAt}`;
       if (!expected) expected = key;
       else if (expected !== key) errors.push(`${rel} stamp does not match the rest of the pack`);
     }
+  }
+  return errors;
+}
+
+const MONEY_TEXT = /^\$\d{1,3}(,\d{3})*\.\d{2}$/;
+
+function moneyNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim().startsWith("$")) return null;
+  const number = Number(value.replace(/[$,\s]/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+function currencyTextErrors(value, where) {
+  if (typeof value !== "string" || !value.includes("$")) return [];
+  const text = value.trim();
+  if (!text.startsWith("$")) return [];
+  return MONEY_TEXT.test(text) ? [] : [`${where} currency ${text}`];
+}
+
+export function currencyPrecisionErrors(home) {
+  const errors = [];
+  const tiles = home && home.companyTiles && typeof home.companyTiles === "object" ? home.companyTiles : {};
+  for (const [section, block] of Object.entries(tiles)) {
+    const values = block && Array.isArray(block.values) ? block.values : [];
+    values.forEach((value, index) => errors.push(...currencyTextErrors(value, `${section} tile ${index}`)));
+  }
+  for (const line of Array.isArray(home && home.regionLines) ? home.regionLines : []) {
+    errors.push(...currencyTextErrors(line && line.value, `${line && line.section} ${line && line.region}`));
+    for (const child of (line && line.children) || []) {
+      errors.push(...currencyTextErrors(child && child.value, `${line.section} ${child && child.division}`));
+    }
+  }
+  for (const row of Array.isArray(home && home.regionTables) ? home.regionTables : []) {
+    errors.push(...currencyTextErrors(row && row.headline, `${row && row.section} ${row && row.region} headline`));
+  }
+  return errors;
+}
+
+export function lostRollupErrors(home, lost) {
+  const errors = [];
+  const lines = (Array.isArray(home && home.regionLines) ? home.regionLines : []).filter(
+    (line) => line && line.section === "lost_revenue",
+  );
+  const regions = ["East", "South", "California", "West"];
+  let excl = 0;
+  let counts = 0;
+  for (const name of regions) {
+    const line = lines.find((item) => item.region === name);
+    if (!line) {
+      errors.push(`lost region ${name} missing`);
+      continue;
+    }
+    if (line.title !== "Lost $ excl. Missed") errors.push(`lost ${name} title=${line.title}`);
+    if (line.missed !== "Not available") errors.push(`lost ${name} missed=${line.missed}`);
+    for (const child of line.children || []) {
+      if (child.missed !== "Not available") errors.push(`lost ${name} ${child.division} missed=${child.missed}`);
+    }
+    const value = moneyNumber(line.value);
+    if (value == null) errors.push(`lost ${name} value=${line.value}`);
+    else excl += value;
+    counts += Number(line.count) || 0;
+  }
+  const rows = lost && Array.isArray(lost.rows) ? lost.rows : [];
+  if (counts !== rows.length) errors.push(`lost region stores=${counts} rows=${rows.length}`);
+  const tiles = home && home.companyTiles && home.companyTiles.lost_revenue ? home.companyTiles.lost_revenue : {};
+  const labels = Array.isArray(tiles.labels) ? tiles.labels : [];
+  const values = Array.isArray(tiles.values) ? tiles.values : [];
+  const tile = (name) => (labels.includes(name) ? values[labels.indexOf(name)] : null);
+  const companyLost = moneyNumber(tile("Lost $"));
+  const companyMissed = moneyNumber(tile("Missed"));
+  if (companyLost == null || companyMissed == null) errors.push(`company lost tiles Lost=${tile("Lost $")} Missed=${tile("Missed")}`);
+  else if (Math.abs(excl + companyMissed - companyLost) > 20) {
+    errors.push(`lost rollup excl=${excl} missed=${companyMissed} company=${companyLost}`);
+  }
+  return errors;
+}
+
+export function storeCountErrors(home, files) {
+  const errors = [];
+  const summaries = new Map(
+    (Array.isArray(home && home.summaries) ? home.summaries : [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => [item.section, item]),
+  );
+  for (const section of ["lost_revenue", "missing_items", "five_star", "pre_sub_oos"]) {
+    const summary = summaries.get(section) || {};
+    const file = files && files[section];
+    const rows = file && Array.isArray(file.rows) ? file.rows : null;
+    if (!rows) {
+      errors.push(`${section} rows missing`);
+      continue;
+    }
+    if (Number(summary.storeCount) !== rows.length) {
+      errors.push(`${section} storeCount=${summary.storeCount} rows=${rows.length}`);
+    }
+  }
+  const company = home && home.pickerRollups && home.pickerRollups.company;
+  const picker = files && files.picker_scorecard && Array.isArray(files.picker_scorecard.rows) ? files.picker_scorecard.rows : null;
+  if (!picker) {
+    errors.push("picker rows missing");
+  } else {
+    const unique = new Set(picker.map((row) => row && row.store).filter(Boolean));
+    const stores = company ? Number(company.stores) : NaN;
+    if (stores !== unique.size) errors.push(`picker stores=${company && company.stores} unique=${unique.size}`);
   }
   return errors;
 }
@@ -322,6 +430,18 @@ export function checkPack(dir) {
   if (southEff == null || Math.abs(southEff - 91.04) > 0.02) errors.push(`South eff=${southEff}`);
   if (southUnder == null || Math.abs(southUnder - 3.05) > 0.02) errors.push(`South under=${southUnder}`);
   if (southOver == null || Math.abs(southOver - 5.91) > 0.02) errors.push(`South over=${southOver}`);
+
+  if (typeof home.cookedAt === "string" && home.cookedAt) {
+    errors.push(...lostRollupErrors(home, lost));
+    errors.push(...currencyPrecisionErrors(home));
+    const counted = {};
+    for (const section of ["lost_revenue", "missing_items", "five_star", "pre_sub_oos", "picker_scorecard"]) {
+      const read = section === "lost_revenue" ? lostRead : readJson(dir, `section/${section}.json`);
+      counted[section] = read.value && typeof read.value === "object" ? read.value : null;
+      if (read.error) errors.push(read.error);
+    }
+    errors.push(...storeCountErrors(home, counted));
+  }
 
   for (const name of ["section/missing_items.json", "section/schedule_quality.json"]) {
     const read = readJson(dir, name);

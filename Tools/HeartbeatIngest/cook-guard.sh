@@ -1,8 +1,7 @@
 #!/bin/bash
 # Mac cook guard. Classifies paths before cook-local.sh cooks.
 #
-# Pinned cook paths. A change on this list is part of the cook. The Mac
-# does not auto-refuse it:
+# Pinned cook paths are refused when they are dirty. The cook does not run:
 #   web/scripts/extract_web_pack.py
 #   Tools/HeartbeatIngest/cook-local.sh
 #   Tools/HeartbeatIngest/          every file under this directory
@@ -18,10 +17,10 @@
 #                                     companyTiles
 #                                     filters.stores
 #
-# Tools/HeartbeatIngest/publish-web.sh is flagged for review. That is not a
-# silent cook-path pass and it is not an auto-refuse. The cook still runs.
+# Tools/HeartbeatIngest/publish-web.sh is flagged for review. That is not an
+# auto-refuse. The cook still runs so a person can read the diff.
 #
-# Any other path is auto-refused.
+# Any other path is refused.
 #
 # Usage: cook-guard.sh [path...]
 # Prints one line: cook, review, or refuse.
@@ -41,7 +40,7 @@ classify_one() {
     || "$path" == Tools/HeartbeatIngest/* \
     || "$path" == "web/check_pack.mjs" \
     || "$path" == "web/functions/pack-store.js" ]]; then
-    echo cook
+    echo refuse
     return
   fi
   echo refuse
@@ -62,6 +61,6 @@ if [[ "$result" == "review" ]]; then
   echo "cook guard: publish-web.sh is flagged for review" >&2
 fi
 if [[ "$result" == "refuse" ]]; then
-  echo "cook guard: refusing a path outside the cook list" >&2
+  echo "cook guard: refusing a dirty cook path" >&2
   exit 1
 fi
