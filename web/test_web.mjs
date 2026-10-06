@@ -52,7 +52,7 @@ import {
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
 import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborGrainValue, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, partialCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
-import { metricsInSource, pphBar, PPH_SOURCE_CHECK, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./public/shoppers.js";
+import { metricsInSource, pphBar, PPH_SOURCE_CHECK, PPH_SOURCE_HIGH, PPH_SOURCE_LOW, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
   companyMarketNote,
@@ -554,6 +554,10 @@ const rankedShoppers = sortShoppersByPph([
   { store: "1", shopper: "Zero", shopperId: "Zero", payload: { pph: 0, pick_hours: 1, orders: 1 } },
 ]);
 assert.deepEqual(rankedShoppers.map((row) => row.shopper), ["Low", "High", "Blank", "Zero"]);
+assert.equal(PPH_SOURCE_LOW, 0);
+assert.equal(PPH_SOURCE_HIGH, 300);
+assert.equal(PPH_SOURCE_CHECK(PPH_SOURCE_LOW), true);
+assert.equal(PPH_SOURCE_CHECK(PPH_SOURCE_HIGH), false);
 assert.equal(PPH_SOURCE_CHECK(0), true);
 assert.equal(PPH_SOURCE_CHECK(-1), true);
 assert.equal(PPH_SOURCE_CHECK(300), false);
@@ -574,7 +578,7 @@ assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/
 assert.equal(app.includes("Labor Sch Eff workbook total"), false);
 assert.match(app, /workbook roll-up/);
 assert.match(app, /store average/);
-assert.match(app, /PPH store average/);
+assert.match(app, /\$\{shownRate\("pph", built\.headline\)\} store average/);
 assert.match(app, /store sum/);
 assert.equal(divisionChipTitle("sales", "Sales"), "Sales store sum");
 assert.equal(divisionChipTitle("labor", "Labor"), "Labor store average");
@@ -1752,7 +1756,7 @@ assert.equal(pickerSummary.below, 16463);
 assert.equal(pickerSummary.missing, 17);
 assert.equal(pickerSummary.flagged, 27);
 assert.equal(pickerSummary.average.toFixed(2), "73.68");
-assert.equal(pickerSummary.storeAverage.toFixed(2), "73.94");
+assert.equal(pickerSummary.hoursWeighted.toFixed(2), "73.93");
 let negativePph = 0;
 let zeroPph = 0;
 let highPph = 0;
@@ -1797,13 +1801,13 @@ assert.equal(PPH_SOURCE_CHECK(shopperPph(sortShoppersByPph(pickerFile.rows)[0]))
 assert.equal(app.includes("GRIC122"), false);
 assert.equal(app.includes("TROWE26"), false);
 assert.equal(readFileSync(join(root, "public/shoppers.js"), "utf8").includes("GRIC122"), false);
-assert.match(app, /excluding check source/);
-assert.match(app, /\$\{num\(summary\.storeAverage, 2\)\} store average/);
-assert.equal(app.includes("${num(summary.storeAverage, 2)} workbook total"), false);
+assert.match(app, /shopper average, excl\. check source/);
+assert.match(app, /hours-weighted shopper average, excl\. check source/);
 assert.equal(app.includes("summary.workbookTotal"), false);
+assert.equal(app.includes('class="metric person"'), false);
+assert.match(app, /OM \$\{seat\.om\}/);
 assert.match(app, /Tap a region or store to see its shoppers/);
 assert.match(app, /data-pph-drill/);
-assert.match(app, /class="metric person"><span>OM<\/span>/);
 const qualityFile = JSON.parse(readFileSync(join(root, "public/data/section/schedule_quality.json"), "utf8"));
 const rosterDistrict = Object.fromEntries(packRoster.map((row) => [canonicalStore(row.store), row.district]));
 let acmeDistricts = 0;

@@ -497,6 +497,7 @@ export function sectionGrainRows(lines, section, filters, roster) {
   return rows;
 }
 
+// TODO: District names move into cooked rows with the PR #57 cook. Drop DISTRICT_NAMES then.
 export const DISTRICT_NAMES = {
   "10": "CENTRAL CALIF.",
   "11": "SACRAMENTO",

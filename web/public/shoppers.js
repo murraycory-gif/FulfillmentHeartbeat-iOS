@@ -17,13 +17,16 @@ export function shopperPph(row) {
   return Number.isFinite(number) ? number : null;
 }
 
-// A shopper PPH at or below 0, or above 300, is not a usable rate.
+// Flag a shopper PPH at or below PPH_SOURCE_LOW, or above PPH_SOURCE_HIGH.
 // The goal split still counts these rows. Averages leave them out.
+export const PPH_SOURCE_LOW = 0;
+export const PPH_SOURCE_HIGH = 300;
+
 export function PPH_SOURCE_CHECK(value) {
   if (value == null || value === "") return false;
   const number = Number(value);
   if (!Number.isFinite(number)) return false;
-  return number <= 0 || number > 300;
+  return number <= PPH_SOURCE_LOW || number > PPH_SOURCE_HIGH;
 }
 
 export function shopperPphLabel(value, format) {
@@ -50,14 +53,14 @@ export function shopperPphSummary(rows) {
     if (pph >= 80) atGoal += 1;
     else if (pph >= 74) between += 1;
     else below += 1;
+    if (PPH_SOURCE_CHECK(pph)) {
+      flagged += 1;
+      continue;
+    }
     const hours = Number(((row && row.payload) || {}).pick_hours);
     if (Number.isFinite(hours) && hours > 0) {
       weighted += pph * hours;
       weight += hours;
-    }
-    if (PPH_SOURCE_CHECK(pph)) {
-      flagged += 1;
-      continue;
     }
     sum += pph;
     counted += 1;
@@ -70,8 +73,8 @@ export function shopperPphSummary(rows) {
     missing,
     flagged,
     average: counted ? sum / counted : null,
-    // Hours-weighted mean of these shopper rows. It is not a workbook Total row.
-    storeAverage: weight ? weighted / weight : null,
+    // Hours-weighted mean of the shopper rows that pass the source check.
+    hoursWeighted: weight ? weighted / weight : null,
   };
 }
 

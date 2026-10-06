@@ -410,6 +410,12 @@ function paintResults() {
     hideResults();
     return;
   }
+  if (!state.home && !state.homeError) {
+    scopeResults.hidden = false;
+    scopeSearch.setAttribute("aria-expanded", "true");
+    scopeResults.innerHTML = `<p class="scope-group">Loading…</p>`;
+    return;
+  }
   const groups = searchScope(roster(), state.filters, query);
   searchHits = groups.flatMap((group) => group.hits);
   if (!searchHits.length) {
@@ -651,7 +657,7 @@ function shownTileLabel(section, label) {
   }
   if (isWorkbookTile(section, label) && !filtered) return `${label} workbook total`;
   if (section === "schedule_quality" && label === "Sch Eff") return "Quality Sch Eff store average";
-  if ((section === "dynacap" || section === "pph") && label === "PPH") return "PPH store average";
+  if ((section === "dynacap" || section === "pph") && label === "PPH") return "PPH";
   if (isWorkbookTile(section, label) || isStoreAverageTile(section, label)) {
     return MONEY_TILES.has(label) ? `${label} store sum` : `${label} store average`;
   }
@@ -906,7 +912,7 @@ function pphStoreTile() {
   const rows = sectionRows("pph");
   if (!rows) return sectionPackPending("pph") ? "Loading…" : "—";
   const built = summarizeSeat("pph", rowsInScope(rows, state.filters, roster(), "pph"));
-  return built.headline == null ? "—" : shownRate("pph", built.headline);
+  return built.headline == null ? "—" : `${shownRate("pph", built.headline)} store average`;
 }
 
 function rowBuiltTile(section, label) {
@@ -1088,6 +1094,16 @@ function laborFigureText(text, seat) {
   return `${text} ${suffix}`;
 }
 
+function labeledFigure(section, text, seat) {
+  if (!text || figureAbsent(text) || /loading/i.test(text)) return text || "";
+  if (section === "labor") return laborFigureText(text, seat);
+  if (/workbook|store average|store sum|store rollup|target/i.test(text)) return text;
+  if (seat && seat.workbook) return `${text} workbook total`;
+  if (!filtersActive(state.filters) || section === "picker_scorecard") return text;
+  if (String(text).includes("$") || section === "sales" || section === "lost_revenue") return `${text} store sum`;
+  return `${text} store average`;
+}
+
 function companyBlock(section, title) {
   if (!seatReady(section)) {
     const name = title ? `<h2>${esc(title)}</h2>` : "";
@@ -1112,8 +1128,7 @@ function companyBlock(section, title) {
         : filtersActive(state.filters)
           ? "—"
           : "";
-  if (section === "labor") figureText = laborFigureText(figureText, seat);
-  else if (seat.workbook && figureText && !/workbook/i.test(figureText)) figureText = `${figureText} workbook total`;
+  figureText = labeledFigure(section, figureText, seat);
   const tone = health === "good" || health === "watch" || health === "risk" ? health : "none";
   const hideEmptyBadge = counted > 0 && tone === "none" && section === "dynacap" && seat.headline == null;
   const badgeHtml = tone === "none" && (hideEmptyBadge || !figureAbsent(figureText) || Boolean(tiles)) ? "" : badge(tone);
@@ -1272,6 +1287,8 @@ function grainShown(section, row) {
     }
     if (section === "labor" && row.grain === "division" && shown && !figureAbsent(shown) && !/store average|cost-weighted/i.test(shown)) {
       shown = `${shown} store average, excl. check source`;
+    } else if (section === "pph" && shown && !figureAbsent(shown) && !/store average/i.test(shown)) {
+      shown = `${shown} store average`;
     } else if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook total`;
   }
   return shown;
@@ -1377,7 +1394,9 @@ function regionChip(row, regionName) {
     if (!scoped) return { title: row.title, text: unavailable, tone: "none" };
     const built = summarizeSeat(section, scoped);
     if (built.headline == null) return { title: row.title, text: state.filters.division ? "Not available" : "No data", tone: "none" };
-    return { title: `${row.title} store average`, text: shownRate(section, built.headline), tone: chipTone(built.health) };
+    const rate = shownRate(section, built.headline);
+    if (section === "pph") return { title: row.title, text: `${rate} store average`, tone: chipTone(built.health) };
+    return { title: `${row.title} store average`, text: rate, tone: chipTone(built.health) };
   }
   if (section === "sales" || section === "labor") {
     return salesLaborChip(row, regionName);
@@ -1484,10 +1503,6 @@ function pphDrillButton(kind, value, label) {
   return `<button type="button" class="drill" data-pph-drill="${esc(kind)}" data-pph-value="${esc(value)}">${esc(label)}</button>`;
 }
 
-function phoneOmMetric(name) {
-  return `<div class="metric person"><span>OM</span><strong>${esc(name || "—")}</strong></div>`;
-}
-
 const SHOPPER_COLUMNS = {
   pph: [
     ["PPH", ["pph"], (value) => num(value, 1)],
@@ -1529,10 +1544,12 @@ function shopperListHtml() {
   }
   const columns = state.shopperColumns || [];
   const shown = filtered.slice(0, state.shopperWindow);
+  const totalShoppers = distinctShopperCount(filtered);
+  const shownShoppers = distinctShopperCount(shown);
   const more =
     filtered.length > shown.length
-      ? `<p class="note">${num(shown.length, 0)} of ${num(filtered.length, 0)} shoppers</p><button type="button" class="more" data-more="shoppers">Show more</button>`
-      : `<p class="note">${num(filtered.length, 0)} shoppers in this scope.</p>`;
+      ? `<p class="note">${num(shownShoppers, 0)} of ${num(totalShoppers, 0)} shoppers</p><button type="button" class="more" data-more="shoppers">Show more</button>`
+      : `<p class="note">${num(totalShoppers, 0)} shoppers in this scope.</p>`;
   const head = ["", "Shopper", "Store", ...columns.map((column) => column.label)]
     .map((label) => `<th${label ? "" : ' class="bar"'}>${esc(label)}</th>`)
     .join("");
@@ -1573,12 +1590,12 @@ function paintShopperList() {
 function shopperSummaryHtml(rows) {
   const summary = shopperPphSummary(rows);
   const split = `${num(summary.atGoal, 0)} at 80 or above · ${num(summary.between, 0)} between 74 and 80 · ${num(summary.below, 0)} below 74 · ${num(summary.missing, 0)} with no PPH`;
-  const average = summary.average == null ? "—" : `${num(summary.average, 2)} excluding check source`;
-  const storeAverage =
-    !filtersActive(state.filters) && summary.storeAverage != null
-      ? `<p class="note">${esc(`${num(summary.storeAverage, 2)} store average`)}</p>`
+  const average = summary.average == null ? "—" : `${num(summary.average, 2)} shopper average, excl. check source`;
+  const weighted =
+    !filtersActive(state.filters) && summary.hoursWeighted != null
+      ? `<p class="note">${esc(`${num(summary.hoursWeighted, 2)} hours-weighted shopper average, excl. check source`)}</p>`
       : "";
-  return `<p class="note">${esc(split)}</p><p class="note">${esc(average)}</p>${storeAverage}`;
+  return `<p class="note">${esc(split)}</p><p class="note">${esc(average)}</p>${weighted}`;
 }
 
 function shopperBlock(rows, columns, sourceNote, section) {
@@ -1735,7 +1752,7 @@ function scheduleActionHtml(pack, card) {
             .slice(0, 80)
             .map((store) => {
               const seat = scheduleSeat(store);
-              return `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row">${phoneOmMetric(seat.om)}<div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`;
+              return `<li class="store-card"><p class="store-id">${esc(store.store)}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(pct(store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(pct(store.over))}</strong></div><div class="metric"><span>Why</span><strong>${esc(whyFlags(store))}</strong></div></div></li>`;
             })
             .join("");
           return `<section class="group"><h3>${esc(canonicalDivision(group.division) || group.division || "—")} · ${group.stores.length}</h3><div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul></section>`;
@@ -1843,7 +1860,7 @@ function scheduleDetailHtml(pack) {
           ? ` <span class="unscheduled">Barely scheduled</span>`
           : "";
       const seat = scheduleSeat(store);
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row">${phoneOmMetric(seat.om)}<div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(store.store))}${tag}</p><p class="sub">${esc(seatText(store))}</p><div class="metric-row"><div class="metric"><span>Under</span><strong>${esc(scheduleRate(store, store.under))}</strong></div><div class="metric"><span>Over</span><strong>${esc(scheduleRate(store, store.over))}</strong></div><div class="metric"><span>Eff</span><strong>${esc(scheduleRate(store, store.eff))}</strong></div><div class="metric"><span>Sales</span><strong>${esc(money(store.sales))}</strong></div></div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr><th>Store</th><th>Region</th><th>Division</th><th>District</th><th>OM</th><th>Under</th><th>Over</th><th>Eff</th><th>Pch</th><th>Sales</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
@@ -2043,7 +2060,10 @@ function seatFigure(section, seat) {
   const rateRows = sectionRows(section);
   if (rateRows && ROW_RATE_CHIP.has(section)) {
     const built = summarizeSeat(section, rowsInScope(rateRows, state.filters, roster(), section));
-    if (built.headline != null) return shownRate(section, built.headline);
+    if (built.headline != null) {
+      const rate = shownRate(section, built.headline);
+      return labeledFigure(section, section === "pph" ? `${rate} store average` : rate, seat);
+    }
   }
   if (section === "picker_scorecard") {
     const rows = sectionRows(section);
@@ -2054,7 +2074,7 @@ function seatFigure(section, seat) {
   let text = "";
   if (seat.headlineText != null && seat.headlineText !== "") text = String(seat.headlineText);
   else if (seat.headline != null && seat.headline !== "") text = formatHeadline(section, seat.headline);
-  if (section === "labor") text = laborFigureText(text, seat);
+  text = labeledFigure(section, text, seat);
   if (seat.figureLabel && text) return `${seat.figureLabel} ${text}`;
   return text;
 }
