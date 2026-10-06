@@ -251,11 +251,22 @@ def main() -> None:
         loss = next(item for item in home["summaries"] if item["section"] == "lost_revenue")
         assert loss["headline"] == 869751.99
         lines = home["regionLines"]
-        assert lines[0]["region"] == "East" and lines[0]["value"] == "$393,334.12" and lines[0]["count"] == 610
-        assert lines[0]["children"][0]["division"] == "Shaws"
-        assert lines[0]["children"][0]["value"] == "$1.00"
-        assert lines[1]["region"] == "South"
-        assert lines[1]["value"] == "$136,425.00"
+        sales_line = next(line for line in lines if line["section"] == "sales")
+        assert sales_line["region"] == "East"
+        assert sales_line["value"] == "$1,200.00"
+        assert sales_line["count"] == 1
+        assert sales_line["children"][0]["division"] == "Shaws"
+        assert sales_line["children"][0]["value"] == "$1,200.00"
+        assert all(line["value"] != "$393,334.12" for line in lines)
+        sales_table = next(row for row in home["regionTables"] if row["section"] == "sales")
+        assert sales_table["region"] == "East"
+        assert sales_table["headline"] == "$1,200.00"
+        assert sales_table["storeCount"] == 1
+        rollups = home["pickerRollups"]
+        assert rollups["company"]["shoppers"] == 1
+        assert rollups["company"]["stores"] == 1
+        assert rollups["store:117"]["shoppers"] == 1
+        assert "region:East Region" in rollups
         assert home["metadata"]["cookedAt"] == home["cookedAt"]
         assert loss["storeCount"] == 0
         assert all(line["region"] != "Shaws" for line in lines)
@@ -451,10 +462,23 @@ def raw_sheet_divisions() -> None:
             ("schedule_quality", "4799", "JEWEL", "sheet om", "J6"),
             ("pph", "339", "Mountain West", "Chris Banuelos", "I5"),
         ]
+        payloads = {
+            "missing_items": {"mi_pct": 8},
+            "schedule_quality": {"schedule_efficiency_pct": 90},
+        }
         for section, store, division, om, district in rows:
             db.execute(
                 "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (section, store, division, om, "", "2026-10-06", "{}", json.dumps({"district": district})),
+                (
+                    section,
+                    store,
+                    division,
+                    om,
+                    "",
+                    "2026-10-06",
+                    json.dumps(payloads.get(section) or {}),
+                    json.dumps({"district": district}),
+                ),
             )
         db.commit()
         db.close()
@@ -907,7 +931,20 @@ def workbook_total_shifted_row() -> None:
         db.execute("INSERT INTO pack_meta VALUES (1, '2026-10-07T00:00:00Z')")
         db.execute(
             "INSERT INTO dash_chrome VALUES (1, ?)",
-            (json.dumps({"publishedAt": "2026-10-06T01:35:23Z", "summaries": []}),),
+            (
+                json.dumps(
+                    {
+                        "publishedAt": "2026-10-06T01:35:23Z",
+                        "summaries": [],
+                        "companyTiles": {
+                            "lost_revenue": {
+                                "labels": ["Lost $", "Missed"],
+                                "values": ["$1.00", "$9.00"],
+                            }
+                        },
+                    }
+                ),
+            ),
         )
         db.commit()
         db.close()
@@ -922,6 +959,9 @@ def workbook_total_shifted_row() -> None:
         assert home["workbookTotal"]["sales"]["sales_dollars"] == 81000
         assert home["workbookTotal"]["labor"]["act_cost_dollars"] == 1800
         assert home["workbookTotal"]["dynacap"]["pieces_per_hour"] == 63
+        missed = home["companyTiles"]["lost_revenue"]
+        assert missed["values"][missed["labels"].index("Missed")] == "$420.00"
+        assert home["workbookTotal"]["lost_revenue"]["missed_dollars"] == 420
     print("workbook total shift ok")
 
 
@@ -1009,6 +1049,116 @@ def labor_blanks_are_null() -> None:
     print("labor blanks ok")
 
 
+def _pack_section_records(section: str) -> list:
+    blob = json.loads((ROOT.parent / "public" / "data" / "section" / f"{section}.json").read_text())
+    records = []
+    for row in blob["rows"]:
+        records.append(
+            {
+                "section": section,
+                "store": row.get("store") or "",
+                "division": row.get("division") or "",
+                "district": row.get("district") or "",
+                "om": row.get("om") or "",
+                "shopper": row.get("shopper") or "",
+                "shopperId": row.get("shopperId") or "",
+                "payload": row.get("payload") or {},
+                "sourceIssue": row.get("sourceIssue"),
+            }
+        )
+    return records
+
+
+def region_rows_cover_company() -> None:
+    """Region lines, tables, and picker rollups come from store rows, not the old device pack."""
+    records = [
+        {"section": "sales", "store": "210", "division": "United", "payload": {"sales_dollars": 3545.20}},
+        {"section": "sales", "store": "239", "division": "Southwest", "payload": {"sales_dollars": 7324.64}},
+        {"section": "sales", "store": "1", "division": "NorCal", "payload": {"sales_dollars": 100}},
+        {"section": "pre_sub_oos", "store": "210", "division": "United", "payload": {"mi_pct": 4}},
+        {"section": "pre_sub_oos", "store": "239", "division": "Southwest", "payload": {"mi_pct": 6}},
+        {"section": "picker_scorecard", "store": "210", "division": "United", "district": "U5", "om": "Andrew Quinn", "shopperId": "A", "payload": {"pph": 90}},
+        {"section": "picker_scorecard", "store": "210", "division": "United", "district": "U5", "om": "Andrew Quinn", "shopperId": "A", "payload": {"pph": 50}},
+        {"section": "picker_scorecard", "store": "239", "division": "Southwest", "district": "N0", "om": "Ben Sarmadi", "shopperId": "B", "payload": {"pph": 70}},
+        {"section": "labor", "store": "10", "division": "Shaws", "payload": {"target_vs_actual_pct": -10}},
+        {"section": "labor", "store": "11", "division": "Shaws", "payload": {"target_vs_actual_pct": -2}},
+    ]
+    lines, tables = module.build_region_views(records)
+    module.assert_additive_region_sums(
+        lines,
+        records,
+        {"sales": {"sales_dollars": 3545.20 + 7324.64 + 100}},
+    )
+    by = {(line["section"], line["region"]): line for line in lines}
+    south = by[("sales", "South")]
+    assert south["value"] == "$10,869.84"
+    assert south["count"] == 2
+    kids = {child["division"]: child for child in south["children"]}
+    assert kids["United"]["value"] == "$3,545.20"
+    assert kids["Southwest"]["value"] == "$7,324.64"
+    assert by[("sales", "California")]["value"] == "$100.00"
+    assert by[("sales", "California")]["count"] == 1
+    assert by[("pre_sub_oos", "South")]["value"] == "5.00%"
+    assert by[("pre_sub_oos", "South")]["count"] == 2
+    assert by[("labor", "East")]["value"] == "-6.00%"
+    assert by[("picker_scorecard", "South")]["value"] == "2 shoppers"
+    assert by[("picker_scorecard", "South")]["count"] == 2
+    roll = module.build_picker_rollups(records)
+    assert roll["company"]["shoppers"] == 2
+    assert roll["company"]["stores"] == 2
+    assert roll["store:210"]["shoppers"] == 1
+    assert roll["store:210"]["risk"] == 1
+    assert roll["region:South Region"]["shoppers"] == 2
+    table = {(row["section"], row["region"]): row for row in tables}
+    assert table[("sales", "South")]["headline"] == "$10,869.84"
+    assert table[("sales", "South")]["storeCount"] == 2
+    assert table[("picker_scorecard", "South")]["headline"] == "2"
+    assert table[("labor", "East")]["headline"] == "-6.00%"
+    orphan = records + [{"section": "sales", "store": "9", "division": "", "payload": {"sales_dollars": 50}}]
+    try:
+        module.assert_additive_region_sums(module.build_region_views(orphan)[0], orphan)
+    except SystemExit as exc:
+        assert "outside a region" in str(exc)
+    else:
+        raise AssertionError("orphan sales should fail")
+
+    pinned = []
+    for section in ("sales", "lost_revenue", "picker_scorecard"):
+        pinned.extend(_pack_section_records(section))
+    pinned_lines, pinned_tables = module.build_region_views(pinned)
+    module.assert_additive_region_sums(
+        pinned_lines,
+        pinned,
+        {"sales": {"sales_dollars": 81833890.57}},
+    )
+    pinned_sales = {(line["region"]): line for line in pinned_lines if line["section"] == "sales"}
+    assert pinned_sales["South"]["value"] == "$14,749,116.96"
+    assert pinned_sales["South"]["count"] == 397
+    assert pinned_sales["California"]["value"] == "$23,804,503.18"
+    assert pinned_sales["California"]["count"] == 601
+    total = sum(module._parse_money(line["value"]) for line in pinned_sales.values())
+    assert abs(total - 81833890.57) <= 0.05
+    south_kids = {child["division"]: child for child in pinned_sales["South"]["children"]}
+    assert south_kids["United"]["count"] == 71
+    east_kids = {child["division"]: child for child in pinned_sales["East"]["children"]}
+    assert east_kids["Jewel Osco"]["count"] == 180
+    west_kids = {child["division"]: child for child in pinned_sales["West"]["children"]}
+    assert west_kids["Mountain West"]["count"] == 195
+    assert west_kids["Seattle"]["count"] == 212
+    pinned_table = {(row["section"], row["region"]): row for row in pinned_tables}
+    assert pinned_table[("sales", "South")]["headline"] == "$14,749,116.96"
+    assert pinned_table[("sales", "South")]["storeCount"] == 397
+    assert pinned_table[("lost_revenue", "South")]["title"] == "Lost $ excl. Missed"
+    rollups = module.build_picker_rollups(pinned)
+    company = rollups["company"]
+    assert company["stores"] == 2167
+    assert company["healthy"] + company["watch"] + company["risk"] == company["shoppers"]
+    assert rollups["store:210"]["shoppers"] == 6
+    assert rollups["store:239"]["shoppers"] > 0
+    assert "region:South Region" in rollups
+    print("region rows ok")
+
+
 if __name__ == "__main__":
     main()
     raw_sheet_divisions()
@@ -1019,3 +1169,4 @@ if __name__ == "__main__":
     workbook_total_sources()
     workbook_total_shifted_row()
     labor_blanks_are_null()
+    region_rows_cover_company()
