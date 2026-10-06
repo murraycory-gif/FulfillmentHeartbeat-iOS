@@ -53,7 +53,13 @@ The seat file is `packs/seat/company/all/current.sqlite`, not a root `current.sq
 python3 web/scripts/extract_web_pack.py /path/to/packs/seat/company/all/current.sqlite web/public/data
 ```
 
-That writes `home.json` (summaries, region lines, and the store roster), `section/*.json`, and `presub.json`. `schedule.json` is written only when that sqlite has `schedule_pack` / `schedule_store` rows, or when `schedule-check.json` sits in the same folder as the sqlite. If neither has rows, the page still shows Action Needed, Summary, and Store Detail and does not invent stores. Copy an existing schedule pack yourself when you have one:
+That writes `home.json` (summaries, region lines, the store roster, and `metadata.schemaVersion` plus `metadata.cookSha`), `section/*.json`, and `presub.json`. `cookSha` is the git SHA of the cook. Before upload, the required-keys check has to pass:
+
+```bash
+node web/check_pack.mjs web/public/data
+```
+
+A non-zero exit refuses the pack. `publish-web.sh` runs that check. The page warns when the loaded `schemaVersion` is older than the page expects. `schedule.json` is written only when that sqlite has `schedule_pack` / `schedule_store` rows, or when `schedule-check.json` sits in the same folder as the sqlite. If neither has rows, the page still shows Action Needed, Summary, and Store Detail and does not invent stores. Copy an existing schedule pack yourself when you have one:
 
 ```bash
 cp /path/to/schedule-check.json web/public/data/schedule.json

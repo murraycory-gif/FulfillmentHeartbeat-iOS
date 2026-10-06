@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,9 @@ import {
   parseAllowlist,
   verifyAccessJwt,
 } from "./functions/gate.js";
+import { checkPack } from "./check_pack.mjs";
 import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
+import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
   canonicalDivision,
   canonicalStore,
@@ -355,7 +358,16 @@ assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=31/);
+assert.match(pageHtml, /app\.js\?v=32/);
+assert.match(app, /schema\.js\?v=1/);
+assert.match(app, /console\.warn\(staleSchema\)/);
+assert.match(app, /raiseBanner\(staleSchema \|\| considerPublished/);
+assert.equal(SCHEMA_VERSION, 1);
+assert.equal(schemaWarning({ metadata: { schemaVersion: SCHEMA_VERSION } }), "");
+assert.equal(schemaWarning({ metadata: { schemaVersion: SCHEMA_VERSION + 1 } }), "");
+assert.match(schemaWarning({}), /schema missing/);
+assert.match(schemaWarning({ metadata: { schemaVersion: 0 } }), /schema 0/);
+assert.match(schemaWarning({ metadata: { schemaVersion: SCHEMA_VERSION - 1 } }), /schema 0/);
 const renderSrc = app.slice(app.indexOf("async function render("), app.indexOf("function desktopNav("));
 assert.equal(renderSrc.includes("await ensureSeatRows"), false);
 assert.match(app, /source data issue/);
@@ -724,6 +736,18 @@ assert.ok(
   ) <= 0.01,
 );
 assert.equal(packHome.companyTiles.labor.values[packHome.companyTiles.labor.labels.indexOf("AIV")], "0.00%");
+assert.equal(packHome.metadata.schemaVersion, SCHEMA_VERSION);
+assert.match(packHome.metadata.cookSha, /^[0-9a-f]{40}$/);
+const badPack = mkdtempSync(join(tmpdir(), "hb-pack-"));
+writeFileSync(join(badPack, "home.json"), "{}\n");
+const badCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), badPack], { encoding: "utf8" });
+assert.notEqual(badCheck.status, 0);
+assert.match(badCheck.stderr, /schemaVersion=missing/);
+assert.match(badCheck.stderr, /cookSha missing/);
+rmSync(badPack, { recursive: true, force: true });
+const goodCheck = spawnSync(process.execPath, [join(root, "check_pack.mjs"), join(root, "public/data")], { encoding: "utf8" });
+assert.equal(goodCheck.status, 0, goodCheck.stderr);
+assert.equal(checkPack(join(root, "public/data")).errors.length, 0);
 assert.ok(Array.isArray(packHome.regionTables) && packHome.regionTables.length > 10);
 const rosterByStore = Object.fromEntries(packHome.filters.stores.map((row) => [row.store, row]));
 assert.equal(rosterByStore["233"].division, "Seattle");
@@ -856,6 +880,7 @@ const publishScript = readFileSync(join(root, "../Tools/HeartbeatIngest/publish-
 assert.match(publishScript, /HEARTBEAT_UI_ONLY/);
 assert.match(publishScript, /HEARTBEAT_USE_LOCAL_DATA/);
 assert.match(publishScript, /fulfillment-heartbeat-web/);
+assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
 assert.match(publishScript, /\{"error":"unauthorized"\}/);
 assert.equal(publishScript.includes("--project-name heartbeat-web"), false);
 const wrangler = readFileSync(join(root, "wrangler.toml"), "utf8");
@@ -1189,6 +1214,8 @@ assert.match(eastLoss.value, /^\$/);
 assert.ok(eastLoss.children.some((child) => child.division === "Shaws"));
 const lostTiles = cooked.companyTiles.lost_revenue;
 assert.equal(cooked.publishedAt, "2026-10-06T01:35:23Z");
+assert.equal(cooked.metadata.schemaVersion, SCHEMA_VERSION);
+assert.equal(cooked.metadata.cookSha, packHome.metadata.cookSha);
 assert.ok(cooked.publishedAt > "2026-10-05T22:57:06Z");
 assert.equal(lostTiles.values[lostTiles.labels.indexOf("Lost %")], "5.19%");
 assert.equal(lostTiles.values[lostTiles.labels.indexOf("Goal %")], "3.06%");

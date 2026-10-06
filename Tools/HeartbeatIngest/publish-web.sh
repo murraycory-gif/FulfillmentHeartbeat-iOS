@@ -175,6 +175,8 @@ if [[ -n "$UI_ONLY" && "$LIVE_CHECKED" -ne 1 && "$USE_LOCAL" != "1" ]]; then
   exit 1
 fi
 
+node "$WEB/check_pack.mjs" "$DATA"
+
 python3 - "$DATA" << 'PY'
 import json
 import sys

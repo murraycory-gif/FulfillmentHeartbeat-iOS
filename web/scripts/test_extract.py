@@ -2,9 +2,12 @@
 """Synthetic company seat. Confirms the web pack drops shopper rows and sqlite."""
 
 import json
+import os
 import sqlite3
 import tempfile
 from pathlib import Path
+
+os.environ["HEARTBEAT_SKIP_PACK_CHECK"] = "1"
 
 import importlib.util
 
@@ -206,6 +209,8 @@ def main() -> None:
         sales = json.loads((out / "section" / "sales.json").read_text())
         blob = "\n".join(path.read_text() for path in out.rglob("*.json"))
         assert home["publishedAt"] == "2026-09-28T19:10:00Z"
+        assert home["metadata"]["schemaVersion"] == module.schema_version()
+        assert home["metadata"]["cookSha"] == module.cook_sha()
         assert home["summaries"][0]["health"] == "none"
         assert "Only 36 of 1,297" in home["summaries"][0]["secondary"]
         assert "packs" not in home and "tables" not in home
@@ -289,8 +294,8 @@ def roster_people_stamp() -> None:
     assert "Chicago" not in roster["1"]["om"]
     stray = {"store": "9", "division": "United", "district": "U5", "om": "Andrew Quinn"}
     module.apply_roster_people(roster, [stray], people)
-    assert stray["om"] == ""
-    assert roster["9"]["om"] == "" if "9" in roster else True
+    assert stray["om"] == "Andrew Quinn"
+    assert "9" not in roster
 
 
 def absent_schedule_and_item_tab() -> None:

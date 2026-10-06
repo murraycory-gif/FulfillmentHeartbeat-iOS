@@ -15,8 +15,10 @@ Writes:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -1093,6 +1095,10 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
     apply_labor_aiv_tile(company_tiles, labor_market)
     home = {
         "publishedAt": published,
+        "metadata": {
+            "schemaVersion": schema_version(),
+            "cookSha": cook_sha(),
+        },
         "summaries": summaries,
         "companyTiles": company_tiles,
         "laborMarket": labor_bridge(labor_market),
@@ -1249,194 +1255,46 @@ def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def _blend(stores: list, markets: dict, region: str, field: str):
-    scoped = [store for store in stores if store.get("region") == region]
-    weight = 0
-    total = 0.0
-    for division in {store.get("division") for store in scoped}:
-        market = markets.get(division) or {}
-        value = market.get(field)
-        if value is None:
-            continue
-        count = sum(1 for store in scoped if store.get("division") == division)
-        if not count:
-            continue
-        weight += count
-        total += float(value) * count
-    return None if not weight else total / weight
+def schema_version() -> int:
+    text = (Path(__file__).resolve().parents[1] / "public" / "schema.js").read_text(encoding="utf-8")
+    match = re.search(r"export const SCHEMA_VERSION = (\d+)", text)
+    if not match:
+        raise SystemExit("pack metadata: schema.js has no SCHEMA_VERSION")
+    return int(match.group(1))
+
+
+def cook_sha() -> str:
+    """Git SHA of the cook that wrote this pack. HEARTBEAT_COOK_SHA overrides git."""
+    override = os.environ.get("HEARTBEAT_COOK_SHA", "").strip()
+    if override:
+        return override
+    root = Path(__file__).resolve().parents[2]
+    try:
+        sha = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        sha = ""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise SystemExit("pack metadata: cook git SHA is missing")
+    return sha
 
 
 def check_pack(out: Path) -> None:
-    """Refuse a pack that is missing the keys a later cook already depends on."""
-    errors = []
-    home = loads((out / "home.json").read_text(encoding="utf-8"), {})
-    schedule = loads((out / "schedule.json").read_text(encoding="utf-8"), {})
-    lost = loads((out / "section" / "lost_revenue.json").read_text(encoding="utf-8"), {})
-    dynacap = loads((out / "section" / "dynacap.json").read_text(encoding="utf-8"), {})
-    labor_file = loads((out / "section" / "labor.json").read_text(encoding="utf-8"), {})
-    if not isinstance(home, dict) or not isinstance(schedule, dict):
-        raise SystemExit("pack schema: home or schedule is not an object")
+    """Refuse a pack that is missing the keys a later cook already depends on.
 
-    labor = home.get("laborMarket") if isinstance(home.get("laborMarket"), dict) else {}
-    if "weight" in labor:
-        errors.append("laborMarket has a weight field")
-    aiv = labor.get("aiv_impact_pct")
-    uplh = labor.get("uplh_impact_pct")
-    wage = labor.get("wage_impact_pct")
-    target = labor.get("target_vs_actual_pct")
-    if not all(isinstance(value, (int, float)) for value in (aiv, uplh, wage, target)):
-        errors.append(f"laborMarket bridge={aiv, uplh, wage, target}")
-    elif abs((float(uplh) + float(wage) + float(aiv)) - float(target)) > 0.01:
-        errors.append("laborMarket bridge does not add up")
-    tiles = home.get("companyTiles") if isinstance(home.get("companyTiles"), dict) else {}
-    labor_tiles = tiles.get("labor") if isinstance(tiles.get("labor"), dict) else {}
-    labor_labels = list(labor_tiles.get("labels") or [])
-    labor_values = list(labor_tiles.get("values") or [])
-    aiv_tile = labor_values[labor_labels.index("AIV")] if "AIV" in labor_labels else None
-    if aiv_tile != "0.00%":
-        errors.append(f"AIV tile={aiv_tile}")
-    labor_rows = labor_file.get("rows") if isinstance(labor_file, dict) else []
-    bridged = 0
-    for row in labor_rows or []:
-        payload = row.get("payload") or {}
-        parts = [
-            payload.get("uplh_impact_pct"),
-            payload.get("wage_impact_pct"),
-            payload.get("aiv_impact_pct"),
-            payload.get("target_vs_actual_pct"),
-        ]
-        if any(part is None for part in parts):
-            continue
-        bridged += 1
-        if abs((float(parts[0]) + float(parts[1]) + float(parts[2])) - float(parts[3])) > 0.01:
-            errors.append(f"labor bridge {row.get('store')}")
-            break
-    if bridged != 2109:
-        errors.append(f"labor bridge rows={bridged}")
-    flagged = {str(row.get("store")): row for row in labor_rows or [] if row.get("sourceIssue") == "source data issue"}
-    for store in ("233", "4799", "1509"):
-        if store not in flagged:
-            errors.append(f"missing source data issue {store}")
-    plain = next((row for row in labor_rows or [] if str(row.get("store")) == "1"), None)
-    if not plain or plain.get("sourceIssue") or abs(float((plain.get("payload") or {}).get("aiv_impact_pct") or 0) - (-0.38645958215580284)) > 1e-6:
-        errors.append("store 1 AIV changed")
-    tables = home.get("regionTables")
-    if not isinstance(tables, list) or len(tables) < 10:
-        errors.append("regionTables missing")
-    lost_tiles = tiles.get("lost_revenue") if isinstance(tiles.get("lost_revenue"), dict) else {}
-    lost_labels = list(lost_tiles.get("labels") or [])
-    lost_values = list(lost_tiles.get("values") or [])
-
-    def lost_tile(name: str):
-        return lost_values[lost_labels.index(name)] if name in lost_labels else None
-
-    if lost_tile("Goal %") != "3.06%":
-        errors.append(f"Goal %={lost_tile('Goal %')}")
-    if lost_tile("Lost %") != "5.19%":
-        errors.append(f"Lost %={lost_tile('Lost %')}")
-    missed = str(lost_tile("Missed") or "")
-    if not missed.startswith("$"):
-        errors.append(f"Missed={missed}")
-    summaries = {item.get("section"): item for item in home.get("summaries") or [] if isinstance(item, dict)}
-    pph = summaries.get("pph") or {}
-    if "between 74 and 80" not in str(pph.get("secondary") or ""):
-        errors.append(f"pph secondary={pph.get('secondary')}")
-    if pph.get("health") == "risk":
-        errors.append("pph health is risk at a 74+ average")
-
-    roster = home.get("filters", {}).get("stores") or []
-    by_store = {str(item.get("store")): item for item in roster if isinstance(item, dict)}
-    expected = {
-        "233": ("Seattle", "28", "Ryan Burns"),
-        "339": ("Mountain West", "I5", "Chris Banuelos"),
-        "879": ("Mountain West", "66", "Ellas Ware"),
-        "1509": ("Mountain West", "I5", "Chris Banuelos"),
-        "4799": ("Jewel Osco", "J6", "Mike Macdonald"),
-        "210": ("United", "U5", "Andrew Quinn"),
-        "239": ("Southwest", "N0", "Ben Sarmadi"),
-    }
-    for store, ident in expected.items():
-        row = by_store.get(store) or {}
-        got = (row.get("division"), row.get("district"), row.get("om"))
-        if got != ident:
-            errors.append(f"roster {store}={got}")
-
-    roster_counts: dict[str, int] = {}
-    for item in roster:
-        division = item.get("division") or ""
-        if division:
-            roster_counts[division] = roster_counts.get(division, 0) + 1
-    lost_rows = lost.get("rows") if isinstance(lost, dict) else []
-    lost_counts: dict[str, int] = {}
-    for row in lost_rows or []:
-        division = row.get("division") or ""
-        if division:
-            lost_counts[division] = lost_counts.get(division, 0) + 1
-    haggen_roster = roster_counts.get("Haggen", 0)
-    if lost_counts.get("Haggen", 0) > haggen_roster + 5:
-        errors.append(f"lost Haggen rows={lost_counts.get('Haggen', 0)} roster={haggen_roster}")
-    if len(lost_counts) < 8:
-        errors.append(f"lost divisions={sorted(lost_counts)}")
-    for division, count in roster_counts.items():
-        if count < 20:
-            continue
-        if lost_counts.get(division, 0) <= 0:
-            errors.append(f"{division} roster {count} has no lost rows")
-
-    markets = {item.get("label"): item for item in (schedule.get("markets") or []) if isinstance(item, dict)}
-    united = markets.get("United") or {}
-    if united.get("eff") is not None or united.get("under") is not None or united.get("over") is not None:
-        errors.append(f"United market={united.get('under'), united.get('over'), united.get('eff')}")
-    if int(schedule.get("week") or 0) != 32:
-        errors.append(f"week={schedule.get('week')}")
-    schedule_stores = schedule.get("stores") or []
-    if len(schedule_stores) < 2100:
-        errors.append(f"schedule stores={len(schedule_stores)}")
-    bogus_under = [
-        store.get("store")
-        for store in schedule_stores
-        if isinstance(store, dict)
-        and store.get("under") is not None
-        and float(store.get("under") or 0) >= 99.5
-        and (store.get("eff") is None or float(store.get("eff") or 0) <= 0)
-    ]
-    if bogus_under:
-        errors.append(f"100% under with invalid eff={len(bogus_under)}")
-    schedule_by = {str(item.get("store")): item for item in schedule_stores if isinstance(item, dict)}
-    for store in ("210", "239"):
-        row = schedule_by.get(store) or {}
-        if (row.get("division"), row.get("district"), row.get("om")) != expected[store]:
-            errors.append(f"schedule {store}={(row.get('division'), row.get('district'), row.get('om'))}")
-    south_eff = _blend(schedule_stores, markets, "South Region", "eff")
-    south_under = _blend(schedule_stores, markets, "South Region", "under")
-    south_over = _blend(schedule_stores, markets, "South Region", "over")
-    if south_eff is None or abs(south_eff - 91.04) > 0.02:
-        errors.append(f"South eff={south_eff}")
-    if south_under is None or abs(south_under - 3.05) > 0.02:
-        errors.append(f"South under={south_under}")
-    if south_over is None or abs(south_over - 5.91) > 0.02:
-        errors.append(f"South over={south_over}")
-
-    dyn_rows = dynacap.get("rows") if isinstance(dynacap, dict) else []
-    united_dyn = [row for row in dyn_rows or [] if row.get("division") == "United"]
-    if len(united_dyn) != 71:
-        errors.append(f"United dynacap rows={len(united_dyn)}")
-    if not any(str(row.get("store")) == "210" for row in united_dyn):
-        errors.append("United dynacap is missing roster store 210")
-    missing_caps = [
-        row.get("store")
-        for row in united_dyn
-        if "eot_capacity" not in (row.get("payload") or {}) or "used_capacity" not in (row.get("payload") or {})
-    ]
-    if missing_caps:
-        errors.append(f"United dynacap missing EOT/Used on {len(missing_caps)} rows")
-
-    if errors:
-        raise SystemExit("pack schema check failed:\n- " + "\n- ".join(errors))
-    print(
-        f"pack schema ok stores={len(roster)} schedule={len(schedule_stores)} "
-        f"lost={len(lost_rows or [])} aiv={aiv_tile} south_eff={south_eff:.2f}"
-    )
+    The committed checker is `node web/check_pack.mjs <dir>`. Extract runs it
+    so a bad pack is not written for upload. HEARTBEAT_SKIP_PACK_CHECK is only
+    for the synthetic extract fixture.
+    """
+    if os.environ.get("HEARTBEAT_SKIP_PACK_CHECK"):
+        return
+    script = Path(__file__).resolve().parents[1] / "check_pack.mjs"
+    completed = subprocess.run(["node", str(script), str(out)], check=False)
+    if completed.returncode != 0:
+        raise SystemExit(completed.returncode or 1)
 
 
 def main() -> None:

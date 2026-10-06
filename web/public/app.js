@@ -1,4 +1,5 @@
 import { updatedLine, considerPublished, pct, money, num, formatHeadline, publishStamp } from "./clock.js";
+import { schemaWarning } from "./schema.js?v=1";
 import {
   emptyFilters,
   filtersActive,
@@ -184,11 +185,12 @@ function tilesFor(section) {
   return (tiles && tiles[section]) || null;
 }
 
-function raiseBanner(text) {
+function raiseBanner(text, sticky = false) {
   if (!text) return;
   banner.hidden = false;
   banner.textContent = text;
   clearTimeout(state.bannerTimer);
+  if (sticky) return;
   state.bannerTimer = setTimeout(() => {
     banner.hidden = true;
   }, 5000);
@@ -1675,7 +1677,9 @@ function acceptHome(home) {
   state.home = home;
   state.homeError = "";
   applyPackStamp(home && home.publishedAt);
-  raiseBanner(considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt));
+  const staleSchema = schemaWarning(home);
+  if (staleSchema) console.warn(staleSchema);
+  raiseBanner(staleSchema || considerPublished(sessionStorage, "hb.web.seenPublishedAt", home.publishedAt), Boolean(staleSchema));
   render();
 }
 
