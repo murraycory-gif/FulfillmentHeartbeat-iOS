@@ -43,10 +43,6 @@ const SCHEMA = [
     window_start INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
   )`,
-  `CREATE TABLE IF NOT EXISTS revoked_legacy (
-    token_hash TEXT PRIMARY KEY,
-    revoked_at INTEGER NOT NULL
-  )`,
   `CREATE TABLE IF NOT EXISTS shared_sessions (
     id TEXT PRIMARY KEY,
     subject TEXT NOT NULL,
@@ -421,23 +417,6 @@ export async function readSharedSession(db, request, env, now) {
 export async function revokeSharedSession(db, sessionId, now) {
   if (!db || !sessionId) return;
   await db.prepare("UPDATE shared_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, sessionId).run();
-}
-
-export async function revokeLegacyToken(db, token, now) {
-  if (!db || !token) return;
-  const hash = await sha256Hex(token);
-  await db
-    .prepare(
-      "INSERT INTO revoked_legacy (token_hash, revoked_at) VALUES (?, ?) ON CONFLICT(token_hash) DO UPDATE SET revoked_at = excluded.revoked_at",
-    )
-    .bind(hash, now)
-    .run();
-}
-
-export async function legacyTokenRevoked(db, token) {
-  if (!db || !token) return false;
-  const row = await db.prepare("SELECT token_hash FROM revoked_legacy WHERE token_hash = ?").bind(await sha256Hex(token)).first();
-  return Boolean(row);
 }
 
 export async function changePassword(db, env, request, session, current, password, confirm, now) {

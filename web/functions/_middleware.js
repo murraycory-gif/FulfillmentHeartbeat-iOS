@@ -24,11 +24,9 @@ import {
   loginThrottled,
   openInvite,
   createSharedSession,
-  legacyTokenRevoked,
   readAccountSession,
   readSharedSession,
   recordLoginFailure,
-  revokeLegacyToken,
   revokeSession,
   revokeSharedSession,
   setupText,
@@ -107,101 +105,6 @@ export function basicAuthOk(request, env) {
 function sessionSecret(env) {
   const secret = envSecret(env, "SESSION_SECRET");
   return secret.length >= 16 ? secret : "";
-}
-
-function passwordForSessionUser(env, user) {
-  const masterUser = envSecret(env, "BASIC_USER");
-  const testerNamed = envSecret(env, "BASIC_USER_TESTER");
-  if (masterUser && timingSafeEqualString(user, masterUser)) return envSecret(env, "BASIC_PASS");
-  if (timingSafeEqualString(user, "tester")) return envSecret(env, "BASIC_PASS_TESTER");
-  if (testerNamed && timingSafeEqualString(user, testerNamed)) return envSecret(env, "BASIC_PASS_TESTER");
-  return "";
-}
-
-async function sha256Hex(text) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text ?? "")));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function passwordVersion(password) {
-  return (await sha256Hex(password)).slice(0, 32);
-}
-
-async function hmacHex(secret, message) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
-  return [...new Uint8Array(signed)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function encodeToken(text) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
-}
-
-function decodeToken(text) {
-  const pad = text.length % 4 === 0 ? "" : "=".repeat(4 - (text.length % 4));
-  const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/") + pad);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-export async function createSessionToken(env, user, pass, nowSeconds = Math.floor(Date.now() / 1000)) {
-  const secret = sessionSecret(env);
-  const account = matchedAccount(user, pass, env);
-  if (!secret || !account || /[|\r\n]/.test(account.user)) return "";
-  const exp = Math.floor(nowSeconds) + MAX_AGE;
-  const version = await passwordVersion(account.pass);
-  const body = `${account.user}|${exp}|${version}`;
-  const encoded = encodeToken(body);
-  const sig = await hmacHex(secret, encoded);
-  return `${encoded}.${sig}`;
-}
-
-function readCookie(request, name) {
-  const header = (request && request.headers && request.headers.get("cookie")) || "";
-  for (const part of header.split(";")) {
-    const trimmed = part.trim();
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    if (trimmed.slice(0, eq) !== name) continue;
-    return trimmed.slice(eq + 1);
-  }
-  return "";
-}
-
-export async function readSession(request, env, nowSeconds = Math.floor(Date.now() / 1000)) {
-  const secret = sessionSecret(env);
-  const token = readCookie(request, COOKIE);
-  const dot = token.lastIndexOf(".");
-  if (!secret || dot <= 0) return null;
-  const encoded = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  const expected = await hmacHex(secret, encoded);
-  if (!timingSafeEqualString(sig, expected)) return null;
-  let body = "";
-  try {
-    body = decodeToken(encoded);
-  } catch {
-    return null;
-  }
-  const parts = body.split("|");
-  if (parts.length !== 3) return null;
-  const [user, expRaw, version] = parts;
-  const exp = Number(expRaw);
-  if (!user || !version || !Number.isFinite(exp) || exp < nowSeconds) return null;
-  const password = passwordForSessionUser(env, user);
-  if (!password) return null;
-  const current = await passwordVersion(password);
-  if (!timingSafeEqualString(version, current)) return null;
-  return { user, exp };
 }
 
 function sessionCookie(token) {
@@ -518,10 +421,6 @@ async function routeRequest(context) {
       else {
         const shared = await readSharedSession(readyDb, request, env, now);
         if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
-        else {
-          const token = readCookie(request, COOKIE);
-          if (token) await revokeLegacyToken(readyDb, token, now);
-        }
       }
     }
     return redirect(request, "/login", clearCookie(), 302);
@@ -535,12 +434,6 @@ async function routeRequest(context) {
 
   let session = readyDb ? await readAccountSession(readyDb, request, env, now) : null;
   if (!session && readyDb && !authCutover(env)) session = await readSharedSession(readyDb, request, env, now);
-  if (!session && !authCutover(env)) {
-    const token = readCookie(request, COOKIE);
-    if (!(token && readyDb && (await legacyTokenRevoked(readyDb, token)))) {
-      session = await readSession(request, env, now);
-    }
-  }
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
   if (!session) {

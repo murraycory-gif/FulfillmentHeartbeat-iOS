@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { hashPassword, verifyPassword } from "./functions/accounts.js";
 import {
   basicAuthOk,
-  createSessionToken,
   onRequest as basicGate,
   timingSafeEqualString,
 } from "./functions/_middleware.js";
@@ -1298,13 +1297,18 @@ const testerReplay = await basicGate({
   next: async () => new Response("page", { status: 200 }),
 });
 assert.match(await testerReplay.text(), /action="\/login"/);
-const stale = await createSessionToken(gateEnv, "heartbeat", "test-only-secret", 0);
-const expiredSession = await basicGate({
-  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: `hb_session=${stale}` } }),
+const legacyCookie = await legacyPasswordCookie(gateEnv, "heartbeat", "test-only-secret");
+const legacyRejected = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: `hb_session=${legacyCookie}` } }),
   env: accountEnv(signedAuth.db),
   next: async () => new Response("page", { status: 200 }),
 });
-assert.match(await expiredSession.text(), /action="\/login"/);
+assert.match(await legacyRejected.text(), /action="\/login"/);
+assert.equal(middleware.includes("passwordVersion"), false);
+assert.equal(middleware.includes("createSessionToken"), false);
+assert.equal(middleware.includes("readSession"), false);
+assert.equal(middleware.includes("revokeLegacyToken"), false);
+assert.equal(accountsSrc.includes("revoked_legacy"), false);
 const flippedCookie = sessionCookie.slice(0, -1) + (sessionCookie.endsWith("a") ? "b" : "a");
 const tampered = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/", { headers: { cookie: flippedCookie } }),
@@ -1974,5 +1978,88 @@ const sameOriginLogin = await accountRequest(auth.db, "/login", {
   headers: { origin: "https://fulfillment-heartbeat-web.pages.dev" },
 });
 assert.equal(sameOriginLogin.status, 303);
+
+const formOrigin = openAuth();
+const formSetup = await accountRequest(formOrigin.db, "/setup", { headers: { authorization: "Bearer setup-secret-value" } });
+const formAdminInvite = inviteToken(await formSetup.text());
+const formJoined = await accountRequest(formOrigin.db, `/invite/${formAdminInvite}`, {
+  method: "POST",
+  body: "password=long-enough-1&confirm=long-enough-1",
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
+});
+assert.equal(formJoined.status, 303);
+const formAdmin = cookieHeader(formJoined);
+const formCrossInvite = await accountRequest(formOrigin.db, "/admin", {
+  method: "POST",
+  cookie: formAdmin,
+  body: "action=add&email=cross-invite@example.com&role=viewer",
+  headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+});
+assert.equal(formCrossInvite.status, 403);
+const formCrossInviteHtml = await formCrossInvite.text();
+assert.match(formCrossInviteHtml, /Sign-in blocked: please open the site directly and try again/);
+assert.equal(formCrossInviteHtml.includes("/invite/"), false);
+const formAdded = await accountRequest(formOrigin.db, "/admin", {
+  method: "POST",
+  cookie: formAdmin,
+  body: "action=add&email=same-invite@example.com&role=viewer",
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
+});
+assert.equal(formAdded.status, 200);
+const formInvite = inviteToken(await formAdded.text());
+const formInviteBlocked = await accountRequest(formOrigin.db, `/invite/${formInvite}`, {
+  method: "POST",
+  body: "password=viewer-pass-8&confirm=viewer-pass-8",
+  headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+});
+assert.equal(formInviteBlocked.status, 403);
+assert.match(await formInviteBlocked.text(), /Sign-in blocked: please open the site directly and try again/);
+const formInviteReferer = await accountRequest(formOrigin.db, `/invite/${formInvite}`, {
+  method: "POST",
+  body: "password=viewer-pass-8&confirm=viewer-pass-8",
+  headers: { origin: "null", referer: "https://fulfillment-heartbeat-web.pages.dev/invite/" + formInvite },
+  fetchSite: false,
+});
+assert.equal(formInviteReferer.status, 303);
+const formViewer = cookieHeader(formInviteReferer);
+const formAccountBlocked = await accountRequest(formOrigin.db, "/account", {
+  method: "POST",
+  cookie: formViewer,
+  body: "current=viewer-pass-8&password=viewer-pass-9&confirm=viewer-pass-9",
+  headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+});
+assert.equal(formAccountBlocked.status, 403);
+assert.match(await formAccountBlocked.text(), /Sign-in blocked: please open the site directly and try again/);
+const formAccount = await accountRequest(formOrigin.db, "/account", {
+  method: "POST",
+  cookie: formViewer,
+  body: "current=viewer-pass-8&password=viewer-pass-9&confirm=viewer-pass-9",
+  headers: { origin: "null", "sec-fetch-site": "same-origin" },
+});
+assert.equal(formAccount.status, 200);
+assert.match(await formAccount.text(), /Password saved/);
+const formStill = await accountRequest(formOrigin.db, "/", { cookie: formViewer });
+assert.equal(await formStill.text(), "page");
+
+async function legacyPasswordCookie(env, user, pass) {
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pass));
+  const version = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
+  const body = `${user}|${exp}|${version}`;
+  const bytes = new TextEncoder().encode(body);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const encoded = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.SESSION_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(encoded));
+  const sig = [...new Uint8Array(signed)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${encoded}.${sig}`;
+}
 
 console.log("web ok");
