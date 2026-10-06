@@ -271,10 +271,18 @@ h1 {
 
 .chip-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: nowrap;
   gap: 8px;
   margin-top: 8px;
 }
+
+#scope-reset {
+  flex: none;
+  align-self: flex-start;
+}
+
+#scope-reset:empty { display: none; }
 
 .scope-chips {
   display: flex;
@@ -1028,15 +1036,33 @@ td.none, .unscheduled { color: var(--none); }
   .wordmark { font-size: 1.48rem; }
   .heart { width: 32px; height: 29px; }
   .pulse { width: 78px; height: 30px; margin-left: -26px; }
-  .score-face .figure { font-size: 1.35rem; }
   .cards { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chip, .kpi, .metric { min-width: 0; max-width: 100%; }
+  .chip span, .kpi span, .metric span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .chip strong, .kpi strong, .metric strong {
     font-size: 0.95rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
     max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .score-face .figure {
+    font-size: 1.35rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .line-card { flex-wrap: wrap; }
+  .line-value {
+    flex: 1 1 100%;
+    max-width: 100%;
+    text-align: left;
+  }
+  .line-value strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .seg { flex-wrap: nowrap; gap: 4px; }
   .seg button {

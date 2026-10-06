@@ -38,7 +38,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "43";
+const APP_VERSION = "44";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -135,6 +135,7 @@ const main = document.querySelector("#main");
 const scopeSearch = document.querySelector("#scope-search");
 const scopeResults = document.querySelector("#scope-results");
 const scopeChipsBox = document.querySelector("#scope-chips");
+const scopeResetBox = document.querySelector("#scope-reset");
 const browseOpen = document.querySelector("#browse-open");
 const browseRoot = document.querySelector("#browse");
 const browseList = document.querySelector("#browse-list");
@@ -479,16 +480,17 @@ function paintChips() {
   if (!scopeChipsBox) return;
   const chips = scopeChips(state.filters);
   const last = chips.length - 1;
-  const reset = filtersActive(state.filters)
-    ? `<button type="button" class="scope-reset" data-clear-scope aria-label="Clear scope">×</button>`
-    : "";
-  scopeChipsBox.innerHTML =
-    chips
-      .map(
-        (chip, index) =>
-          `<button type="button" class="scope-chip" data-scope="${esc(chip.level)}"${index === last ? ' aria-current="true"' : ""}>${esc(chip.label)}</button>`,
-      )
-      .join("") + reset;
+  scopeChipsBox.innerHTML = chips
+    .map(
+      (chip, index) =>
+        `<button type="button" class="scope-chip" data-scope="${esc(chip.level)}"${index === last ? ' aria-current="true"' : ""}>${esc(chip.label)}</button>`,
+    )
+    .join("");
+  if (scopeResetBox) {
+    scopeResetBox.innerHTML = filtersActive(state.filters)
+      ? `<button type="button" class="scope-reset" data-clear-scope aria-label="Clear scope">×</button>`
+      : "";
+  }
 }
 
 function renderFilters() {
@@ -583,10 +585,24 @@ const LOST_ROW_MONEY = {
   Kill: ["kill_switch_lost"],
 };
 
+const LOST_WORKBOOK_MONEY = new Set(["Post Sub", "Refund", "Cancel"]);
+
+// Tiles that stay on screen under a filter. Everything else is a company workbook tile.
+const SCOPE_TILES = {
+  sales: new Set(["YoY", "Ord YoY"]),
+  lost_revenue: LOST_WORKBOOK_MONEY,
+};
+
 function shownTileLabel(section, label) {
-  if (section === "labor" && label === "Sch Eff") return "Labor Sch Eff workbook total";
   if (section === "schedule_quality" && label === "Sch Eff") return "Quality Sch Eff";
   if (section === "prep_not_ready" && PREP_TARGETS[label]) return `${label} target`;
+  if (section === "dynacap" && label === "PPH") return "PPH store average";
+  if (section === "sales" && (label === "YoY" || label === "Ord YoY")) {
+    return filtersActive(state.filters) ? `${label} store rollup` : `${label} workbook total`;
+  }
+  if (section === "lost_revenue" && LOST_WORKBOOK_MONEY.has(label)) {
+    return filtersActive(state.filters) ? `${label} store sum` : `${label} workbook total`;
+  }
   if (section === "lost_revenue" && LOST_ROW_MONEY[label] && lostRowMoney(label) != null && lostRowMoney(label) !== "Loading…") {
     return label;
   }
@@ -696,6 +712,8 @@ function sumPayload(rows, keys) {
 
 function salesRowTile(label) {
   if (!SALES_ROW_TILES.has(label)) return null;
+  // Company YoY is the workbook Total row. A store rollup cannot reproduce it.
+  if (!filtersActive(state.filters) && (label === "YoY" || label === "Ord YoY")) return null;
   const rows = sectionRows("sales");
   if (!rows) return sectionPackPending("sales") ? "Loading…" : "—";
   const scoped = rowsInScope(rows, state.filters, roster(), "sales");
@@ -728,6 +746,8 @@ function salesRowTile(label) {
 function lostRowMoney(label) {
   const keys = LOST_ROW_MONEY[label];
   if (!keys) return null;
+  // Company Post Sub, Refund, and Cancel are the workbook Total row, not the store sum.
+  if (!filtersActive(state.filters) && LOST_WORKBOOK_MONEY.has(label)) return null;
   const rows = sectionRows("lost_revenue");
   if (!rows) return sectionPackPending("lost_revenue") ? "Loading…" : null;
   const { n, sum } = sumPayload(rowsInScope(rows, state.filters, roster(), "lost_revenue"), keys);
@@ -767,8 +787,11 @@ function cookedTiles(section) {
   const labels = tiles.labels;
   const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
   const tone = sectionTone(section);
-  return `<div class="tiles">${labels
+  const filtered = filtersActive(state.filters) && section !== "picker_scorecard";
+  const allowed = SCOPE_TILES[section];
+  const body = labels
     .map((label, index) => {
+      if (filtered && !(allowed && allowed.has(label))) return "";
       const raw = values[index];
       const name = shownTileLabel(section, label);
       const shown = shownTileValue(section, label, raw);
@@ -776,7 +799,8 @@ function cookedTiles(section) {
       const toneClass = tone && tileUsesSectionTone(label) ? ` tone-${tone}` : "";
       return `<div class="chip${toneClass}"><span>${esc(title)}</span><strong>${esc(shown)}</strong></div>`;
     })
-    .join("")}</div>`;
+    .join("");
+  return body ? `<div class="tiles">${body}</div>` : "";
 }
 
 function seatFor(section) {
@@ -870,13 +894,21 @@ function companySecondaryText(section, seat) {
   return shownSecondary(section, built.secondary || "");
 }
 
+function laborFigureText(text, seat) {
+  if (!text || figureAbsent(text)) return text || "";
+  const workbook = Boolean(seat && seat.workbook) || !filtersActive(state.filters);
+  const suffix = workbook ? "workbook roll-up" : "store average";
+  if (text.toLowerCase().includes(suffix)) return text;
+  return `${text} ${suffix}`;
+}
+
 function companyBlock(section, title) {
   if (!seatReady(section)) {
     const name = title ? `<h2>${esc(title)}</h2>` : "";
     return `<div class="score-face">${name}<p class="note">Loading…</p></div>`;
   }
   const seat = seatFor(section);
-  const tiles = filtersActive(state.filters) && section !== "picker_scorecard" ? "" : cookedTiles(section);
+  const tiles = cookedTiles(section);
   if (!summaryFor(section) && !tiles && !filtersActive(state.filters)) return `<p class="nodata">NO DATA</p>`;
   const pickerRows = section === "picker_scorecard" ? sectionRows(section) : null;
   const health = pickerRows ? pickerFaceTone(pickerRows) : seat.health || "none";
@@ -894,14 +926,16 @@ function companyBlock(section, title) {
         : filtersActive(state.filters)
           ? "—"
           : "";
-  if (seat.workbook && figureText && !/workbook/i.test(figureText)) figureText = `${figureText} workbook total`;
+  if (section === "labor") figureText = laborFigureText(figureText, seat);
+  else if (seat.workbook && figureText && !/workbook/i.test(figureText)) figureText = `${figureText} workbook total`;
   const tone = health === "good" || health === "watch" || health === "risk" ? health : "none";
   const hideEmptyBadge = counted > 0 && tone === "none" && section === "dynacap" && seat.headline == null;
   const badgeHtml = tone === "none" && (hideEmptyBadge || !figureAbsent(figureText) || Boolean(tiles)) ? "" : badge(tone);
   const name = title ? `<h2>${esc(title)}</h2>` : "";
-  const figureLabel = !tiles && seat.figureLabel ? `<p class="eyebrow">${esc(seat.figureLabel)}</p>` : "";
-  const figure = !tiles && figureText ? `<p class="figure">${esc(figureText)}</p>` : "";
-  const missedLine = !tiles && seat.missed ? `<p class="secondary">Missed $ ${esc(seat.missed)}</p>` : "";
+  const showFigure = Boolean(figureText) && (!tiles || (filtersActive(state.filters) && section !== "picker_scorecard"));
+  const figureLabel = showFigure && seat.figureLabel ? `<p class="eyebrow">${esc(seat.figureLabel)}</p>` : "";
+  const figure = showFigure ? `<p class="figure">${esc(figureText)}</p>` : "";
+  const missedLine = showFigure && seat.missed ? `<p class="secondary">Missed $ ${esc(seat.missed)}</p>` : "";
   const secondaryText = companySecondaryText(section, seat);
   const secondary = secondaryText ? `<p class="secondary">${esc(secondaryText)}</p>` : "";
   const sourceNote = laborSourceNote(section);
@@ -1024,7 +1058,7 @@ function grainShown(section, row) {
   let shown = "";
   if (section === "labor" && row.grain === "region") {
     const callout = laborGrainValue((state.home && state.home.regionTables) || [], row);
-    if (callout) shown = `${callout} workbook total`;
+    if (callout) shown = `${callout} workbook roll-up`;
   }
   if (!shown) {
     if (typeof row.value === "number") shown = section === "lost_revenue" ? money(row.value) : String(row.value);
@@ -1032,7 +1066,9 @@ function grainShown(section, row) {
       const text = String(row.value ?? "");
       shown = text.trim().startsWith("$") ? money(text) : text;
     }
-    if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook total`;
+    if (section === "labor" && row.grain === "division" && shown && !figureAbsent(shown) && !/store average/i.test(shown)) {
+      shown = `${shown} store average`;
+    } else if (row.workbook && shown && !/workbook/i.test(shown)) shown = `${shown} workbook total`;
   }
   return shown;
 }
@@ -1155,13 +1191,15 @@ function salesLaborChip(row, regionName) {
     const built = summarizeSeat(section, scoped);
     if (built.headline == null) return { title: row.title, text: "Not available", tone: "none" };
     const text = section === "sales" ? money(built.headline) : shownRate(section, built.headline);
-    return { title: row.title, text, tone: chipTone(built.health) };
+    const title = section === "labor" ? `${row.title} store average` : row.title;
+    return { title, text, tone: chipTone(built.health) };
   }
   const raw = row.headline;
   const blank = raw == null || String(raw).trim() === "" || String(raw).trim() === "—";
   const built = scoped && scoped.length ? summarizeSeat(section, scoped) : null;
+  const title = blank ? row.title : section === "labor" ? `${row.title} workbook roll-up` : `${row.title} workbook total`;
   return {
-    title: blank ? row.title : `${row.title} workbook total`,
+    title,
     text: blank ? "Not available" : String(raw).trim(),
     tone: built ? chipTone(built.health) : "none",
   };
@@ -1189,7 +1227,10 @@ function regionCardsHtml() {
           return `<div class="chip bar-${chip.tone}" data-section="${esc(row.section)}"><span>${esc(chip.title)}</span><strong>${esc(chip.text)}</strong></div>`;
         })
         .join("");
-      return `<article class="scorecard"><div class="score-face"><h2>${esc(name)}</h2>${storeLine ? `<p class="sub">${esc(storeLine)}</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
+      const divisionName = state.filters.division ? String(state.filters.division) : "";
+      const heading = divisionName || name;
+      const regionSub = divisionName ? `<p class="eyebrow">${esc(name)}</p>` : "";
+      return `<article class="scorecard"><div class="score-face"><h2>${esc(heading)}</h2>${regionSub}${storeLine ? `<p class="sub">${esc(storeLine)}</p>` : ""}<div class="tiles">${chips}</div></div></article>`;
     })
     .join("");
   if (!cards) return "";
@@ -1756,6 +1797,7 @@ function seatFigure(section, seat) {
   let text = "";
   if (seat.headlineText != null && seat.headlineText !== "") text = String(seat.headlineText);
   else if (seat.headline != null && seat.headline !== "") text = formatHeadline(section, seat.headline);
+  if (section === "labor") text = laborFigureText(text, seat);
   if (seat.figureLabel && text) return `${seat.figureLabel} ${text}`;
   return text;
 }

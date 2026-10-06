@@ -375,7 +375,7 @@ async function clearScope(client) {
 }
 
 // A pack percent, money, or decimal may render only beside one of these labels.
-const ALLOWED_PACK_LABELS = ["workbook total", "target"];
+const ALLOWED_PACK_LABELS = ["workbook total", "workbook roll-up", "target"];
 
 function unlabeledPackFigures(text, book) {
   const hits = [];
@@ -437,6 +437,22 @@ async function regionPickerChips(client) {
       const strong = chip && chip.querySelector("strong");
       return { name, value: strong ? strong.textContent.trim() : "" };
     }))()`,
+  );
+}
+
+async function readChip(client, labelStart) {
+  return evaluate(
+    client,
+    `(() => {
+      const chip = [...document.querySelectorAll(".chip")].find((node) => {
+        const span = node.querySelector("span");
+        return span && span.textContent.trim().toLowerCase().startsWith(${JSON.stringify(labelStart.toLowerCase())});
+      });
+      if (!chip) return null;
+      const span = chip.querySelector("span");
+      const strong = chip.querySelector("strong");
+      return { label: span ? span.textContent.trim() : "", value: strong ? strong.textContent.trim() : "" };
+    })()`,
   );
 }
 
@@ -575,15 +591,38 @@ export async function runFakeCountLab(publicDir) {
         { East: "9,368", South: "5,476", California: "8,125", West: "6,869" },
         `${width}px company`,
       );
+      const yoy = await readChip(client, "YoY");
+      const ord = await readChip(client, "Ord YoY");
+      if (!yoy || yoy.value === "16.00%" || !yoy.label.toLowerCase().includes("workbook total")) {
+        throw new Error(`${width}px company YoY ${yoy ? `${yoy.label} ${yoy.value}` : "missing"}`);
+      }
+      if (!ord || ord.value === "16.61%" || !ord.label.toLowerCase().includes("workbook total")) {
+        throw new Error(`${width}px company Ord YoY ${ord ? `${ord.label} ${ord.value}` : "missing"}`);
+      }
+      if (!dashboard.toLowerCase().includes("workbook roll-up")) {
+        throw new Error(`${width}px dashboard missing workbook roll-up`);
+      }
+      if (!dashboard.toLowerCase().includes("pph store average")) {
+        throw new Error(`${width}px dashboard missing PPH store average`);
+      }
+      for (const [label, rowSum] of [
+        ["Post Sub", "$2,944,940.00"],
+        ["Refund", "$591,560.00"],
+        ["Cancel", "$272,310.00"],
+      ]) {
+        const chip = await readChip(client, label);
+        if (!chip || chip.value === rowSum || !chip.label.toLowerCase().includes("workbook total")) {
+          throw new Error(`${width}px company ${label} ${chip ? `${chip.label} ${chip.value}` : "missing"}`);
+        }
+      }
       assertClean(dashboard, book, `${width}px dashboard`);
-      if (width === 1280) {
-        await pickBrowse(client, "South");
-        await showPage(client, "dashboard");
-        expectChips(await regionPickerChips(client), { South: "5,476" }, `${width}px South`);
-        assertClean(await visibleText(client), book, `${width}px South dashboard`);
-        await pickBrowse(client, "Southern");
-        await showPage(client, "dashboard");
-        expectChips(await regionPickerChips(client), { South: "1,613" }, `${width}px Southern`);
+      await pickBrowse(client, "South");
+      await showPage(client, "dashboard");
+      expectChips(await regionPickerChips(client), { South: "5,476" }, `${width}px South`);
+      assertClean(await visibleText(client), book, `${width}px South dashboard`);
+      await pickBrowse(client, "Southern");
+      await showPage(client, "dashboard");
+      expectChips(await regionPickerChips(client), { Southern: "1,613" }, `${width}px Southern`);
         const southernSales = await regionNamedChip(client, "Sales");
         const southernLabor = await regionNamedChip(client, "Labor");
         if (southernSales !== "$4,351,261.96") {
@@ -596,9 +635,23 @@ export async function runFakeCountLab(publicDir) {
         if (southernText.includes("$14,738,247.12") || southernText.includes("-3.64%")) {
           throw new Error(`${width}px Southern still shows the South region figure`);
         }
+        if (!southernText.toLowerCase().includes("labor store average")) {
+          throw new Error(`${width}px Southern labor rate is unlabeled`);
+        }
+        const resetRow = await evaluate(
+          client,
+          `(() => {
+            const chip = document.querySelector("#scope-chips .scope-chip");
+            const reset = document.querySelector("#scope-reset .scope-reset");
+            if (!chip || !reset) return "missing";
+            if (document.querySelector("#scope-chips .scope-reset")) return "inside";
+            const same = Math.abs(chip.getBoundingClientRect().top - reset.getBoundingClientRect().top) < 2;
+            return same ? "ok" : "wrapped";
+          })()`,
+        );
+        if (resetRow !== "ok") throw new Error(`${width}px clear chip ${resetRow}`);
         assertClean(southernText, book, `${width}px Southern dashboard`);
         await clearScope(client);
-      }
       const scopes = [
         async () => {},
         async () => pickBrowse(client, "East"),
@@ -651,9 +704,15 @@ export async function runFakeCountLab(publicDir) {
           }
           if (index === 1 && id === "labor") {
             if (text.includes("At risk")) throw new Error(`${where} labor badge contradicts the chip`);
-            if (!text.toLowerCase().includes("workbook total")) {
-              throw new Error(`${where} labor callout is not labeled workbook total`);
+            if (!text.toLowerCase().includes("workbook roll-up")) {
+              throw new Error(`${where} labor callout is not labeled workbook roll-up`);
             }
+          }
+          if (index === 2 && id === "labor" && !text.toLowerCase().includes("store average")) {
+            throw new Error(`${where} filtered labor rate is unlabeled`);
+          }
+          if (index === 0 && id === "labor" && text.toLowerCase().includes("labor sch eff workbook")) {
+            throw new Error(`${where} Sch Eff tile still has a Labor prefix`);
           }
           if (index === 1 && id === "picker_scorecard") {
             if (!hasNumber(text, 9368)) throw new Error(`${where} missing 9,368 shoppers`);
