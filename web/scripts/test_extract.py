@@ -158,6 +158,32 @@ def main() -> None:
             ),
         )
         db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "store_roster",
+                "210",
+                "United",
+                "Andrew Quinn",
+                "",
+                "2026-09-28",
+                "{}",
+                json.dumps({"district": "U5"}),
+            ),
+        )
+        db.execute(
+            "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "store_roster",
+                "239",
+                "Southwest",
+                "Ben Sarmadi",
+                "",
+                "2026-09-28",
+                "{}",
+                json.dumps({"district": "N0"}),
+            ),
+        )
+        db.execute(
             "INSERT INTO presub_top VALUES (?, ?)",
             ("company", json.dumps([{"name": "Milk", "code": "1", "percent": 3.2, "count": 4}])),
         )
@@ -192,6 +218,12 @@ def main() -> None:
         assert stores["3436"]["district"] == "39"
         assert stores["3436"]["om"] == "Haggen 1"
         assert stores["3436"]["division"] == "Haggen"
+        assert stores["210"]["division"] == "United"
+        assert stores["210"]["district"] == "U5"
+        assert stores["210"]["om"] == "Andrew Quinn"
+        assert stores["239"]["division"] == "Southwest"
+        assert stores["239"]["district"] == "N0"
+        assert stores["239"]["om"] == "Ben Sarmadi"
         sections = {item["section"] for item in home["summaries"]}
         assert "five_star" in sections and "lost_revenue" in sections
         loss = next(item for item in home["summaries"] if item["section"] == "lost_revenue")

@@ -165,14 +165,9 @@ def is_total_store(store: str) -> bool:
     return str(store or "").strip().upper() == "TOTAL"
 
 
-# The site roster follows the device list (South 395). The WK32 schedule workbook
-# also has store 210 (United, U5) and store 239 (Southwest, N0). Those stay on
-# the schedule pack and are not added to the roster.
-ROSTER_OMIT = {"210", "239"}
-
-
-def roster_omits(store: str) -> bool:
-    return canonical_store(store) in ROSTER_OMIT
+# South is 397 schedule stores. The older device list stopped at 395 and left out
+# store 210 (United, district U5, Andrew Quinn) and store 239 (Southwest, district N0, Ben Sarmadi).
+# Both stay on the site roster.
 
 
 def canonical_store(raw: str) -> str:
@@ -1008,7 +1003,7 @@ def extract(sqlite_path: str, out_dir: str, roster_xlsx: str | None = None) -> N
                 (
                     item
                     for item in roster.values()
-                    if not is_total_store(item["store"]) and not roster_omits(item["store"])
+                    if not is_total_store(item["store"])
                 ),
                 key=lambda item: (len(item["store"]), item["store"]),
             ),
