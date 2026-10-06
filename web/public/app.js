@@ -1574,11 +1574,11 @@ function shopperSummaryHtml(rows) {
   const summary = shopperPphSummary(rows);
   const split = `${num(summary.atGoal, 0)} at 80 or above · ${num(summary.between, 0)} between 74 and 80 · ${num(summary.below, 0)} below 74 · ${num(summary.missing, 0)} with no PPH`;
   const average = summary.average == null ? "—" : `${num(summary.average, 2)} excluding check source`;
-  const workbook =
-    !filtersActive(state.filters) && summary.workbookTotal != null
-      ? `<p class="note">${esc(`${num(summary.workbookTotal, 2)} workbook total`)}</p>`
+  const storeAverage =
+    !filtersActive(state.filters) && summary.storeAverage != null
+      ? `<p class="note">${esc(`${num(summary.storeAverage, 2)} store average`)}</p>`
       : "";
-  return `<p class="note">${esc(split)}</p><p class="note">${esc(average)}</p>${workbook}`;
+  return `<p class="note">${esc(split)}</p><p class="note">${esc(average)}</p>${storeAverage}`;
 }
 
 function shopperBlock(rows, columns, sourceNote, section) {

@@ -70,7 +70,8 @@ export function shopperPphSummary(rows) {
     missing,
     flagged,
     average: counted ? sum / counted : null,
-    workbookTotal: weight ? weighted / weight : null,
+    // Hours-weighted mean of these shopper rows. It is not a workbook Total row.
+    storeAverage: weight ? weighted / weight : null,
   };
 }
 
