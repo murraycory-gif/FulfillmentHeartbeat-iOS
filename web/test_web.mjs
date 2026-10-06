@@ -1279,6 +1279,12 @@ assert.match(css, /\.drawer-label/);
 assert.match(app, /authBlocked/);
 assert.match(app, /retryHomeAfterAuth/);
 assert.match(app, /location\.assign\("\/login"\)/);
+assert.match(app, /addEventListener\("pageshow"/);
+assert.match(app, /event\.persisted/);
+assert.match(app, /confirmStoredSession/);
+assert.match(app, /new URL\("\/session", location\.origin\)/);
+assert.match(app, /cache: "no-store"/);
+assert.equal(app.includes("location.reload"), false);
 assert.match(app, /new URL\("\/logout", location\.origin\)/);
 assert.equal(app.includes('location.assign("/logout")'), false);
 assert.equal(app.includes("logout:logout"), false);
@@ -2392,10 +2398,14 @@ function d1From(raw) {
   const db = {
     batches: 0,
     batchSql: [],
+    reads: 0,
     prepare(sql) {
       const bound = (params) => ({
         sql,
-        first: async () => raw.prepare(sql).get(...params) ?? null,
+        first: async () => {
+          db.reads += 1;
+          return raw.prepare(sql).get(...params) ?? null;
+        },
         all: async () => ({ results: raw.prepare(sql).all(...params) }),
         run: async () => {
           const info = raw.prepare(sql).run(...params);
@@ -2490,6 +2500,7 @@ assert.equal(setupDenied.status, 404);
 assert.equal(setupDenied.headers.get("cache-control"), "no-store");
 const setupPost = await accountRequest(auth.db, "/setup", { method: "POST", body: "email=person@example.com" });
 assert.equal(setupPost.status, 404);
+await ensureSchema(auth.db);
 const issued = await issueFirstAdminLink(auth.db, accountEnv(auth.db), Math.floor(Date.now() / 1000));
 assert.equal(issued.email, ADMIN_EMAIL);
 const adminInvite = issued.token;
@@ -2517,8 +2528,38 @@ const joined = await accountRequest(auth.db, `/invite/${adminInvite}`, {
 assert.equal(joined.status, 303);
 const adminCookie = cookieHeader(joined);
 assert.match(adminCookie, /^hb_session=[a-f0-9]{64}$/);
+const readsBeforeHome = auth.db.reads;
 const signedHome = await accountRequest(auth.db, "/", { cookie: adminCookie });
 assert.equal(await signedHome.text(), "page");
+assert.equal(auth.db.reads - readsBeforeHome, 1);
+const sealedPage = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/", {
+    headers: { cookie: adminCookie, "sec-fetch-site": "same-origin" },
+  }),
+  env: accountEnv(auth.db),
+  next: async () => new Response("sales", { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }),
+});
+assert.equal(sealedPage.headers.get("cache-control"), "private, no-store");
+assert.equal(await sealedPage.text(), "sales");
+const sealedScript = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/draw", {
+    headers: { cookie: adminCookie, "sec-fetch-site": "same-origin" },
+  }),
+  env: accountEnv(auth.db),
+  next: async () => new Response("draw", { status: 200, headers: { "content-type": "text/javascript" } }),
+});
+assert.equal(sealedScript.headers.get("cache-control"), "private, no-store");
+const scriptAsset = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/app.js"),
+  env: accountEnv({
+    prepare() {
+      throw new Error("static asset touched D1");
+    },
+  }),
+  next: async () => new Response("script", { status: 200, headers: { "content-type": "text/javascript" } }),
+});
+assert.equal(scriptAsset.status, 200);
+assert.equal(await scriptAsset.text(), "script");
 const people = await accountRequest(auth.db, "/admin", { cookie: adminCookie });
 assert.equal(people.status, 200);
 const peopleHtml = await people.text();
@@ -3487,9 +3528,7 @@ const legacyRotatedLogin = await accountRequest(priorDb, "/login", {
   body: `email=${encodeURIComponent(ADMIN_EMAIL)}&password=long-enough-1`,
 });
 assert.equal(legacyRotatedLogin.status, 303);
-const legacyRotatedHashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(legacyRotated[1])));
-const legacyRotatedHash = [...legacyRotatedHashBytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotatedHash).revoked_at == null, false);
+assert.equal(prior.prepare("SELECT revoked_at FROM sessions WHERE id = ?").get(legacyRotated[1]).revoked_at == null, false);
 
 const { runFakeCountLab } = await import("./test_fake_counts.mjs");
 await runFakeCountLab(join(root, "public"));

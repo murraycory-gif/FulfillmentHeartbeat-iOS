@@ -2328,7 +2328,21 @@ document.addEventListener("keydown", (event) => {
 forceShareClosed();
 window.addEventListener("pageshow", (event) => {
   if (event.persisted || !shareOpenedByUser) forceShareClosed();
+  if (event.persisted) void confirmStoredSession();
 });
+
+async function confirmStoredSession() {
+  try {
+    const response = await fetch(new URL("/session", location.origin).href, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) location.assign("/login");
+  } catch {
+    location.assign("/login");
+  }
+}
 
 clearFilters.addEventListener("click", () => {
   state.browseOpen = false;

@@ -1,4 +1,4 @@
-// Session gate for every Pages request, including static files.
+// Session gate for documents and data. Static assets skip the database.
 // Accounts live in HB_AUTH (D1): email, PBKDF2 password, role, one-time link, revocable session.
 // The shared BASIC_PASS login stays a viewer until AUTH_CUTOVER=1.
 // Nothing here is a password. A missing database fails closed.
@@ -24,12 +24,9 @@ import {
   clearLoginFailures,
   openInvite,
   createSharedSession,
-  readAccountSession,
-  readSharedSession,
+  readLiveSession,
   revokePresentedSessions,
   recordLoginFailure,
-  revokeSession,
-  revokeSharedSession,
   authenticateAccount,
 } from "./accounts.js";
 
@@ -127,7 +124,7 @@ const CROSS_SITE_MESSAGE = "Sign-in blocked: please open the site directly and t
 function htmlResponse(html, status = 200, cookies = []) {
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
-    "Cache-Control": "no-store",
+    "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": REFERRER_POLICY,
@@ -389,6 +386,14 @@ async function apiPackResponse(request, env, pathname) {
   return new Response(object.body, { status: 200, headers: packHeaders() });
 }
 
+function sealAuthenticated(response) {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "private, no-store");
+  if (!headers.has("Vary")) headers.set("Vary", "Cookie");
+  headers.set("CDN-Cache-Control", "no-store");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 function withReferrerPolicy(response) {
   const headers = new Headers(response.headers);
   headers.set("Referrer-Policy", REFERRER_POLICY);
@@ -408,28 +413,48 @@ export async function onRequest(context) {
   return withReferrerPolicy(new Response(response.body, { status: response.status, statusText: response.statusText, headers }));
 }
 
+function hasAuthCookie(request) {
+  const header = (request.headers.get("cookie") || "");
+  return /(?:^|;\s*)hb_session=[^;\s]/.test(header) || /(?:^|;\s*)hb_shared=[^;\s]/.test(header);
+}
+
+function isStaticAsset(pathname, method) {
+  if (method !== "GET" && method !== "HEAD") return false;
+  return /\.(?:js|mjs|css|svg|png|ico|gif|webp|map|woff2?|webmanifest|txt)$/i.test(pathname);
+}
+
+async function readyAccounts(env) {
+  const db = authDb(env);
+  if (!db) return null;
+  try {
+    await ensureSchema(db);
+    return db;
+  } catch {
+    console.error("accounts setup failed");
+    return null;
+  }
+}
+
 async function routeRequest(context, jar = []) {
   const request = context.request;
   const env = (context && context.env) || {};
   const url = new URL(request.url || "https://fulfillment-heartbeat-web.pages.dev/");
   const pathname = url.pathname;
   const now = Math.floor(Date.now() / 1000);
-  const db = authDb(env);
-  let accountsReady = false;
-  if (db) {
-    try {
-      await ensureSchema(db);
-      accountsReady = true;
-    } catch {
-      console.error("accounts setup failed");
-      accountsReady = false;
-    }
-  }
-  const readyDb = accountsReady ? db : null;
 
   if (pathname === "/setup" || pathname === "/hb-user" || pathname.startsWith("/scripts/")) {
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   }
+  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {
+    return redirect(request, "/favicon.svg", "", 302);
+  }
+  if (isStaticAsset(pathname, request.method)) return context.next();
+  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/login" && !hasAuthCookie(request)) {
+    return loginResponse("", "", 200);
+  }
+
+  const readyDb = await readyAccounts(env);
+
   if (pathname.startsWith("/invite/")) {
     if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD, POST", "Cache-Control": "no-store" } });
@@ -448,26 +473,13 @@ async function routeRequest(context, jar = []) {
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST", "Cache-Control": "no-store" } });
     }
     if (!sameOrigin(request)) return loginResponse(CROSS_SITE_MESSAGE, "", 403);
-    if (readyDb) {
-      const current = await readAccountSession(readyDb, request, now, env, false);
-      if (current) await revokeSession(readyDb, current.sessionId, now);
-      const shared = await readSharedSession(readyDb, request, now, env, false);
-      if (shared) await revokeSharedSession(readyDb, shared.sessionId, now);
-    }
+    if (readyDb) await revokePresentedSessions(readyDb, request, now, env);
     return redirect(request, "/login", clearedCookies(), 303);
   }
-  if ((request.method === "GET" || request.method === "HEAD") && pathname === "/favicon.ico") {
-    return redirect(request, "/favicon.svg", "", 302);
-  }
-  if ((request.method === "GET" || request.method === "HEAD") && (pathname === "/login.css" || pathname === "/nav-boot.js" || pathname === "/favicon.svg" || pathname === "/favicon-32.png" || pathname === "/favicon-16.png" || pathname === "/apple-touch-icon.png" || pathname === "/auth-copy.js")) {
-    return context.next();
-  }
 
-  let session = readyDb ? await readAccountSession(readyDb, request, now, env) : null;
-  if (session && session.rotate) jar.push(sessionCookie(ACCOUNT_COOKIE, session.rotate));
-  else if (!session && readyDb && !authCutover(env)) {
-    session = await readSharedSession(readyDb, request, now, env);
-    if (session && session.rotate) jar.push(sessionCookie(SHARED_COOKIE, session.rotate));
+  let session = readyDb ? await readLiveSession(readyDb, request, now, env) : null;
+  if (session && session.rotate) {
+    jar.push(sessionCookie(session.account ? ACCOUNT_COOKIE : SHARED_COOKIE, session.rotate));
   }
   if (pathname === "/admin") return adminResponse(request, env, readyDb, session, now);
   if (pathname === "/account") return accountResponse(request, env, readyDb, session, now);
@@ -483,15 +495,5 @@ async function routeRequest(context, jar = []) {
     if (packed) return packed;
   }
 
-  const response = await context.next();
-  if (!pathname.startsWith("/data/")) return response;
-  const headers = new Headers(response.headers);
-  headers.set("Cache-Control", "private, no-store");
-  headers.set("Vary", "Cookie");
-  headers.set("CDN-Cache-Control", "no-store");
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return sealAuthenticated(await context.next());
 }

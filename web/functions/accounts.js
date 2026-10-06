@@ -1,5 +1,6 @@
 // Per-user accounts on the existing HB_AUTH D1 binding.
-// Passwords are PBKDF2-SHA256. New sessions and setup links are stored only as SHA-256.
+// Passwords are PBKDF2-SHA256. Invite tokens are stored only as SHA-256.
+// A session cookie is the sessions primary key, so a check is one indexed read and does not hash.
 // Rows already in fulfillment-heartbeat-auth keep their columns; new columns are added forward-only.
 // Nothing in this file is a password, a session token, or an invite token.
 
@@ -387,11 +388,6 @@ function readCookie(request, name) {
   return "";
 }
 
-async function touchSession(db, table, id, seen, now) {
-  if (now - Number(seen || 0) < 60) return;
-  await db.prepare(`UPDATE ${table} SET last_seen_at = ? WHERE id = ?`).bind(now, id).run();
-}
-
 export async function issueInvite(db, userId, purpose, now, env) {
   const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const id = crypto.randomUUID();
@@ -502,13 +498,12 @@ export async function acceptInvite(db, token, password, confirm, now) {
 
 export async function createAccountSession(db, userId, now) {
   const token = cookieToken();
-  const id = await sha256Hex(token);
   const exp = now + ABSOLUTE_TTL;
   await db
     .prepare(
       "INSERT INTO sessions (id, user_id, expires_at, last_seen_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
     )
-    .bind(id, userId, exp, now, now)
+    .bind(token, userId, exp, now, now)
     .run();
   return token;
 }
@@ -529,8 +524,20 @@ function sessionFresh(row, now, legacy) {
 }
 
 async function sessionIdForCookie(token, env) {
-  if (accountCookie(token)) return sha256Hex(token);
+  if (accountCookie(token)) return token;
   return legacyRawId(token, env);
+}
+
+export async function readLiveSession(db, request, now, env, rotate = true) {
+  const account = readCookie(request, ACCOUNT_COOKIE);
+  const shared = readCookie(request, SHARED_COOKIE);
+  if (account) {
+    const session = await readAccountSession(db, request, now, env, rotate);
+    if (session || accountCookie(account) || authCutover(env)) return session;
+    return readSharedSession(db, request, now, env, rotate);
+  }
+  if (shared && !authCutover(env)) return readSharedSession(db, request, now, env, rotate);
+  return null;
 }
 
 export async function revokePresentedSessions(db, request, now, env) {
@@ -538,7 +545,7 @@ export async function revokePresentedSessions(db, request, now, env) {
   const accountId = await sessionIdForCookie(accountToken, env);
   if (accountId) await revokeSession(db, accountId, now);
   const sharedToken = readCookie(request, SHARED_COOKIE);
-  if (accountCookie(sharedToken)) await revokeSharedSession(db, await sha256Hex(sharedToken), now);
+  if (accountCookie(sharedToken)) await revokeSharedSession(db, sharedToken, now);
   const legacy = await legacyRawId(accountToken, env);
   if (legacy) await revokeSharedSession(db, legacy, now);
 }
@@ -564,12 +571,11 @@ export async function readAccountSession(db, request, now, env, rotate = true) {
       user: row.email,
       role: row.role,
       exp: now + ABSOLUTE_TTL,
-      sessionId: await sha256Hex(fresh),
+      sessionId: fresh,
       account: true,
       rotate: fresh,
     };
   }
-  await touchSession(db, "sessions", row.session_id, row.last_seen_at, now);
   return { user: row.email, role: row.role, exp: Number(row.expires_at), sessionId: row.session_id, account: true };
 }
 
@@ -586,37 +592,46 @@ export async function createSharedSession(db, subject, now, pass) {
   const name = String(subject || "").trim();
   if (!db || !name || /[|\r\n]/.test(name)) return "";
   const token = cookieToken();
-  const id = await sha256Hex(token);
   const exp = now + ABSOLUTE_TTL;
-  const mark = await sha256Hex(String(pass || ""));
+  const mark = await secretMark(pass);
   await db
     .prepare(
       "INSERT INTO shared_sessions (id, subject, expires_at, last_seen_at, revoked_at, created_at, pass_mark) VALUES (?, ?, ?, ?, NULL, ?, ?)",
     )
-    .bind(id, name, exp, now, now, mark)
+    .bind(token, name, exp, now, now, mark)
     .run();
   return token;
 }
 
+const secretMarks = new Map();
+
+async function secretMark(secret) {
+  const key = String(secret ?? "");
+  if (secretMarks.has(key)) return secretMarks.get(key);
+  const mark = await sha256Hex(key);
+  secretMarks.set(key, mark);
+  return mark;
+}
+
 async function sharedMarkOk(env, mark) {
   if (!mark) return false;
-  const master = await sha256Hex(String((env && env.BASIC_PASS) || ""));
-  const tester = await sha256Hex(String((env && env.BASIC_PASS_TESTER) || ""));
+  const master = await secretMark((env && env.BASIC_PASS) || "");
+  const tester = await secretMark((env && env.BASIC_PASS_TESTER) || "");
   return mark === master || mark === tester;
 }
 
 async function passForMark(env, mark) {
   const master = String((env && env.BASIC_PASS) || "");
   const tester = String((env && env.BASIC_PASS_TESTER) || "");
-  if (mark && mark === (await sha256Hex(master))) return master;
-  if (mark && mark === (await sha256Hex(tester))) return tester;
+  if (mark && mark === (await secretMark(master))) return master;
+  if (mark && mark === (await secretMark(tester))) return tester;
   return "";
 }
 
 export async function readSharedSession(db, request, now, env, rotate = true) {
   const token = readCookie(request, SHARED_COOKIE);
   const legacyToken = readCookie(request, ACCOUNT_COOKIE);
-  let id = accountCookie(token) ? await sha256Hex(token) : "";
+  let id = accountCookie(token) ? token : "";
   if (!id) id = await legacyRawId(legacyToken, env);
   if (!db || !id) return null;
   const row = await db
@@ -636,13 +651,12 @@ export async function readSharedSession(db, request, now, env, rotate = true) {
       user: row.subject,
       role: "viewer",
       exp: now + ABSOLUTE_TTL,
-      sessionId: await sha256Hex(fresh),
+      sessionId: fresh,
       account: false,
       shared: true,
       rotate: fresh,
     };
   }
-  await touchSession(db, "shared_sessions", row.id, row.last_seen_at, now);
   return { user: row.subject, role: "viewer", exp: Number(row.expires_at), sessionId: row.id, account: false, shared: true };
 }
 
