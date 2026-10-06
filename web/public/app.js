@@ -557,6 +557,7 @@ function seatFor(section) {
   return seatSummary(section, {
     company: summaryFor(section),
     lines: (state.home && state.home.regionLines) || [],
+    tables: (state.home && state.home.regionTables) || [],
     rows: (pack && pack.rows) || [],
     filters: state.filters,
     roster: roster(),

@@ -83,7 +83,7 @@ This environment has no Wrangler login. Set `CLOUDFLARE_API_TOKEN` to an account
 
 ### 5. Public bucket URL — read this before you click
 
-The web app does not use a public R2 URL. `connect-src` is `'self'`. The function will not serve a key that points at a public bucket host or a sqlite file. `heartbeat-packs` has no custom domain. Its managed public hostname stays disabled. Pages reads the bucket only through the `HEARTBEAT_PACKS` binding, inside `_middleware.js`, after the session check. `/data` and `/api` responses send `Cache-Control: private, no-store`. A pack whose `schemaVersion` or required keys fail `guardHome` is not served; the function uses `pointer.json` `previous`, then the static files from the last full Pages deploy.
+The web app does not use a public R2 URL. `connect-src` is `'self'`. The function will not serve a key that points at a public bucket host or a sqlite file. `heartbeat-packs` has no custom domain. Its managed public hostname stays disabled. Pages reads the bucket only through the `HEARTBEAT_PACKS` binding, inside `_middleware.js`, after the session check. `/data` and `/api` responses send `Cache-Control: private, no-store`. A pack whose `schemaVersion` or required keys fail `guardHome` is not served; the function uses `current.json` `previous`, then the static files from the last full Pages deploy.
 
 The current iPhone / iPad / Mac build still downloads packs from the public host in `PulseCloud.defaultPackHost` (`HBPackHost`, the `r2.dev` URL). Turning **public access off** on `heartbeat-packs` is what keeps the bucket off the public internet. It also stops that phone build until a later build reads through a protected origin.
 
@@ -99,18 +99,24 @@ Bucket name: `heartbeat-packs`
 Key layout:
 
 ```text
-web-pack/pointer.json
-  { "current": "<40-hex cookSha>", "previous": "<40-hex cookSha or empty>" }
+web-pack/current.json
+  {
+    "prefix": "web-pack/<cookSha>-<publishedAt>",
+    "cookSha": "<40-hex cookSha>",
+    "publishedAt": "<publishedAt>",
+    "schemaVersion": 1,
+    "previous": { "prefix": "...", "cookSha": "...", "publishedAt": "...", "schemaVersion": 1 }
+  }
 
-web-pack/packs/<cookSha>/home.json
-web-pack/packs/<cookSha>/schedule.json
-web-pack/packs/<cookSha>/presub.json
-web-pack/packs/<cookSha>/section/<section>.json
+web-pack/<cookSha>-<publishedAt>/home.json
+web-pack/<cookSha>-<publishedAt>/schedule.json
+web-pack/<cookSha>-<publishedAt>/presub.json
+web-pack/<cookSha>-<publishedAt>/section/<section>.json
 ```
 
-`cookSha` is `metadata.cookSha` in `home.json`. The object paths under `web-pack/packs/<cookSha>/` match the paths under `/data/`.
+`cookSha` is `metadata.cookSha` in `home.json`. The object paths under `web-pack/<cookSha>-<publishedAt>/` match the paths under `/data/`.
 
-The function reads `pointer.json` only. It does not read a bare `web-pack/home.json` key. A September 2026 object at that key was an older pack with no `schemaVersion`, and serving it made `home.json` disagree with `schedule.json`. `current` has to pass `guardHome` in `web/functions/pack-store.js` (`schemaVersion`, `cookSha`, `laborMarket`, `regionTables`, `summaries`, `companyTiles`, `filters.stores`). If it fails, the function serves `previous`. If neither pack is valid, or the bucket has no pointer yet, `/data/*` falls through to the static files from the last full Pages deploy. Those static files are still behind the sign-in middleware. `/api/*` uses the same guarded pack and does not fall through to a bare bucket key. An unsigned `/api` request is `401`, the same as `/data`.
+The function reads `current.json` only. It does not read a bare `web-pack/home.json` key. A September 2026 object at that key was an older pack with no `schemaVersion`, and serving it made `home.json` disagree with `schedule.json`. Each served file's `schemaVersion` and `cookSha` have to match the pointer entry, and `home.json` has to pass `guardHome` in `web/functions/pack-store.js` (`schemaVersion`, `cookSha`, `laborMarket`, `regionTables`, `summaries`, `companyTiles`, `filters.stores`). If the current prefix fails, the function serves `previous` and leaves the pointer object unchanged. If neither pack is valid, or the bucket has no pointer yet, `/data/*` falls through to the static files from the last full Pages deploy. Those static files are still behind the sign-in middleware. `/api/*` uses the same guarded pack and does not fall through to a bare bucket key. An unsigned `/api` request is `401`, the same as `/data`.
 
 Every JSON file in one cook carries the same top-level `publishedAt`, `schemaVersion`, and `cookSha`. `publish-web.sh` prints those three fields for each file and refuses a deploy when they disagree, or when `publishedAt` is `2026-09-29` or `2026-09-30`.
 
@@ -123,16 +129,18 @@ From the repo, after `node web/check_pack.mjs web/public/data` exits 0:
 HEARTBEAT_DATA_ONLY=1 bash Tools/HeartbeatIngest/publish-web.sh
 ```
 
-That command puts every pack JSON at `web-pack/packs/<cookSha>/` and writes `web-pack/pointer.json` last. `previous` becomes the prior `current`. A bad `home.json` stays in the bucket and the site keeps serving the previous good pack.
+That command puts every pack JSON at `web-pack/<cookSha>-<publishedAt>/`, downloads that set, and runs `check_pack` on it. It writes `web-pack/current.json` last. `previous` becomes the prior pointer entry. A pack that fails `check_pack` does not move the pointer. A served file whose `schemaVersion` or `cookSha` disagrees with the pointer does not replace the last good entry. When `~/.config/heartbeat/web-email` and `web-password` are present, the data-only upload signs in and reads every `/data` JSON file back.
 
 A one-file upload, if you are not using the script:
 
 ```bash
 SHA="$(python3 -c 'import json; print(json.load(open("web/public/data/home.json"))["metadata"]["cookSha"])')"
-npx wrangler r2 object put "heartbeat-packs/web-pack/packs/${SHA}/home.json" \
+PUBLISHED="$(python3 -c 'import json; print(json.load(open("web/public/data/home.json"))["publishedAt"])')"
+npx wrangler r2 object put "heartbeat-packs/web-pack/${SHA}-${PUBLISHED}/home.json" \
   --file=web/public/data/home.json --remote
 # repeat for schedule.json, presub.json, and section/*.json
-# write pointer.json only after every object put succeeds
+# run check_pack on the uploaded set
+# write current.json only after that check passes
 ```
 
 Do not run `wrangler pages deploy` for a pack refresh.

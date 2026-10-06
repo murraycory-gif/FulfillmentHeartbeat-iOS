@@ -22,7 +22,7 @@ import {
   verifyAccessJwt,
 } from "./functions/gate.js";
 import { checkPack } from "./check_pack.mjs";
-import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
+import { PACK_POINTER_KEY, guardHome, packApiPath, packObjectKey, packPrefix, rawDivisionName, resetPackCache } from "./functions/pack-store.js";
 import { bannerText, considerPublished, formatHeadline, money, pct, publishClock, publishStamp, updatedLine } from "./public/clock.js";
 import { SCHEMA_VERSION, schemaWarning } from "./public/schema.js";
 import {
@@ -206,6 +206,7 @@ assert.equal(
 assert.equal(app.includes("Company figures stay the cooked upload"), false);
 assert.match(app, /nav-collapsed/);
 assert.match(app, /seatSummary/);
+assert.match(app, /tables: \(state\.home && state\.home\.regionTables\) \|\| \[\]/);
 const companySales = {
   headline: 37065336.17,
   secondary: "785 up · 172 flat · 1208 down",
@@ -244,6 +245,37 @@ const eastSeat = seatSummary("sales", {
 });
 assert.equal(eastSeat.fixedCompany, false);
 assert.equal(eastSeat.headlineText, "$10,706,607.64");
+const laborLines = [
+  {
+    section: "labor",
+    region: "East",
+    value: "-8.59%",
+    count: 609,
+    health: "risk",
+    children: [{ division: "Mid-Atlantic", value: "-13.59%", count: 285, health: "risk" }],
+  },
+];
+const laborTables = [{ section: "labor", region: "East", headline: "-3.97%", storeCount: 609, health: "good" }];
+const laborEast = seatSummary("labor", {
+  lines: laborLines,
+  tables: laborTables,
+  rows: [],
+  filters: filters({ region: "East Region" }),
+});
+assert.equal(laborEast.headlineText, "-3.97%");
+const laborEastLine = seatSummary("labor", {
+  lines: laborLines,
+  rows: [],
+  filters: filters({ region: "East Region" }),
+});
+assert.equal(laborEastLine.headlineText, "-8.59%");
+const laborDivision = seatSummary("labor", {
+  lines: laborLines,
+  tables: laborTables,
+  rows: [],
+  filters: filters({ division: "Mid-Atlantic" }),
+});
+assert.equal(laborDivision.headlineText, "-13.59%");
 assert.equal(eastSeat.headline, null);
 assert.equal(eastSeat.secondary, "1 up · 0 flat · 1 down");
 assert.equal(eastSeat.storeCount, 615);
@@ -357,14 +389,16 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=21/);
+assert.match(pageHtml, /app\.css\?v=22/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=34/);
+assert.match(pageHtml, /app\.js\?v=35/);
+assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*height:\s*44px/);
+assert.match(css, /\.scope-chip,\s*\n\.scope-reset \{[^}]*min-height:\s*44px/);
 assert.match(app, /schema\.js\?v=1/);
 assert.match(app, /console\.warn\(staleSchema\)/);
 assert.match(app, /raiseBanner\(staleSchema \|\| considerPublished/);
@@ -821,6 +855,23 @@ assert.equal(united.over, null);
 const cut = summary(pack, filters({ division: "United", district: "U1" }));
 assert.equal(cut.usesMarketLook, false);
 assert.equal(cut.under, 20);
+assert.equal(cut.eff, 50);
+const negativeEff = {
+  stores: [
+    { store: "2575", region: "East Region", division: "Shaws", district: "B1", om: "Olivia Sullivan", sales: 40000, under: 10, over: 1, eff: -12000, pch: 1 },
+    { store: "10", region: "East Region", division: "Shaws", district: "B1", om: "Olivia Sullivan", sales: 40000, under: 4, over: 2, eff: 80, pch: 1 },
+    { store: "11", region: "East Region", division: "Shaws", district: "B1", om: "Olivia Sullivan", sales: 40000, under: 6, over: 3, eff: 0, pch: 1 },
+  ],
+};
+const districtB1 = summary(negativeEff, filters({ district: "B1" }), []);
+assert.equal(districtB1.eff, 80);
+const omEff = summary(negativeEff, filters({ om: "Olivia Sullivan" }));
+assert.equal(omEff.eff, 80);
+const store2575 = summary(negativeEff, filters({ store: "2575" }), []);
+assert.equal(store2575.eff, null);
+assert.equal(notScheduled(negativeEff.stores[0]), true);
+assert.equal(rankedDivisions(negativeEff, filters({ district: "B1" }), [])[0].eff, 80);
+assert.equal(rankedRegions(negativeEff, filters({ om: "Olivia Sullivan" }))[0].eff, 80);
 assert.equal(bannerMismatch(pack, company, empty), null);
 assert.equal(company.actionCount, 1);
 assert.equal(barelyScheduled({ under: 92.7, eff: 7.3 }), true);
@@ -903,8 +954,11 @@ assert.match(publishScript, /fulfillment-heartbeat-web/);
 assert.match(publishScript, /node "\$WEB\/check_pack\.mjs" "\$DATA"/);
 assert.match(publishScript, /behind origin/);
 assert.match(publishScript, /HEARTBEAT_DATA_ONLY/);
-assert.match(publishScript, /web-pack\/packs\//);
-assert.match(publishScript, /web-pack\/pointer\.json/);
+assert.match(publishScript, /web-pack\/\{sha\}-\{published\}/);
+assert.match(publishScript, /web-pack\/current\.json/);
+assert.match(publishScript, /check_pack failed on the uploaded set/);
+assert.equal(publishScript.includes("web-pack/packs/"), false);
+assert.equal(publishScript.includes("web-pack/pointer.json"), false);
 assert.match(publishScript, /site tree not deployed/);
 assert.match(publishScript, /print_pack_stamp\.mjs/);
 assert.match(publishScript, /signed-in compare/);
@@ -1151,7 +1205,16 @@ assert.equal(rawDivisionName("DENVER"), true);
 assert.equal(rawDivisionName("INTERMOUNTAIN"), true);
 const goodSha = "a".repeat(40);
 const badSha = "b".repeat(40);
+const publishedAt = "2026-10-06T01:35:23Z";
+const goodPrefix = packPrefix(goodSha, publishedAt);
+const badPrefix = packPrefix(badSha, publishedAt);
+assert.equal(PACK_POINTER_KEY, "web-pack/current.json");
+assert.equal(goodPrefix, `web-pack/${goodSha}-${publishedAt}`);
+assert.equal(packObjectKey(goodPrefix, "section/labor.json"), `${goodPrefix}/section/labor.json`);
 const goodHome = {
+  schemaVersion: SCHEMA_VERSION,
+  cookSha: goodSha,
+  publishedAt,
   metadata: { schemaVersion: SCHEMA_VERSION, cookSha: goodSha },
   laborMarket: { aiv_impact_pct: 3, uplh_impact_pct: 1, wage_impact_pct: 2, target_vs_actual_pct: 6 },
   regionTables: [{ region: "West" }],
@@ -1160,6 +1223,9 @@ const goodHome = {
   filters: { stores: [{ store: "1", division: "Mountain West" }] },
 };
 const badHome = {
+  schemaVersion: 0,
+  cookSha: badSha,
+  publishedAt,
   metadata: { schemaVersion: 0, cookSha: badSha },
   laborMarket: { aiv_impact_pct: 1, uplh_impact_pct: 1, wage_impact_pct: 1, target_vs_actual_pct: 3 },
   regionTables: [{ region: "West" }],
@@ -1179,11 +1245,25 @@ function memoryBucket(files) {
   };
 }
 const packFiles = {
-  [PACK_POINTER_KEY]: JSON.stringify({ current: badSha, previous: goodSha }),
-  [packObjectKey(badSha, "home.json")]: JSON.stringify(badHome),
-  [packObjectKey(badSha, "section/missing_items.json")]: JSON.stringify({ rows: [{ store: "879", division: "DENVER" }] }),
-  [packObjectKey(goodSha, "home.json")]: JSON.stringify(goodHome),
-  [packObjectKey(goodSha, "section/missing_items.json")]: JSON.stringify({ rows: [{ store: "879", division: "Mountain West" }] }),
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: badPrefix,
+    cookSha: badSha,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+  }),
+  [packObjectKey(badPrefix, "home.json")]: JSON.stringify(badHome),
+  [packObjectKey(badPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: badSha,
+    rows: [{ store: "879", division: "DENVER" }],
+  }),
+  [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    rows: [{ store: "879", division: "Mountain West" }],
+  }),
 };
 resetPackCache();
 const packed = await basicGate({
@@ -1196,6 +1276,53 @@ const packed = await basicGate({
 assert.equal(packed.status, 200);
 assert.equal(packed.headers.get("cache-control"), "private, no-store");
 assert.match(await packed.text(), /Mountain West/);
+const skewSha = "c".repeat(40);
+const skewPrefix = packPrefix(skewSha, publishedAt);
+const skewHome = {
+  ...goodHome,
+  cookSha: skewSha,
+  metadata: { schemaVersion: SCHEMA_VERSION, cookSha: skewSha },
+};
+const skewFiles = {
+  [PACK_POINTER_KEY]: JSON.stringify({
+    prefix: skewPrefix,
+    cookSha: skewSha,
+    publishedAt,
+    schemaVersion: SCHEMA_VERSION,
+    previous: { prefix: goodPrefix, cookSha: goodSha, publishedAt, schemaVersion: SCHEMA_VERSION },
+  }),
+  [packObjectKey(skewPrefix, "home.json")]: JSON.stringify(skewHome),
+  [packObjectKey(skewPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    rows: [{ store: "879", division: "DENVER" }],
+  }),
+  [packObjectKey(goodPrefix, "home.json")]: JSON.stringify(goodHome),
+  [packObjectKey(goodPrefix, "section/missing_items.json")]: JSON.stringify({
+    schemaVersion: SCHEMA_VERSION,
+    cookSha: goodSha,
+    rows: [{ store: "879", division: "Mountain West" }],
+  }),
+};
+resetPackCache();
+const skewed = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(skewFiles) }),
+  next: async () => new Response("static-pack", { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.match(await skewed.text(), /Mountain West/);
+const skewedHome = await basicGate({
+  request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", {
+    headers: { cookie: sessionCookie },
+  }),
+  env: accountEnv(signedAuth.db, { HEARTBEAT_PACKS: memoryBucket(skewFiles) }),
+  next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
+});
+const skewedHomeText = await skewedHome.text();
+assert.match(skewedHomeText, new RegExp(goodSha));
+assert.equal(skewedHomeText.includes(skewSha), false);
 resetPackCache();
 const unsignedPack = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/section/missing_items.json"),
@@ -1209,7 +1336,15 @@ resetPackCache();
 const staticFallback = await basicGate({
   request: new Request("https://fulfillment-heartbeat-web.pages.dev/data/home.json", { headers: { cookie: sessionCookie } }),
   env: accountEnv(signedAuth.db, {
-    HEARTBEAT_PACKS: memoryBucket({ [PACK_POINTER_KEY]: JSON.stringify({ current: badSha, previous: "" }) }),
+    HEARTBEAT_PACKS: memoryBucket({
+      [PACK_POINTER_KEY]: JSON.stringify({
+        prefix: badPrefix,
+        cookSha: badSha,
+        publishedAt,
+        schemaVersion: SCHEMA_VERSION,
+        previous: "",
+      }),
+    }),
   }),
   next: async () => new Response("static-home", { status: 200, headers: { "content-type": "application/json" } }),
 });
@@ -1514,7 +1649,12 @@ assert.equal(scheduleGapNote(schedule, empty, []).includes("United: No data"), t
 const scheduleByStore = Object.fromEntries(schedule.stores.map((row) => [row.store, row]));
 assert.equal(scheduleByStore["210"].om, "Andrew Quinn");
 assert.equal(scheduleByStore["239"].om, "Ben Sarmadi");
+assert.equal(notScheduled(scheduleByStore["2575"]), true);
 assert.equal(notScheduled(scheduleByStore["3066"]), true);
+const liveB1 = summary(schedule, filters({ district: "B1" }), []);
+assert.equal(pct(liveB1.eff), "67.97%");
+assert.notEqual(pct(liveB1.eff), "-480.82%");
+assert.equal(summary(schedule, filters({ store: "2575" }), []).eff, null);
 assert.equal(notScheduled(scheduleByStore["3566"]), true);
 assert.equal(
   schedule.stores.filter((row) => row.under != null && row.under >= 99.5 && (row.eff == null || row.eff <= 0)).length,

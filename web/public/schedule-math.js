@@ -99,7 +99,11 @@ export function summary(pack, filters, roster) {
   if (!filtersActive(filters)) market = marketLabeled(pack, "Total") || null;
   else if (!cutInside && filters.division) market = marketLabeled(pack, filters.division) || null;
   const usesMarket = market != null;
-  let eff = average(rows.map((row) => row.eff));
+  // District, OM, and store seats average measured stores only. ≤0, negative,
+  // or missing Eff is unscheduled (notScheduled) and stays out of the average.
+  // Company and region Market Look still use the cooked rate, including South 91.04
+  // and United's blank eff.
+  let eff = cutInside ? average(measured.map((row) => row.eff)) : average(rows.map((row) => row.eff));
   if (!cutInside && usesMarket) {
     const fromMarket = explicitMarketEff(market);
     if (fromMarket !== undefined) eff = fromMarket;
@@ -248,7 +252,7 @@ export function rankedRegions(pack, filters, roster) {
         under: blendedUnder != null ? blendedUnder : average(measured.map((row) => row.under)),
         over: blendedOver != null ? blendedOver : average(measured.map((row) => row.over)),
         pch: average(group.map((row) => row.pch)),
-        eff: marketEff != null ? marketEff : average(group.map((row) => row.eff)),
+        eff: marketEff != null ? marketEff : average(measured.map((row) => row.eff)),
         scope: group.length,
       };
     })
@@ -269,13 +273,14 @@ export function rankedDivisions(pack, filters, roster) {
       const group = rows.filter((row) => row.division === name);
       const market = cutInside ? null : marketLabeled(pack, name);
       const fromMarket = market ? explicitMarketEff(market) : undefined;
+      const measured = measuredStores(group);
       return {
         division: name,
         region: (group[0] && group[0].region) || "",
-        under: market ? (market.under ?? null) : average(measuredStores(group).map((row) => row.under)),
-        over: market ? (market.over ?? null) : average(measuredStores(group).map((row) => row.over)),
+        under: market ? (market.under ?? null) : average(measured.map((row) => row.under)),
+        over: market ? (market.over ?? null) : average(measured.map((row) => row.over)),
         pch: average(group.map((row) => row.pch)),
-        eff: fromMarket !== undefined ? fromMarket : average(group.map((row) => row.eff)),
+        eff: fromMarket !== undefined ? fromMarket : average(measured.map((row) => row.eff)),
         scope: group.length,
       };
     })

@@ -337,7 +337,14 @@ export function summarizeSeat(section, rows) {
   }
 }
 
-export function seatSummary(section, { company, lines, rows, filters, roster }) {
+function laborRegionHeadline(tables, region) {
+  const row = (tables || []).find(
+    (item) => item && item.section === "labor" && item.region === region && item.headline != null && String(item.headline).trim() !== "",
+  );
+  return row ? String(row.headline) : "";
+}
+
+export function seatSummary(section, { company, lines, rows, filters, roster, tables }) {
   if (!filtersActive(filters)) {
     return {
       fixedCompany: true,
@@ -352,10 +359,21 @@ export function seatSummary(section, { company, lines, rows, filters, roster }) 
   const built = summarizeSeat(section, scoped);
   const chrome = chromeSeat(lines, section, filters);
   if (chrome) {
+    // regionLines labor is the unweighted average of store Target vs Actual
+    // (East -8.59%). The dashboard region card reads regionTables, the cooked
+    // labor callout (East -3.97%). Extreme stores pull the unweighted average
+    // away from that callout, so the labor page uses the callout at region
+    // scope and both surfaces show one number. A division seat stays on
+    // regionLines because the callout has no division headline.
+    let headlineText = chrome.value;
+    if (section === "labor" && chrome.grain === "region") {
+      const callout = laborRegionHeadline(tables, chrome.label);
+      if (callout) headlineText = callout;
+    }
     return {
       fixedCompany: false,
       headline: null,
-      headlineText: chrome.value,
+      headlineText,
       secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
       health: chrome.health && chrome.health !== "none" ? chrome.health : built.health,
       storeCount: chrome.count || built.storeCount,

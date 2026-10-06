@@ -273,11 +273,12 @@ put_secret_if_missing ADMIN_EMAIL "$ADMIN_FILE"
 node "$WEB/scripts/print_pack_stamp.mjs" "$DATA"
 
 if [[ -n "$DATA_ONLY" ]]; then
-  python3 - "$DATA" << 'PY'
+  python3 - "$DATA" "$WEB/check_pack.mjs" << 'PY'
 import json, re, subprocess, sys, tempfile
 from pathlib import Path
 
 root = Path(sys.argv[1])
+check_pack = sys.argv[2]
 files = sorted(path for path in root.rglob("*.json") if path.is_file())
 if not files:
     raise SystemExit("data-only upload: no pack json")
@@ -285,43 +286,142 @@ home_path = root / "home.json"
 if not home_path.is_file():
     raise SystemExit("data-only upload: home.json is missing")
 home = json.loads(home_path.read_text())
-sha = str((home.get("metadata") or {}).get("cookSha") or "")
+meta = home.get("metadata") or {}
+sha = str(meta.get("cookSha") or home.get("cookSha") or "")
+published = str(home.get("publishedAt") or "")
+schema = home.get("schemaVersion")
+if schema is None:
+    schema = meta.get("schemaVersion")
 if not re.fullmatch(r"[0-9a-f]{40}", sha):
     raise SystemExit("data-only upload: cookSha missing")
+if not published or "/" in published or "\\" in published:
+    raise SystemExit("data-only upload: publishedAt missing")
+prefix = f"web-pack/{sha}-{published}"
 
 def wrangler(args, check=True):
     return subprocess.run(["npx", "wrangler", *args], check=check)
 
 for path in files:
     rel = path.relative_to(root).as_posix()
-    key = f"heartbeat-packs/web-pack/packs/{sha}/{rel}"
+    key = f"heartbeat-packs/{prefix}/{rel}"
     wrangler(["r2", "object", "put", key, f"--file={path}", "--remote"])
 
-previous = ""
 with tempfile.TemporaryDirectory() as tmp:
-    pointer_file = Path(tmp) / "pointer.json"
+    downloaded = Path(tmp) / "uploaded"
+    for path in files:
+        rel = path.relative_to(root).as_posix()
+        dest = downloaded / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        key = f"heartbeat-packs/{prefix}/{rel}"
+        wrangler(["r2", "object", "get", key, f"--file={dest}", "--remote"])
+    checked = subprocess.run(["node", check_pack, str(downloaded)], check=False)
+    if checked.returncode != 0:
+        raise SystemExit("data-only upload: check_pack failed on the uploaded set; current.json was not moved")
+
+    pointer_file = Path(tmp) / "current.json"
     got = wrangler(
-        ["r2", "object", "get", "heartbeat-packs/web-pack/pointer.json", f"--file={pointer_file}", "--remote"],
+        ["r2", "object", "get", "heartbeat-packs/web-pack/current.json", f"--file={pointer_file}", "--remote"],
         check=False,
     )
+    previous = None
     if got.returncode == 0 and pointer_file.is_file():
         try:
             old = json.loads(pointer_file.read_text())
         except json.JSONDecodeError:
             old = {}
-        current = str(old.get("current") or "")
-        if re.fullmatch(r"[0-9a-f]{40}", current) and current != sha:
-            previous = current
-        else:
-            kept = str(old.get("previous") or "")
-            if re.fullmatch(r"[0-9a-f]{40}", kept):
-                previous = kept
-    new_pointer = Path(tmp) / "next-pointer.json"
-    new_pointer.write_text(json.dumps({"current": sha, "previous": previous}))
-    wrangler(["r2", "object", "put", "heartbeat-packs/web-pack/pointer.json", f"--file={new_pointer}", "--remote"])
+        if isinstance(old, dict) and re.fullmatch(r"[0-9a-f]{40}", str(old.get("cookSha") or "")) and old.get("cookSha") != sha:
+            previous = {
+                "prefix": old.get("prefix") or f"web-pack/{old.get('cookSha')}-{old.get('publishedAt')}",
+                "cookSha": old.get("cookSha"),
+                "publishedAt": old.get("publishedAt"),
+                "schemaVersion": old.get("schemaVersion"),
+            }
+        elif isinstance(old, dict) and isinstance(old.get("previous"), dict):
+            kept = old["previous"]
+            if re.fullmatch(r"[0-9a-f]{40}", str(kept.get("cookSha") or "")) and kept.get("cookSha") != sha:
+                previous = {
+                    "prefix": kept.get("prefix"),
+                    "cookSha": kept.get("cookSha"),
+                    "publishedAt": kept.get("publishedAt"),
+                    "schemaVersion": kept.get("schemaVersion"),
+                }
+    new_pointer = {
+        "prefix": prefix,
+        "cookSha": sha,
+        "publishedAt": published,
+        "schemaVersion": schema,
+        "previous": previous,
+    }
+    next_pointer = Path(tmp) / "next-current.json"
+    next_pointer.write_text(json.dumps(new_pointer))
+    wrangler(["r2", "object", "put", "heartbeat-packs/web-pack/current.json", f"--file={next_pointer}", "--remote"])
 
-print(f"data-only upload: {len(files)} pack files at web-pack/packs/{sha}/, pointer updated, site tree not deployed")
+print(f"data-only upload: {len(files)} pack files at {prefix}/, check_pack passed, current.json updated, site tree not deployed")
 PY
+  if [[ -s "$EMAIL_FILE" && -s "$PASS_FILE" ]]; then
+    python3 - "$SITE_URL" "$EMAIL_FILE" "$PASS_FILE" "$DATA" << 'PY'
+import http.cookiejar
+import json
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+site = sys.argv[1].rstrip("/")
+email = Path(sys.argv[2]).read_text().strip()
+password = Path(sys.argv[3]).read_text().strip()
+root = Path(sys.argv[4])
+ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+files = sorted(path.relative_to(root).as_posix() for path in root.rglob("*.json") if path.is_file())
+if not files:
+    raise SystemExit("signed-in compare: data has no json")
+
+jar = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+def call(path, data=None):
+    body = urllib.parse.urlencode(data).encode() if data is not None else None
+    req = urllib.request.Request(
+        site + path,
+        data=body,
+        headers={
+            "User-Agent": ua,
+            "Accept": "application/json,text/html",
+            "Origin": site,
+            "Sec-Fetch-Site": "same-origin",
+        },
+        method="POST" if data is not None else "GET",
+    )
+    try:
+        with opener.open(req) as res:
+            return res.status, res.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+status, _ = call("/login", {"email": email, "password": password})
+if status not in (200, 302, 303):
+    raise SystemExit(f"signed-in compare: login returned {status}")
+for rel in files:
+    local = json.loads((root / rel).read_text())
+    status, raw = call("/data/" + rel)
+    if status != 200:
+        raise SystemExit(f"signed-in compare: /data/{rel} returned {status}")
+    try:
+        live = json.loads(raw)
+    except json.JSONDecodeError:
+        raise SystemExit(f"signed-in compare: /data/{rel} was not json")
+    for key in ("publishedAt", "schemaVersion", "cookSha"):
+        if live.get(key) != local.get(key):
+            raise SystemExit(
+                f"signed-in compare: /data/{rel} {key}={live.get(key)!r} uploaded {local.get(key)!r}"
+            )
+    print(f"live {rel} publishedAt={live.get('publishedAt')} schemaVersion={live.get('schemaVersion')} cookSha={live.get('cookSha')}")
+print(f"signed-in pack matches {len(files)} files")
+PY
+  else
+    echo "publish-web: signed-in compare needs ${EMAIL_FILE} and ${PASS_FILE}; uploaded stamps were printed above" >&2
+  fi
   exit 0
 fi
 
