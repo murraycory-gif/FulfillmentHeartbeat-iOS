@@ -623,7 +623,11 @@ function table(section, rows) {
         .join("");
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
-      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${esc(division)} · ${esc(district)} · ${esc(row.om || "—")}</p><div class="metric-row">${metrics}</div></li>`;
+      const manager = row.om || "—";
+      const place = section === "schedule_quality"
+        ? `${esc(division)} · ${esc(district)} · OM ${esc(manager)}`
+        : `${esc(division)} · ${esc(district)} · ${esc(manager)}`;
+      return `<li class="store-card"><p class="store-id">${esc(canonicalStore(row.store))}</p><p class="sub">${place}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;

@@ -351,7 +351,7 @@ assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filter
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.js\?v=24/);
+assert.match(pageHtml, /app\.js\?v=25/);
 assert.match(app, /Schedule stores/);
 assert.match(pageHtml, /rel="icon" href="\/favicon\.svg"/);
 assert.match(css, /\.heart \{[^}]*z-index:\s*2/);
@@ -359,6 +359,7 @@ assert.match(css, /\.pulse \{[^}]*margin-left:\s*-20px/);
 assert.equal(/<script(?![^>]*\bsrc=)/.test(pageHtml), false);
 assert.match(pageHtml, /<script src="\/nav-boot\.js\?v=2"><\/script>/);
 assert.match(app, /· OM \$\{seat\.om\}/);
+assert.match(app, /section === "schedule_quality"[\s\S]*OM \$\{esc\(manager\)\}/);
 assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
 assert.equal(readFileSync(join(root, "public/seat.js"), "utf8").includes("formatCompanyAiv"), false);
