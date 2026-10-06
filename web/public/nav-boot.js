@@ -10,7 +10,7 @@ try {
 }
 
 try {
-  if (sessionStorage.getItem("hb.web.navCollapsed") === "1") {
+  if (sessionStorage.getItem("hb.web.navCollapsed") !== "0") {
     document.documentElement.classList.add("nav-collapsed");
   }
 } catch (e) {

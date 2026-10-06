@@ -18,10 +18,16 @@ import {
   canonicalStore,
   canonicalDivision,
   regionForDivision,
+  countStores,
+  divisionsFor,
+  optionValues,
+  regions,
+  regionShort,
+  districtLabel,
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, divisionChipTitle, figureAbsent, formatCompanyAiv, laborNeedsSourceCheck, laborScopeAverage, LABOR_SOURCE_CHECK, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, metricCountLine, pickerScopeHealth, pickerShopperBands, pickerHighlights, reportedStoreLine, scopeHealth, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, PPH_SOURCE_CHECK, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, shopperPphLabel, shopperPphSummary, sortShoppersByPph } from "./shoppers.js";
 import { afterPackStatus, packRequestInit, packUrl, paintWhileLoading } from "./auth-boot.js";
 import {
@@ -39,7 +45,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "49";
+const APP_VERSION = "50";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -61,30 +67,39 @@ const PAGES = [
 
 const COLUMNS = {
   sales: [
-    ["Sales", ["sales_dollars"], money],
+    ["Sales $", ["sales_dollars"], money],
     ["YoY %", ["sales_yoy_pct"], pct],
     ["Orders", ["sales_orders"], (value) => num(value, 0)],
+    ["Ord YoY", ["sales_orders_yoy_pct"], pct],
+    ["AOS", ["sales_aos"], money],
+    ["AIV", ["sales_aiv"], (value) => num(value, 2)],
+    ["Items/Txn", ["sales_ipt"], (value) => num(value, 1)],
+    ["Items", ["sales_items"], (value) => num(value, 0)],
   ],
   lost_revenue: [
-    ["Lost", ["lost_revenue"], money],
+    ["Lost $", ["lost_revenue"], money],
     ["Lost %", ["lost_revenue_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue"]), cell(row, ["ecomm_sales"])))],
     ["Goal %", ["lost_revenue_goal_pct"], (value, row) => pct(lossPercentPoints(value, cell(row, ["lost_revenue_goal"]), cell(row, ["ecomm_sales"])))],
-    ["eComm", ["ecomm_sales"], money],
+    ["eComm $", ["ecomm_sales"], money],
+    ["Post Sub", ["post_sub_oos_foregone"], money],
+    ["Refund", ["refund_lost"], money],
     ["Missed", ["missed_sales"], money],
+    ["Cancel", ["cancelled_lost"], money],
   ],
   missing_items: [["Rate", ["mi_pct"], pct]],
   five_star: [
     ["Rating", ["star_rating"], (value) => num(value, 2)],
     ["Flash", ["flash_pct"], pct],
+    ["Presubs", ["presub_pct"], pct],
     ["COE", ["coe_pct"], pct],
     ["OTT", ["ott_pct"], pct],
-    ["Pre-Sub", ["presub_pct"], pct],
-    ["OTH", ["oth5_pct"], pct],
+    ["OTH 5%", ["oth5_pct"], pct],
   ],
   pre_sub_oos: [["Rate", ["oos_pct", "mi_pct"], pct]],
   pick_path: [
-    ["Path %", ["compliance_pct"], pct],
-    ["PPH", ["pph"], (value) => num(value, 1)],
+    ["Pick Path", ["compliance_pct"], pct],
+    ["Avg PPH", ["pph"], (value) => num(value, 1)],
+    ["Orders", ["orders"], (value) => num(value, 0)],
   ],
   prep_not_ready: [["PNR %", ["pnr_rate_pct", "prep_not_ready_pct"], pct]],
   dynacap: [
@@ -94,13 +109,14 @@ const COLUMNS = {
     ["Used", ["used_capacity"], (value) => num(value, 0)],
   ],
   schedule_quality: [
-    ["Quality Sch Eff", ["schedule_efficiency_pct"], pct],
+    ["Efficiency", ["schedule_efficiency_pct"], pct],
+    ["Staffing %", ["staffing_efficiency_pct"], pct],
     ["Under", ["under_schedule_pct", "under_scheduled"], pct],
     ["Over", ["over_schedule_pct", "over_scheduled"], pct],
   ],
   pph: [["PPH", ["pph"], (value) => num(value, 1)]],
   labor: [
-    ["Vs Target", ["target_vs_actual_pct"], pct],
+    ["Tgt Vs Act", ["target_vs_actual_pct"], pct],
     ["Act Cost", ["act_cost_pct"], pct],
     ["Cost Tgt", ["cost_trgt_pct"], pct],
     ["Labor Sch Eff", ["schedule_efficiency_pct"], pct],
@@ -117,6 +133,7 @@ const state = {
   filters: emptyFilters(),
   scopeQuery: "",
   browseOpen: false,
+  browseFocus: "",
   home: null,
   homeError: "",
   homeSettled: false,
@@ -167,10 +184,12 @@ function esc(value) {
     .replace(/"/g, "&quot;");
 }
 
-function badge(health) {
+function badge(health, prominent) {
   const tone = health === "good" || health === "watch" || health === "risk" ? health : "none";
-  const label = tone === "good" ? "Healthy" : tone === "watch" ? "Watch" : tone === "risk" ? "At risk" : "NO DATA";
-  return `<span class="badge ${tone}">${label}</span>`;
+  const word = tone === "good" ? "Healthy" : tone === "watch" ? "Watch" : tone === "risk" ? "At risk" : "No data";
+  const label = prominent ? word.toUpperCase() : word;
+  const soft = prominent ? "" : " soft";
+  return `<span class="badge ${tone}${soft}">${label}</span>`;
 }
 
 function pageById(id) {
@@ -475,13 +494,56 @@ function parentScope(filters) {
   return emptyFilters();
 }
 
+function focusedBrowse(kind) {
+  const list = roster();
+  const filters = state.filters;
+  const row = (nextKind, value, label, scope) => ({
+    kind: nextKind,
+    value,
+    label,
+    count: countStores(list, scope),
+  });
+  if (kind === "region") {
+    return {
+      title: "Region",
+      rows: regions().map((id) => row("region", id, regionShort(id), browseScope(emptyFilters(), "region", id))),
+    };
+  }
+  if (kind === "division") {
+    const parent = { ...filters, division: "", district: "", om: "", store: "" };
+    return {
+      title: "Division",
+      rows: divisionsFor(parent).map((name) => row("division", name, name, browseScope(parent, "division", name))),
+    };
+  }
+  if (kind === "district") {
+    const parent = { ...filters, district: "", om: "", store: "" };
+    return {
+      title: "District",
+      rows: optionValues(list, parent, "district").map((code) => row("district", code, districtLabel(code), browseScope(parent, "district", code))),
+    };
+  }
+  if (kind === "om") {
+    const parent = { ...filters, om: "", store: "" };
+    return {
+      title: "OM",
+      rows: optionValues(list, parent, "om").map((name) => row("om", name, name, browseScope(parent, "om", name))),
+    };
+  }
+  const parent = { ...filters, store: "" };
+  return {
+    title: "Store",
+    rows: optionValues(list, parent, "store").map((id) => row("store", id, id, browseScope(parent, "store", id))),
+  };
+}
+
 function paintBrowse() {
   if (!browseRoot || !browseList) return;
   const open = state.browseOpen;
   browseRoot.hidden = !open;
   if (browseOpen) browseOpen.setAttribute("aria-expanded", open ? "true" : "false");
   if (!open) return;
-  const level = browseLevel(roster(), state.filters);
+  const level = state.browseFocus ? focusedBrowse(state.browseFocus) : browseLevel(roster(), state.filters);
   browseHits = level.rows;
   if (browseTitle) browseTitle.textContent = level.title;
   if (browseBack) browseBack.hidden = !filtersActive(state.filters);
@@ -525,7 +587,35 @@ function paintChips() {
   }
 }
 
+const GRAIN_PILLS = [
+  ["region", "Region", `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 10h13M10 3.5c2 2 2 11 0 13M10 3.5c-2 2-2 11 0 13" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`],
+  ["division", "Division", `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16V8l6-3 6 3v8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 16v-4h4v4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>`],
+  ["district", "District", `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="3.5" width="5.5" height="5.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="3.5" width="5.5" height="5.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="3.5" y="11" width="5.5" height="5.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="11" width="5.5" height="5.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`],
+  ["om", "OM", `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="8" r="1.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 15.5v-.6a3.2 3.2 0 0 1 6.4 0M11 15.5v-.4a2.6 2.6 0 0 1 4.8-.8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`],
+  ["store", "Store", `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 8.5 5 4.5h10l1.5 4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 8.5h12v7H4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 15.5v-3h4v3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`],
+];
+
+const CHEVRON = `<svg class="chev" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+
+function paintChromePills() {
+  const box = document.querySelector("#grain-pills");
+  if (!box) return;
+  box.innerHTML = GRAIN_PILLS.map(([kind, title, icon]) => {
+    const value = String((state.filters && state.filters[kind]) || "");
+    const label = value ? value.replace(/\s*region$/i, "") : title;
+    return `<button type="button" class="chrome-pill${value ? " selected" : ""}" data-grain="${kind}">${icon}<span>${esc(label)}</span>${CHEVRON}</button>`;
+  }).join("");
+}
+
+function paintGreeting() {
+  const part = document.querySelector("#greet-part");
+  if (!part) return;
+  const hour = new Date().getHours();
+  part.textContent = hour >= 5 && hour < 12 ? "Morning" : hour >= 12 && hour < 17 ? "Afternoon" : "Evening";
+}
+
 function renderFilters() {
+  paintChromePills();
   paintChips();
   paintResults();
   paintBrowse();
@@ -1248,6 +1338,83 @@ function shownMetric(section, row, column) {
   return column[2](value, row);
 }
 
+function starTone(value, full, half, invert) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "";
+  if (invert) {
+    if (number < full) return "good";
+    if (number <= half) return "watch";
+    return "risk";
+  }
+  if (number >= full) return "good";
+  if (number >= half) return "watch";
+  return "risk";
+}
+
+function metricNumber(text) {
+  const number = Number(String(text ?? "").replace(/[$,%\s]/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+function metricCellTone(section, label, text, row) {
+  const key = String(label || "").toLowerCase();
+  const number = metricNumber(text);
+  if (number == null || text === "—" || text === "Not available") return "";
+  if (section === "sales") return key.includes("yoy") ? scopeHealth("sales", number) : "";
+  if (section === "lost_revenue") {
+    if (key.includes("goal") || key.includes("ecomm")) return "";
+    if (key.includes("%")) return scopeHealth("lost_revenue", number);
+    const lostPct = row ? Number(cell(row, ["lost_revenue_pct"])) : null;
+    if (Number.isFinite(lostPct)) return scopeHealth("lost_revenue", lostPct);
+    return number > 0 ? "watch" : "good";
+  }
+  if (section === "five_star") {
+    if (key.includes("rating")) return scopeHealth("five_star", number);
+    if (key.includes("flash")) return starTone(number, 75, 55, false);
+    if (key.includes("coe")) return starTone(number, 20, 0, false);
+    if (key.includes("ott")) return starTone(number, 95, 90, false);
+    if (key.includes("presub")) return starTone(number, 5, 6, true);
+    if (key.includes("oth")) return starTone(number, 92, 78, false);
+    return "";
+  }
+  if (section === "missing_items" || section === "pre_sub_oos") {
+    if (key.includes("rate") || key.includes("oos")) return scopeHealth(section, number);
+    return "";
+  }
+  if (section === "pick_path") {
+    if (key.includes("path")) return scopeHealth("pick_path", number);
+    if (key.includes("pph")) return scopeHealth("pph", number);
+    return "";
+  }
+  if (section === "prep_not_ready") return key.includes("pnr") ? scopeHealth("prep_not_ready", number) : "";
+  if (section === "dynacap") return key.includes("pcs") || key.includes("util") ? scopeHealth("dynacap", number) : "";
+  if (section === "schedule_quality") {
+    if (key.includes("eff") || key.includes("staff")) return scopeHealth("schedule_quality", number);
+    return "";
+  }
+  if (section === "pph" || section === "picker_scorecard") return key.includes("pph") ? scopeHealth("pph", number) : "";
+  if (section === "labor") {
+    if (key.includes("tgt") && key.includes("act")) return scopeHealth("labor", number);
+    if (key.includes("uplh") || key.includes("wage") || key === "aiv") return scopeHealth("labor", number);
+    return "";
+  }
+  return "";
+}
+
+function rowStatus(section, row) {
+  const columns = COLUMNS[section] || [];
+  const primary = columns.find((column) => metricCellTone(section, column[0], shownMetric(section, row, column), row));
+  if (!primary) return "none";
+  return metricCellTone(section, primary[0], shownMetric(section, row, primary), row) || "none";
+}
+
+function washCell(section, column, row) {
+  const text = shownMetric(section, row, column);
+  const tone = metricCellTone(section, column[0], text, row);
+  const wash = tone ? ` class="wash-${tone}"` : "";
+  return `<td${wash}>${esc(text)}</td>`;
+}
+
 function table(section, rows) {
   const columns = COLUMNS[section] || [];
   const known = rosterByStore();
@@ -1258,20 +1425,18 @@ function table(section, rows) {
     return `<p class="note">${esc(honest || "No stores in this scope.")}</p>`;
   }
   const shown = matched.slice(0, state.tableWindow);
-  const head = ["Store", "Division", "District", "OM", ...columns.map((column) => column[0])]
+  const head = ["Store", "Division", "District", "OM", ...columns.map((column) => column[0]), "Status"]
     .map((label) => `<th>${esc(label)}</th>`)
     .join("");
   const body = shown
     .map((row) => {
-      const metrics = columns
-        .map((column) => `<td>${esc(shownMetric(section, row, column))}</td>`)
-        .join("");
+      const metrics = columns.map((column) => washCell(section, column, row)).join("");
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
       const storeId = canonicalStore(row.store);
       const flag = section === "labor" && laborNeedsSourceCheck(row) ? ` <span class="source-check">${esc(LABOR_SOURCE_CHECK)}</span>` : "";
       const storeCell = section === "pph" ? pphDrillButton("store", storeId, storeId) : esc(storeId);
-      return `<tr><td>${storeCell}${flag}</td><td>${esc(division)}</td><td>${esc(district)}</td><td>${esc(row.om || "—")}</td>${metrics}</tr>`;
+      return `<tr><td>${storeCell}${flag}</td><td>${esc(division)}</td><td>${esc(district)}</td><td>${esc(row.om || "—")}</td>${metrics}<td class="status-cell">${badge(rowStatus(section, row), true)}</td></tr>`;
     })
     .join("");
   const more =
@@ -1281,10 +1446,12 @@ function table(section, rows) {
   const cards = shown
     .map((row) => {
       const metrics = columns
-        .map(
-          (column) =>
-            `<div class="metric"><span>${esc(column[0])}</span><strong>${esc(shownMetric(section, row, column))}</strong></div>`,
-        )
+        .map((column) => {
+          const text = shownMetric(section, row, column);
+          const tone = metricCellTone(section, column[0], text, row);
+          const wash = tone ? ` wash-${tone}` : "";
+          return `<div class="metric${wash}"><span>${esc(column[0])}</span><strong>${esc(text)}</strong></div>`;
+        })
         .join("");
       const division = displayDivision(row, known);
       const district = shownDistrict(section, row.district, (known.get(canonicalStore(row.store)) || {}).district);
@@ -1295,7 +1462,7 @@ function table(section, rows) {
         ? `${esc(division)} · ${esc(district)} · OM ${esc(manager)}`
         : `${esc(division)} · ${esc(district)} · ${esc(manager)}`;
       const flag = section === "labor" && laborNeedsSourceCheck(row) ? ` <span class="source-check">${esc(LABOR_SOURCE_CHECK)}</span>` : "";
-      return `<li class="store-card"><p class="store-id">${storeTitle}${flag}</p><p class="sub">${place}</p><div class="metric-row">${metrics}</div></li>`;
+      return `<li class="store-card"><p class="store-id">${storeTitle}${flag} ${badge(rowStatus(section, row), true)}</p><p class="sub">${place}</p><div class="metric-row">${metrics}</div></li>`;
     })
     .join("");
   return `<div class="desk-only scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only store-cards">${cards}</ul>${more}`;
@@ -1331,24 +1498,30 @@ function grainBlock(section) {
     const value = row.grain === "region" ? `${row.label} Region` : row.label;
     return pphDrillButton(kind, value, row.label);
   };
-  const body = rows
-    .map((row) => {
-      const value = grainShown(section, row);
-      return `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${grainName(row)}</td><td>${esc(value)}</td><td>${esc(row.count)}</td></tr>`;
-    })
-    .join("");
-  const cards = rows
-    .map((row) => {
-      const value = grainShown(section, row);
-      const extra = String(value ?? "").replace(/[^\d]/g, "") === String(row.count ?? "") ? "" : `<span>${esc(row.count)}</span>`;
-      return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${grainName(row)}</p></div><div class="line-value"><strong>${esc(value)}</strong>${extra}</div></li>`;
-    })
-    .join("");
-  const heading = filtersActive(state.filters) ? scopeLabel(state.filters) : "Regions";
   const valueHead = section === "lost_revenue" ? LOST_EXCL_LABEL : "Value";
   const unmapped = section === "labor" ? laborUnmappedNote() : "";
   const foot = unmapped ? `<p class="note">${esc(unmapped)}</p>` : "";
-  return `<section class="grain"><h2>${esc(heading)}</h2><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>${esc(valueHead)}</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul>${foot}</section>`;
+  const fold = (title, list, noun) => {
+    if (!list.length) return "";
+    const body = list
+      .map((row) => {
+        const value = grainShown(section, row);
+        return `<tr><td>${esc(row.grain === "region" ? "Region" : "Division")}</td><td>${grainName(row)}</td><td>${esc(value)}</td><td>${esc(row.count)}</td></tr>`;
+      })
+      .join("");
+    const cards = list
+      .map((row) => {
+        const value = grainShown(section, row);
+        const extra = String(value ?? "").replace(/[^\d]/g, "") === String(row.count ?? "") ? "" : `<span>${esc(row.count)}</span>`;
+        return `<li class="line-card"><div><p class="eyebrow">${esc(row.grain === "region" ? "Region" : "Division")}</p><p class="line-title">${grainName(row)}</p></div><div class="line-value"><strong>${esc(value)}</strong>${extra}</div></li>`;
+      })
+      .join("");
+    const meta = `${num(list.length, 0)} ${noun} · tap to collapse`;
+    return `<details class="fold" open><summary class="fold-sum"><span class="fold-title">${esc(title)}</span><span class="fold-meta">${esc(meta)}</span><svg class="chev" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></summary><div class="desk-only scroll"><table><thead><tr><th>Grain</th><th>Name</th><th>${esc(valueHead)}</th><th>Count</th></tr></thead><tbody>${body}</tbody></table></div><ul class="phone-only line-cards">${cards}</ul></details>`;
+  };
+  const regionRows = rows.filter((row) => row.grain === "region");
+  const marketRows = rows.filter((row) => row.grain !== "region");
+  return `${fold("Regions", regionRows, regionRows.length === 1 ? "region" : "regions")}${fold("Markets", marketRows, marketRows.length === 1 ? "division" : "divisions")}${foot}`;
 }
 
 const REGION_CARD_ORDER = ["East", "South", "California", "West"];
@@ -1492,7 +1665,98 @@ function scheduleDashCard(pack) {
   return `<article class="scorecard"><button class="link" type="button" data-page="schedule"><div class="score-face"><h2>Schedule Check</h2><p class="sub">${esc(week)}</p><p class="figure">${esc(num(card.actionCount, 0))} to review</p><p class="secondary">Sales at least $30,000, and under at least 10%, 4-week under above 9%, or over at least 15%.</p></div></button></article>`;
 }
 
+const HERO_PAGES = [
+  { id: "sales", section: "sales", title: "Sales" },
+  { id: "lost_revenue", section: "lost_revenue", title: "Loss" },
+  { id: "five_star", section: "five_star", title: "5 Star" },
+];
+
+const GLANCE_PAGES = [
+  { id: "labor", section: "labor", title: "Labor" },
+  { id: "picker_scorecard", section: "picker_scorecard", title: "Picker" },
+  { id: "dynacap", section: "dynacap", title: "Dynacap" },
+  { id: "pph", section: "pph", title: "PPH" },
+  { id: "missing_items", section: "missing_items", title: "Missing" },
+  { id: "schedule_quality", section: "schedule_quality", title: "Schedule" },
+  { id: "pick_path", section: "pick_path", title: "Pick Path" },
+  { id: "pre_sub_oos", section: "pre_sub_oos", title: "Pre-Sub" },
+  { id: "prep_not_ready", section: "prep_not_ready", title: "Prep" },
+];
+
+const BANNER_TITLE = {
+  dashboard: "Operational Heartbeat",
+  sales: "Sales ScoreCard",
+  lost_revenue: "Loss Revenue ScoreCard",
+  missing_items: "Missing Items ScoreCard",
+  five_star: "5 Star ScoreCard",
+  pre_sub_oos: "Pre-Sub OOS ScoreCard",
+  pick_path: "Pick Path Compliance ScoreCard",
+  prep_not_ready: "Prep Not Ready ScoreCard",
+  dynacap: "Dynacap Settings ScoreCard",
+  schedule_quality: "Schedule Quality ScoreCard",
+  schedule: "Upcoming Weeks Schedule Check",
+  picker_scorecard: "Picker ScoreCard",
+  pph: "PPH Pure Picks Per Hour",
+  labor: "Labor ScoreCard",
+};
+
+function scopeLine() {
+  if (!filtersActive(state.filters)) return "All regions · All divisions · All districts · All OMs · All stores";
+  return scopeLabel(state.filters);
+}
+
+function dashHealth(section) {
+  const seat = seatFor(section);
+  const health = seat && seat.health;
+  if (health === "good" || health === "watch" || health === "risk") return health;
+  return "none";
+}
+
+function moneyShort(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  if (Math.abs(number) >= 1000000) return `$${(number / 1000000).toFixed(2)}M`;
+  return money(number);
+}
+
+function dashFigure(section) {
+  if (section === "picker_scorecard") {
+    const rows = sectionRows(section);
+    if (!rows) return sectionPackPending(section) ? "Loading…" : "—";
+    return formatHeadline(section, distinctShopperCount(rowsInScope(rows, state.filters, roster(), section)));
+  }
+  const seat = seatFor(section);
+  if (seat && seat.headline != null && seat.headline !== "") {
+    if (section === "sales") return moneyShort(seat.headline);
+    return formatHeadline(section, seat.headline);
+  }
+  if (seat && seat.headlineText) return String(seat.headlineText);
+  return sectionPackPending(section) ? "Loading…" : "—";
+}
+
+function opsBanner(title, health) {
+  const pill = health ? badge(health, true) : "";
+  return `<section class="ops-banner"><div class="ops-copy"><h2>${esc(title)}</h2><p>${esc(scopeLine())}</p></div>${pill}</section>`;
+}
+
+function heroStoreLine(section) {
+  const label = companyCountLabel(section);
+  if (!label) return "";
+  if (label === "Loading…") return label;
+  return `Stores ${label.replace(/\s+stores$|\s+shoppers$/i, "")}`;
+}
+
 function renderDashboard() {
+  const rank = { risk: 0, watch: 1, good: 2, none: 3 };
+  const bannerHealth = HERO_PAGES.map((page) => dashHealth(page.section)).sort((a, b) => rank[a] - rank[b])[0];
+  const heroes = HERO_PAGES.map((page) => {
+    const health = dashHealth(page.section);
+    return `<button type="button" class="hero-card" data-page="${page.id}"><div class="hero-top"><h2>${esc(page.title)}</h2>${badge(health, true)}</div><p class="hero-value">${esc(dashFigure(page.section))}</p><p class="hero-stores"><i></i>${esc(heroStoreLine(page.section))}</p></button>`;
+  }).join("");
+  const glances = GLANCE_PAGES.map((page) => {
+    const health = dashHealth(page.section);
+    return `<button type="button" class="glance-card" data-page="${page.id}"><div class="glance-bar"><h2>${esc(page.title)}</h2>${badge(health)}</div><div class="glance-body"><p class="glance-value">${esc(dashFigure(page.section))}</p><svg class="glance-icon ${health}" viewBox="0 0 20 20" aria-hidden="true">${NAV_ICON[page.id] || ""}</svg></div></button>`;
+  }).join("");
   const schedulePack = state.packs.get("schedule");
   const cards = PAGES.filter((page) => page.id !== "dashboard")
     .map((page) => {
@@ -1501,7 +1765,8 @@ function renderDashboard() {
       return `<article class="scorecard ${health}"><button class="link" type="button" data-page="${page.id}">${companyBlock(page.section, page.title)}</button></article>`;
     })
     .join("");
-  main.innerHTML = `<div class="cards">${cards}</div>${regionCardsHtml()}`;
+  const ledger = `<div class="audit-keep" aria-hidden="true"><div class="cards">${cards}</div>${regionCardsHtml()}</div>`;
+  main.innerHTML = `${opsBanner("Operational Heartbeat", bannerHealth)}<div class="hero-grid">${heroes}</div><p class="glance-kicker">AT-A-GLANCE · ALL SECTIONS</p><div class="glance-grid">${glances}</div>${ledger}`;
 }
 
 function shopperSeat(filters, section) {
@@ -1651,7 +1916,41 @@ function renderPicker() {
     else if (!loaded) note = `<h2>Shoppers</h2><p class="note">No shopper data</p>`;
     else note = shopperBlock(rows, SHOPPER_COLUMNS.scorecard, "");
   }
-  main.innerHTML = `<article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${grainBlock("picker_scorecard")}${note}`;
+  main.innerHTML = `${opsBanner(BANNER_TITLE.picker_scorecard, health)}<p class="section-kicker">Total Company</p><article class="scorecard ${health}">${companyBlock("picker_scorecard", "Picker")}</article>${pickerBoardHtml(rows)}${grainBlock("picker_scorecard")}${note}`;
+}
+
+function pickerBoardHtml(rows) {
+  const scoped = rowsInScope(rows || [], state.filters, roster(), "picker_scorecard");
+  if (!scoped.length) return "";
+  const board = pickerHighlights(scoped, 6);
+  const columns = [
+    ["Hours", ["pick_hours"], (value) => num(value, 1)],
+    ["PPH", ["pph"], (value) => num(value, 1)],
+    ["Orders", ["orders"], (value) => num(value, 0)],
+    ["Presub", ["presub_pct"], pct],
+    ["OTT", ["ott_pct"], pct],
+    ["OTH", ["oth5_pct"], pct],
+    ["COE", ["coe_pct"], pct],
+  ];
+  const card = (tone, title, subtitle, list) => {
+    const head = ["Shopper", ...columns.map((column) => column[0]), "Status"].map((label) => `<th>${esc(label)}</th>`).join("");
+    const body = list
+      .map((row) => {
+        const cells = columns
+          .map((column) => {
+            const text = column[2](cell(row, column[1]));
+            const toneName = metricCellTone("picker_scorecard", column[0], text, row) || metricCellTone("five_star", column[0], text, row);
+            return `<td${toneName ? ` class="wash-${toneName}"` : ""}>${esc(text)}</td>`;
+          })
+          .join("");
+        const who = `${shopperIdentity(row) || "—"} | Store ${canonicalStore(row.store)}`;
+        return `<tr><td>${esc(who)}</td>${cells}<td>${badge(tone === "risk" ? "risk" : "good", true)}</td></tr>`;
+      })
+      .join("");
+    const empty = list.length ? "" : `<p class="note">No shoppers in this list.</p>`;
+    return `<section class="picker-card ${tone}"><header><div><h2>${esc(title)}</h2><p>${esc(subtitle)}</p></div></header>${empty || `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`}</section>`;
+  };
+  return `<div class="picker-board">${card("risk", "Top opportunity", "Underperforming vs the metric mix", board.opportunity)}${card("good", "Doing well", "Hitting the metric mix", board.strong)}</div>`;
 }
 
 function renderPresub(pack) {
@@ -1718,7 +2017,7 @@ function renderSchedule(pack) {
   if (state.scheduleTab === "summary") body = scheduleSummaryHtml(pack, card);
   else if (state.scheduleTab === "detail") body = scheduleDetailHtml(pack);
   else body = scheduleActionHtml(pack, card);
-  main.innerHTML = `${hero}${tabs}${body}`;
+  main.innerHTML = `${opsBanner(BANNER_TITLE.schedule, "none")}${hero}${tabs}${body}`;
 }
 
 function scheduleSeat(store) {
@@ -1922,7 +2221,7 @@ function scorecardHtml(page, pendingStores) {
       : table(page.section, (pack && pack.rows) || []);
   const extra = page.section === "pre_sub_oos" ? presubNote() : "";
   const shoppers = page.section === "pph" || page.section === "pick_path" ? shopperNote(page.section) : "";
-  return `<article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
+  return `${opsBanner(BANNER_TITLE[page.id] || page.title, health)}<p class="section-kicker">Total Company</p><article class="scorecard ${health}">${companyBlock(page.section, page.title)}</article>${grainBlock(page.section)}${extra}${storeTable}${shoppers}`;
 }
 
 function warmDashboard(token) {
@@ -1976,6 +2275,7 @@ async function renderMetric(page, token) {
 // Home chrome paints before section files. Shopper tape stays parked until a seat opens it.
 async function render() {
   const token = ++renderToken;
+  paintGreeting();
   paintPendingSearch();
   const page = pageById(state.page);
   if (paintedPage !== page.id) {
@@ -2029,8 +2329,10 @@ function desktopNav() {
   return window.matchMedia("(min-width: 801px)").matches;
 }
 
+const PAGES_ICON = `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
+
 function syncNavToggle() {
-  navToggle.textContent = "Pages";
+  navToggle.innerHTML = `${PAGES_ICON}<span>Pages</span>`;
   if (!desktopNav()) return;
   const collapsed = document.documentElement.classList.contains("nav-collapsed");
   navToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
@@ -2039,7 +2341,17 @@ function syncNavToggle() {
 function closeDrawer() {
   drawer.classList.remove("open");
   scrim.hidden = true;
-  if (!desktopNav()) navToggle.setAttribute("aria-expanded", "false");
+  if (desktopNav()) {
+    document.documentElement.classList.add("nav-collapsed");
+    try {
+      sessionStorage.setItem("hb.web.navCollapsed", "1");
+    } catch {
+      /* private mode */
+    }
+  } else {
+    navToggle.setAttribute("aria-expanded", "false");
+  }
+  syncNavToggle();
 }
 
 async function ensureSeatRows(pages) {
@@ -2375,6 +2687,7 @@ scopeResults.addEventListener("mousedown", (event) => {
 });
 
 browseOpen.addEventListener("click", () => {
+  state.browseFocus = "";
   state.browseOpen = !state.browseOpen;
   hideResults();
   paintBrowse();
@@ -2382,12 +2695,14 @@ browseOpen.addEventListener("click", () => {
 
 browseClose.addEventListener("click", () => {
   state.browseOpen = false;
+  state.browseFocus = "";
   paintBrowse();
 });
 
 browseRoot.addEventListener("click", (event) => {
   if (event.target.closest(".browse-card")) return;
   state.browseOpen = false;
+  state.browseFocus = "";
   paintBrowse();
 });
 
@@ -2408,6 +2723,12 @@ navToggle.addEventListener("click", (event) => {
       sessionStorage.setItem("hb.web.navCollapsed", collapsed ? "1" : "0");
     } catch {
       /* private mode */
+    }
+    if (collapsed) scrim.hidden = true;
+    else {
+      window.setTimeout(() => {
+        if (!document.documentElement.classList.contains("nav-collapsed")) scrim.hidden = false;
+      }, 0);
     }
     syncNavToggle();
     return;
@@ -2437,6 +2758,14 @@ document.body.addEventListener("input", (event) => {
 });
 
 document.body.addEventListener("click", (event) => {
+  const grain = event.target.closest("[data-grain]");
+  if (grain) {
+    state.browseFocus = grain.getAttribute("data-grain") || "";
+    state.browseOpen = true;
+    hideResults();
+    paintBrowse();
+    return;
+  }
   const hit = event.target.closest("[data-hit]");
   if (hit) {
     const pick = searchHits[Number(hit.getAttribute("data-hit"))];
@@ -2450,6 +2779,7 @@ document.body.addEventListener("click", (event) => {
   if (drilled) {
     const pick = browseHits[Number(drilled.getAttribute("data-browse"))];
     if (pick) {
+      state.browseFocus = "";
       if (pick.kind === "store") state.browseOpen = false;
       applyScope(scopeFromPick(pick));
     }
@@ -2468,6 +2798,7 @@ document.body.addEventListener("click", (event) => {
   if (!event.target.closest(".find")) hideResults();
   if (state.browseOpen && !event.target.closest("#browse") && !event.target.closest("#browse-open")) {
     state.browseOpen = false;
+    state.browseFocus = "";
     paintBrowse();
   }
   if (event.target.closest("[data-logout]")) {
