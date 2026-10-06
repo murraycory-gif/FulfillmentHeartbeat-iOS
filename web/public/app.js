@@ -39,7 +39,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "48";
+const APP_VERSION = "49";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
