@@ -5,8 +5,8 @@ const JSON_HEADERS = {
 };
 
 // The bucket stays private. HEARTBEAT_PACKS is read only in _middleware.js,
-// after the session check, through readPackObject. This route does not call
-// bucket.get and does not publish a public bucket host.
+// after the session check, through readPackObject. This route does not read
+// the bucket and does not publish a public bucket host.
 export async function onRequest() {
   return new Response(JSON.stringify({ error: "NO DATA" }), { status: 404, headers: JSON_HEADERS });
 }
