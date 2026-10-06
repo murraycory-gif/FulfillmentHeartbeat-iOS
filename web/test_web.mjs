@@ -51,7 +51,7 @@ import {
 } from "./public/filters.js";
 import { FIGURE_SECTIONS, packURL } from "./public/packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./public/share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerShopperBands, reportedStoreLine, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
+import { SCOPE_BADGES, browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rowsInScope, scopeHealth, seatSummary, sectionRowGrain, sectionStoreCount, summarizeSeat } from "./public/seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, sortShoppersByPph } from "./public/shoppers.js";
 import {
   bannerMismatch,
@@ -166,6 +166,24 @@ assert.equal(formatHeadline("pick_path", 79.8251044108846), "79.8%");
 assert.equal(formatHeadline("dynacap", 67.85707617841031), "67.9");
 assert.equal(formatHeadline("picker_scorecard", 24548), "24,548");
 assert.equal(formatHeadline("schedule_quality", 90.33328114614572), "90.3%");
+assert.equal(SCOPE_BADGES.five_star.good, 4);
+assert.equal(SCOPE_BADGES.schedule_quality.good, 90);
+assert.equal(SCOPE_BADGES.labor.good, 0);
+assert.equal(SCOPE_BADGES.picker_scorecard.good, 80);
+assert.equal(scopeHealth("five_star", 4.2), "good");
+assert.equal(scopeHealth("five_star", 3.38), "risk");
+assert.equal(scopeHealth("labor", -4.062248206528947), "good");
+assert.equal(scopeHealth("schedule_quality", 90.2), "good");
+assert.equal(
+  summarizeSeat("schedule_quality", [
+    { store: "1", payload: { schedule_efficiency_pct: 95, over_schedule_pct: 9 } },
+    { store: "2", payload: { schedule_efficiency_pct: 95, over_schedule_pct: 1 } },
+  ]).health,
+  "good",
+);
+const pickerBadgeRows = [{ payload: { pph: 50 } }, ...Array.from({ length: 10 }, () => ({ payload: { pph: 80 } }))];
+assert.equal(pickerScopeHealth(pickerBadgeRows), "watch");
+assert.notEqual(pickerScopeHealth([{ payload: { pph: 20 } }]), "good");
 
 const seatLines = [
   { section: "sales", region: "East", title: "Sales", value: "$8,209,791.69", count: 615 },
@@ -413,19 +431,19 @@ assert.match(app, /function forceShareClosed/);
 assert.match(app, /function closeShare/);
 assert.equal(app.includes('getItem("hb.web.shareOpen")'), false);
 assert.equal(app.includes("getItem('shareOpen')"), false);
-assert.match(pageHtml, /app\.css\?v=26/);
+assert.match(pageHtml, /app\.css\?v=27/);
 assert.match(css, /#scope-search,\s*#browse-open,\s*#share-open,\s*#clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*height:\s*44px/);
 assert.match(css, /\.chip-row #clear-filters \{[^}]*min-height:\s*44px/);
 assert.match(pageHtml, /id="scope-search"/);
 assert.match(pageHtml, /id="clear-filters"/);
 assert.match(pageHtml, /aria-label="Share"/);
-assert.match(pageHtml, /app\.css\?v=26/);
-assert.match(pageHtml, /app\.js\?v=44/);
+assert.match(pageHtml, /app\.css\?v=27/);
+assert.match(pageHtml, /app\.js\?v=45/);
 assert.equal(buildLabel("1aeee20", "40"), "1aeee20 · v40");
 assert.equal(buildLabel("1AEEE20deadbeef", "v40"), "1aeee20 · v40");
 assert.equal(buildLabel("__BUILD_SHA__", "40"), "");
-assert.match(app, /const APP_VERSION = "44"/);
+assert.match(app, /const APP_VERSION = "45"/);
 assert.match(app, /const BUILD_SHA = "__BUILD_SHA__"/);
 assert.match(app, /id="build-stamp"/);
 assert.match(app, /Build \$\{esc\(buildLine\)\}/);
@@ -545,7 +563,7 @@ assert.match(app, /Labor Sch Eff is schedule efficiency from the Labor workbook/
 assert.equal(app.includes("Labor Sch Eff workbook total"), false);
 assert.match(app, /workbook roll-up/);
 assert.match(app, /store average/);
-assert.match(app, /store rollup/);
+assert.match(app, /PPH store average/);
 assert.match(app, /store sum/);
 assert.match(app, /Quality Sch Eff is the average schedule efficiency on the Schedule Quality sheet/);
 assert.match(readFileSync(join(root, "public/seat.js"), "utf8"), /export function formatCompanyAiv/);
@@ -1063,8 +1081,8 @@ assert.match(distIndex, /class="header-foot"/);
 assert.match(distIndex, /aria-label="Fulfillment Heartbeat"/);
 assert.match(distIndex, /class="fulfill">Fulfill</);
 assert.equal(distIndex.includes("pages.dev"), false);
-assert.match(distIndex, /app\.css\?v=26/);
-assert.match(distIndex, /app\.js\?v=44/);
+assert.match(distIndex, /app\.css\?v=27/);
+assert.match(distIndex, /app\.js\?v=45/);
 assert.match(readFileSync(join(root, "scripts/stage_pages.mjs"), "utf8"), /Build-label only/);
 const distApp = readFileSync(join(root, "dist/app.js"), "utf8");
 assert.equal(distApp.includes("__BUILD_SHA__"), false);

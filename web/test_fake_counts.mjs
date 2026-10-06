@@ -1,6 +1,7 @@
 // Architecture's fake-count lab. Every digit in a home.json text field is
 // rewritten, and each hit is tagged. A count tag on screen fails the run
 // unless it is the Sales Orders or Items tile labeled workbook total.
+import { money } from "./public/clock.js";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -96,9 +97,9 @@ function bareDigits(token) {
   return String(token).replace(/[^\d]/g, "");
 }
 
-function remember(book, literal, tag, allowWorkbook) {
+function remember(book, literal, tag, allowWorkbook, field = "") {
   const bare = bareDigits(literal);
-  book.tags.push({ literal, bare, tag });
+  book.tags.push({ literal, bare, tag, field });
   if (tag !== "count" || !bare) return literal;
   book.countBares.add(bare);
   book.countBares.add(Number(bare).toLocaleString("en-US").replace(/,/g, ""));
@@ -111,12 +112,12 @@ function prefixCount(raw) {
   return `${lead}900${raw.slice(lead.length)}`;
 }
 
-function rewriteString(text, book, allowWorkbook) {
+function rewriteString(text, book, allowWorkbook, field = "") {
   return String(text).replace(/\$?-?\d[\d,]*(?:\.\d+)?%?/g, (raw, index) => {
     const tag = classify(text, index, raw);
     const mapped = mapDigits(raw);
     const fake = tag === "date" ? mapped : prefixCount(mapped);
-    return remember(book, fake, tag, allowWorkbook && tag === "count");
+    return remember(book, fake, tag, allowWorkbook && tag === "count", field);
   });
 }
 
@@ -132,18 +133,18 @@ function rewriteNumber(value, tag, book) {
 export function poisonHome(home) {
   const copy = structuredClone(home);
   const book = { tags: [], countBares: new Set(), allowBares: new Set(), orders: "", items: "" };
-  const sales = copy.companyTiles && copy.companyTiles.sales;
-  if (sales && Array.isArray(sales.labels) && Array.isArray(sales.values)) {
-    const orders = sales.labels.indexOf("Orders");
-    const items = sales.labels.indexOf("Items");
-    if (orders >= 0) {
-      sales.values[orders] = rewriteString(sales.values[orders], book, true);
-      book.orders = sales.values[orders];
-    }
-    if (items >= 0) {
-      sales.values[items] = rewriteString(sales.values[items], book, true);
-      book.items = sales.values[items];
-    }
+  const tileBlocks = new Set();
+  const tiles = copy.companyTiles && typeof copy.companyTiles === "object" ? copy.companyTiles : {};
+  for (const [section, block] of Object.entries(tiles)) {
+    if (!block || !Array.isArray(block.labels) || !Array.isArray(block.values)) continue;
+    tileBlocks.add(block);
+    block.labels.forEach((label, index) => {
+      if (typeof block.values[index] !== "string") return;
+      const allow = section === "sales" && (label === "Orders" || label === "Items");
+      block.values[index] = rewriteString(block.values[index], book, allow, `${section}:${label}`);
+      if (section === "sales" && label === "Orders") book.orders = block.values[index];
+      if (section === "sales" && label === "Items") book.items = block.values[index];
+    });
   }
   const walk = (node) => {
     if (!node || typeof node !== "object") return;
@@ -151,11 +152,11 @@ export function poisonHome(home) {
       node.forEach(walk);
       return;
     }
+    if (tileBlocks.has(node)) return;
     const section = typeof node.section === "string" ? node.section : "";
     const tiled = Array.isArray(node.labels) && Array.isArray(node.values);
     if (tiled) {
       node.labels.forEach((label, index) => {
-        if (node === sales && (label === "Orders" || label === "Items")) return;
         if (typeof node.values[index] === "string") {
           node.values[index] = rewriteString(node.values[index], book, false);
         }
@@ -336,6 +337,25 @@ async function visibleText(client) {
   );
 }
 
+async function readTiles(client) {
+  return evaluate(
+    client,
+    `(() => {
+      const chips = [...document.querySelectorAll(".chip")].map((node) => {
+        const span = node.querySelector("span");
+        const strong = node.querySelector("strong");
+        return { label: span ? span.textContent.trim() : "", value: strong ? strong.textContent.trim() : "" };
+      });
+      const figures = [...document.querySelectorAll(".figure, .line-value strong")].map((node) => ({
+        label: node.textContent.trim(),
+        value: node.textContent.trim(),
+        figure: true,
+      }));
+      return chips.concat(figures);
+    })()`,
+  );
+}
+
 async function showPage(client, id) {
   await evaluate(
     client,
@@ -374,36 +394,76 @@ async function clearScope(client) {
   await settle(client);
 }
 
-// A pack percent, money, or decimal may render only beside one of these labels.
-const ALLOWED_PACK_LABELS = ["workbook total", "workbook roll-up", "target"];
+// Workbook Total fields. A "workbook total" label excuses only that field's own element.
+const WORKBOOK_FIELDS = new Set([
+  "sales:Sales $",
+  "sales:YoY",
+  "sales:Ord YoY",
+  "sales:Orders",
+  "sales:Items",
+  "lost_revenue:Lost $",
+  "lost_revenue:Lost %",
+  "lost_revenue:Goal %",
+  "lost_revenue:eComm $",
+  "lost_revenue:Post Sub",
+  "lost_revenue:Refund",
+  "lost_revenue:Missed",
+  "lost_revenue:Cancel",
+  "lost_revenue:Kill",
+  "labor:Target Vs Actual",
+  "labor:Act Cost",
+  "labor:Cost Tgt",
+  "labor:Sch Eff",
+  "labor:UPLH",
+  "labor:Wage",
+  "labor:AIV",
+]);
 
-function unlabeledPackFigures(text, book) {
-  const hits = [];
-  const haystack = String(text);
-  const folded = haystack.toLowerCase();
-  for (const tag of book.tags) {
-    if (tag.tag !== "percent" && tag.tag !== "money" && tag.tag !== "decimal") continue;
-    const literal = String(tag.literal || "");
-    if (literal.length < 2) continue;
-    const needle = literal.toLowerCase();
-    let from = 0;
-    while (from < folded.length) {
-      const at = folded.indexOf(needle, from);
-      if (at < 0) break;
-      const before = haystack[at - 1] || "";
-      const after = haystack[at + literal.length] || "";
-      const stuck = /[\d$%]/.test(before) || /\d/.test(after);
-      if (!stuck) {
-        const around = folded.slice(Math.max(0, at - 96), at + literal.length + 48);
-        if (!ALLOWED_PACK_LABELS.some((label) => around.includes(label))) hits.push(literal);
-      }
-      from = at + needle.length;
-    }
-  }
-  return hits;
+function displayForms(tag, literal) {
+  const forms = new Set([String(literal)]);
+  if (tag === "money" || String(literal).includes("$")) forms.add(money(literal));
+  return [...forms].filter((form) => form && form !== "—");
 }
 
-function assertClean(text, book, where) {
+function labelAllows(label, field) {
+  const text = String(label || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (field === "prep_not_ready:Goal") return text === "goal target";
+  if (field === "prep_not_ready:Watch") return text === "watch target";
+  const workbook = text.includes("workbook total") || text.includes("workbook roll-up");
+  if (field && WORKBOOK_FIELDS.has(field)) {
+    if (!workbook) return false;
+    const name = field.split(":")[1].toLowerCase();
+    return text.startsWith(name);
+  }
+  if (field) return false;
+  if (text === "goal target" || text === "watch target") return true;
+  return text.endsWith("workbook total") || text.endsWith("workbook roll-up");
+}
+
+export function packFigureLeaks(tiles, book) {
+  const leaks = [];
+  for (const tag of book.tags || []) {
+    if (tag.tag !== "percent" && tag.tag !== "money" && tag.tag !== "decimal") continue;
+    const forms = displayForms(tag.tag, tag.literal);
+    for (const tile of tiles || []) {
+      const shown = forms.some((form) => tile.value === form || (tile.figure && String(tile.value).includes(form)));
+      if (!shown) continue;
+      if (!labelAllows(tile.label, tag.field || "")) leaks.push(`${tag.field || tag.literal} on ${tile.label}`);
+    }
+  }
+  return leaks;
+}
+
+function countAuthorized(tiles, token) {
+  return (tiles || []).some((tile) => {
+    if (!String(tile.value).includes(token)) return false;
+    const label = String(tile.label || "").toLowerCase();
+    if (!label.includes("workbook total")) return false;
+    return label.startsWith("orders") || label.startsWith("items");
+  });
+}
+
+function assertClean(text, book, where, tiles = []) {
   const hits = [];
   const re = /\d[\d,]*/g;
   let match;
@@ -414,15 +474,45 @@ function assertClean(text, book, where) {
     const after = text[match.index + token.length] || "";
     const before = text[match.index - 1] || "";
     if (after === "." || after === "%" || before === "$" || before === ".") continue;
-    if (book.allowBares.has(bare)) {
-      const around = text.slice(Math.max(0, match.index - 90), match.index + token.length + 40).toLowerCase();
-      if (around.includes("workbook total")) continue;
-    }
+    if (book.allowBares.has(bare) && countAuthorized(tiles, token)) continue;
     hits.push(token);
   }
   if (hits.length) throw new Error(`${where} rendered fake count ${hits.slice(0, 6).join(", ")}`);
-  const rates = unlabeledPackFigures(text, book);
+  const rates = packFigureLeaks(tiles, book);
   if (rates.length) throw new Error(`${where} rendered unlabeled pack figure ${rates.slice(0, 6).join(", ")}`);
+}
+
+function plantedLeakBook() {
+  const book = { tags: [], countBares: new Set(), allowBares: new Set() };
+  remember(book, "$9001.00", "money", false, "lost_revenue:eComm $");
+  remember(book, "90080.91%", "percent", false, "five_star:Flash");
+  remember(book, "9002.65%", "percent", false, "prep_not_ready:PNR %");
+  remember(book, "900905,034", "count", true, "sales:Orders");
+  return book;
+}
+
+export function plantedLeakFailures() {
+  const book = plantedLeakBook();
+  const formatted = money("$9001.00");
+  const flash = packFigureLeaks([{ label: "Flash workbook total", value: "90080.91%" }], book);
+  const ecomm = packFigureLeaks([{ label: "eComm", value: formatted }], book);
+  const pnr = packFigureLeaks(
+    [
+      { label: "Target Vs Actual workbook total", value: "-4.06%" },
+      { label: "PNR %", value: "9002.65%" },
+    ],
+    book,
+  );
+  const goal = packFigureLeaks([{ label: "Goal target", value: "1.9%" }], book);
+  const kept = packFigureLeaks([{ label: "eComm $ workbook total", value: formatted }], book);
+  const orders = countAuthorized([{ label: "Orders workbook total", value: "900905,034" }], "900905,034");
+  const ordersNearby = countAuthorized([{ label: "Flash workbook total", value: "900905,034" }], "900905,034");
+  if (!flash.length) throw new Error("planted Flash workbook total was excused");
+  if (!ecomm.length) throw new Error("planted plain eComm label was excused");
+  if (!pnr.length) throw new Error("planted PNR was excused by Target Vs Actual");
+  if (goal.length) throw new Error("goal target was flagged");
+  if (kept.length) throw new Error("labeled eComm workbook total was flagged");
+  if (!orders || ordersNearby) throw new Error("count allow list is not per field");
 }
 
 async function regionPickerChips(client) {
@@ -509,7 +599,30 @@ async function searchStore(client, query) {
   if (!String(chips).includes("0688")) throw new Error(`store scope is not 0688: ${chips}`);
 }
 
+async function assertDynacapDirect(client, port) {
+  const url = `http://127.0.0.1:${port}/?page=dynacap`;
+  await client.send("Page.navigate", { url });
+  await settle(client, 90000);
+  const opened = await readChip(client, "PPH");
+  if (!opened || opened.value === "Loading…" || opened.value === "—" || !opened.label.toLowerCase().includes("store average")) {
+    throw new Error(`direct dynacap PPH ${opened ? `${opened.label} ${opened.value}` : "missing"}`);
+  }
+  const pcs = await readChip(client, "Pcs/Hr");
+  if (!pcs || pcs.value !== "67.8" || !pcs.label.toLowerCase().includes("store average")) {
+    throw new Error(`direct dynacap Pcs/Hr ${pcs ? `${pcs.label} ${pcs.value}` : "missing"}`);
+  }
+  await client.send("Page.reload", { ignoreCache: true });
+  await settle(client, 90000);
+  const again = await readChip(client, "PPH");
+  if (!again || again.value === "Loading…" || again.value === "—") {
+    throw new Error(`reloaded dynacap PPH ${again ? `${again.label} ${again.value}` : "missing"}`);
+  }
+  const href = await evaluate(client, "location.search");
+  if (!String(href).includes("page=dynacap")) throw new Error(`reload left dynacap: ${href}`);
+}
+
 export async function runFakeCountLab(publicDir) {
+  plantedLeakFailures();
   const original = JSON.parse(readFileSync(join(publicDir, "data/home.json"), "utf8"));
   const { home, book } = poisonHome(original);
   const laborEast = home.regionLines.find((line) => line.section === "labor" && line.region === "East");
@@ -549,6 +662,7 @@ export async function runFakeCountLab(publicDir) {
     await client.ready;
     await client.send("Runtime.enable");
     await client.send("Page.enable");
+    await assertDynacapDirect(client, port);
     const widths = [
       [1280, 800],
       [390, 844],
@@ -615,11 +729,11 @@ export async function runFakeCountLab(publicDir) {
           throw new Error(`${width}px company ${label} ${chip ? `${chip.label} ${chip.value}` : "missing"}`);
         }
       }
-      assertClean(dashboard, book, `${width}px dashboard`);
+      assertClean(dashboard, book, `${width}px dashboard`, await readTiles(client));
       await pickBrowse(client, "South");
       await showPage(client, "dashboard");
       expectChips(await regionPickerChips(client), { South: "5,476" }, `${width}px South`);
-      assertClean(await visibleText(client), book, `${width}px South dashboard`);
+      assertClean(await visibleText(client), book, `${width}px South dashboard`, await readTiles(client));
       await pickBrowse(client, "Southern");
       await showPage(client, "dashboard");
       expectChips(await regionPickerChips(client), { Southern: "1,613" }, `${width}px Southern`);
@@ -650,7 +764,7 @@ export async function runFakeCountLab(publicDir) {
           })()`,
         );
         if (resetRow !== "ok") throw new Error(`${width}px clear chip ${resetRow}`);
-        assertClean(southernText, book, `${width}px Southern dashboard`);
+        assertClean(southernText, book, `${width}px Southern dashboard`, await readTiles(client));
         await clearScope(client);
       const scopes = [
         async () => {},
@@ -667,7 +781,7 @@ export async function runFakeCountLab(publicDir) {
           await showPage(client, id);
           const text = await visibleText(client);
           const where = `${width}px ${scopeNames[index]} ${id}`;
-          assertClean(text, book, where);
+          assertClean(text, book, where, await readTiles(client));
           if (index === 0 && id === "labor") {
             for (const count of [610, 392, 599, 548]) {
               if (!hasNumber(text, count)) throw new Error(`${where} missing row count ${count}`);
@@ -680,11 +794,37 @@ export async function runFakeCountLab(publicDir) {
             }
           }
           if (index === 0 && id === "dynacap") {
-            if (!hasNumber(text, 67.8) && !text.includes("67.8")) throw new Error(`${where} missing row mean 67.8`);
+            const pcsChip = await readChip(client, "Pcs/Hr");
+            const utilChip = await readChip(client, "Util");
+            if (!pcsChip || pcsChip.value !== "67.8" || !pcsChip.label.toLowerCase().includes("store average")) {
+              throw new Error(`${where} Pcs/Hr ${pcsChip ? `${pcsChip.label} ${pcsChip.value}` : "missing"}`);
+            }
+            if (pcsChip.value === "67.9") throw new Error(`${where} Pcs/Hr is the pack tile`);
+            if (!utilChip || utilChip.value !== "21.81%" || !utilChip.label.toLowerCase().includes("store average")) {
+              throw new Error(`${where} Util ${utilChip ? `${utilChip.label} ${utilChip.value}` : "missing"}`);
+            }
             if (!text.includes("74.2")) throw new Error(`${where} missing the PPH row mean 74.2`);
             if (text.toLowerCase().includes("pph workbook")) throw new Error(`${where} still labels PPH as workbook`);
             if (!text.includes("75 stores have capacity but no Pcs/Hr")) {
               throw new Error(`${where} missing the capacity note`);
+            }
+          }
+          if (index === 0 && id === "missing_items") {
+            const rate = await readChip(client, "Rate");
+            if (!rate || rate.value !== "7.55%" || !rate.label.toLowerCase().includes("store average")) {
+              throw new Error(`${where} Rate ${rate ? `${rate.label} ${rate.value}` : "missing"}`);
+            }
+          }
+          if (index === 0 && id === "schedule_quality") {
+            const over = await readChip(client, "Over");
+            if (!over || over.value !== "6.09%" || !over.label.toLowerCase().includes("store average")) {
+              throw new Error(`${where} Over ${over ? `${over.label} ${over.value}` : "missing"}`);
+            }
+          }
+          if (index === 0 && id === "lost_revenue") {
+            const ecomm = await readChip(client, "eComm");
+            if (!ecomm || !ecomm.label.toLowerCase().includes("ecomm $") || !ecomm.label.toLowerCase().includes("workbook total")) {
+              throw new Error(`${where} eComm label ${ecomm ? ecomm.label : "missing"}`);
             }
           }
           if (index === 0 && id === "prep_not_ready") {

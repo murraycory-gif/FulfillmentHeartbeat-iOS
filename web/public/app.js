@@ -21,7 +21,7 @@ import {
 } from "./filters.js";
 import { packURL } from "./packs.js";
 import { healthWord, mailtoURL, shareBrief, shareEml, shareHtml, sharePages, shareSubject } from "./share.js";
-import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
+import { browseCountText, chromeSeat, companyCountText, distinctShopperCount, figureAbsent, formatCompanyAiv, laborGrainValue, LOST_EXCL_LABEL, lossPercentPoints, lostExclMissed, lostGrainRows, pickerScopeHealth, pickerShopperBands, reportedStoreLine, rollupYoY, rowsInScope, seatSummary, sectionRowGrain, sectionStoreCount, shownRate, summarizeSeat } from "./seat.js";
 import { metricsInSource, pphBar, shopperHoursText, shopperIdentity, shopperMatchesQuery, shopperPph, sortShoppersByPph } from "./shoppers.js";
 import {
   summary as scheduleSummary,
@@ -38,7 +38,7 @@ import {
 } from "./schedule-math.js?v=4";
 
 let packStamp = "";
-const APP_VERSION = "44";
+const APP_VERSION = "45";
 const BUILD_SHA = "__BUILD_SHA__";
 
 const PAGES = [
@@ -563,10 +563,42 @@ const METRIC_NOTES = {
     "Shoppers are distinct shopper IDs on the picker rows in this scope. Browse, the region table, and the card use that count.",
 };
 
+// Pack companyTiles that match the workbook Total row. Company scope shows that
+// pack string, labeled workbook total. Every other rate tile is the mean of
+// the rows on screen, labeled store average, and must not echo companyTiles.
 const WORKBOOK_TOTAL_TILES = {
-  sales: new Set(["Orders", "Items"]),
-  lost_revenue: new Set(["Lost $", "Missed", "Lost %", "Goal %", "eComm $", "Post Sub", "Refund", "Cancel", "Kill"]),
+  sales: new Set(["Sales $", "YoY", "Ord YoY", "Orders", "Items"]),
+  lost_revenue: new Set(["Lost $", "Lost %", "Goal %", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]),
   labor: new Set(["Target Vs Actual", "Act Cost", "Cost Tgt", "Sch Eff", "UPLH", "Wage", "AIV"]),
+};
+
+const STORE_AVERAGE_TILES = {
+  missing_items: new Set(["Rate"]),
+  pre_sub_oos: new Set(["Rate"]),
+  five_star: new Set(["Rating", "Flash", "COE", "OTT", "Pre-Sub", "OTH"]),
+  pick_path: new Set(["Path %", "AVG PPH"]),
+  prep_not_ready: new Set(["PNR %"]),
+  dynacap: new Set(["Pcs/Hr", "Util %", "PPH"]),
+  schedule_quality: new Set(["Sch Eff", "Staffing", "Under", "Over"]),
+  pph: new Set(["PPH"]),
+  sales: new Set(["AOS", "AIV", "Items/Txn"]),
+};
+
+const MONEY_TILES = new Set(["Sales $", "Lost $", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]);
+
+const LABOR_ROW_KEYS = {
+  "Target Vs Actual": ["target_vs_actual_pct"],
+  "Act Cost": ["act_cost_pct"],
+  "Cost Tgt": ["cost_trgt_pct"],
+  "Sch Eff": ["schedule_efficiency_pct"],
+  UPLH: ["uplh_impact_pct"],
+  Wage: ["wage_impact_pct"],
+  AIV: ["aiv_impact_pct"],
+};
+
+// Dynacap's PPH tile reads the PPH section. Opening that page has to load it.
+const SECTION_NEEDS = {
+  dynacap: ["pph"],
 };
 
 // Prep Goal and Watch are targets from config. The pack strings are not rates.
@@ -585,28 +617,23 @@ const LOST_ROW_MONEY = {
   Kill: ["kill_switch_lost"],
 };
 
-const LOST_WORKBOOK_MONEY = new Set(["Post Sub", "Refund", "Cancel"]);
+function isWorkbookTile(section, label) {
+  return Boolean(WORKBOOK_TOTAL_TILES[section] && WORKBOOK_TOTAL_TILES[section].has(label));
+}
 
-// Tiles that stay on screen under a filter. Everything else is a company workbook tile.
-const SCOPE_TILES = {
-  sales: new Set(["YoY", "Ord YoY"]),
-  lost_revenue: LOST_WORKBOOK_MONEY,
-};
+function isStoreAverageTile(section, label) {
+  return Boolean(STORE_AVERAGE_TILES[section] && STORE_AVERAGE_TILES[section].has(label));
+}
 
 function shownTileLabel(section, label) {
-  if (section === "schedule_quality" && label === "Sch Eff") return "Quality Sch Eff";
   if (section === "prep_not_ready" && PREP_TARGETS[label]) return `${label} target`;
-  if (section === "dynacap" && label === "PPH") return "PPH store average";
-  if (section === "sales" && (label === "YoY" || label === "Ord YoY")) {
-    return filtersActive(state.filters) ? `${label} store rollup` : `${label} workbook total`;
+  const filtered = filtersActive(state.filters);
+  if (isWorkbookTile(section, label) && !filtered) return `${label} workbook total`;
+  if (section === "schedule_quality" && label === "Sch Eff") return "Quality Sch Eff store average";
+  if ((section === "dynacap" || section === "pph") && label === "PPH") return "PPH store average";
+  if (isWorkbookTile(section, label) || isStoreAverageTile(section, label)) {
+    return MONEY_TILES.has(label) ? `${label} store sum` : `${label} store average`;
   }
-  if (section === "lost_revenue" && LOST_WORKBOOK_MONEY.has(label)) {
-    return filtersActive(state.filters) ? `${label} store sum` : `${label} workbook total`;
-  }
-  if (section === "lost_revenue" && LOST_ROW_MONEY[label] && lostRowMoney(label) != null && lostRowMoney(label) !== "Loading…") {
-    return label;
-  }
-  if (WORKBOOK_TOTAL_TILES[section] && WORKBOOK_TOTAL_TILES[section].has(label)) return `${label} workbook total`;
   return label;
 }
 
@@ -712,8 +739,6 @@ function sumPayload(rows, keys) {
 
 function salesRowTile(label) {
   if (!SALES_ROW_TILES.has(label)) return null;
-  // Company YoY is the workbook Total row. A store rollup cannot reproduce it.
-  if (!filtersActive(state.filters) && (label === "YoY" || label === "Ord YoY")) return null;
   const rows = sectionRows("sales");
   if (!rows) return sectionPackPending("sales") ? "Loading…" : "—";
   const scoped = rowsInScope(rows, state.filters, roster(), "sales");
@@ -746,8 +771,6 @@ function salesRowTile(label) {
 function lostRowMoney(label) {
   const keys = LOST_ROW_MONEY[label];
   if (!keys) return null;
-  // Company Post Sub, Refund, and Cancel are the workbook Total row, not the store sum.
-  if (!filtersActive(state.filters) && LOST_WORKBOOK_MONEY.has(label)) return null;
   const rows = sectionRows("lost_revenue");
   if (!rows) return sectionPackPending("lost_revenue") ? "Loading…" : null;
   const { n, sum } = sumPayload(rowsInScope(rows, state.filters, roster(), "lost_revenue"), keys);
@@ -755,30 +778,77 @@ function lostRowMoney(label) {
   return money(sum);
 }
 
+function formatPackTile(raw) {
+  if (raw == null || raw === "") return "—";
+  const text = String(raw).trim();
+  if (!text) return "—";
+  return text.startsWith("$") ? money(raw) : text;
+}
+
+function laborRowTile(label) {
+  const keys = LABOR_ROW_KEYS[label];
+  if (!keys) return null;
+  const rows = sectionRows("labor");
+  if (!rows) return sectionPackPending("labor") ? "Loading…" : "—";
+  const mean = meanOf(rowsInScope(rows, state.filters, roster(), "labor"), keys);
+  return mean == null ? "—" : pct(mean);
+}
+
+function lostRateTile(label) {
+  const keys = label === "Lost %" ? ["lost_revenue_pct"] : label === "Goal %" ? ["lost_revenue_goal_pct"] : null;
+  if (!keys) return null;
+  const rows = sectionRows("lost_revenue");
+  if (!rows) return sectionPackPending("lost_revenue") ? "Loading…" : "—";
+  const dollarKey = label === "Goal %" ? ["lost_revenue_goal"] : ["lost_revenue"];
+  const values = [];
+  for (const row of rowsInScope(rows, state.filters, roster(), "lost_revenue")) {
+    const points = lossPercentPoints(cell(row, keys), cell(row, dollarKey), cell(row, ["ecomm_sales"]));
+    if (points != null && Number.isFinite(Number(points))) values.push(Number(points));
+  }
+  if (!values.length) return "—";
+  return pct(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function pphStoreTile() {
+  const rows = sectionRows("pph");
+  if (!rows) return sectionPackPending("pph") ? "Loading…" : "—";
+  const built = summarizeSeat("pph", rowsInScope(rows, state.filters, roster(), "pph"));
+  return built.headline == null ? "—" : shownRate("pph", built.headline);
+}
+
+function rowBuiltTile(section, label) {
+  if ((section === "dynacap" || section === "pph") && label === "PPH") return pphStoreTile();
+  if (section === "sales") {
+    if (label === "Sales $") return rowRateValue(section, label);
+    return salesRowTile(label);
+  }
+  if (section === "lost_revenue") {
+    const moneyTile = lostRowMoney(label);
+    if (moneyTile != null) return moneyTile;
+    return lostRateTile(label);
+  }
+  if (section === "labor") return laborRowTile(label);
+  return rowRateValue(section, label);
+}
+
 function shownTileValue(section, label, raw) {
   const fromRows = rowCountTile(section, label);
   if (fromRows != null) return fromRows;
   if (section === "prep_not_ready" && PREP_TARGETS[label]) return PREP_TARGETS[label];
-  if (section === "labor" && label === "AIV") {
-    const market = state.home && state.home.laborMarket;
-    const aiv = market && market.aiv_impact_pct;
-    if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
+  if (!filtersActive(state.filters) && isWorkbookTile(section, label)) {
+    if (section === "labor" && label === "AIV") {
+      const market = state.home && state.home.laborMarket;
+      const aiv = market && market.aiv_impact_pct;
+      if (typeof aiv === "number" && Number.isFinite(aiv)) return formatCompanyAiv(aiv);
+    }
+    return formatPackTile(raw);
   }
-  if (section === "dynacap" && label === "PPH") {
-    const rows = sectionRows("pph");
-    if (!rows) return sectionPackPending("pph") ? "Loading…" : "—";
-    const built = summarizeSeat("pph", rowsInScope(rows, state.filters, roster(), "pph"));
-    return built.headline == null ? "—" : shownRate("pph", built.headline);
+  if (isStoreAverageTile(section, label) || isWorkbookTile(section, label)) {
+    const built = rowBuiltTile(section, label);
+    if (built != null) return built;
+    return "—";
   }
-  const salesTile = section === "sales" ? salesRowTile(label) : null;
-  if (salesTile != null) return salesTile;
-  const lostMoney = section === "lost_revenue" ? lostRowMoney(label) : null;
-  if (lostMoney != null) return lostMoney;
-  const rate = rowRateValue(section, label);
-  if (rate != null) return rate;
-  if (raw == null || raw === "") return "—";
-  const text = String(raw).trim();
-  return text.startsWith("$") ? money(raw) : text;
+  return formatPackTile(raw);
 }
 
 function cookedTiles(section) {
@@ -787,17 +857,14 @@ function cookedTiles(section) {
   const labels = tiles.labels;
   const values = section === "lost_revenue" ? lostTileValues(labels, tiles.values || []) : tiles.values || [];
   const tone = sectionTone(section);
-  const filtered = filtersActive(state.filters) && section !== "picker_scorecard";
-  const allowed = SCOPE_TILES[section];
   const body = labels
     .map((label, index) => {
-      if (filtered && !(allowed && allowed.has(label))) return "";
       const raw = values[index];
       const name = shownTileLabel(section, label);
       const shown = shownTileValue(section, label, raw);
-      const title = shown.startsWith("$") ? String(name || "").replace(/\s*\$+\s*$/, "") : name;
       const toneClass = tone && tileUsesSectionTone(label) ? ` tone-${tone}` : "";
-      return `<div class="chip${toneClass}"><span>${esc(title)}</span><strong>${esc(shown)}</strong></div>`;
+      const keepCase = /eComm/.test(name) ? " keep-case" : "";
+      return `<div class="chip${toneClass}${keepCase}"><span>${esc(name)}</span><strong>${esc(shown)}</strong></div>`;
     })
     .join("");
   return body ? `<div class="tiles">${body}</div>` : "";
@@ -948,11 +1015,7 @@ function companyBlock(section, title) {
 }
 
 function pickerFaceTone(rows) {
-  const bands = pickerShopperBands(rowsInScope(rows || [], state.filters, roster(), "picker_scorecard"));
-  if (bands.risk) return "risk";
-  if (bands.watch) return "watch";
-  if (bands.healthy) return "good";
-  return "none";
+  return pickerScopeHealth(rowsInScope(rows || [], state.filters, roster(), "picker_scorecard"));
 }
 
 function laborScopedRows() {
@@ -1668,11 +1731,11 @@ function warmDashboard(token) {
 }
 
 async function renderMetric(page, token) {
-  const path = `section/${page.section}`;
-  const pending = !state.packs.has(path) && !state.failedPacks.has(path);
-  if (pending) {
+  const paths = [`section/${page.section}`, ...((SECTION_NEEDS[page.section] || []).map((section) => `section/${section}`))];
+  const pending = paths.filter((path) => !state.packs.has(path) && !state.failedPacks.has(path));
+  if (pending.length) {
     main.innerHTML = `<p class="note">Loading…</p>`;
-    await loadOptional(path);
+    await Promise.all(pending.map((path) => loadOptional(path)));
     if (token !== renderToken) return;
   }
   main.innerHTML = scorecardHtml(page, false);
@@ -2190,6 +2253,7 @@ document.body.addEventListener("click", (event) => {
     const nextPage = pageButton.getAttribute("data-page");
     if (nextPage === "schedule") state.scheduleTab = "summary";
     state.page = nextPage;
+    rememberPage(nextPage);
     state.tableWindow = ROW_PAGE;
     state.shopperWindow = ROW_PAGE;
     state.shopperQuery = "";
@@ -2227,13 +2291,18 @@ function retryHomeAfterAuth() {
   });
 }
 
+function rememberPage(id) {
+  const url = new URL(location.href);
+  if (id && id !== "dashboard") url.searchParams.set("page", id);
+  else url.searchParams.delete("page");
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 function applyPageQuery() {
   const url = new URL(location.href);
   const id = url.searchParams.get("page");
   if (!id || !PAGES.some((page) => page.id === id)) return;
   state.page = id;
-  url.searchParams.delete("page");
-  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 function pageHasCredentials() {

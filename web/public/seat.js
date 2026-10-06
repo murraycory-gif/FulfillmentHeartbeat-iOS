@@ -74,6 +74,43 @@ function band(value, good, watch, invert = false) {
   return "risk";
 }
 
+// One badge rule for every scope. The badge uses the same headline the card
+// shows. One store or one shopper does not flip the scope.
+// sales: YoY above 0 is healthy, down to -3 is watch.
+// five_star: 4.00 is a passing rating. Healthy does not require 5.00.
+// schedule_quality: schedule efficiency. A single store over 5% does not flip it.
+// labor: lower is better. Company uses the workbook Total (-4.06), not the unweighted store mean.
+// picker_scorecard: mean shopper PPH versus 80 / 74. One opportunity shopper does not flip it.
+export const SCOPE_BADGES = {
+  sales: { good: 0, watch: -3, invert: false },
+  lost_revenue: { good: 3, watch: 5, invert: true },
+  missing_items: { good: 5, watch: 6.5, invert: true },
+  pre_sub_oos: { good: 5, watch: 6.5, invert: true },
+  five_star: { good: 4, watch: 3.5, invert: false },
+  pick_path: { good: 90, watch: 80, invert: false },
+  prep_not_ready: { good: 1.9, watch: 2.5, invert: true },
+  dynacap: { good: 65, watch: 60, invert: false },
+  schedule_quality: { good: 90, watch: 85, invert: false },
+  pph: { good: 80, watch: 74, invert: false },
+  labor: { good: 0, watch: 3, invert: true },
+  picker_scorecard: { good: 80, watch: 74, invert: false },
+};
+
+export function scopeHealth(section, headline) {
+  const rule = SCOPE_BADGES[section];
+  if (!rule || headline == null || !Number.isFinite(Number(headline))) return "none";
+  return band(Number(headline), rule.good, rule.watch, Boolean(rule.invert));
+}
+
+export function pickerScopeHealth(rows) {
+  const values = [];
+  for (const row of rows || []) {
+    const value = field(row, ["pph"]);
+    if (value != null) values.push(value);
+  }
+  return scopeHealth("picker_scorecard", average(values));
+}
+
 function empty(secondary) {
   return { headline: null, secondary, health: "none", storeCount: 0 };
 }
@@ -103,8 +140,9 @@ function salesRollupYoY(rows) {
 
 function salesHealth(yoy) {
   if (yoy == null) return "none";
-  if (yoy > 0) return "good";
-  if (yoy >= -3) return "watch";
+  const rule = SCOPE_BADGES.sales;
+  if (yoy > rule.good) return "good";
+  if (yoy >= rule.watch) return "watch";
   return "risk";
 }
 
@@ -343,7 +381,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline: dollars,
         secondary,
-        health: band(pct, 3, 5, true),
+        health: scopeHealth("lost_revenue", pct),
         storeCount: scored.length,
         watchCount: watch,
         riskCount: risk,
@@ -370,7 +408,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline: average(values),
         secondary: `${healthy} healthy · ${watch} watch · ${risk} over 6.50%`,
-        health: band(average(values), 5, 6.5, true),
+        health: scopeHealth(section, average(values)),
         storeCount: scored.length,
         healthyCount: healthy,
         watchCount: watch,
@@ -387,7 +425,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline: average(values),
         secondary: `${five} of ${scored.length} at 5.00 · ${pass} pass · ${fail} fail`,
-        health: band(average(values), 5, 4),
+        health: scopeHealth("five_star", average(values)),
         storeCount: scored.length,
       };
     }
@@ -400,7 +438,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline: average(values),
         secondary: `${atGoal} of ${scored.length} at 90% · ${atRisk} below 80%`,
-        health: band(average(values), 90, 80),
+        health: scopeHealth("pick_path", average(values)),
         storeCount: scored.length,
       };
     }
@@ -413,7 +451,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline: average(values),
         secondary: `${atGoal} of ${scored.length} at 1.9% · ${atRisk} above 2.5%`,
-        health: band(average(values), 1.9, 2.5, true),
+        health: scopeHealth("prep_not_ready", average(values)),
         storeCount: scored.length,
       };
     }
@@ -437,7 +475,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline: average(values),
         secondary: `${atGoal} of ${scored.length} at 65 · ${atRisk} below 60${gap}`,
-        health: band(average(values), 65, 60),
+        health: scopeHealth("dynacap", average(values)),
         storeCount: scored.length,
       };
     }
@@ -449,9 +487,7 @@ export function summarizeSeat(section, rows) {
       const under = latest.filter((row) => (field(row, ["under_schedule_pct", "under_scheduled"]) || 0) > 5).length;
       const over = latest.filter((row) => (field(row, ["over_schedule_pct", "over_scheduled"]) || 0) > 5).length;
       const headline = average(values);
-      let health = "good";
-      if (under > 0 || over > 0) health = "risk";
-      else health = band(headline, 90, 90);
+      const health = scopeHealth("schedule_quality", headline);
       return {
         headline,
         secondary: `${atGoal} of ${scored.length} at 90% · ${under} stores under above 5% · ${over} stores over above 5%`,
@@ -470,7 +506,7 @@ export function summarizeSeat(section, rows) {
       return {
         headline,
         secondary: `${atGoal} of ${scored.length} at 80 · ${between} between 74 and 80 · ${atRisk} below 74`,
-        health: headline != null && headline >= 80 ? "good" : band(headline, 80, 74),
+        health: scopeHealth("pph", headline),
         storeCount: scored.length,
         atGoalCount: atGoal,
         betweenCount: between,
@@ -493,14 +529,14 @@ export function summarizeSeat(section, rows) {
       return {
         headline,
         secondary: `${healthy} healthy · ${watch} watch · ${risk} over 3%`,
-        health: band(headline, 0, 3, true),
+        health: scopeHealth("labor", headline),
         storeCount: scored.length,
       };
     }
     case "picker_scorecard": {
       if (!latest.length) return empty("No shopper rows in this filter");
       const bands = pickerShopperBands(latest);
-      const health = bands.risk ? "risk" : bands.watch ? "watch" : bands.healthy ? "good" : "none";
+      const health = pickerScopeHealth(latest);
       return {
         headline: bands.shoppers,
         secondary: `${bands.risk} opportunity · ${bands.watch} watch · ${bands.healthy} doing well`,
@@ -715,13 +751,20 @@ export function sectionRowGrain(section, rows, filters, roster, lines) {
 export function seatSummary(section, { company, lines, rows, filters, roster, tables }) {
   if (!filtersActive(filters)) {
     const built = Array.isArray(rows) && rows.length ? summarizeSeat(section, rows) : null;
+    let health = built && built.health ? built.health : "none";
+    // Labor's card shows the workbook Total. The unweighted store mean must not paint the badge.
+    if (section === "labor") {
+      health = company && company.headline != null ? scopeHealth("labor", company.headline) : "none";
+    }
+    if (section === "picker_scorecard") {
+      health = Array.isArray(rows) && rows.length ? pickerScopeHealth(rows) : "none";
+    }
     return {
       fixedCompany: true,
       headline: company ? company.headline : null,
       headlineText: null,
       secondary: (company && company.secondary) || "",
-      // Badge follows the rows on the card. Pack health stays off until those rows arrive.
-      health: built && built.health ? built.health : "none",
+      health,
       storeCount: (company && company.storeCount) || 0,
     };
   }
@@ -755,11 +798,14 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
     // division's own row sum, never the parent region dollar.
     let headlineText = chrome.value;
     let workbook = section === "sales";
+    let calloutHealth = null;
     if (section === "labor" && chrome.grain === "region") {
       const callout = laborRegionHeadline(tables, chrome.label);
       if (callout) {
         headlineText = callout;
         workbook = true;
+        const number = Number(String(callout).replace(/[%,\s]/g, ""));
+        calloutHealth = scopeHealth("labor", number);
       }
     }
     if (
@@ -784,7 +830,7 @@ export function seatSummary(section, { company, lines, rows, filters, roster, ta
       headlineText,
       secondary: built.storeCount ? built.secondary : section === "picker_scorecard" ? built.secondary : "",
       // Same rows as the chip. A region line's health must not paint the badge a different color.
-      health: scoped.length ? built.health : chrome.health && chrome.health !== "none" ? chrome.health : built.health,
+      health: calloutHealth || (scoped.length ? built.health : chrome.health && chrome.health !== "none" ? chrome.health : built.health),
       storeCount: chrome.count || built.storeCount,
       workbook,
     };
